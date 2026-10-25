@@ -1374,7 +1374,9 @@ export default function App() {
             onOpenRecent={(path) => void openRepo(path)}
             onRemoveRecent={async (path) => {
               await Workspace.removeRecent(path);
-              setBoot({ ...boot, settings: { ...settings, recent: settings.recent.filter((r) => r.path !== path) } });
+              const next = { ...settings, recent: settings.recent.filter((r) => r.path !== path) };
+              setSettings(next);
+              setBoot({ ...boot, settings: next });
             }}
             recent={settings.recent}
           />

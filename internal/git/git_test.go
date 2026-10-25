@@ -200,6 +200,34 @@ func TestHunkUnstageLeavesWorkTree(t *testing.T) {
 	}
 }
 
+func TestStageHunkOfNewFile(t *testing.T) {
+	repo, dir := newTestRepo(t)
+	writeFile(t, dir, "new.txt", "a\nb\nc\n")
+	d, err := repo.FileDiff(context.Background(), DiffOptions{Path: "new.txt", Target: DiffWorkingTree})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(d.Hunks) != 1 {
+		t.Fatalf("hunks = %d, want 1", len(d.Hunks))
+	}
+	if err := repo.ApplyDiffHunk(context.Background(), DiffOptions{Path: "new.txt", Target: DiffWorkingTree}, 0, "stage"); err != nil {
+		t.Fatalf("stage hunk: %v", err)
+	}
+	st, err := repo.Status(context.Background(), false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	staged := false
+	for _, c := range st.Changes {
+		if c.Path == "new.txt" && c.Staged {
+			staged = true
+		}
+	}
+	if !staged {
+		t.Fatalf("new.txt is not staged: %+v", st.Changes)
+	}
+}
+
 func TestBranchesStashAndRefs(t *testing.T) {
 	repo, dir := newTestRepo(t)
 	if err := repo.CreateBranch(context.Background(), "feature", "main", true); err != nil {

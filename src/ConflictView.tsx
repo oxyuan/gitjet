@@ -360,12 +360,20 @@ export function ConflictView({
         </div>
       ) : (
         <div className="merge-body">
+          <div className="merge-hint">
+            <Icon name="info" size={13} />
+            <span>
+              Click any line beside a conflict to add it to the result, or choose Ours / Theirs / Both.
+              The result is editable, so you can adjust it line by line.
+            </span>
+          </div>
           {segments.map((seg, si) => {
             if (seg.kind === "text") {
-              if (seg.text.trim() === "" && segments.length > 1) return null;
+              const count = seg.text === "" ? 0 : seg.text.split("\n").length;
+              if (count === 0) return null;
               return (
-                <div className="merge-context" key={si}>
-                  <pre>{seg.text}</pre>
+                <div className="merge-unchanged" key={si}>
+                  <span>{count} unchanged line{count === 1 ? "" : "s"}</span>
                 </div>
               );
             }
@@ -505,11 +513,6 @@ export function ConflictView({
               </div>
             );
           })}
-          <div className="merge-hint">
-            <Icon name="info" size={13} />
-            Click any line on either side to add it to the result for that conflict, or choose
-            Ours / Theirs / Both. Edit the result directly for anything finer.
-          </div>
           {conflicts.length === 0 && (
             <div className="diff-empty">
               <Icon name="check" size={22} />
@@ -517,7 +520,10 @@ export function ConflictView({
             </div>
           )}
           <div className="merge-result-preview">
-            <div className="side-label">Final result · {result.split("\n").length} lines</div>
+            <div className="side-label">
+              Final result ·{" "}
+              {(result.endsWith("\n") ? result.split("\n").length - 1 : result.split("\n").length)} lines
+            </div>
             <pre>{free ? freeText : result}</pre>
           </div>
         </div>
