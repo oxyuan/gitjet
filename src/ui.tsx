@@ -1,0 +1,538 @@
+import {
+  useEffect,
+  useLayoutEffect,
+  useRef,
+  useState,
+  type CSSProperties,
+  type ReactNode,
+} from "react";
+import { createPortal } from "react-dom";
+import { Icon, type IconName } from "./icons";
+
+export function Button({
+  children,
+  variant = "default",
+  size = "normal",
+  onClick,
+  disabled,
+  title,
+  type = "button",
+  className,
+  autoFocus,
+}: {
+  children: ReactNode;
+  variant?: "default" | "primary" | "danger" | "ghost";
+  size?: "normal" | "small";
+  onClick?: () => void;
+  disabled?: boolean;
+  title?: string;
+  type?: "button" | "submit";
+  className?: string;
+  autoFocus?: boolean;
+}) {
+  return (
+    <button
+      type={type}
+      className={`btn btn-${variant}${size === "small" ? " btn-small" : ""}${className ? " " + className : ""}`}
+      onClick={onClick}
+      disabled={disabled}
+      title={title}
+      autoFocus={autoFocus}
+    >
+      {children}
+    </button>
+  );
+}
+
+export function IconButton({
+  icon,
+  title,
+  onClick,
+  active,
+  disabled,
+  small,
+  className,
+  spinner,
+}: {
+  icon: IconName;
+  title: string;
+  onClick?: (e: React.MouseEvent) => void;
+  active?: boolean;
+  disabled?: boolean;
+  small?: boolean;
+  className?: string;
+  spinner?: boolean;
+}) {
+  return (
+    <button
+      type="button"
+      className={`icon-btn${active ? " active" : ""}${small ? " icon-btn-small" : ""}${className ? " " + className : ""}`}
+      title={title}
+      aria-label={title}
+      onClick={onClick}
+      disabled={disabled}
+    >
+      {spinner ? <span className="spinner" /> : <Icon name={icon} />}
+    </button>
+  );
+}
+
+export function Checkbox({
+  checked,
+  indeterminate,
+  onChange,
+  disabled,
+  label,
+}: {
+  checked: boolean;
+  indeterminate?: boolean;
+  onChange: (checked: boolean) => void;
+  disabled?: boolean;
+  label?: ReactNode;
+}) {
+  const ref = useRef<HTMLInputElement>(null);
+  useEffect(() => {
+    if (ref.current) ref.current.indeterminate = !!indeterminate && !checked;
+  }, [indeterminate, checked]);
+  return (
+    <label className={`checkbox${disabled ? " disabled" : ""}`} onClick={(e) => e.stopPropagation()}>
+      <input
+        ref={ref}
+        type="checkbox"
+        checked={checked}
+        disabled={disabled}
+        onChange={(e) => onChange(e.target.checked)}
+      />
+      <span className="checkbox-box" aria-hidden="true">
+        {indeterminate && !checked ? <span className="checkbox-dash" /> : checked ? <Icon name="check" size={11} /> : null}
+      </span>
+      {label !== undefined && <span className="checkbox-label">{label}</span>}
+    </label>
+  );
+}
+
+export function Field({
+  label,
+  children,
+  hint,
+  inline,
+}: {
+  label: string;
+  children: ReactNode;
+  hint?: ReactNode;
+  inline?: boolean;
+}) {
+  return (
+    <label className={`field${inline ? " field-inline" : ""}`}>
+      <span className="field-label">{label}</span>
+      <span className="field-control">{children}</span>
+      {hint && <span className="field-hint">{hint}</span>}
+    </label>
+  );
+}
+
+export function TextInput({
+  value,
+  onChange,
+  placeholder,
+  autoFocus,
+  onKeyDown,
+  monospace,
+  disabled,
+  spellCheck,
+}: {
+  value: string;
+  onChange: (value: string) => void;
+  placeholder?: string;
+  autoFocus?: boolean;
+  onKeyDown?: (e: React.KeyboardEvent<HTMLInputElement>) => void;
+  monospace?: boolean;
+  disabled?: boolean;
+  spellCheck?: boolean;
+}) {
+  return (
+    <input
+      className={`text-input${monospace ? " mono" : ""}`}
+      value={value}
+      onChange={(e) => onChange(e.target.value)}
+      placeholder={placeholder}
+      autoFocus={autoFocus}
+      onKeyDown={onKeyDown}
+      disabled={disabled}
+      spellCheck={spellCheck ?? false}
+    />
+  );
+}
+
+export function Select({
+  value,
+  onChange,
+  children,
+  disabled,
+}: {
+  value: string;
+  onChange: (value: string) => void;
+  children: ReactNode;
+  disabled?: boolean;
+}) {
+  return (
+    <select className="select" value={value} onChange={(e) => onChange(e.target.value)} disabled={disabled}>
+      {children}
+    </select>
+  );
+}
+
+export function Spinner({ label }: { label?: string }) {
+  return (
+    <span className="spinner-wrap">
+      <span className="spinner" />
+      {label && <span>{label}</span>}
+    </span>
+  );
+}
+
+export function Modal({
+  title,
+  icon,
+  children,
+  footer,
+  onClose,
+  width = 520,
+  className,
+}: {
+  title: string;
+  icon?: IconName;
+  children: ReactNode;
+  footer?: ReactNode;
+  onClose: () => void;
+  width?: number;
+  className?: string;
+}) {
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") {
+        e.stopPropagation();
+        onClose();
+      }
+    };
+    window.addEventListener("keydown", onKey, true);
+    return () => window.removeEventListener("keydown", onKey, true);
+  }, [onClose]);
+  return createPortal(
+    <div className="modal-overlay" onMouseDown={(e) => e.target === e.currentTarget && onClose()}>
+      <div className={`modal${className ? " " + className : ""}`} style={{ width }} role="dialog" aria-modal="true">
+        <div className="modal-header">
+          {icon && <Icon name={icon} />}
+          <span className="modal-title">{title}</span>
+          <button className="modal-close" onClick={onClose} title="Close" aria-label="Close">
+            <Icon name="close" size={14} />
+          </button>
+        </div>
+        <div className="modal-body">{children}</div>
+        {footer && <div className="modal-footer">{footer}</div>}
+      </div>
+    </div>,
+    document.body,
+  );
+}
+
+export function ConfirmDialog({
+  title,
+  message,
+  detail,
+  confirmLabel = "OK",
+  danger,
+  onConfirm,
+  onCancel,
+}: {
+  title: string;
+  message: ReactNode;
+  detail?: ReactNode;
+  confirmLabel?: string;
+  danger?: boolean;
+  onConfirm: () => void;
+  onCancel: () => void;
+}) {
+  return (
+    <Modal
+      title={title}
+      icon={danger ? "warning" : "info"}
+      width={460}
+      onClose={onCancel}
+      footer={
+        <>
+          <Button onClick={onCancel}>Cancel</Button>
+          <Button variant={danger ? "danger" : "primary"} onClick={onConfirm} autoFocus>
+            {confirmLabel}
+          </Button>
+        </>
+      }
+    >
+      <div className="confirm-message">{message}</div>
+      {detail && <div className="confirm-detail">{detail}</div>}
+    </Modal>
+  );
+}
+
+export type ContextItem =
+  | {
+      separator: true;
+    }
+  | {
+      separator?: false;
+      label: string;
+      icon?: IconName;
+      shortcut?: string;
+      danger?: boolean;
+      disabled?: boolean;
+      checked?: boolean;
+      onClick: () => void;
+    };
+
+export function ContextMenu({
+  x,
+  y,
+  items,
+  onClose,
+}: {
+  x: number;
+  y: number;
+  items: ContextItem[];
+  onClose: () => void;
+}) {
+  const ref = useRef<HTMLDivElement>(null);
+  const [pos, setPos] = useState({ left: x, top: y });
+  useLayoutEffect(() => {
+    const el = ref.current;
+    if (!el) return;
+    const rect = el.getBoundingClientRect();
+    let left = x;
+    let top = y;
+    if (left + rect.width > window.innerWidth - 6) left = window.innerWidth - rect.width - 6;
+    if (top + rect.height > window.innerHeight - 6) top = Math.max(6, window.innerHeight - rect.height - 6);
+    setPos({ left, top });
+  }, [x, y]);
+  useEffect(() => {
+    const close = (e: MouseEvent) => {
+      if (ref.current && !ref.current.contains(e.target as Node)) onClose();
+    };
+    const onKey = (e: KeyboardEvent) => e.key === "Escape" && onClose();
+    window.addEventListener("mousedown", close);
+    window.addEventListener("keydown", onKey);
+    return () => {
+      window.removeEventListener("mousedown", close);
+      window.removeEventListener("keydown", onKey);
+    };
+  }, [onClose]);
+  return createPortal(
+    <div className="context-menu" style={pos} ref={ref} role="menu">
+      {items.map((item, i) =>
+        item.separator ? (
+          <div className="menu-separator" key={i} />
+        ) : (
+          <button
+            key={i}
+            className={`menu-item${item.danger ? " danger" : ""}`}
+            disabled={item.disabled}
+            onClick={() => {
+              onClose();
+              item.onClick();
+            }}
+            role="menuitem"
+          >
+            <span className="menu-icon">
+              {item.checked ? <Icon name="check" /> : item.icon ? <Icon name={item.icon} /> : null}
+            </span>
+            <span className="menu-label">{item.label}</span>
+            {item.shortcut && <span className="menu-shortcut">{item.shortcut}</span>}
+          </button>
+        ),
+      )}
+    </div>,
+    document.body,
+  );
+}
+
+export function Toast({
+  kind,
+  title,
+  message,
+  onClose,
+}: {
+  kind: "info" | "success" | "error";
+  title: string;
+  message?: string;
+  onClose: () => void;
+}) {
+  useEffect(() => {
+    const t = setTimeout(onClose, kind === "error" ? 9000 : 4000);
+    return () => clearTimeout(t);
+  }, [onClose, kind]);
+  return createPortal(
+    <div className={`toast toast-${kind}`} role="status">
+      <span className="toast-icon">
+        <Icon name={kind === "error" ? "error" : kind === "success" ? "check" : "info"} />
+      </span>
+      <div className="toast-text">
+        <div className="toast-title">{title}</div>
+        {message && <div className="toast-message">{message}</div>}
+      </div>
+      <button className="toast-close" onClick={onClose} aria-label="Dismiss">
+        <Icon name="close" size={12} />
+      </button>
+    </div>,
+    document.body,
+  );
+}
+
+/** A splitter drags the left panel's width; double click resets it. */
+export function Splitter({
+  width,
+  setWidth,
+  min = 280,
+  max = 720,
+}: {
+  width: number;
+  setWidth: (w: number) => void;
+  min?: number;
+  max?: number;
+}) {
+  const drag = useRef<{ startX: number; startW: number } | null>(null);
+  useEffect(() => {
+    const move = (e: MouseEvent) => {
+      if (!drag.current) return;
+      const next = Math.min(max, Math.max(min, drag.current.startW + e.clientX - drag.current.startX));
+      setWidth(next);
+    };
+    const up = () => {
+      drag.current = null;
+      document.body.classList.remove("resizing");
+    };
+    window.addEventListener("mousemove", move);
+    window.addEventListener("mouseup", up);
+    return () => {
+      window.removeEventListener("mousemove", move);
+      window.removeEventListener("mouseup", up);
+    };
+  }, [max, min, setWidth]);
+  return (
+    <div
+      className="splitter"
+      onMouseDown={(e) => {
+        drag.current = { startX: e.clientX, startW: width };
+        document.body.classList.add("resizing");
+      }}
+      onDoubleClick={() => setWidth(430)}
+      role="separator"
+      aria-orientation="vertical"
+    />
+  );
+}
+
+const KIND_LETTER: Record<string, { letter: string; cls: string }> = {
+  added: { letter: "A", cls: "st-added" },
+  deleted: { letter: "D", cls: "st-deleted" },
+  modified: { letter: "M", cls: "st-modified" },
+  renamed: { letter: "R", cls: "st-renamed" },
+  copied: { letter: "C", cls: "st-renamed" },
+  typechange: { letter: "T", cls: "st-modified" },
+  conflict: { letter: "U", cls: "st-conflict" },
+  untracked: { letter: "?", cls: "st-untracked" },
+  ignored: { letter: "!", cls: "st-ignored" },
+};
+
+/** StatusMark is the coloured letter shown next to a changed file. */
+export function StatusMark({ kind, staged }: { kind: string; staged?: boolean }) {
+  const meta = KIND_LETTER[kind] ?? KIND_LETTER.modified!;
+  return (
+    <span
+      className={`status-mark ${meta.cls}${staged ? " staged" : ""}`}
+      title={staged ? `${kind} (staged)` : kind}
+    >
+      {meta.letter}
+    </span>
+  );
+}
+
+export function RefChip({
+  name,
+  type,
+  head,
+  onClick,
+}: {
+  name: string;
+  type: string;
+  head?: boolean;
+  onClick?: () => void;
+}) {
+  return (
+    <span
+      className={`ref-chip ref-${type}${head ? " ref-head" : ""}${onClick ? " clickable" : ""}`}
+      onClick={onClick}
+      title={type === "tag" ? "Tag " + name : type === "remote" ? "Remote branch " + name : "Branch " + name}
+    >
+      {type === "tag" ? <Icon name="tag" size={11} /> : head ? <Icon name="check" size={11} /> : <Icon name="branch" size={11} />}
+      {name}
+    </span>
+  );
+}
+
+export function formatWhen(unix: number): string {
+  if (!unix) return "";
+  const d = new Date(unix * 1000);
+  const now = new Date();
+  const sameDay = d.toDateString() === now.toDateString();
+  if (sameDay) {
+    return d.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+  }
+  if (d.getFullYear() === now.getFullYear()) {
+    return d.toLocaleDateString([], { month: "short", day: "numeric" }) +
+      " " +
+      d.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+  }
+  return d.toLocaleDateString([], { year: "numeric", month: "short", day: "numeric" });
+}
+
+export function formatFullDate(unix: number): string {
+  if (!unix) return "";
+  return new Date(unix * 1000).toLocaleString();
+}
+
+export function shortPath(path: string, max = 60): string {
+  if (path.length <= max) return path;
+  const parts = path.split("/");
+  let out = parts[parts.length - 1] ?? path;
+  for (let i = parts.length - 2; i >= 0; i--) {
+    const next = parts[i] + "/" + out;
+    if (next.length > max) break;
+    out = next;
+  }
+  return "…/" + out;
+}
+
+export function cx(...parts: (string | false | null | undefined)[]): string {
+  return parts.filter(Boolean).join(" ");
+}
+
+export function useStoredState<T>(key: string, initial: T): [T, (value: T) => void] {
+  const [value, setValue] = useState<T>(() => {
+    try {
+      const raw = localStorage.getItem(key);
+      if (raw !== null) return JSON.parse(raw) as T;
+    } catch {
+      // A broken value falls back to the default.
+    }
+    return initial;
+  });
+  const set = (next: T) => {
+    setValue(next);
+    try {
+      localStorage.setItem(key, JSON.stringify(next));
+    } catch {
+      // Storage can be unavailable; the value still lives in memory.
+    }
+  };
+  return [value, set];
+}
+
+export const monoStyle: CSSProperties = { fontFamily: "var(--font-mono)" };
