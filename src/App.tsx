@@ -543,6 +543,11 @@ export default function App() {
     }
   };
 
+  const openNextConflict = () => {
+    const remaining = snapshotRef.current?.conflicts ?? [];
+    if (remaining[0]) void openConflict(remaining[0].path);
+  };
+
   const openStash = async (index: number) => {
     try {
       const detail = await Git.showCommit(`stash@{${index}}`);
@@ -778,7 +783,7 @@ export default function App() {
 
   const pull = (opts: Parameters<typeof Git.pull>[0]) => {
     setDialog(null);
-    void runOperation("Update Project", "pull", (ch) => Git.pull(opts, ch));
+    void runOperation("Update Project", "pull", (ch) => Git.pull(opts, ch)).then(openNextConflict);
   };
 
   const fetch = (opts: Parameters<typeof Git.fetch>[0]) => {
@@ -855,6 +860,7 @@ export default function App() {
       const out = await Git.merge(ref, opts);
       notify("success", "Merged", out.split("\n")[0]);
       await reload(false);
+      openNextConflict();
       void loadLog(true);
     });
   };
@@ -871,6 +877,7 @@ export default function App() {
       await Git.rebase(onto, true);
       notify("success", "Rebase finished");
       await reload(false);
+      openNextConflict();
       void loadLog(true);
     });
   };
@@ -880,6 +887,7 @@ export default function App() {
       const out = await Git.cherryPick(hash, false);
       notify("success", "Cherry-picked", out.split("\n")[0]);
       await reload(false);
+      openNextConflict();
       void loadLog(true);
     });
   };
@@ -895,6 +903,7 @@ export default function App() {
       await Git.revert(hash);
       notify("success", "Reverted", hash.slice(0, 8));
       await reload(false);
+      openNextConflict();
       void loadLog(true);
     });
   };
@@ -1341,6 +1350,7 @@ export default function App() {
                 notify("success", "Conflict resolved", path);
                 closeDoc(`conflict:${path}`);
                 await reload(false);
+                openNextConflict();
               });
             }}
             onTakeSide={async (path, side) => {
@@ -1349,6 +1359,7 @@ export default function App() {
                 notify("success", side === "ours" ? "Took ours" : "Took theirs", path);
                 closeDoc(`conflict:${path}`);
                 await reload(false);
+                openNextConflict();
               });
             }}
             onMarkResolved={async (path) => {
@@ -1357,6 +1368,7 @@ export default function App() {
                 notify("success", "Marked resolved", path);
                 closeDoc(`conflict:${path}`);
                 await reload(false);
+                openNextConflict();
               });
             }}
             onOpenRecent={(path) => void openRepo(path)}
