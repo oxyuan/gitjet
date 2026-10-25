@@ -18,6 +18,7 @@ import {
   type Remote,
   type RepoState,
   type Settings,
+  type SourceFile,
 } from "./mygo";
 import { BranchPopup } from "./BranchPopup";
 import { CommitPanel, type CommitActions, type CommitForm, type FileEntry } from "./CommitPanel";
@@ -39,6 +40,8 @@ import {
 } from "./Dialogs";
 import { Icon } from "./icons";
 import { LogPanel, type LogBranchFilter } from "./LogPanel";
+import { QuickOpen } from "./QuickOpen";
+import { SourceView } from "./SourceView";
 import {
   Button,
   ConfirmDialog,
@@ -55,14 +58,13 @@ import type { BlameResult } from "./mygo";
 
 type Tab = "commit" | "log" | "console";
 
-type RightView =
-  | { kind: "welcome" }
-  | { kind: "loading"; title: string }
-  | { kind: "diff"; diff: FileDiff; opts: DiffOptions; title: string }
+type Doc = { id: string; title: string } & (
+  | { kind: "diff"; diff: FileDiff; opts: DiffOptions }
+  | { kind: "file"; file: SourceFile; revision: string }
   | { kind: "conflict"; path: string; content: ConflictContent }
   | { kind: "blame"; path: string; data: BlameResult }
   | { kind: "commit"; detail: CommitDetail }
-  | { kind: "message"; title: string; text: string; tone?: "error" | "info" };
+);
 
 type Dialog =
   | { kind: "settings" }
@@ -113,7 +115,9 @@ export default function App() {
   const [refs, setRefs] = useState<RefsSnapshot | null>(null);
   const [remotes, setRemotes] = useState<Remote[]>([]);
   const [tab, setTab] = useStoredState<Tab>("gitjet.tab", "commit");
-  const [right, setRight] = useState<RightView>({ kind: "welcome" });
+  const [docs, setDocs] = useState<Doc[]>([]);
+  const [activeId, setActiveId] = useState<string | null>(null);
+  const [quickOpen, setQuickOpen] = useState(false);
   const [busy, setBusy] = useState(0);
   const [toast, setToast] = useState<{ kind: "info" | "success" | "error"; title: string; message?: string } | null>(null);
   const [dialog, setDialog] = useState<Dialog | null>(null);
@@ -121,6 +125,7 @@ export default function App() {
   const [branchPopup, setBranchPopup] = useState<{ x: number; y: number } | null>(null);
   const [splitWidth, setSplitWidth] = useStoredState<number>("gitjet.split", 430);
   const [diffMode, setDiffMode] = useStoredState<"split" | "unified">("gitjet.diffMode", "split");
+  const [diffWrap, setDiffWrap] = useStoredState<boolean>("gitjet.diffWrap", true);
   const [ignoreWhitespace, setIgnoreWhitespace] = useState(false);
   const [form, setForm] = useState<CommitForm>(emptyForm);
   const [history, setHistory] = useState<string[]>([]);
@@ -139,7 +144,8 @@ export default function App() {
   const knownPaths = useRef<Set<string>>(new Set());
   const settingsRef = useRef<Settings | null>(null);
   const snapshotRef = useRef<ChangesSnapshot | null>(null);
-  const rightRef = useRef<RightView>({ kind: "welcome" });
+  const docsRef = useRef<Doc[]>([]);
+  const activeIdRef = useRef<string | null>(null);
   const repoOpenRef = useRef(false);
   const refreshRef = useRef<(() => void) | null>(null);
   const amendBackup = useRef("");
@@ -152,7 +158,9 @@ export default function App() {
 
   settingsRef.current = settings;
   snapshotRef.current = snapshot;
-  rightRef.current = right;
+  docsRef.current = docs;
+  activeIdRef.current = activeId;
+  const activeDoc = docs.find((d) => d.id === activeId) ?? null;
 
   const notify = useCallback((kind: "info" | "success" | "error", title: string, message?: string) => {
     setToast({ kind, title, message });
@@ -236,6 +244,30 @@ export default function App() {
     [fail, logFilter, logPath, logSearch, logResult?.commits.length],
   );
 
+  const openDoc = useCallback((doc: Doc) => {
+    setDocs((prev) => {
+      const index = prev.findIndex((d) => d.id === doc.id);
+      if (index === -1) return [...prev, doc];
+      const next = [...prev];
+      next[index] = doc;
+      return next;
+    });
+    setActiveId(doc.id);
+  }, []);
+
+  const closeDoc = useCallback((id: string) => {
+    setDocs((prev) => {
+      const index = prev.findIndex((d) => d.id === id);
+      if (index === -1) return prev;
+      const next = prev.filter((d) => d.id !== id);
+      if (activeIdRef.current === id) {
+        const fallback = next[Math.min(index, next.length - 1)];
+        setActiveId(fallback ? fallback.id : null);
+      }
+      return next;
+    });
+  }, []);
+
   const loadCommitDetail = useCallback(
     async (hash: string) => {
       try {
@@ -264,13 +296,18 @@ export default function App() {
         setRefs(r);
         setRemotes(rem);
         applyCheckedDefaults(snap);
-        const view = rightRef.current;
-        if (view.kind === "diff" && (view.opts.target === "worktree" || view.opts.target === "staged")) {
+        const active = docsRef.current.find((d) => d.id === activeIdRef.current);
+        if (active?.kind === "diff" && (active.opts.target === "worktree" || active.opts.target === "staged")) {
           setDiffBusy(true);
-          Git.diff(view.opts)
-            .then((diff) => setRight({ ...view, diff }))
+          Git.diff(active.opts)
+            .then((diff) => setDocs((prev) => prev.map((d) => (d.id === active.id ? { ...d, diff } : d))))
             .catch(() => {})
             .finally(() => setDiffBusy(false));
+        }
+        if (active?.kind === "file" && active.revision === "") {
+          Git.file(active.file.path, "")
+            .then((file) => setDocs((prev) => prev.map((d) => (d.id === active.id ? { ...d, file } : d))))
+            .catch(() => {});
         }
         if (selectedCommit) void loadCommitDetail(selectedCommit);
         setReloadKey((k) => k + 1);
@@ -368,7 +405,8 @@ export default function App() {
       applyCheckedDefaults(snap);
       setSettings(freshSettings);
       setTab("commit");
-      setRight({ kind: "welcome" });
+      setDocs([]);
+      setActiveId(null);
       setForm(emptyForm);
       setLogResult(null);
       setLogDetail(null);
@@ -404,22 +442,40 @@ export default function App() {
     snapshotRef.current = null;
     setSnapshot(null);
     setRefs(null);
-    setRight({ kind: "welcome" });
+    setDocs([]);
+    setActiveId(null);
     knownPaths.current = new Set();
     setChecked(new Set());
     document.title = "GitJet";
   };
 
   const showDiff = async (opts: DiffOptions, title: string) => {
-    setRight({ kind: "loading", title });
     setDiffBusy(true);
+    const id = `diff:${opts.target}:${opts.revision}:${opts.path}`;
     try {
       const diff = await Git.diff(opts);
-      setRight({ kind: "diff", diff, opts, title });
+      openDoc({ id, title, kind: "diff", diff, opts });
     } catch (err) {
-      setRight({ kind: "message", title: "Could not show the diff", text: err instanceof Error ? err.message : String(err), tone: "error" });
+      fail("Could not show the diff", err);
     } finally {
       setDiffBusy(false);
+    }
+  };
+
+  const showFile = async (path: string, revision = "") => {
+    try {
+      const file = await Git.file(path, revision);
+      const label = revision === "" ? "Working Tree" : revision === "INDEX" ? "Index" : revision.slice(0, 8);
+      openDoc({
+        id: `file:${revision || "worktree"}:${path}`,
+        title: path,
+        kind: "file",
+        file,
+        revision,
+      });
+      void label;
+    } catch (err) {
+      fail("Could not open the file", err);
     }
   };
 
@@ -442,11 +498,31 @@ export default function App() {
     void showDiff(diffOptionsForEntry(entry), entry.path);
   };
 
+  const showFileDiff = async (path: string, revision: string) => {
+    const context = settingsRef.current?.diffContext ?? 3;
+    const base: DiffOptions = {
+      path,
+      target: "worktree",
+      revision: "",
+      from: "",
+      context,
+      ignoreWhitespace,
+      ignoreWhitespaceEol: false,
+      noText: false,
+    };
+    if (revision === "" || revision === "WORKTREE" || revision === "HEAD") {
+      await showDiff({ ...base, target: "worktree" }, path);
+    } else if (revision === "INDEX") {
+      await showDiff({ ...base, target: "staged" }, path);
+    } else {
+      await showDiff({ ...base, target: "commit", revision }, path);
+    }
+  };
+
   const openConflict = async (path: string) => {
-    setRight({ kind: "loading", title: `Resolving ${path}` });
     try {
       const content = await Git.conflict(path);
-      setRight({ kind: "conflict", path, content });
+      openDoc({ id: `conflict:${path}`, title: `Conflict: ${path}`, kind: "conflict", path, content });
     } catch (err) {
       fail("Could not open the conflict", err);
     }
@@ -455,17 +531,16 @@ export default function App() {
   const openStash = async (index: number) => {
     try {
       const detail = await Git.showCommit(`stash@{${index}}`);
-      setRight({ kind: "commit", detail });
+      openDoc({ id: `commit:${detail.hash}`, title: `Stash: ${detail.subject}`, kind: "commit", detail });
     } catch (err) {
       fail("Could not read the stash", err);
     }
   };
 
   const openBlame = async (path: string) => {
-    setRight({ kind: "loading", title: `Annotating ${path}` });
     try {
       const data = await Git.blame(path);
-      setRight({ kind: "blame", path, data });
+      openDoc({ id: `blame:${path}`, title: `Annotations: ${path}`, kind: "blame", path, data });
     } catch (err) {
       fail("Could not annotate the file", err);
     }
@@ -474,9 +549,9 @@ export default function App() {
   const toggleWhitespace = () => {
     const next = !ignoreWhitespace;
     setIgnoreWhitespace(next);
-    const view = rightRef.current;
-    if (view.kind === "diff") {
-      void showDiff({ ...view.opts, ignoreWhitespace: next }, view.title);
+    const active = docsRef.current.find((d) => d.id === activeIdRef.current);
+    if (active?.kind === "diff") {
+      void showDiff({ ...active.opts, ignoreWhitespace: next }, active.title);
     }
   };
 
@@ -552,7 +627,7 @@ export default function App() {
       await Git.applyHunk(opts, hunk, action);
       await reload(false);
       const diff = await Git.diff(opts);
-      setRight({ kind: "diff", diff, opts, title: opts.path });
+      openDoc({ id: `diff:${opts.target}:${opts.revision}:${opts.path}`, title: opts.path, kind: "diff", diff, opts });
     });
 
   const applyFile = async (opts: DiffOptions, action: "stage" | "unstage" | "rollback") => {
@@ -570,9 +645,9 @@ export default function App() {
       await reload(false);
       try {
         const diff = await Git.diff(opts);
-        setRight({ kind: "diff", diff, opts, title: opts.path });
+        openDoc({ id: `diff:${opts.target}:${opts.revision}:${opts.path}`, title: opts.path, kind: "diff", diff, opts });
       } catch {
-        setRight({ kind: "welcome" });
+        closeDoc(`diff:${opts.target}:${opts.revision}:${opts.path}`);
       }
     });
   };
@@ -885,6 +960,9 @@ export default function App() {
         case "open":
           void openRepo();
           break;
+        case "quickopen":
+          setQuickOpen(true);
+          break;
         case "close":
           void closeRepo();
           break;
@@ -975,6 +1053,7 @@ export default function App() {
     onRefresh: () => void reload(true),
     onShowDiff: openEntryDiff,
     onShowConflict: (path) => void openConflict(path),
+    onOpenSource: (path, revision) => void showFile(path, revision),
     onShowHistory: showFileHistory,
     onStage: (paths) => void stage(paths),
     onUnstage: (paths) => void unstage(paths),
@@ -1011,8 +1090,8 @@ export default function App() {
       void withBusy(async () => {
         await Git.takeSide(path, side);
         notify("success", side === "ours" ? "Took ours" : "Took theirs", path);
+        closeDoc(`conflict:${path}`);
         await reload(false);
-        setRight({ kind: "welcome" });
       }),
     onMarkResolved: (paths) =>
       void withBusy(async () => {
@@ -1116,6 +1195,11 @@ export default function App() {
             )}
             <Icon name="chevronDown" size={12} />
           </button>
+          <button className="quick-trigger" onClick={() => setQuickOpen(true)} title="Quick Open (⌘/Ctrl+P)" disabled={!repoOpen}>
+            <Icon name="search" />
+            <span>Search files</span>
+            <kbd>⌘P</kbd>
+          </button>
           <span className="spacer" />
           <IconButton icon="settings" title="Settings (⌘/Ctrl+,)" onClick={() => setDialog({ kind: "settings" })} />
         </div>
@@ -1170,6 +1254,7 @@ export default function App() {
                   }}
                   onCopy={copyText}
                   onOpenFile={openCommitFile}
+                  onOpenSource={(path, revision) => void showFile(path, revision)}
                   onShowFileHistory={showFileHistory}
                 />
               ) : (
@@ -1195,48 +1280,55 @@ export default function App() {
           )}
         </aside>
         <Splitter width={splitWidth} setWidth={setSplitWidth} />
-        <main className="editor-area">
-          <RightPane
-            view={right}
+        <RightPane
             diffMode={diffMode}
             setDiffMode={setDiffMode}
             ignoreWhitespace={ignoreWhitespace}
             onToggleWhitespace={toggleWhitespace}
+            docs={docs}
+            activeId={activeId}
+            onActivate={setActiveId}
+            onCloseDoc={closeDoc}
+            diffWrap={diffWrap}
+            onToggleWrap={() => setDiffWrap(!diffWrap)}
             onApplyHunk={(hunk, action) => {
-              if (right.kind === "diff") void applyHunk(right.opts, hunk, action);
+              const active = docsRef.current.find((d) => d.id === activeIdRef.current);
+              if (active?.kind === "diff") void applyHunk(active.opts, hunk, action);
             }}
             onApplyFile={(action) => {
-              if (right.kind === "diff") void applyFile(right.opts, action);
+              const active = docsRef.current.find((d) => d.id === activeIdRef.current);
+              if (active?.kind === "diff") void applyFile(active.opts, action);
             }}
             onBlame={(path) => void openBlame(path)}
+            onOpenFile={(path, revision) => void showFile(path, revision)}
+            onOpenDiff={(path, revision) => void showFileDiff(path, revision)}
             onCopyPath={copyText}
+            onReveal={(path) => void Workspace.reveal(path).catch((err) => fail("Could not reveal the file", err))}
             busy={diffBusy}
             reloadKey={reloadKey}
-            onClose={() => setRight({ kind: "welcome" })}
-            onOpenFile={openCommitFile}
             onShowFileHistory={showFileHistory}
             onSaveConflict={async (path, content) => {
               await withBusy(async () => {
                 await Git.saveResolution(path, content);
                 notify("success", "Conflict resolved", path);
+                closeDoc(`conflict:${path}`);
                 await reload(false);
-                setRight({ kind: "welcome" });
               });
             }}
             onTakeSide={async (path, side) => {
               await withBusy(async () => {
                 await Git.takeSide(path, side);
                 notify("success", side === "ours" ? "Took ours" : "Took theirs", path);
+                closeDoc(`conflict:${path}`);
                 await reload(false);
-                setRight({ kind: "welcome" });
               });
             }}
             onMarkResolved={async (path) => {
               await withBusy(async () => {
                 await Git.markResolved([path]);
                 notify("success", "Marked resolved", path);
+                closeDoc(`conflict:${path}`);
                 await reload(false);
-                setRight({ kind: "welcome" });
               });
             }}
             onOpenRecent={(path) => void openRepo(path)}
@@ -1246,7 +1338,6 @@ export default function App() {
             }}
             recent={settings.recent}
           />
-        </main>
       </div>
       <footer className="statusbar">
         <button className="status-branch" id="branch-widget" onClick={openBranchPopupFromStatus} disabled={!repoOpen}>
@@ -1315,6 +1406,13 @@ export default function App() {
             setSelectedCommit(null);
             setLogDetail(null);
           }}
+        />
+      )}
+
+      {quickOpen && (
+        <QuickOpen
+          onClose={() => setQuickOpen(false)}
+          onOpen={(path) => void showFile(path, "")}
         />
       )}
 
@@ -1463,20 +1561,61 @@ function NoRepo({ onOpen }: { onOpen: () => void }) {
   );
 }
 
+function docIcon(doc: Doc): "diff" | "file" | "merge" | "user" | "commit" {
+  switch (doc.kind) {
+    case "diff":
+      return "diff";
+    case "file":
+      return "file";
+    case "conflict":
+      return "merge";
+    case "blame":
+      return "user";
+    case "commit":
+      return "commit";
+  }
+}
+
+function baseName(path: string): string {
+  const slash = path.lastIndexOf("/");
+  return slash >= 0 ? path.slice(slash + 1) : path;
+}
+
+function tabTitle(doc: Doc): string {
+  switch (doc.kind) {
+    case "diff":
+      return baseName(doc.opts.path);
+    case "file":
+      return baseName(doc.file.path);
+    case "conflict":
+      return `Merge: ${baseName(doc.path)}`;
+    case "blame":
+      return `Blame: ${baseName(doc.path)}`;
+    case "commit":
+      return doc.detail.short;
+  }
+}
+
 function RightPane({
-  view,
+  docs,
+  activeId,
+  onActivate,
+  onCloseDoc,
   diffMode,
+  diffWrap,
+  onToggleWrap,
   setDiffMode,
   ignoreWhitespace,
   onToggleWhitespace,
   onApplyHunk,
   onApplyFile,
   onBlame,
+  onOpenFile,
+  onOpenDiff,
   onCopyPath,
+  onReveal,
   busy,
   reloadKey,
-  onClose,
-  onOpenFile,
   onShowFileHistory,
   onSaveConflict,
   onTakeSide,
@@ -1485,7 +1624,12 @@ function RightPane({
   onRemoveRecent,
   recent,
 }: {
-  view: RightView;
+  docs: Doc[];
+  activeId: string | null;
+  onActivate: (id: string) => void;
+  onCloseDoc: (id: string) => void;
+  diffWrap: boolean;
+  onToggleWrap: () => void;
   diffMode: "split" | "unified";
   setDiffMode: (m: "split" | "unified") => void;
   ignoreWhitespace: boolean;
@@ -1493,11 +1637,12 @@ function RightPane({
   onApplyHunk: (hunk: number, action: "stage" | "unstage" | "rollback") => void;
   onApplyFile: (action: "stage" | "unstage" | "rollback") => void;
   onBlame: (path: string) => void;
+  onOpenFile: (path: string, revision: string) => void;
+  onOpenDiff: (path: string, revision: string) => void;
   onCopyPath: (text: string) => void;
+  onReveal: (path: string) => void;
   busy: boolean;
   reloadKey: number;
-  onClose: () => void;
-  onOpenFile: (hash: string, file: CommitFile) => void;
   onShowFileHistory: (path: string) => void;
   onSaveConflict: (path: string, content: string) => Promise<void>;
   onTakeSide: (path: string, side: "ours" | "theirs") => Promise<void>;
@@ -1506,168 +1651,225 @@ function RightPane({
   onRemoveRecent: (path: string) => Promise<void>;
   recent: Settings["recent"];
 }) {
-  if (view.kind === "welcome") {
-    return (
-      <div className="welcome">
-        <div className="welcome-inner">
-          <div className="welcome-logo">
-            <Icon name="git" size={34} />
-          </div>
-          <h1>GitJet</h1>
-          <p className="welcome-tagline">
-            A desktop Git client for Windows and macOS: changelists, a commit panel,
-            the log graph, and a three-way merge tool.
-          </p>
-          <div className="welcome-actions">
-            <Button variant="primary" onClick={() => onOpenRecent("")}>
-              <Icon name="open" /> Open Repository…
-            </Button>
-          </div>
-          {recent.length > 0 && (
-            <div className="recent-list">
-              <div className="recent-title">Recent repositories</div>
-              {recent.map((r) => (
-                <div
-                  className="recent-row"
-                  key={r.path}
-                  onClick={() => onOpenRecent(r.path)}
-                  title={r.path}
+  const active = docs.find((d) => d.id === activeId) ?? docs[0] ?? null;
+
+  const welcome = (
+    <div className="welcome">
+      <div className="welcome-inner">
+        <div className="welcome-logo">
+          <Icon name="git" size={34} />
+        </div>
+        <h1>GitJet</h1>
+        <p className="welcome-tagline">
+          Review what the AI wrote. Compare changes, read the source, and settle every conflict
+          line by line — then commit and push without leaving the window.
+        </p>
+        <div className="welcome-actions">
+          <Button variant="primary" onClick={() => onOpenRecent("")}>
+            <Icon name="open" /> Open Repository…
+          </Button>
+        </div>
+        {recent.length > 0 && (
+          <div className="recent-list">
+            <div className="recent-title">Recent repositories</div>
+            {recent.map((r) => (
+              <div className="recent-row" key={r.path} onClick={() => onOpenRecent(r.path)} title={r.path}>
+                <Icon name="folder" />
+                <span className="recent-name">{r.name || r.path}</span>
+                <span className="recent-path">{r.path}</span>
+                <button
+                  className="mini-icon"
+                  title="Remove from recent"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    void onRemoveRecent(r.path);
+                  }}
                 >
-                  <Icon name="folder" />
-                  <span className="recent-name">{r.name || r.path}</span>
-                  <span className="recent-path">{r.path}</span>
+                  <Icon name="close" size={12} />
+                </button>
+              </div>
+            ))}
+          </div>
+        )}
+        <div className="welcome-hints">
+          <span><kbd>⌘/Ctrl</kbd> <kbd>O</kbd> Open</span>
+          <span><kbd>⌘/Ctrl</kbd> <kbd>P</kbd> Quick Open</span>
+          <span><kbd>⌘/Ctrl</kbd> <kbd>K</kbd> Commit</span>
+          <span><kbd>⌘/Ctrl</kbd> <kbd>Shift</kbd> <kbd>K</kbd> Push</span>
+          <span><kbd>⌘/Ctrl</kbd> <kbd>T</kbd> Update</span>
+        </div>
+      </div>
+    </div>
+  );
+
+  if (!active) {
+    return <main className="editor-area">{welcome}</main>;
+  }
+
+  return (
+    <main className="editor-area">
+      <div className="editor-tabs" role="tablist">
+        {docs.map((doc) => (
+          <div
+            key={doc.id}
+            role="tab"
+            aria-selected={doc.id === active.id}
+            className={cx("editor-tab", doc.id === active.id && "active")}
+            onClick={() => onActivate(doc.id)}
+            onAuxClick={(e) => {
+              if (e.button === 1) onCloseDoc(doc.id);
+            }}
+            title={doc.kind === "diff" ? doc.opts.path : doc.kind === "file" ? doc.file.path : doc.title}
+          >
+            <Icon name={docIcon(doc)} size={14} />
+            <span className="editor-tab-title">{tabTitle(doc)}</span>
+            <span className="editor-tab-kind">
+              {doc.kind === "diff" ? "Diff" : doc.kind === "file" ? "Source" : doc.kind === "conflict" ? "Merge" : doc.kind === "blame" ? "Blame" : "Commit"}
+            </span>
+            {doc.kind === "diff" && (
+              <span className={cx("tab-status", `st-${doc.diff.status === "modified" ? "modified" : doc.diff.status === "added" ? "added" : "deleted"}`)}>
+                {doc.diff.status === "added" ? "A" : doc.diff.status === "deleted" ? "D" : doc.diff.status === "renamed" ? "R" : "M"}
+              </span>
+            )}
+            <button
+              className="editor-tab-close"
+              title="Close"
+              onClick={(e) => {
+                e.stopPropagation();
+                onCloseDoc(doc.id);
+              }}
+            >
+              <Icon name="close" size={11} />
+            </button>
+          </div>
+        ))}
+        <span className="spacer" />
+      </div>
+      <div className="editor-content">
+        {active.kind === "conflict" && (
+          <ConflictView
+            path={active.path}
+            conflict={active.content}
+            busy={busy}
+            onSave={(content) => void onSaveConflict(active.path, content)}
+            onTakeSide={(side) => void onTakeSide(active.path, side)}
+            onMarkResolved={() => void onMarkResolved(active.path)}
+            onClose={() => onCloseDoc(active.id)}
+          />
+        )}
+        {active.kind === "blame" && (
+          <BlameView
+            path={active.path}
+            lines={active.data.lines}
+            onClose={() => onCloseDoc(active.id)}
+            onCopy={onCopyPath}
+          />
+        )}
+        {active.kind === "file" && (
+          <SourceView
+            file={active.file}
+            onShowDiff={() => onOpenDiff(active.file.path, active.revision)}
+            onBlame={() => onBlame(active.file.path)}
+            onOpenWorkingTree={() => onOpenFile(active.file.path, "")}
+            onOpenRevision={
+              active.revision === ""
+                ? () => onOpenFile(active.file.path, "HEAD")
+                : undefined
+            }
+            onCopyPath={() => onCopyPath(active.file.path)}
+            onReveal={() => onReveal(active.file.path)}
+          />
+        )}
+        {active.kind === "commit" && (
+          <div className="commit-view">
+            <div className="diff-header">
+              <div className="diff-title-row">
+                <Icon name="commit" />
+                <span className="diff-path">{active.detail.short}</span>
+                <span className="muted">{formatWhen(active.detail.authorTime)}</span>
+                <span className="spacer" />
+                <button className="toolbar-text-btn" onClick={() => onCopyPath(active.detail.hash)}>
+                  <Icon name="copy" /> Copy hash
+                </button>
+                <IconButton icon="close" title="Close" small onClick={() => onCloseDoc(active.id)} />
+              </div>
+              <div className="diff-toolbar">
+                <span className="muted">
+                  {active.detail.author} &lt;{active.detail.authorEmail}&gt;
+                </span>
+              </div>
+            </div>
+            <div className="details-scroll">
+              <div className="details-subject commit-view-subject">{active.detail.subject}</div>
+              {active.detail.body && <pre className="details-body">{active.detail.body}</pre>}
+              <div className="details-stats">
+                {active.detail.stats.files} files changed
+                {active.detail.stats.additions > 0 && <span className="add-count"> +{active.detail.stats.additions}</span>}
+                {active.detail.stats.deletions > 0 && <span className="del-count"> −{active.detail.stats.deletions}</span>}
+              </div>
+              {active.detail.files.map((file) => (
+                <div
+                  className="details-file"
+                  key={file.path}
+                  onClick={() => onOpenDiff(file.path, active.detail.hash)}
+                  title={file.path}
+                >
+                  <StatusMark kind={file.status} />
+                  <span className="details-file-path">{file.path}</span>
                   <button
                     className="mini-icon"
-                    title="Remove from recent"
+                    title="Open the source file at this commit"
                     onClick={(e) => {
                       e.stopPropagation();
-                      void onRemoveRecent(r.path);
+                      onOpenFile(file.path, active.detail.hash);
                     }}
                   >
-                    <Icon name="close" size={12} />
+                    <Icon name="file" size={12} />
                   </button>
+                  <button
+                    className="mini-icon"
+                    title="Show file history"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      onShowFileHistory(file.path);
+                    }}
+                  >
+                    <Icon name="log" size={12} />
+                  </button>
+                  <span className="tree-stats">
+                    {file.additions > 0 && <span className="add-count">+{file.additions}</span>}
+                    {file.deletions > 0 && <span className="del-count">−{file.deletions}</span>}
+                  </span>
                 </div>
               ))}
             </div>
-          )}
-          <div className="welcome-hints">
-            <span><kbd>⌘/Ctrl</kbd> <kbd>O</kbd> Open</span>
-            <span><kbd>⌘/Ctrl</kbd> <kbd>K</kbd> Commit</span>
-            <span><kbd>⌘/Ctrl</kbd> <kbd>Shift</kbd> <kbd>K</kbd> Push</span>
-            <span><kbd>⌘/Ctrl</kbd> <kbd>T</kbd> Update</span>
           </div>
-        </div>
+        )}
+        {active.kind === "diff" && (
+          <DiffView
+            diff={active.diff}
+            opts={active.opts}
+            mode={diffMode}
+            setMode={setDiffMode}
+            ignoreWhitespace={ignoreWhitespace}
+            onToggleWhitespace={onToggleWhitespace}
+            onApply={onApplyHunk}
+            onApplyFile={onApplyFile}
+            onBlame={active.opts.target === "worktree" ? () => onBlame(active.opts.path) : undefined}
+            onOpenFile={() =>
+              onOpenFile(
+                active.opts.path,
+                active.opts.target === "commit" ? active.opts.revision : active.opts.target === "staged" ? "INDEX" : "",
+              )
+            }
+            onCopyPath={() => onCopyPath(active.opts.path)}
+            busy={busy}
+            reloadKey={reloadKey}
+            wrap={diffWrap}
+            onToggleWrap={onToggleWrap}
+          />
+        )}
       </div>
-    );
-  }
-  if (view.kind === "loading") {
-    return (
-      <div className="editor-empty">
-        <Spinner label={view.title} />
-      </div>
-    );
-  }
-  if (view.kind === "message") {
-    return (
-      <div className={cx("editor-empty", view.tone === "error" && "error")}>
-        <Icon name={view.tone === "error" ? "error" : "info"} size={26} />
-        <div className="message-title">{view.title}</div>
-        <pre className="message-body">{view.text}</pre>
-      </div>
-    );
-  }
-  if (view.kind === "conflict") {
-    return (
-      <ConflictView
-        path={view.path}
-        conflict={view.content}
-        busy={busy}
-        onSave={(content) => void onSaveConflict(view.path, content)}
-        onTakeSide={(side) => void onTakeSide(view.path, side)}
-        onMarkResolved={() => void onMarkResolved(view.path)}
-        onClose={onClose}
-      />
-    );
-  }
-  if (view.kind === "blame") {
-    return <BlameView path={view.path} lines={view.data.lines} onClose={onClose} onCopy={onCopyPath} />;
-  }
-  if (view.kind === "commit") {
-    const detail = view.detail;
-    return (
-      <div className="commit-view">
-        <div className="diff-header">
-          <div className="diff-title-row">
-            <Icon name="commit" />
-            <span className="diff-path">{detail.short}</span>
-            <span className="muted">{formatWhen(detail.authorTime)}</span>
-            <span className="spacer" />
-            <button className="toolbar-text-btn" onClick={() => onCopyPath(detail.hash)}>
-              <Icon name="copy" /> Copy hash
-            </button>
-            <IconButton icon="close" title="Close" small onClick={onClose} />
-          </div>
-          <div className="diff-toolbar">
-            <span className="muted">
-              {detail.author} &lt;{detail.authorEmail}&gt;
-            </span>
-          </div>
-        </div>
-        <div className="details-scroll">
-          <div className="details-subject commit-view-subject">{detail.subject}</div>
-          {detail.body && <pre className="details-body">{detail.body}</pre>}
-          <div className="details-stats">
-            {detail.stats.files} files changed
-            {detail.stats.additions > 0 && <span className="add-count"> +{detail.stats.additions}</span>}
-            {detail.stats.deletions > 0 && <span className="del-count"> −{detail.stats.deletions}</span>}
-          </div>
-          {detail.files.map((file) => (
-            <div
-              className="details-file"
-              key={file.path}
-              onClick={() => onOpenFile(detail.hash, file)}
-              title={file.path}
-            >
-              <StatusMark kind={file.status} />
-              <span className="details-file-path">{file.path}</span>
-              <button
-                className="mini-icon"
-                title="Show file history"
-                onClick={(e) => {
-                  e.stopPropagation();
-                  onShowFileHistory(file.path);
-                }}
-              >
-                <Icon name="log" size={12} />
-              </button>
-              <span className="tree-stats">
-                {file.additions > 0 && <span className="add-count">+{file.additions}</span>}
-                {file.deletions > 0 && <span className="del-count">−{file.deletions}</span>}
-              </span>
-            </div>
-          ))}
-        </div>
-      </div>
-    );
-  }
-  return (
-    <DiffView
-      diff={view.diff}
-      opts={view.opts}
-      mode={diffMode}
-      setMode={setDiffMode}
-      ignoreWhitespace={ignoreWhitespace}
-      onToggleWhitespace={onToggleWhitespace}
-      onApply={onApplyHunk}
-      onApplyFile={onApplyFile}
-      onBlame={
-        view.opts.target === "worktree"
-          ? () => onBlame(view.opts.path)
-          : undefined
-      }
-      onCopyPath={() => onCopyPath(view.opts.path)}
-      busy={busy}
-      reloadKey={reloadKey}
-    />
+    </main>
   );
 }

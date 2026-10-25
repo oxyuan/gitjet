@@ -43,6 +43,7 @@ export interface CommitActions {
   onRefresh: () => void;
   onShowDiff: (entry: FileEntry) => void;
   onShowConflict: (path: string) => void;
+  onOpenSource: (path: string, revision: string) => void;
   onShowHistory: (path: string) => void;
   onStage: (paths: string[]) => void;
   onUnstage: (paths: string[]) => void;
@@ -229,6 +230,7 @@ export function CommitPanel({
     const chosen = selected.has(entry.path) && selected.size > 1 ? [...selected] : [entry.path];
     const items: ContextItem[] = [
       { label: "Show Diff", icon: "diff", onClick: () => actions.onShowDiff(entry) },
+      { label: "Open Source File", icon: "file", onClick: () => actions.onOpenSource(entry.path, entry.staged ? "INDEX" : "") },
       { label: "Show History", icon: "log", onClick: () => actions.onShowHistory(entry.path) },
       { separator: true },
     ];
@@ -450,6 +452,17 @@ export function CommitPanel({
           title="Rollback selected"
           disabled={selected.size === 0}
           onClick={() => actions.onRollback([...selected])}
+        />
+        <IconButton
+          icon="file"
+          title="Open source file"
+          disabled={selected.size !== 1}
+          onClick={() => {
+            const p = [...selected][0]!;
+            const list = entriesByPath.get(p) ?? [];
+            const entry = list.find((e) => !e.staged) ?? list[0];
+            if (entry) actions.onOpenSource(entry.path, entry.staged ? "INDEX" : "");
+          }}
         />
         <IconButton
           icon="diff"

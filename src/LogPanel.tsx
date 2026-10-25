@@ -38,6 +38,7 @@ export function LogPanel({
   onReset,
   onCopy,
   onOpenFile,
+  onOpenSource,
   onShowFileHistory,
 }: {
   result: LogResult | null;
@@ -61,6 +62,7 @@ export function LogPanel({
   onReset: (hash: string, mode: "soft" | "mixed" | "hard") => void;
   onCopy: (text: string) => void;
   onOpenFile: (hash: string, file: CommitFile) => void;
+  onOpenSource: (path: string, revision: string) => void;
   onShowFileHistory: (path: string) => void;
 }) {
   const [menu, setMenu] = useState<{ x: number; y: number; items: ContextItem[] } | null>(null);
@@ -293,6 +295,7 @@ export function LogPanel({
                       y: e.clientY,
                       items: [
                         { label: "Show Diff", icon: "diff", onClick: () => onOpenFile(detail.hash, file) },
+                        { label: "Open Source File", icon: "file", onClick: () => onOpenSource(file.path, detail.hash) },
                         { label: "Show History", icon: "log", onClick: () => onShowFileHistory(file.path) },
                         { label: "Copy Path", icon: "copy", onClick: () => onCopy(file.path) },
                       ],

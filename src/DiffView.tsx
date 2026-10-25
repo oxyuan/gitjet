@@ -16,9 +16,12 @@ export function DiffView({
   onApply,
   onApplyFile,
   onBlame,
+  onOpenFile,
   onCopyPath,
   busy,
   reloadKey,
+  wrap,
+  onToggleWrap,
 }: {
   diff: FileDiff;
   opts: DiffOptions;
@@ -29,9 +32,12 @@ export function DiffView({
   onApply: (hunk: number, action: "stage" | "unstage" | "rollback") => void;
   onApplyFile: (action: "stage" | "unstage" | "rollback") => void;
   onBlame?: () => void;
+  onOpenFile: () => void;
   onCopyPath: () => void;
   busy?: boolean;
   reloadKey: number;
+  wrap: boolean;
+  onToggleWrap: () => void;
 }) {
   const rows = useMemo(() => buildDiffRows(diff), [diff]);
   const [expanded, setExpanded] = useState<Set<number>>(new Set());
@@ -83,6 +89,9 @@ export function DiffView({
           {stats && <span className="diff-stats">{stats}</span>}
           {busy && <Spinner />}
           <span className="spacer" />
+          <button className="toolbar-text-btn" onClick={onOpenFile} title="Open the source file">
+            <Icon name="file" /> Open File
+          </button>
           <IconButton icon="copy" title="Copy path" small onClick={onCopyPath} />
         </div>
         <div className="diff-toolbar">
@@ -102,6 +111,13 @@ export function DiffView({
               <Icon name="rows" />
             </button>
           </div>
+          <button
+            className={cx("toolbar-text-btn", wrap && "active")}
+            onClick={onToggleWrap}
+            title="Wrap long lines"
+          >
+            <Icon name="rows" /> Wrap
+          </button>
           <button
             className={cx("toolbar-text-btn", ignoreWhitespace && "active")}
             onClick={onToggleWhitespace}
@@ -149,7 +165,7 @@ export function DiffView({
           <div>No differences</div>
         </div>
       ) : (
-        <div className={cx("diff-body", mode)} ref={bodyRef}>
+        <div className={cx("diff-body", mode, wrap && "wrap")} ref={bodyRef}>
           <div className="diff-columns">
             <div className="diff-col-label left">{diff.oldLabel || "Before"}</div>
             <div className="diff-col-label right">{diff.newLabel || "After"}</div>

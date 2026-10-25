@@ -13,10 +13,12 @@
   },
   "dependencies": {
     "mygo-runtime": "^0.6.4",
+    "prismjs": "^1.30.0",
     "react": "^19.3.1",
     "react-dom": "^19.3.1"
   },
   "devDependencies": {
+    "@types/prismjs": "^1.26.6",
     "@types/react": "^19.3.0",
     "@types/react-dom": "^19.3.0",
     "@vitejs/plugin-react": "^6.1.2",
