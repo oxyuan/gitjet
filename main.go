@@ -56,7 +56,8 @@ func buildMenu() *mygo.Menu {
 		{Label: "File", Submenu: []*mygo.MenuItem{
 			{Label: "Open Repository…", Accelerator: "CmdOrCtrl+O", Click: send("open")},
 			{Label: "Quick Open File…", Accelerator: "CmdOrCtrl+P", Click: send("quickopen")},
-			{Label: "Close Repository", Accelerator: "CmdOrCtrl+W", Click: send("close")},
+			{Label: "Close Editor Tab", Accelerator: "CmdOrCtrl+W", Click: send("closetab")},
+			{Label: "Close Repository", Accelerator: "CmdOrCtrl+Shift+W", Click: send("close")},
 			mygo.Separator(),
 			{Label: "Settings…", Accelerator: "CmdOrCtrl+,", Click: send("settings")},
 			mygo.Separator(),

@@ -260,12 +260,31 @@ func (c *core) startPolling() {
 	go func() {
 		ticker := time.NewTicker(1500 * time.Millisecond)
 		defer ticker.Stop()
+		lastFetch := time.Now()
 		for {
 			select {
 			case <-stop:
 				return
 			case <-ticker.C:
 				ctx, cancel := context.WithTimeout(context.Background(), 8*time.Second)
+				c.mu.Lock()
+				autoFetch := c.settings.AutoFetch
+				fetchEvery := time.Duration(c.settings.AutoFetchMinutes) * time.Minute
+				c.mu.Unlock()
+				if autoFetch && fetchEvery > 0 && time.Since(lastFetch) >= fetchEvery {
+					lastFetch = time.Now()
+					if remotes, err := repo.Remotes(ctx); err == nil && len(remotes) > 0 {
+						fetchCtx, fetchCancel := context.WithTimeout(context.Background(), 2*time.Minute)
+						if _, ferr := repo.Fetch(fetchCtx, git.FetchOptions{All: true, Prune: true, Tags: true}, nil); ferr == nil {
+							if snap, serr := c.snapshot(fetchCtx, c.settings.ShowIgnored); serr == nil {
+								RepoChanged.Broadcast(snap.State)
+							}
+						}
+						fetchCancel()
+						cancel()
+						continue
+					}
+				}
 				sig := repo.Signature(ctx)
 				if sig == "" {
 					cancel()

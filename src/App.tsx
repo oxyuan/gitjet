@@ -363,6 +363,22 @@ export default function App() {
     };
   }, []);
 
+  // A tab opened earlier may be stale: refresh it when it becomes active.
+  useEffect(() => {
+    if (!activeId || !repoOpenRef.current) return;
+    const doc = docsRef.current.find((d) => d.id === activeId);
+    if (!doc) return;
+    if (doc.kind === "diff" && (doc.opts.target === "worktree" || doc.opts.target === "staged")) {
+      Git.diff(doc.opts)
+        .then((diff) => setDocs((prev) => prev.map((d) => (d.id === doc.id ? { ...d, diff } : d))))
+        .catch(() => {});
+    } else if (doc.kind === "file" && doc.revision === "") {
+      Git.file(doc.file.path, "")
+        .then((file) => setDocs((prev) => prev.map((d) => (d.id === doc.id ? { ...d, file } : d))))
+        .catch(() => {});
+    }
+  }, [activeId]);
+
   // Debounce the log's search box.
   useEffect(() => {
     const t = window.setTimeout(() => setLogSearch(searchInput), 250);
@@ -473,7 +489,6 @@ export default function App() {
         file,
         revision,
       });
-      void label;
     } catch (err) {
       fail("Could not open the file", err);
     }
@@ -746,7 +761,17 @@ export default function App() {
     void loadLog(true);
   };
 
-  const push = (opts: PushOptions) => {
+  const push = async (opts: PushOptions) => {
+    if (opts.forceWithLease && (settingsRef.current?.confirmForcePush ?? true)) {
+      const ok = await ask({
+        title: "Force Push",
+        message: "Force push rewrites the remote branch. Continue?",
+        detail: `${opts.remote || "origin"}/${opts.branch || "current branch"} will be updated with --force-with-lease.`,
+        confirmLabel: "Force Push",
+        danger: true,
+      });
+      if (!ok) return;
+    }
     setDialog(null);
     void runOperation("Push", "push", (ch) => Git.push(opts, ch));
   };
@@ -961,7 +986,10 @@ export default function App() {
           void openRepo();
           break;
         case "quickopen":
-          setQuickOpen(true);
+          if (repoOpenRef.current) setQuickOpen(true);
+          break;
+        case "closetab":
+          if (activeIdRef.current) closeDoc(activeIdRef.current);
           break;
         case "close":
           void closeRepo();
@@ -1448,7 +1476,7 @@ export default function App() {
           current={state?.branch ?? ""}
           setUpstream={dialog.setUpstream}
           onClose={() => setDialog(null)}
-          onSubmit={push}
+          onSubmit={(opts) => void push(opts)}
         />
       )}
       {dialog?.kind === "pull" && (
