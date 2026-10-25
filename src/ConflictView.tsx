@@ -166,6 +166,19 @@ export function ConflictView({
     return parts.join("\n") + (trailingNewline ? "\n" : "");
   };
 
+  // Keep resolved blocks and leave unresolved ones as markers, so switching
+  // to whole-file editing never throws away work or hides a conflict.
+  const assembleForFree = () => {
+    let index = 0;
+    const parts = segments.map((seg) => {
+      if (seg.kind === "text") return seg.text;
+      const i = index++;
+      if (resolved[i]) return contents[i] ?? "";
+      return `<<<<<<< ${seg.label}\n${seg.ours.join("\n")}\n=======\n${seg.theirs.join("\n")}\n>>>>>>> ${seg.label}`;
+    });
+    return parts.join("\n") + (trailingNewline ? "\n" : "");
+  };
+
   const setConflictText = (i: number, text: string, choice: Choice) => {
     setContents((prev) => prev.map((v, k) => (k === i ? text : v)));
     setResolved((prev) => prev.map((v, k) => (k === i ? true : v)));
@@ -283,8 +296,7 @@ export function ConflictView({
             <button
               className={cx("segmented-btn text", free && "active")}
               onClick={() => {
-                const pending = resolved.filter((r) => !r).length;
-                setFreeText(pending > 0 ? conflict.working : assemble(contents));
+                setFreeText(assembleForFree());
                 setFree(true);
               }}
               title="Edit the complete result as one file"

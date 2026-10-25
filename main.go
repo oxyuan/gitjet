@@ -41,7 +41,7 @@ func openWindow() {
 		MinHeight:       560,
 		TitleBarStyle:   mygo.TitleBarHidden,
 		TitleBarHeight:  44,
-		BackgroundColor: "light-dark(#f7f8fa, #2b2b2b)",
+		BackgroundColor: "light-dark(#f4f5f7, #18191e)",
 		StateKey:        "main",
 		URL:             "/",
 	})

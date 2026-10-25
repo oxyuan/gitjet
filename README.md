@@ -88,7 +88,7 @@ bun run build                                   # 当前平台安装包
 bun run build -- -platform darwin/universal,windows/amd64
 ```
 
-产物位于 `build/<os>-<arch>/`：macOS 生成 `.app` 与 `.dmg`，Windows 生成 `.exe` 与安装程序。
+产物位于 `build/<os>-<arch>/`：macOS 生成 `.app` 与 `.dmg`，Windows 生成 `.exe` 与安装程序（交叉构建安装程序需要本机安装 NSIS；未安装时只生成 `.exe`）。
 
 ## 目录结构
 
