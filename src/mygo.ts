@@ -293,6 +293,11 @@ export interface Remote {
   pushUrl: string;
 }
 
+export interface RepoFile {
+  path: string;
+  tracked: boolean;
+}
+
 export interface RepoRef {
   name: string;
   fullName: string;
@@ -354,6 +359,17 @@ export interface Settings {
   confirmForcePush: boolean;
   confirmRollback: boolean;
   recent: RecentRepo[];
+}
+
+export interface SourceFile {
+  path: string;
+  revision: string;
+  text: string;
+  binary: boolean;
+  exists: boolean;
+  truncated: boolean;
+  size: number;
+  language: string;
 }
 
 export interface Stash {
@@ -535,6 +551,17 @@ export const Git = {
   /** Fetch fetches and streams git's output. */
   fetch(opts: FetchOptions, out: Channel<string>): Promise<string> {
     return call("Git.Fetch", opts, out);
+  },
+  /**
+   * File reads a file for the source viewer. An empty revision reads the
+   * working tree.
+   */
+  file(path: string, revision: string): Promise<SourceFile> {
+    return call("Git.File", path, revision);
+  },
+  /** Files searches the working tree's files for quick open. */
+  files(query: string): Promise<RepoFile[]> {
+    return call("Git.Files", query);
   },
   /** Ignore appends paths to .gitignore. */
   ignore(paths: string[]): Promise<string> {

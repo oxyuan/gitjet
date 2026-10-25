@@ -871,6 +871,32 @@ func (g *Git) ContinueOperation() (string, error) {
 	return out, nil
 }
 
+// File reads a file for the source viewer. An empty revision reads the
+// working tree.
+func (g *Git) File(path, revision string) (git.SourceFile, error) {
+	repo, err := g.c.currentRepo()
+	if err != nil {
+		return git.SourceFile{}, err
+	}
+	return repo.FileContent(context.Background(), path, revision)
+}
+
+// Files searches the working tree's files for quick open.
+func (g *Git) Files(query string) ([]git.RepoFile, error) {
+	repo, err := g.c.currentRepo()
+	if err != nil {
+		return nil, err
+	}
+	files, err := repo.Files(context.Background(), query, 200)
+	if err != nil {
+		return nil, err
+	}
+	if files == nil {
+		files = []git.RepoFile{}
+	}
+	return files, nil
+}
+
 // Blame annotates a file.
 func (g *Git) Blame(path string) (git.BlameResult, error) {
 	repo, err := g.c.currentRepo()

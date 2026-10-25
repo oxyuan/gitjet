@@ -163,6 +163,22 @@ func TestCommitSelectedAndLog(t *testing.T) {
 	}
 }
 
+func TestRootCommitDiff(t *testing.T) {
+	repo, _ := newTestRepo(t)
+	log, err := repo.Log(context.Background(), LogOptions{Limit: 5})
+	if err != nil {
+		t.Fatal(err)
+	}
+	root := log.Commits[len(log.Commits)-1]
+	d, err := repo.FileDiff(context.Background(), DiffOptions{Path: "a.txt", Target: DiffCommit, Revision: root.Hash})
+	if err != nil {
+		t.Fatalf("FileDiff root: %v", err)
+	}
+	if len(d.Hunks) != 1 || d.Status != "added" || d.Additions != 2 {
+		t.Fatalf("root diff = status %q hunks %d adds %d", d.Status, len(d.Hunks), d.Additions)
+	}
+}
+
 func TestHunkUnstageLeavesWorkTree(t *testing.T) {
 	repo, dir := newTestRepo(t)
 	writeFile(t, dir, "a.txt", "one\nchanged\n")
@@ -258,6 +274,48 @@ func TestConflictResolution(t *testing.T) {
 	st, _ = repo.Status(context.Background(), false)
 	if st.State.Operation != "" {
 		t.Fatalf("operation = %q after continue", st.State.Operation)
+	}
+}
+
+func TestFileContentAndFiles(t *testing.T) {
+	repo, dir := newTestRepo(t)
+	writeFile(t, dir, "src/main.ts", "export const answer = 42;\n")
+	writeFile(t, dir, "untracked.md", "# notes\n")
+	file, err := repo.FileContent(context.Background(), "src/main.ts", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !file.Exists || file.Language != "typescript" || !strings.Contains(file.Text, "answer") {
+		t.Fatalf("file = %+v", file)
+	}
+	log, err := repo.Log(context.Background(), LogOptions{Limit: 1})
+	if err != nil {
+		t.Fatal(err)
+	}
+	atHead, err := repo.FileContent(context.Background(), "a.txt", log.Commits[0].Hash)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if atHead.Text != "one\ntwo\n" {
+		t.Fatalf("HEAD content = %q", atHead.Text)
+	}
+	missing, err := repo.FileContent(context.Background(), "new.txt", "")
+	if err != nil || missing.Exists {
+		t.Fatalf("missing file = %+v, err %v", missing, err)
+	}
+	files, err := repo.Files(context.Background(), "srcmain", 10)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(files) != 1 || files[0].Path != "src/main.ts" {
+		t.Fatalf("files = %+v", files)
+	}
+	files, err = repo.Files(context.Background(), "untracked", 10)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(files) != 1 || files[0].Tracked {
+		t.Fatalf("untracked file = %+v", files)
 	}
 }
 

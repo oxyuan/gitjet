@@ -157,7 +157,16 @@ func (r *Repo) patchFor(ctx context.Context, opts DiffOptions, path string) (str
 		if h == "" {
 			return "", errors.New("no revision given")
 		}
-		args = append(args, h+"^", h)
+		parents, perr := r.parents(ctx, h)
+		if perr != nil {
+			return "", perr
+		}
+		if len(parents) > 0 {
+			args = append(args, parents[0], h)
+		} else {
+			// A root commit has no parent; compare against the empty tree.
+			args = append(args, emptyTree, h)
+		}
 	case DiffRange:
 		if opts.From == "" || opts.Revision == "" {
 			return "", errors.New("a range needs two revisions")
@@ -205,6 +214,22 @@ func syntheticNewFile(path string, content []byte) string {
 		b.WriteString("\n")
 	}
 	return b.String()
+}
+
+// emptyTree is git's hash for an empty tree; every repository has it.
+const emptyTree = "4b825dc642cb6eb9a060e54bf8d69288fbee4904"
+
+// parents returns the parent hashes of a commit.
+func (r *Repo) parents(ctx context.Context, rev string) ([]string, error) {
+	out, err := r.run(ctx, "rev-list", "--parents", "-n", "1", rev)
+	if err != nil {
+		return nil, err
+	}
+	fields := strings.Fields(out)
+	if len(fields) <= 1 {
+		return []string{}, nil
+	}
+	return fields[1:], nil
 }
 
 // parsePatch parses git's unified diff into hunks. It keeps the metadata
@@ -359,7 +384,9 @@ func (r *Repo) fillText(ctx context.Context, d *FileDiff, opts DiffOptions, path
 		}
 	case DiffCommit:
 		h := strings.TrimSpace(opts.Revision)
-		oldText, _ = readBlob(h+"^", oldPath)
+		if parents, perr := r.parents(ctx, h); perr == nil && len(parents) > 0 {
+			oldText, _ = readBlob(parents[0], oldPath)
+		}
 		newText, _ = readBlob(h, path)
 	case DiffRange:
 		oldText, _ = readBlob(opts.From, oldPath)
