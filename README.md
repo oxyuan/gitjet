@@ -2,7 +2,7 @@
 
 GitJet 是一个面向 Windows 与 macOS 的桌面 Git 客户端。界面由 Go 编写的后端服务与 React 前端组成，运行在系统 WebView 中：macOS 使用 WKWebView，Windows 使用 WebView2。
 
-核心工作流围绕「本地变更 → 变更集 → 提交 → 日志 → 分支同步」展开，提供 Git 命令行的完整能力，同时把常用操作放进图形界面。
+核心工作流围绕「本地变更 → 变更集 → 提交 → 日志 → 分支同步」展开，提供 Git 命令行的完整能力，同时把常用操作放进图形界面。代码审查场景可以同时打开差异、源码文件与冲突解决视图，在多个标签页之间切换。
 
 ## 功能
 
@@ -15,7 +15,10 @@ GitJet 是一个面向 Windows 与 macOS 的桌面 Git 客户端。界面由 Go 
 - 提交并推送、提交后自动刷新日志
 - 未跟踪文件：加入版本控制、删除、写入 `.gitignore`
 - 贮藏（Stash）：创建、列表、应用、弹出、删除；支持包含未跟踪文件与保留暂存区
-- 合并冲突三栏视图：对比 Ours / Theirs，逐段选择、编辑结果、保存并标记已解决；支持继续/中止 merge、rebase、cherry-pick、revert
+- 合并冲突逐行解决：并排对比 Ours / Theirs（含词级差异），点击任意一行插入结果，或整段选择 Ours / Theirs / Both；可查看共同祖先、编辑最终文件、查看最终结果预览；支持继续/中止 merge、rebase、cherry-pick、revert
+- 源码查看：直接打开工作区、索引或任意提交中的文件，带语法高亮、行号、自动换行与文件内变更跳转；可在源码与差异之间一键切换
+- 快速打开：`⌘/Ctrl+P` 按文件名或路径片段搜索工作区文件（包含未跟踪文件）
+- 编辑器标签页：差异、源码、冲突、Blame 与提交详情同时打开，支持关闭与中键关闭
 
 ### 日志与历史
 
@@ -24,10 +27,11 @@ GitJet 是一个面向 Windows 与 macOS 的桌面 Git 客户端。界面由 Go 
 - 提交详情：作者、时间、完整提交信息、引用、文件列表与行数统计
 - 提交操作：检出、从此新建分支/标签、Cherry-Pick、Revert、Soft/Mixed/Hard Reset、复制哈希
 - 文件历史与作者标注（Blame）
+- 在提交详情中直接打开对应版本的源码文件
 
 ### 差异查看器
 
-- 并排 / 统一两种排版
+- 并排 / 统一两种排版，长行自动换行
 - 行内词级差异高亮、折叠未修改区域、上一处/下一处变更
 - 忽略空白差异
 - 在差异中直接暂存、取消暂存、回滚单个 hunk 或整个文件
@@ -94,11 +98,14 @@ service.go              绑定给前端的服务：Workspace / Git
 settings.go             设置、最近仓库、变更集与提交信息历史的持久化
 internal/git/           Git 命令层：状态、差异、日志、分支、提交、贮藏、冲突、Blame、控制台
 src/                    React 前端
-  App.tsx               应用状态与操作编排
+  App.tsx               应用状态、编辑器标签页与操作编排
   CommitPanel.tsx       变更列表与提交面板
+  SourceView.tsx        源码查看（语法高亮、行号、换行）
+  QuickOpen.tsx         快速打开文件
+  highlight.ts          Prism 语法高亮
   LogPanel.tsx          提交图与提交详情
   DiffView.tsx          并排/统一差异查看器、Blame 视图
-  ConflictView.tsx      三栏冲突解决
+  ConflictView.tsx      逐行冲突解决与三路对比
   ConsolePanel.tsx      Git 控制台
   Dialogs.tsx           推送、拉取、重置、标签、设置等对话框
   BranchPopup.tsx       分支弹窗
@@ -110,6 +117,7 @@ src/                    React 前端
 | 快捷键 | 操作 |
 | --- | --- |
 | `⌘/Ctrl+O` | 打开仓库 |
+| `⌘/Ctrl+P` | 快速打开文件 |
 | `⌘/Ctrl+R` | 刷新 |
 | `⌘/Ctrl+K` | 聚焦提交信息 |
 | `⌘/Ctrl+Enter` | 提交 |
