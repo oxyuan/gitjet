@@ -561,6 +561,14 @@ export function formatWhen(unix: number): string {
   return d.toLocaleDateString([], { year: "numeric", month: "short", day: "numeric" });
 }
 
+/** YYYY-MM-DD HH:mm:ss in the machine's time zone. */
+export function formatStamp(unix: number): string {
+  if (!unix) return "";
+  const d = new Date(unix * 1000);
+  const pad = (n: number) => String(n).padStart(2, "0");
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`;
+}
+
 export function formatFullDate(unix: number): string {
   if (!unix) return "";
   return new Date(unix * 1000).toLocaleString();

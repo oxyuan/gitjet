@@ -8,7 +8,6 @@ import {
   type ChangesSnapshot,
   type Commit,
   type CommitDetail,
-  type CommitFile,
   type ConflictContent,
   type DiffOptions,
   type FetchOptions,
@@ -40,6 +39,7 @@ import {
 import { Icon } from "./icons";
 import { LangProvider, count, resolveLang, useT, type Lang } from "./i18n";
 import { LogPanel, type LogBranchFilter } from "./LogPanel";
+import type { AuthorOption } from "./BranchPicker";
 import { OperationDock, type OperationState } from "./OperationDock";
 import { QuickOpen } from "./QuickOpen";
 import { SourceView } from "./SourceView";
@@ -48,7 +48,7 @@ import {
   ConfirmDialog,
   ContextMenu,
   cx,
-  formatWhen,
+  formatStamp,
   IconButton,
   Spinner,
   Splitter,
@@ -471,9 +471,11 @@ function AppShell({ onLangChange }: { onLangChange: (lang: Lang) => void }) {
   const [logFilter, setLogFilter] = useState<LogBranchFilter>("current");
   const [searchInput, setSearchInput] = useState("");
   const [logSearch, setLogSearch] = useState("");
+  const [logAuthor, setLogAuthor] = useState("");
+  const [authors, setAuthors] = useState<AuthorOption[]>([]);
+  const [favorites, setFavorites] = useState<string[]>([]);
   const [logPath, setLogPath] = useState("");
   const [logResult, setLogResult] = useState<LogResult | null>(null);
-  const [logDetail, setLogDetail] = useState<CommitDetail | null>(null);
   const [logLoading, setLogLoading] = useState(false);
   const [selectedCommit, setSelectedCommit] = useState<string | null>(null);
   const [diffBusy, setDiffBusy] = useState(false);
@@ -488,6 +490,9 @@ function AppShell({ onLangChange }: { onLangChange: (lang: Lang) => void }) {
   const refreshRef = useRef<(() => void) | null>(null);
   const amendBackup = useRef("");
   const logReq = useRef(0);
+  // Author counts come from the unfiltered list so the menu stays complete
+  // while a filter is applied.
+  const authorCache = useRef<Map<string, AuthorOption>>(new Map());
   const opLines = useRef<string[]>([]);
   const tRef = useRef(t);
   tRef.current = t;
@@ -559,7 +564,7 @@ function AppShell({ onLangChange }: { onLangChange: (lang: Lang) => void }) {
           refs: logFilter === "all" ? [] : logFilter === "current" ? [current.state.branch || "HEAD"] : [logFilter],
           path: logPath,
           search: logSearch,
-          author: "",
+          author: logAuthor,
           since: 0,
           limit: 300,
           skip: reset ? 0 : logResult?.commits.length ?? 0,
@@ -570,10 +575,23 @@ function AppShell({ onLangChange }: { onLangChange: (lang: Lang) => void }) {
         setLogResult((prev) =>
           append && !reset && prev ? { ...result, commits: [...prev.commits, ...result.commits] } : result,
         );
-        if (reset && !append) {
-          setSelectedCommit(null);
-          setLogDetail(null);
+        if (logAuthor === "" || reset) {
+          const seen = new Map<string, AuthorOption>();
+          for (const c of result.commits) {
+            const key = c.author + "\u0000" + c.authorEmail;
+            const hit = seen.get(key);
+            seen.set(key, { name: c.author, email: c.authorEmail, count: (hit?.count ?? 0) + 1 });
+          }
+          for (const author of authorCache.current.values()) {
+            const key = author.name + "\u0000" + author.email;
+            if (!seen.has(key)) seen.set(key, author);
+          }
+          authorCache.current = seen;
+          setAuthors(
+            [...seen.values()].sort((a, b) => b.count - a.count || a.name.localeCompare(b.name)),
+          );
         }
+        if (reset && !append) setSelectedCommit(null);
         if (s) void s;
       } catch (err) {
         fail(t("readLog"), err);
@@ -581,7 +599,7 @@ function AppShell({ onLangChange }: { onLangChange: (lang: Lang) => void }) {
         if (req === logReq.current) setLogLoading(false);
       }
     },
-    [fail, logFilter, logPath, logSearch, logResult?.commits.length, t],
+    [fail, logAuthor, logFilter, logPath, logSearch, logResult?.commits.length, t],
   );
 
   const openDoc = useCallback((doc: Doc) => {
@@ -608,16 +626,16 @@ function AppShell({ onLangChange }: { onLangChange: (lang: Lang) => void }) {
     });
   }, []);
 
-  const loadCommitDetail = useCallback(
+  const openCommit = useCallback(
     async (hash: string) => {
       try {
         const detail = await Git.showCommit(hash);
-        setLogDetail(detail);
+        openDoc({ id: `commit:${detail.hash}`, title: detail.subject, kind: "commit", detail });
       } catch (err) {
         fail(t("readCommit"), err);
       }
     },
-    [fail, t],
+    [fail, openDoc, t],
   );
 
   const reload = useCallback(
@@ -649,7 +667,6 @@ function AppShell({ onLangChange }: { onLangChange: (lang: Lang) => void }) {
             .then((file) => setDocs((prev) => prev.map((d) => (d.id === active.id ? { ...d, file } : d))))
             .catch(() => {});
         }
-        if (selectedCommit) void loadCommitDetail(selectedCommit);
         setReloadKey((k) => k + 1);
       } catch (err) {
         fail(t("refreshRepo"), err);
@@ -657,7 +674,7 @@ function AppShell({ onLangChange }: { onLangChange: (lang: Lang) => void }) {
         if (spinner) setBusy((n) => n - 1);
       }
     },
-    [applyCheckedDefaults, fail, loadCommitDetail, selectedCommit],
+    [applyCheckedDefaults, fail],
   );
 
   refreshRef.current = () => {
@@ -719,6 +736,34 @@ function AppShell({ onLangChange }: { onLangChange: (lang: Lang) => void }) {
     }
   }, [activeId]);
 
+  // Favourites live with the repository: the same branch name means something
+  // else in another clone.
+  const favoritesKey = snapshot ? `gitjet.branchFavorites:${snapshot.state.root}` : "";
+  useEffect(() => {
+    if (!favoritesKey) {
+      setFavorites([]);
+      return;
+    }
+    try {
+      const raw = localStorage.getItem(favoritesKey);
+      setFavorites(raw ? (JSON.parse(raw) as string[]) : []);
+    } catch {
+      setFavorites([]);
+    }
+  }, [favoritesKey]);
+
+  const toggleFavorite = (key: string) => {
+    setFavorites((prev) => {
+      const next = prev.includes(key) ? prev.filter((k) => k !== key) : [...prev, key];
+      try {
+        if (favoritesKey) localStorage.setItem(favoritesKey, JSON.stringify(next));
+      } catch {
+        // Storage can be unavailable; the list still lives in memory.
+      }
+      return next;
+    });
+  };
+
   // Debounce the log's search box.
   useEffect(() => {
     const timer = window.setTimeout(() => setLogSearch(searchInput), 250);
@@ -730,7 +775,7 @@ function AppShell({ onLangChange }: { onLangChange: (lang: Lang) => void }) {
     if (tab !== "log" || !snapshot) return;
     void loadLog(true);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [tab, logFilter, logSearch, logPath, snapshot?.state.head]);
+  }, [tab, logAuthor, logFilter, logSearch, logPath, snapshot?.state.head]);
 
   useEffect(() => {
     if (!snapshot) return;
@@ -769,11 +814,12 @@ function AppShell({ onLangChange }: { onLangChange: (lang: Lang) => void }) {
       setActiveId(null);
       setForm(emptyForm);
       setLogResult(null);
-      setLogDetail(null);
       setSelectedCommit(null);
       setLogPath("");
       setSearchInput("");
       setLogSearch("");
+      setLogAuthor("");
+      authorCache.current = new Map();
       setFilterDefault(snap.state);
       setHistory(await Git.messageHistory().catch(() => []));
       void reload(false);
@@ -1406,31 +1452,13 @@ function AppShell({ onLangChange }: { onLangChange: (lang: Lang) => void }) {
 
   const selectCommit = (commit: Commit) => {
     setSelectedCommit(commit.hash);
-    void loadCommitDetail(commit.hash);
-  };
-
-  const openCommitFile = (hash: string, file: CommitFile) => {
-    void showDiff(
-      {
-        path: file.path,
-        oldPath: file.oldPath ?? "",
-        target: "commit",
-        revision: hash,
-        from: "",
-        context: settings?.diffContext ?? 3,
-        ignoreWhitespace,
-        ignoreWhitespaceEol: false,
-        noText: false,
-      },
-      file.path,
-    );
+    void openCommit(commit.hash);
   };
 
   const showFileHistory = (path: string) => {
     setLogPath(path);
     setTab("log");
     setSelectedCommit(null);
-    setLogDetail(null);
   };
 
   const actions: CommitActions = {
@@ -1626,16 +1654,23 @@ function AppShell({ onLangChange }: { onLangChange: (lang: Lang) => void }) {
               (snapshot ? (
                 <LogPanel
                   result={logResult}
-                  detail={logDetail}
                   refs={refs}
+                  currentBranch={state?.branch ?? ""}
                   loading={logLoading}
                   selected={selectedCommit}
                   filter={logFilter}
                   search={searchInput}
+                  author={logAuthor}
+                  authors={authors}
+                  favorites={favorites}
+                  onAuthor={(name) => {
+                    setLogAuthor(name);
+                    setSelectedCommit(null);
+                  }}
+                  onToggleFavorite={toggleFavorite}
                   onFilter={(f) => {
                     setLogFilter(f);
                     setSelectedCommit(null);
-                    setLogDetail(null);
                   }}
                   onSearch={setSearchInput}
                   onSelect={selectCommit}
@@ -1652,9 +1687,6 @@ function AppShell({ onLangChange }: { onLangChange: (lang: Lang) => void }) {
                     setDialog({ kind: "reset", hash, subject: commit?.subject ?? "" });
                   }}
                   onCopy={copyText}
-                  onOpenFile={openCommitFile}
-                  onOpenSource={(path, revision) => void showFile(path, revision)}
-                  onShowFileHistory={showFileHistory}
                 />
               ) : (
                 <NoRepo onOpen={() => void openRepo()} />
@@ -1670,7 +1702,6 @@ function AppShell({ onLangChange }: { onLangChange: (lang: Lang) => void }) {
                 onClick={() => {
                   setLogPath("");
                   setSelectedCommit(null);
-                  setLogDetail(null);
                 }}
               >
                 {t("clear")}
@@ -1825,7 +1856,6 @@ function AppShell({ onLangChange }: { onLangChange: (lang: Lang) => void }) {
             setLogFilter(name);
             setTab("log");
             setSelectedCommit(null);
-            setLogDetail(null);
           }}
         />
       )}
@@ -2234,7 +2264,7 @@ function RightPane({
               <div className="diff-title-row">
                 <Icon name="commit" />
                 <span className="diff-path">{active.detail.short}</span>
-                <span className="muted">{formatWhen(active.detail.authorTime)}</span>
+                <span className="muted">{formatStamp(active.detail.authorTime)}</span>
                 <span className="spacer" />
                 <button className="toolbar-text-btn" onClick={() => onCopyPath(active.detail.hash)}>
                   <Icon name="copy" /> {t("copyHash")}
