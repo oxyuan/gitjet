@@ -490,9 +490,12 @@ function AppShell({ onLangChange }: { onLangChange: (lang: Lang) => void }) {
   const [logDockHeight, setLogDockHeight] = useStoredState<number>("gitjet.logDock", 300);
   const [logInfoRatio, setLogInfoRatio] = useStoredState<number>("gitjet.logInfoRatio", 0.52);
   const [logDockFolded, setLogDockFolded] = useStoredState<boolean>("gitjet.logDockFolded", false);
-  // One switch for both places changed files are listed.
+  // The changelist and the commit details are read at different times, so
+  // each keeps its own view.
   const [changeView, setChangeView] = useStoredState<ChangeView>("gitjet.changeView", "tree");
+  const [detailView, setDetailView] = useStoredState<ChangeView>("gitjet.detailView", "tree");
   const [showStaged, setShowStaged] = useStoredState<boolean>("gitjet.showStaged", false);
+  const [showStashes, setShowStashes] = useStoredState<boolean>("gitjet.showStashes", false);
   const [logPath, setLogPath] = useState("");
   // Branch whose history is listed; "" follows the checked out branch.
   const [logRef, setLogRef] = useState("");
@@ -1717,6 +1720,8 @@ function AppShell({ onLangChange }: { onLangChange: (lang: Lang) => void }) {
               onViewMode={setChangeView}
               showStaged={showStaged}
               onToggleStaged={() => setShowStaged(!showStaged)}
+              showStashes={showStashes}
+              onToggleStashes={() => setShowStashes(!showStashes)}
                 />
               ) : (
                 <NoRepo onOpen={() => void openRepo()} />
@@ -1766,6 +1771,7 @@ function AppShell({ onLangChange }: { onLangChange: (lang: Lang) => void }) {
         <Splitter width={splitWidth} setWidth={setSplitWidth} />
         <div className="workspace-right">
         <RightPane
+            commitView={detailView}
             diffMode={diffMode}
             setDiffMode={setDiffMode}
             ignoreWhitespace={ignoreWhitespace}
@@ -1842,8 +1848,8 @@ function AppShell({ onLangChange }: { onLangChange: (lang: Lang) => void }) {
             scope={logRef}
             onClearScope={() => setLogRef("")}
             height={logDockHeight}
-            viewMode={changeView}
-            onViewMode={setChangeView}
+            viewMode={detailView}
+            onViewMode={setDetailView}
             infoRatio={logInfoRatio}
             onInfoResize={setLogInfoRatio}
             collapsed={logDockFolded}
@@ -2179,7 +2185,9 @@ function RightPane({
   onOpenRecent,
   onRemoveRecent,
   recent,
+  commitView,
 }: {
+  commitView: ChangeView;
   repoOpen: boolean;
   docs: Doc[];
   activeId: string | null;
@@ -2393,6 +2401,7 @@ function RightPane({
               </div>
               <FileTree
                 files={active.detail.files}
+                view={commitView}
                 expanded={commitDirs.has(active.id) ? commitDirs.get(active.id)! : new Set()}
                 onToggleDir={(key) => {
                   const current = new Set(commitDirs.get(active.id) ?? []);

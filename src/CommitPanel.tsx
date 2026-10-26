@@ -45,6 +45,9 @@ const T = {
     viewFlat: "Plain file list",
     showStagedSection: "Show staged changes",
     hideStagedSection: "Hide staged changes",
+    showStashes: "Show stashes",
+    hideStashes: "Hide stashes",
+    more: "More actions",
     noChanges: "No changes",
     refresh: "Refresh",
     stageSelected: "Stage selected",
@@ -114,6 +117,9 @@ const T = {
     viewFlat: "平铺文件列表",
     showStagedSection: "显示已暂存的更改",
     hideStagedSection: "隐藏已暂存的更改",
+    showStashes: "显示贮藏",
+    hideStashes: "隐藏贮藏",
+    more: "更多操作",
     noChanges: "无更改",
     refresh: "刷新",
     stageSelected: "暂存选中项",
@@ -255,11 +261,15 @@ export function CommitPanel({
   onViewMode,
   showStaged,
   onToggleStaged,
+  showStashes,
+  onToggleStashes,
 }: {
   viewMode: ChangeView;
   onViewMode: (view: ChangeView) => void;
   showStaged: boolean;
   onToggleStaged: () => void;
+  showStashes: boolean;
+  onToggleStashes: () => void;
   snapshot: ChangesSnapshot;
   settings: Settings;
   checked: Set<string>;
@@ -607,68 +617,83 @@ export function CommitPanel({
           disabled={selected.size === 0}
           onClick={() => actions.onRollback([...selected])}
         />
-        <IconButton
-          icon="file"
-          title={t("openSourceFileTitle")}
-          disabled={selected.size !== 1}
-          onClick={() => {
-            const p = [...selected][0]!;
-            const list = entriesByPath.get(p) ?? [];
-            const entry = list.find((e) => !e.staged) ?? list[0];
-            if (entry) actions.onOpenSource(entry.path, entry.staged ? "INDEX" : "");
-          }}
-        />
-        <IconButton
-          icon="diff"
-          title={t("showDiffTitle")}
-          disabled={selected.size !== 1}
-          onClick={() => {
-            const p = [...selected][0]!;
-            const list = entriesByPath.get(p) ?? [];
-            const entry = list.find((e) => !e.staged) ?? list[0];
-            if (entry) {
-              if (entry.unmerged) actions.onShowConflict(p);
-              else actions.onShowDiff(entry);
-            }
-          }}
-        />
         <span className="spacer" />
-        <IconButton
-          icon="stash"
-          title={t("stashChanges")}
-          onClick={actions.onStashPush}
-          disabled={entries.length === 0}
-        />
         <IconButton
           icon={viewMode === "tree" ? "list" : "folder"}
           title={viewMode === "tree" ? t("viewFlat") : t("viewTree")}
           onClick={() => onViewMode(viewMode === "tree" ? "flat" : "tree")}
         />
         <IconButton
-          icon="stage"
-          title={showStaged ? t("hideStagedSection") : t("showStagedSection")}
-          active={showStaged}
-          onClick={onToggleStaged}
-        />
-        <IconButton
-          icon="expand"
-          title={t("expandAll")}
-          onClick={() => {
-            setCollapsed(new Set());
-            setExpanded(allDirectories());
-          }}
-        />
-        <IconButton
-          icon="collapse"
-          title={t("collapseAll")}
-          onClick={() => {
-            const next = new Set<string>();
-            for (const cl of changelists.items) next.add("cl:" + cl.id);
-            next.add("staged");
-            next.add("conflicts");
-            next.add("ignored");
-            setCollapsed(next);
-            setExpanded(new Set());
+          icon="more"
+          title={t("more")}
+          onClick={(e) => {
+            const rect = (e.currentTarget as HTMLElement).getBoundingClientRect();
+            const selectedPath = [...selected][0];
+            const picked = selectedPath ? entriesByPath.get(selectedPath) ?? [] : [];
+            const entry = picked.find((e) => !e.staged) ?? picked[0];
+            setMenu({
+              x: rect.right - 180,
+              y: rect.bottom,
+              items: [
+                {
+                  label: t("openSourceFileTitle"),
+                  icon: "file",
+                  disabled: selected.size !== 1,
+                  onClick: () => entry && actions.onOpenSource(entry.path, entry.staged ? "INDEX" : ""),
+                },
+                {
+                  label: t("showDiffTitle"),
+                  icon: "diff",
+                  disabled: selected.size !== 1,
+                  onClick: () => {
+                    if (!entry) return;
+                    if (entry.unmerged) actions.onShowConflict(entry.path);
+                    else actions.onShowDiff(entry);
+                  },
+                },
+                { separator: true },
+                {
+                  label: t("stashChanges"),
+                  icon: "stash",
+                  disabled: entries.length === 0,
+                  onClick: actions.onStashPush,
+                },
+                {
+                  label: showStashes ? t("hideStashes") : t("showStashes"),
+                  icon: "stash",
+                  checked: showStashes,
+                  onClick: onToggleStashes,
+                },
+                {
+                  label: showStaged ? t("hideStagedSection") : t("showStagedSection"),
+                  icon: "stage",
+                  checked: showStaged,
+                  onClick: onToggleStaged,
+                },
+                { separator: true },
+                {
+                  label: t("expandAll"),
+                  icon: "expand",
+                  onClick: () => {
+                    setCollapsed(new Set());
+                    setExpanded(allDirectories());
+                  },
+                },
+                {
+                  label: t("collapseAll"),
+                  icon: "collapse",
+                  onClick: () => {
+                    const next = new Set<string>();
+                    for (const cl of changelists.items) next.add("cl:" + cl.id);
+                    next.add("staged");
+                    next.add("conflicts");
+                    next.add("ignored");
+                    setCollapsed(next);
+                    setExpanded(new Set());
+                  },
+                },
+              ],
+            });
           }}
         />
       </div>
@@ -697,7 +722,7 @@ export function CommitPanel({
             renderList(conflicts),
           )}
         {changelistNodes}
-        {snapshot.stashes.length > 0 && (
+        {showStashes && snapshot.stashes.length > 0 && (
           <div className="stash-section">
             <div className="section-header static">
               <Icon name="stash" />
