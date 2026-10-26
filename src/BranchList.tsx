@@ -21,7 +21,6 @@ const T = {
     toPull: "{count} commit(s) to pull",
     others: "Others",
     protected: "Protected",
-    current: "current",
     currentBranch: "Current branch",
     noBranches: "No branches",
     noMatch: "Nothing matches “{query}”",
@@ -45,7 +44,6 @@ const T = {
     toPull: "{count} 个提交待拉取",
     others: "其它",
     protected: "受保护",
-    current: "当前",
     currentBranch: "当前分支",
     noBranches: "没有分支",
     noMatch: "没有匹配“{query}”的分支",
@@ -169,7 +167,6 @@ export function BranchList({
         {leaf.current && (
           <span className="bp-current" title={t("currentBranch")}>
             <Icon name="check" size={11} />
-            <span>{t("current")}</span>
           </span>
         )}
         {leaf.ahead > 0 && (

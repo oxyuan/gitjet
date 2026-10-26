@@ -78,8 +78,6 @@ const T = {
     commitTab: "Commit",
     branchTab: "Branch",
     consoleTab: "Console",
-    historyOf: "History of {path}",
-    clear: "Clear",
     detachedHead: "Detached HEAD",
     noCommitsYet: "No commits yet",
     pushOne: "Push {n} commit",
@@ -212,8 +210,7 @@ const T = {
     hintPush: "Push",
     hintUpdate: "Update",
     noFileOpen: "No file open",
-    emptyOpen: "Pick a change on the left to see its diff, or a commit below to read its details.",
-    emptyQuickOpen: "Search every file with",
+    emptyOpen: "Choose a file, a commit or a conflict to read it here.",
     kindDiff: "Diff",
     kindSource: "Source",
     kindMerge: "Merge",
@@ -245,8 +242,6 @@ const T = {
     commitTab: "提交",
     branchTab: "分支",
     consoleTab: "控制台",
-    historyOf: "{path} 的历史",
-    clear: "清除",
     detachedHead: "分离的 HEAD",
     noCommitsYet: "暂无提交",
     pushOne: "推送 {n} 个提交",
@@ -378,8 +373,7 @@ const T = {
     hintPush: "推送",
     hintUpdate: "更新",
     noFileOpen: "没有打开的文件",
-    emptyOpen: "在左侧选择一项变更查看差异，或在下方选择提交查看详情。",
-    emptyQuickOpen: "搜索任意文件",
+    emptyOpen: "选择文件、提交或冲突，在这里查看详情。",
     kindDiff: "差异",
     kindSource: "源码",
     kindMerge: "合并",
@@ -1799,21 +1793,6 @@ function AppShell({ onLangChange }: { onLangChange: (lang: Lang) => void }) {
               ))}
             {tab === "console" && <ConsolePanel onCommandDone={() => void reload(false)} repoOpen={repoOpen} />}
           </div>
-          {logPath && tab === "branch" && (
-            <div className="history-banner">
-              <Icon name="log" />
-              <span>{t("historyOf", { path: logPath })}</span>
-              <button
-                className="mini-btn"
-                onClick={() => {
-                  setLogPath("");
-                  setSelectedCommit(null);
-                }}
-              >
-                {t("clear")}
-              </button>
-            </div>
-          )}
         </aside>
         <Splitter width={splitWidth} setWidth={setSplitWidth} />
         <div className="workspace-right">
@@ -1893,7 +1872,12 @@ function AppShell({ onLangChange }: { onLangChange: (lang: Lang) => void }) {
             author={logAuthor}
             authors={authors}
             scope={logRef}
+            pathScope={logPath}
             onClearScope={() => setLogRef("")}
+            onClearPathScope={() => {
+              setLogPath("");
+              setSelectedCommit(null);
+            }}
             height={logDockHeight}
             viewMode={detailView}
             onViewMode={setDetailView}
@@ -2277,13 +2261,6 @@ function RightPane({
         </div>
         <h1>{repoOpen ? t("noFileOpen") : t("welcomeHeadline")}</h1>
         <p className="welcome-tagline">{repoOpen ? t("emptyOpen") : t("welcomeTagline")}</p>
-        {repoOpen && (
-          <span className="welcome-key">
-            {t("emptyQuickOpen")}
-            <kbd>⌘/Ctrl</kbd>
-            <kbd>P</kbd>
-          </span>
-        )}
         <div className="welcome-actions">
           <Button variant="primary" onClick={() => onOpenRecent("")}>
             <Icon name="open" /> {t("openRepository")}

@@ -2037,8 +2037,7 @@ body.col-resizing {
   color: var(--accent);
 }
 
-.diff-empty,
-.welcome-key {
+.diff-empty {
   display: inline-flex;
   align-items: center;
   gap: 4px;
@@ -3009,27 +3008,6 @@ kbd {
     opacity: 0;
     transform: translateY(6px);
   }
-}
-
-.history-banner {
-  flex: none;
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  padding: 4px 8px;
-  border-top: 1px solid var(--border);
-  background: var(--panel-2);
-  font-size: 11px;
-  color: var(--muted);
-}
-
-.history-banner span {
-  flex: 1;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  font-family: var(--font-mono);
-  font-size: 10.5px;
 }
 
 .icon {
@@ -6035,8 +6013,7 @@ kbd {
 }
 
 .bp-section + .bp-section {
-  margin-top: 4px;
-  border-top: 1px solid var(--border-strong);
+  margin-top: 8px;
 }
 
 .bp-section-title {
@@ -6047,12 +6024,12 @@ kbd {
   align-items: center;
   gap: 5px;
   padding: 6px 10px;
-  background: var(--panel-2);
+  background: var(--panel);
   font-size: 10px;
   font-weight: 650;
   letter-spacing: 0.07em;
   text-transform: uppercase;
-  color: var(--fg-soft);
+  color: var(--muted);
 }
 
 .bp-section-title .bp-count {
@@ -6182,10 +6159,9 @@ html[lang="zh"] .bp-section-title {
 .bp-current {
   display: inline-flex;
   align-items: center;
-  gap: 3px;
   flex: none;
-  font-size: 10px;
-  color: var(--success);
+  color: var(--accent);
+  opacity: 0.9;
 }
 
 .bp-star {

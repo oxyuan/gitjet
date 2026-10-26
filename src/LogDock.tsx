@@ -70,6 +70,8 @@ const T = {
     copyRevision: "Copy Revision Number",
     copyMessage: "Copy Commit Message",
     scope: "History of {branch}",
+    pathScope: "File · {path}",
+    clearPathScope: "Stop filtering by this file",
     clearScope: "Show the checked out branch instead",
     inBranchesOne: "In 1 branch",
     inBranchesOther: "In {n} branches",
@@ -112,6 +114,8 @@ const T = {
     copyRevision: "复制提交哈希",
     copyMessage: "复制提交信息",
     scope: "历史：{branch}",
+    pathScope: "文件 · {path}",
+    clearPathScope: "取消按此文件过滤",
     clearScope: "回到当前分支",
     inBranchesOne: "在 1 个分支中",
     inBranchesOther: "在 {n} 个分支中",
@@ -140,7 +144,9 @@ export function LogDock({
   author,
   authors,
   scope,
+  pathScope,
   onClearScope,
+  onClearPathScope,
   height,
   onResize,
   collapsed,
@@ -178,7 +184,9 @@ export function LogDock({
   authors: AuthorOption[];
   /** Branch whose history is listed; "" when it follows HEAD. */
   scope: string;
+  pathScope: string;
   onClearScope: () => void;
+  onClearPathScope: () => void;
   height: number;
   onResize: (h: number) => void;
   /** The panel folds to its toolbar so the editor gets the whole window. */
@@ -376,6 +384,13 @@ export function LogDock({
               <button className="log-scope" title={t("clearScope")} onClick={onClearScope}>
                 <Icon name="branch" size={11} />
                 <span>{t("scope", { branch: scope })}</span>
+                <Icon name="close" size={11} />
+              </button>
+            )}
+            {pathScope && (
+              <button className="log-scope" title={t("clearPathScope")} onClick={onClearPathScope}>
+                <Icon name="file" size={11} />
+                <span>{t("pathScope", { path: pathScope })}</span>
                 <Icon name="close" size={11} />
               </button>
             )}
