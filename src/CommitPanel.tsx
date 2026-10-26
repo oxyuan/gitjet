@@ -418,7 +418,7 @@ export function CommitPanel({
           <Icon name={isActive ? "check" : "list"} />,
           list.length,
           list.length === 0 ? (
-            <div className="empty-section">No changes</div>
+            entries.length === 0 ? null : <div className="empty-section">No changes</div>
           ) : (
             buildTree(list).map((n) => renderRow(n, 1))
           ),
