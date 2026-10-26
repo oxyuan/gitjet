@@ -3,6 +3,9 @@ import { buildChangeTree, treeFiles, treeTotals, type TreeNode, type TreeFile } 
 import { Icon } from "./icons";
 import { cx } from "./ui";
 
+/** Folder grouping, or the same files as one flat list, newest first. */
+export type ChangeView = "tree" | "flat";
+
 /** A changed file as the tree needs it: a path and its line counts. */
 export interface ListedFile extends TreeFile {
   additions: number;
@@ -19,6 +22,7 @@ export interface ListedFile extends TreeFile {
  */
 export function FileTree<T extends ListedFile>({
   files,
+  view = "tree",
   expanded,
   onToggleDir,
   renderFile,
@@ -27,20 +31,28 @@ export function FileTree<T extends ListedFile>({
   step = 12,
 }: {
   files: T[];
+  /** "tree" groups by directory, "flat" lists every file by path. */
+  view?: ChangeView;
   expanded: ReadonlySet<string>;
   onToggleDir: (key: string) => void;
-  renderFile: (file: T, depth: number) => ReactNode;
+  renderFile: (file: T, depth: number, flat: boolean) => ReactNode;
   /** Extra controls shown before the folder icon of a directory row. */
   renderDirLead?: (node: TreeNode<T>) => ReactNode;
   indent?: number;
   step?: number;
 }) {
+  if (view === "flat") {
+    const ordered = [...files].sort((a, b) =>
+      a.path.localeCompare(b.path, undefined, { sensitivity: "base" }),
+    );
+    return <>{ordered.map((file) => <div key={"f:" + file.path}>{renderFile(file, 0, true)}</div>)}</>;
+  }
   const nodes = buildChangeTree(files);
   return <>{nodes.map((node) => renderNode(node, 0))}</>;
 
   function renderNode(node: TreeNode<T>, depth: number): ReactNode {
     if (!node.isDir) {
-      return <div key={"f:" + node.path}>{renderFile(node.file, depth)}</div>;
+      return <div key={"f:" + node.path}>{renderFile(node.file, depth, false)}</div>;
     }
     const open = expanded.has(node.path);
     const totals = treeTotals(node, (file) => file);

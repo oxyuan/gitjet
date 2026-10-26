@@ -1,6 +1,6 @@
 import { useMemo, useState } from "react";
 import { buildChangeTree, directoryKeys, splitTracked, treeFiles } from "./changes";
-import { FileTree } from "./FileTree";
+import { FileTree, type ChangeView } from "./FileTree";
 import { count, useT } from "./i18n";
 import type { Changelist, ChangesSnapshot, Settings } from "./mygo";
 import { Icon } from "./icons";
@@ -41,6 +41,10 @@ const T = {
     untrackedFiles: "Unversioned Files",
     changedOne: "1 file",
     changedOther: "{n} files",
+    viewTree: "Group by folder",
+    viewFlat: "Plain file list",
+    showStagedSection: "Show staged changes",
+    hideStagedSection: "Hide staged changes",
     noChanges: "No changes",
     refresh: "Refresh",
     stageSelected: "Stage selected",
@@ -106,6 +110,10 @@ const T = {
     untrackedFiles: "未进行版本管理的文件",
     changedOne: "1 个文件",
     changedOther: "{n} 个文件",
+    viewTree: "按目录分组",
+    viewFlat: "平铺文件列表",
+    showStagedSection: "显示已暂存的更改",
+    hideStagedSection: "隐藏已暂存的更改",
     noChanges: "无更改",
     refresh: "刷新",
     stageSelected: "暂存选中项",
@@ -243,7 +251,15 @@ export function CommitPanel({
   actions,
   busy,
   history,
+  viewMode,
+  onViewMode,
+  showStaged,
+  onToggleStaged,
 }: {
+  viewMode: ChangeView;
+  onViewMode: (view: ChangeView) => void;
+  showStaged: boolean;
+  onToggleStaged: () => void;
   snapshot: ChangesSnapshot;
   settings: Settings;
   checked: Set<string>;
@@ -390,7 +406,7 @@ export function CommitPanel({
     );
   };
 
-  const renderFileRow = (entry: FileEntry, depth: number) => {
+  const renderFileRow = (entry: FileEntry, depth: number, flat: boolean) => {
     const isSelected = selected.has(entry.path);
     return (
       <div
@@ -412,7 +428,12 @@ export function CommitPanel({
         )}
         {entry.staged && <span className="staged-dot" title={t("staged")} />}
         <StatusMark kind={entry.kind} staged={entry.staged} />
-        <span className="tree-name">{entry.path.slice(entry.path.lastIndexOf("/") + 1)}</span>
+        <span className="tree-name">
+          {flat && entry.path.includes("/") && (
+            <span className="file-dir">{entry.path.slice(0, entry.path.lastIndexOf("/") + 1)}</span>
+          )}
+          {entry.path.slice(entry.path.lastIndexOf("/") + 1)}
+        </span>
         <span className="tree-stats">
           {entry.additions > 0 && <span className="add-count">+{entry.additions}</span>}
           {entry.deletions > 0 && <span className="del-count">−{entry.deletions}</span>}
@@ -424,6 +445,7 @@ export function CommitPanel({
   const renderList = (files: FileEntry[], indent = 6) => (
     <FileTree
       files={files}
+      view={viewMode}
       expanded={expanded}
       onToggleDir={toggleDir}
       renderFile={renderFileRow}
@@ -559,7 +581,8 @@ export function CommitPanel({
     );
   });
 
-  const canCommit = uniqueChecked.length > 0 || form.amend || [...checked].length > 0;
+  // Staged files are committed whether or not their section is on screen.
+  const canCommit = uniqueChecked.length > 0 || staged.length > 0 || form.amend || [...checked].length > 0;
 
   return (
     <div className="commit-panel">
@@ -617,6 +640,17 @@ export function CommitPanel({
           disabled={entries.length === 0}
         />
         <IconButton
+          icon={viewMode === "tree" ? "list" : "folder"}
+          title={viewMode === "tree" ? t("viewFlat") : t("viewTree")}
+          onClick={() => onViewMode(viewMode === "tree" ? "flat" : "tree")}
+        />
+        <IconButton
+          icon="stage"
+          title={showStaged ? t("hideStagedSection") : t("showStagedSection")}
+          active={showStaged}
+          onClick={onToggleStaged}
+        />
+        <IconButton
           icon="expand"
           title={t("expandAll")}
           onClick={() => {
@@ -640,7 +674,7 @@ export function CommitPanel({
       </div>
 
       <div className="changes-scroll">
-        {staged.length > 0 &&
+        {showStaged && staged.length > 0 &&
           section(
             "staged",
             t("stagedChanges"),

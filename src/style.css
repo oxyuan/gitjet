@@ -1053,19 +1053,16 @@ body.resizing-row * {
   display: flex;
   align-items: baseline;
   gap: 6px;
-  padding: 5px 8px 3px 10px;
-  color: var(--muted);
-  font-size: 10.5px;
+  padding: 7px 8px 3px 10px;
+  color: var(--fg-soft);
+  font-size: 11.5px;
   font-weight: 600;
-  text-transform: uppercase;
-  letter-spacing: 0.03em;
 }
 
 .subgroup-count {
   color: var(--muted-2);
   font-weight: 500;
-  text-transform: none;
-  letter-spacing: 0;
+  font-size: 10.5px;
 }
 
 .tree-count {
@@ -1431,6 +1428,32 @@ body.resizing-row * {
 }
 
 /* A merge point is a ring: the commit itself stays the strong mark. */
+/* A branch whose next commit is far below stays visible but quiet, so old
+   history is not crossed by a dozen equally loud lines. */
+.graph .faint {
+  opacity: 0.3;
+}
+
+/* A merge joins two lines; the commit itself is what the eye should catch. */
+.log-row.merge .log-hash,
+.log-row.merge .log-subject,
+.log-row.merge .log-author,
+.log-row.merge .log-time {
+  color: var(--muted-2);
+}
+
+.log-row.merge .log-refs {
+  opacity: 0.65;
+}
+
+.log-row.merge .graph {
+  opacity: 0.6;
+}
+
+.log-row.merge.selected .log-subject {
+  color: var(--fg-soft);
+}
+
 .graph .graph-dot.merge {
   fill: var(--panel);
   opacity: 0.62;
@@ -4239,8 +4262,7 @@ kbd {
   gap: 9px;
   padding: 12px;
   border-top: 1px solid var(--border);
-  background: var(--panel-raised);
-  box-shadow: 0 -12px 32px rgba(10, 15, 30, 0.035);
+  background: var(--panel);
 }
 
 .commit-message {
@@ -4249,14 +4271,22 @@ kbd {
   padding: 10px 30px 10px 11px;
   border: 1px solid var(--border);
   border-radius: 10px;
-  background: var(--input-bg);
+  /* Quiet until it is the thing being used. */
+  background: transparent;
+  color: var(--fg-soft);
   font-size: 12.5px;
   line-height: 1.55;
-  transition: border-color 120ms ease, box-shadow 120ms ease;
+  transition: border-color 120ms ease, box-shadow 120ms ease, background 120ms ease;
+}
+
+.commit-message:hover {
+  border-color: var(--border-strong);
 }
 
 .commit-message:focus {
   border-color: var(--accent);
+  background: var(--input-bg);
+  color: var(--fg);
   box-shadow: 0 0 0 3px var(--accent-soft);
 }
 

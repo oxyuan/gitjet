@@ -39,7 +39,7 @@ import {
 import { Icon } from "./icons";
 import { LangProvider, count, resolveLang, useT, type Lang } from "./i18n";
 import { LogDock } from "./LogDock";
-import { FileTree } from "./FileTree";
+import { FileTree, type ChangeView } from "./FileTree";
 import { BranchList } from "./BranchList";
 import type { AuthorOption } from "./AuthorPicker";
 import { OperationDock, type OperationState } from "./OperationDock";
@@ -490,6 +490,9 @@ function AppShell({ onLangChange }: { onLangChange: (lang: Lang) => void }) {
   const [logDockHeight, setLogDockHeight] = useStoredState<number>("gitjet.logDock", 300);
   const [logInfoRatio, setLogInfoRatio] = useStoredState<number>("gitjet.logInfoRatio", 0.52);
   const [logDockFolded, setLogDockFolded] = useStoredState<boolean>("gitjet.logDockFolded", false);
+  // One switch for both places changed files are listed.
+  const [changeView, setChangeView] = useStoredState<ChangeView>("gitjet.changeView", "tree");
+  const [showStaged, setShowStaged] = useStoredState<boolean>("gitjet.showStaged", false);
   const [logPath, setLogPath] = useState("");
   // Branch whose history is listed; "" follows the checked out branch.
   const [logRef, setLogRef] = useState("");
@@ -1710,6 +1713,10 @@ function AppShell({ onLangChange }: { onLangChange: (lang: Lang) => void }) {
                   actions={actions}
                   busy={busy > 0}
                   history={history}
+              viewMode={changeView}
+              onViewMode={setChangeView}
+              showStaged={showStaged}
+              onToggleStaged={() => setShowStaged(!showStaged)}
                 />
               ) : (
                 <NoRepo onOpen={() => void openRepo()} />
@@ -1835,6 +1842,8 @@ function AppShell({ onLangChange }: { onLangChange: (lang: Lang) => void }) {
             scope={logRef}
             onClearScope={() => setLogRef("")}
             height={logDockHeight}
+            viewMode={changeView}
+            onViewMode={setChangeView}
             infoRatio={logInfoRatio}
             onInfoResize={setLogInfoRatio}
             collapsed={logDockFolded}

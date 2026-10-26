@@ -15,7 +15,7 @@ import {
   type ContextItem,
 } from "./ui";
 import { AuthorPicker, type AuthorOption } from "./AuthorPicker";
-import { FileTree } from "./FileTree";
+import { FileTree, type ChangeView } from "./FileTree";
 
 const T = {
   en: {
@@ -55,6 +55,8 @@ const T = {
     mergeParents: "Merge",
     collapsePanel: "Hide the history panel",
     expandPanel: "Show the history panel",
+    viewTree: "Group by folder",
+    viewFlat: "Plain file list",
   },
   zh: {
     title: "历史",
@@ -93,6 +95,8 @@ const T = {
     mergeParents: "合并",
     collapsePanel: "收起历史面板",
     expandPanel: "展开历史面板",
+    viewTree: "按目录分组",
+    viewFlat: "平铺文件列表",
   },
 } as const;
 
@@ -115,6 +119,8 @@ export function LogDock({
   onResize,
   collapsed,
   onToggleCollapsed,
+  viewMode,
+  onViewMode,
   infoRatio,
   onInfoResize,
   onSelect,
@@ -152,6 +158,9 @@ export function LogDock({
   /** The panel folds to its toolbar so the editor gets the whole window. */
   collapsed: boolean;
   onToggleCollapsed: () => void;
+  /** How the changed files of the commit are listed. */
+  viewMode: ChangeView;
+  onViewMode: (view: ChangeView) => void;
   /** Share of the details pane taken by the commit information block. */
   infoRatio: number;
   onInfoResize: (ratio: number) => void;
@@ -346,7 +355,11 @@ export function LogDock({
                   key={commit.hash}
                   role="option"
                   aria-selected={selected === commit.hash}
-                  className={cx("log-row", selected === commit.hash && "selected")}
+                  className={cx(
+                    "log-row",
+                    commit.parents.length > 1 && "merge",
+                    selected === commit.hash && "selected",
+                  )}
                   onClick={() => onSelect(commit)}
                   onContextMenu={(e) => {
                     e.preventDefault();
@@ -362,7 +375,7 @@ export function LogDock({
                           y1={0}
                           x2={10 + lane * 14}
                           y2={ROW}
-                          className={`lane-${lane % 6}`}
+                          className={cx(`lane-${lane % 6}`, row.faint[lane] && "faint")}
                         />
                       ) : null,
                     )}
@@ -372,7 +385,7 @@ export function LogDock({
                         y1={0}
                         x2={10 + row.lane * 14}
                         y2={MID}
-                        className={`lane-${row.lane % 6}`}
+                        className={cx(`lane-${row.lane % 6}`, row.faint[row.lane] && "faint")}
                       />
                     )}
                     {row.edges.map((target, e) => (
@@ -383,7 +396,7 @@ export function LogDock({
                             ? `M ${10 + row.lane * 14} ${MID} L ${10 + row.lane * 14} ${ROW}`
                             : `M ${10 + row.lane * 14} ${MID} C ${10 + row.lane * 14} ${MID + 12}, ${10 + target * 14} ${ROW - 12}, ${10 + target * 14} ${ROW}`
                         }
-                        className={`lane-${target % 6}`}
+                        className={cx(`lane-${target % 6}`, row.faint[target] && "faint")}
                       />
                     ))}
                     <circle
@@ -440,6 +453,14 @@ export function LogDock({
             <>
               <div className="log-detail-files">
                 <div className="log-detail-files-head">
+                  <button
+                    className="toolbar-text-btn"
+                    title={viewMode === "tree" ? t("viewFlat") : t("viewTree")}
+                    onClick={() => onViewMode(viewMode === "tree" ? "flat" : "tree")}
+                  >
+                    <Icon name={viewMode === "tree" ? "list" : "folder"} size={12} />
+                  </button>
+                  <span className="spacer" />
                   <span className="details-stats">
                     {count(detail.stats.files, t("filesChangedOne"), t("filesChangedOther", { n: detail.stats.files }))}
                     {detail.stats.additions > 0 && <span className="add-count"> +{detail.stats.additions}</span>}
@@ -449,6 +470,7 @@ export function LogDock({
                 <div className="log-detail-files-list">
                   <FileTree
                     files={detail.files}
+                    view={viewMode}
                     expanded={fileDirs}
                     onToggleDir={(key) =>
                       setFileDirs((prev) => {
@@ -459,7 +481,7 @@ export function LogDock({
                       })
                     }
                     indent={8}
-                    renderFile={(file, depth) => (
+                    renderFile={(file, depth, flat) => (
                       <div
                         ref={selectedFile === file.path ? fileRowRef : undefined}
                         style={{ marginLeft: depth * 12 }}
@@ -469,6 +491,9 @@ export function LogDock({
                       >
                       <StatusMark kind={file.status} />
                       <span className="details-file-path">
+                        {flat && file.path.includes("/") && (
+                          <span className="file-dir">{file.path.slice(0, file.path.lastIndexOf("/") + 1)}</span>
+                        )}
                         <span className="file-base">{file.path.slice(file.path.lastIndexOf("/") + 1)}</span>
                       </span>
                       <button

@@ -12,22 +12,39 @@ export interface GraphRow {
   edges: number[];
   /** Colour index of the commit's lane. */
   color: number;
+  /** Per lane: its commit is far below, so the line is drawn faint. */
+  faint: boolean[];
 }
 
 const LANE_COLORS = 6;
+/** Branches beyond this many run in the last lane instead of a new one. */
+const MAX_LANES = 8;
+/** A lane whose next commit is further away than this is drawn faint. */
+const FAINT_ROWS = 12;
 
 /**
  * computeGraph lays commits out in lanes: each commit stays on its lane,
  * its first parent continues straight down, and additional parents branch
  * into free lanes. The log must be in topological order, which
  * `git log --topo-order` provides.
+ *
+ * A parent that is not among the given commits (an older page, or the root)
+ * gets an edge but no lane, so a line never runs on past the history that is
+ * actually shown.
  */
 export function computeGraph(commits: Commit[]): GraphRow[] {
   const lanes: (string | null)[] = [];
   const rows: GraphRow[] = [];
+  const present = new Set(commits.map((commit) => commit.hash));
+  // Where each commit sits, to fade lanes whose commit is far down the page.
+  const at = new Map<string, number>();
+  commits.forEach((commit, index) => {
+    if (!at.has(commit.hash)) at.set(commit.hash, index);
+  });
   const firstFree = () => {
-    const i = lanes.indexOf(null);
-    return i === -1 ? lanes.length : i;
+    const free = lanes.indexOf(null);
+    if (free !== -1) return free;
+    return Math.min(lanes.length, MAX_LANES - 1);
   };
 
   for (const commit of commits) {
@@ -49,7 +66,9 @@ export function computeGraph(commits: Commit[]): GraphRow[] {
       if (target === -1) {
         target = i === 0 ? lane : firstFree();
         while (lanes.length <= target) lanes.push(null);
-        lanes[target] = parent;
+        // Without a lane to continue, the edge still shows where the commit
+        // came from, but nothing is drawn below this row.
+        lanes[target] = present.has(parent) ? parent : null;
       }
       edges.push(target);
     }
@@ -60,6 +79,7 @@ export function computeGraph(commits: Commit[]): GraphRow[] {
       after: lanes.slice(),
       edges,
       color: lane % LANE_COLORS,
+      faint: before.map((hash) => hash !== null && (at.get(hash) ?? 0) - rows.length > FAINT_ROWS),
     });
   }
   return rows;
