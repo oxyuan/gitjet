@@ -67,6 +67,8 @@ const T = {
     popStash: "Pop stash",
     applyStash: "Apply stash",
     dropStash: "Drop stash",
+    resolveAll: "Resolve conflicts…",
+    stashDetail: "Show the stash contents",
     pop: "Pop",
     apply: "Apply",
     drop: "Drop",
@@ -139,6 +141,8 @@ const T = {
     popStash: "弹出贮藏",
     applyStash: "应用贮藏",
     dropStash: "删除贮藏",
+    resolveAll: "解决冲突…",
+    stashDetail: "查看贮藏内容",
     pop: "弹出",
     apply: "应用",
     drop: "删除",
@@ -206,7 +210,8 @@ export interface CommitActions {
   onToggleAmend: (amend: boolean) => void;
   onCommitFormChange: (form: CommitForm) => void;
   onRequestPush: () => void;
-  onShowStash: (index: number) => void;
+  onShowStashDetail: (index: number) => void;
+  onResolveConflicts: () => void;
   onStashPush: () => void;
   onStashApply: (index: number, pop: boolean) => void;
   onStashDrop: (index: number) => void;
@@ -722,6 +727,12 @@ export function CommitPanel({
             <Icon name="warning" />,
             conflicts.length,
             renderList(conflicts),
+            <IconButton
+              icon="merge"
+              title={t("resolveAll")}
+              small
+              onClick={actions.onResolveConflicts}
+            />,
           )}
         {changelistNodes}
         {showStashes && snapshot.stashes.length > 0 && (
@@ -737,8 +748,8 @@ export function CommitPanel({
               <div
                 className="tree-row stash-row"
                 key={s.ref}
-                onDoubleClick={() => actions.onShowStash(s.index)}
-                title={s.message}
+                onDoubleClick={() => actions.onShowStashDetail(s.index)}
+                title={t("stashDetail")}
               >
                 <span className="stash-ref">stash@{"{" + s.index + "}"}</span>
                 <span className="tree-name">{s.message}</span>

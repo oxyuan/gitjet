@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
-import { Git, type RepoFile } from "./mygo";
+import { Git, type Commit, type RepoFile } from "./mygo";
 import { Icon } from "./icons";
 import { count, useT } from "./i18n";
 import { cx, Spinner } from "./ui";
@@ -15,6 +15,9 @@ const T = {
     open: "open",
     fileCountOne: "{n} file",
     fileCountOther: "{n} files",
+    commits: "commits",
+    commitResultOne: "{n} commit",
+    commitResultOther: "{n} commits",
   },
   zh: {
     label: "快速打开文件",
@@ -25,19 +28,25 @@ const T = {
     open: "打开",
     fileCountOne: "{n} 个文件",
     fileCountOther: "{n} 个文件",
+    commits: "提交",
+    commitResultOne: "{n} 个提交",
+    commitResultOther: "{n} 个提交",
   },
 } as const;
 
 export function QuickOpen({
   onClose,
   onOpen,
+  onOpenCommit,
 }: {
   onClose: () => void;
   onOpen: (path: string) => void;
+  onOpenCommit: (hash: string) => void;
 }) {
   const t = useT(T);
   const [query, setQuery] = useState("");
   const [files, setFiles] = useState<RepoFile[]>([]);
+  const [commits, setCommits] = useState<Commit[]>([]);
   const [index, setIndex] = useState(0);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
@@ -47,17 +56,38 @@ export function QuickOpen({
   useEffect(() => {
     const id = ++req.current;
     setLoading(true);
+    const term = query.trim();
     const timer = window.setTimeout(() => {
-      Git.files(query)
-        .then((list) => {
+      const filesRequest = Git.files(query);
+      // Commits join the results once the query is specific enough to mean
+      // something as a message or author search.
+      const commitsRequest =
+        term.length >= 2
+          ? Git.log({
+              all: true,
+              refs: [],
+              path: "",
+              search: term,
+              author: "",
+              since: 0,
+              limit: 6,
+              skip: 0,
+              firstParent: false,
+            })
+          : Promise.resolve(null);
+      Promise.allSettled([filesRequest, commitsRequest])
+        .then(([fileResult, commitResult]) => {
           if (id !== req.current) return;
-          setFiles(list);
+          if (fileResult.status === "fulfilled") {
+            setFiles(fileResult.value);
+            setError("");
+          } else {
+            setError(fileResult.reason instanceof Error ? fileResult.reason.message : String(fileResult.reason));
+          }
+          const found =
+            commitResult.status === "fulfilled" && commitResult.value ? commitResult.value.commits : [];
+          setCommits(found);
           setIndex(0);
-          setError("");
-        })
-        .catch((err) => {
-          if (id !== req.current) return;
-          setError(err instanceof Error ? err.message : String(err));
         })
         .finally(() => {
           if (id === req.current) setLoading(false);
@@ -71,9 +101,15 @@ export function QuickOpen({
     el?.scrollIntoView({ block: "nearest" });
   }, [index, files]);
 
-  const choose = (file: RepoFile | undefined) => {
-    if (!file) return;
-    onOpen(file.path);
+  const rows: ({ kind: "commit"; commit: Commit } | { kind: "file"; file: RepoFile })[] = [
+    ...commits.map((commit) => ({ kind: "commit" as const, commit })),
+    ...files.map((file) => ({ kind: "file" as const, file })),
+  ];
+
+  const choose = (row: (typeof rows)[number] | undefined) => {
+    if (!row) return;
+    if (row.kind === "commit") onOpenCommit(row.commit.hash);
+    else onOpen(row.file.path);
     onClose();
   };
 
@@ -93,13 +129,13 @@ export function QuickOpen({
                 onClose();
               } else if (e.key === "ArrowDown") {
                 e.preventDefault();
-                setIndex((i) => Math.min(files.length - 1, i + 1));
+                setIndex((i) => Math.min(rows.length - 1, i + 1));
               } else if (e.key === "ArrowUp") {
                 e.preventDefault();
                 setIndex((i) => Math.max(0, i - 1));
               } else if (e.key === "Enter") {
                 e.preventDefault();
-                choose(files[index]);
+                choose(rows[index]);
               }
             }}
           />
@@ -108,19 +144,37 @@ export function QuickOpen({
         </div>
         <div className="quick-list" ref={listRef}>
           {error && <div className="quick-empty">{error}</div>}
-          {!error && files.length === 0 && !loading && (
+          {!error && rows.length === 0 && !loading && (
             <div className="quick-empty">{t("noMatch", { query })}</div>
           )}
-          {files.map((file, i) => {
+          {rows.map((row, i) => {
+            if (row.kind === "commit") {
+              const commit = row.commit;
+              return (
+                <button
+                  key={`commit:${commit.hash}`}
+                  className={cx("quick-item", i === index && "active")}
+                  onMouseEnter={() => setIndex(i)}
+                  onClick={() => choose(row)}
+                  title={commit.message}
+                >
+                  <Icon name="commit" size={14} />
+                  <span className="quick-dir">{commit.short}</span>
+                  <span className="quick-name">{commit.subject}</span>
+                  <span className="quick-badge">{commit.author}</span>
+                </button>
+              );
+            }
+            const file = row.file;
             const slash = file.path.lastIndexOf("/");
             const dir = slash >= 0 ? file.path.slice(0, slash + 1) : "";
             const name = file.path.slice(slash + 1);
             return (
               <button
-                key={file.path}
+                key={`file:${file.path}`}
                 className={cx("quick-item", i === index && "active")}
                 onMouseEnter={() => setIndex(i)}
-                onClick={() => choose(file)}
+                onClick={() => choose(row)}
                 title={file.path}
               >
                 <Icon name="file" size={14} />
@@ -141,6 +195,12 @@ export function QuickOpen({
               t("fileCountOne", { n: files.length }),
               t("fileCountOther", { n: files.length }),
             )}
+            {commits.length > 0 &&
+              ` · ${count(
+                commits.length,
+                t("commitResultOne", { n: commits.length }),
+                t("commitResultOther", { n: commits.length }),
+              )}`}
           </span>
         </div>
       </div>

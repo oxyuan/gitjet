@@ -14,6 +14,7 @@ import {
   type FetchOptions,
   type FileDiff,
   type LogResult,
+  type PlanStep,
   type PushOptions,
   type RefsSnapshot,
   type Remote,
@@ -34,8 +35,14 @@ import {
   ResetDialog,
   SettingsDialog,
   StashDialog,
+  StashDetailDialog,
+  CompareDialog,
   TagDialog,
+  CleanupBranchesDialog,
+  ConflictSummaryDialog,
 } from "./Dialogs";
+import { EditHistoryDialog } from "./EditHistoryDialog";
+import { RepoExtrasDialog } from "./RepoExtrasDialog";
 import { Icon } from "./icons";
 import { LangProvider, count, resolveLang, useT, type Lang } from "./i18n";
 import { LogDock } from "./LogDock";
@@ -107,7 +114,6 @@ const T = {
     showDiffFailed: "Could not show the diff",
     openFileFailed: "Could not open the file",
     openConflictFailed: "Could not open the conflict",
-    readStash: "Could not read the stash",
     annotateFailed: "Could not annotate the file",
     copyFailed: "Could not copy",
     gitFailed: "Git command failed",
@@ -117,7 +123,6 @@ const T = {
     lastCommitMessage: "Could not read the last commit message",
     done: "Done",
     conflictDoc: "Conflict: {path}",
-    stashDoc: "Stash: {subject}",
     annotationsDoc: "Annotations: {path}",
     closeRepoTitle: "Close Repository",
     closeRepoMessage: "Close this repository and return to the welcome screen?",
@@ -156,6 +161,7 @@ const T = {
     revertTitle: "Revert Commit",
     revertMessage: "Create a commit that undoes {hash}?",
     revert: "Revert",
+    revertManyMessage: "Create commits that undo these {n} commits?",
     dropStashTitle: "Drop Stash",
     dropStashMessage: "Delete stash@{index}?",
     drop: "Drop",
@@ -224,6 +230,18 @@ const T = {
     showFileHistory: "Show file history",
     title: "{name} – GitJet",
     repoFallback: "Repository",
+    rewriteTitle: "Editing history",
+    rewriteFinished: "History rewritten",
+    rewriteRoot: "The root commit cannot be rewritten",
+    resolveConflicts: "Resolve Conflicts…",
+    cleanupDone: "Deleted {n} branches",
+    cleanupMenu: "Clean Up Branches…",
+    repoTools: "Repository Tools…",
+    worktreesMenu: "Worktrees…",
+    submodulesMenu: "Submodules…",
+    stashRestored: "The stash was restored on {branch}",
+    readStashFiles: "Reading the stash failed",
+    openNewWindow: "Opening a window failed",
   },
   zh: {
     starting: "正在启动 GitJet",
@@ -271,7 +289,6 @@ const T = {
     showDiffFailed: "无法显示差异",
     openFileFailed: "无法打开文件",
     openConflictFailed: "无法打开冲突文件",
-    readStash: "无法读取贮藏",
     annotateFailed: "无法查看文件注解",
     copyFailed: "无法复制",
     gitFailed: "Git 命令失败",
@@ -281,7 +298,6 @@ const T = {
     lastCommitMessage: "无法读取上一条提交信息",
     done: "完成",
     conflictDoc: "冲突：{path}",
-    stashDoc: "贮藏：{subject}",
     annotationsDoc: "注解：{path}",
     closeRepoTitle: "关闭仓库",
     closeRepoMessage: "关闭此仓库并返回欢迎界面？",
@@ -320,6 +336,7 @@ const T = {
     revertTitle: "还原提交",
     revertMessage: "创建一个撤销 {hash} 的提交？",
     revert: "还原",
+    revertManyMessage: "创建 {n} 个提交来撤销这些提交？",
     dropStashTitle: "删除贮藏",
     dropStashMessage: "删除 stash@{index}？",
     drop: "删除",
@@ -387,6 +404,18 @@ const T = {
     showFileHistory: "查看文件历史",
     title: "{name} – GitJet",
     repoFallback: "仓库",
+    rewriteTitle: "正在编辑历史",
+    rewriteFinished: "历史已重写",
+    rewriteRoot: "根提交无法重写",
+    resolveConflicts: "解决冲突…",
+    cleanupDone: "已删除 {n} 个分支",
+    cleanupMenu: "清理分支…",
+    repoTools: "仓库工具…",
+    worktreesMenu: "工作树…",
+    submodulesMenu: "子模块…",
+    stashRestored: "贮藏已恢复到分支 {branch}",
+    readStashFiles: "读取贮藏内容失败",
+    openNewWindow: "打开新窗口失败",
   },
 } as const;
 
@@ -415,7 +444,13 @@ type Dialog =
   | { kind: "tag"; start: string }
   | { kind: "stash" }
   | { kind: "changelist"; mode: "new" | "rename"; id?: string; name?: string; comment?: string }
-  | { kind: "merge"; refs: string[] };
+  | { kind: "merge"; refs: string[] }
+  | { kind: "editHistory"; onto: string }
+  | { kind: "stashDetail"; index: number; refName: string }
+  | { kind: "repoTools"; tab: "worktrees" | "submodules" | "lfs" }
+  | { kind: "cleanupBranches" }
+  | { kind: "conflicts" }
+  | { kind: "compare"; ref: string };
 
 interface ConfirmState {
   title: string;
@@ -1021,15 +1056,6 @@ function AppShell({ onLangChange }: { onLangChange: (lang: Lang) => void }) {
     if (remaining[0]) void openConflict(remaining[0].path);
   };
 
-  const openStash = async (index: number) => {
-    try {
-      const detail = await Git.showCommit(`stash@{${index}}`);
-      openDoc({ id: `commit:${detail.hash}`, title: t("stashDoc", { subject: detail.subject }), kind: "commit", detail });
-    } catch (err) {
-      fail(t("readStash"), err);
-    }
-  };
-
   const openBlame = async (path: string) => {
     try {
       const data = await Git.blame(path);
@@ -1220,17 +1246,47 @@ function AppShell({ onLangChange }: { onLangChange: (lang: Lang) => void }) {
         update({});
       }
       const out = await promise;
-      const first = out
-        .split("\n")
-        .map((l) => l.trim())
-        .filter(Boolean)
-        .pop();
-      update({ running: false, success: first || t("done") });
+      const tail = out.split("\n").map((l) => l.trim()).filter(Boolean);
+      const commands = tail.filter((l) => l.startsWith("$ "));
+      if (commands.length > 0) {
+        opLines.current.push(...commands);
+      }
+      // The collapsed dock shows the command the operation ran, so the
+      // user can see (and copy from the expanded log) what git was asked.
+      const command = commands[commands.length - 1];
+      const first = [...tail].reverse().find((l) => !l.startsWith("$ "));
+      update({ running: false, success: command ?? (first || t("done")) });
     } catch (err) {
       update({ running: false, error: err instanceof Error ? err.message : String(err) });
     }
     await reload(false);
     void loadLog(true);
+  };
+
+  // runQuiet shows the output of a quick operation, including the git
+  // commands it ran, in the same dock the streaming operations use.
+  const runQuiet = async (title: string, icon: OperationState["icon"], fn: () => Promise<string>): Promise<boolean> => {
+    opLines.current = [];
+    setOp({ title, icon, lines: [], running: true });
+    setOpOpen(false);
+    try {
+      const out = await fn();
+      const lines = out.split("\n").map((l) => l.trim()).filter(Boolean);
+      opLines.current = lines;
+      const command = [...lines].reverse().find((l) => l.startsWith("$ "));
+      setOp((prev) => (prev ? { ...prev, running: false, lines, success: command ?? t("done") } : prev));
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      opLines.current = [message];
+      setOp((prev) => (prev ? { ...prev, running: false, lines: [message], error: message } : prev));
+      notify("error", title, message);
+      await reload(false);
+      void loadLog(true);
+      return false;
+    }
+    await reload(false);
+    void loadLog(true);
+    return true;
   };
 
   const push = async (opts: PushOptions) => {
@@ -1382,9 +1438,10 @@ function AppShell({ onLangChange }: { onLangChange: (lang: Lang) => void }) {
     });
   };
 
-  const cherryPick = async (hash: string) => {
+  const cherryPick = async (hashes: string[]) => {
+    if (hashes.length === 0) return;
     await withBusy(async () => {
-      const out = await Git.cherryPick(hash, false);
+      const out = await Git.cherryPick(hashes, false);
       notify("success", t("cherryPicked"), out.split("\n")[0]);
       await reload(false);
       openNextConflict();
@@ -1392,19 +1449,117 @@ function AppShell({ onLangChange }: { onLangChange: (lang: Lang) => void }) {
     });
   };
 
-  const revert = async (hash: string) => {
+  const revert = async (hashes: string[]) => {
+    if (hashes.length === 0) return;
     const ok = await ask({
       title: t("revertTitle"),
-      message: t("revertMessage", { hash: hash.slice(0, 8) }),
+      message:
+        hashes.length === 1
+          ? t("revertMessage", { hash: hashes[0]!.slice(0, 8) })
+          : t("revertManyMessage", { n: hashes.length }),
       confirmLabel: t("revert"),
     });
     if (!ok) return;
     await withBusy(async () => {
-      await Git.revert(hash);
-      notify("success", t("reverted"), hash.slice(0, 8));
+      await Git.revert(hashes);
+      notify("success", t("reverted"), hashes.map((h) => h.slice(0, 8)).join(", "));
       await reload(false);
       openNextConflict();
       void loadLog(true);
+    });
+  };
+
+  // Rewriting starts at the oldest chosen commit: the plan covers it up to
+  // HEAD, so nothing above the dialog's range is left out.
+  const rewriteFrom = (oldest: Commit) => {
+    const parent = oldest.parents[0];
+    if (!parent) {
+      notify("error", t("rewriteRoot"));
+      return;
+    }
+    setDialog({ kind: "editHistory", onto: parent });
+  };
+
+  const applyRewrite = (onto: string, steps: PlanStep[]) => {
+    setDialog(null);
+    void runQuiet(t("rewriteTitle"), "commit", () => Git.rewrite(onto, steps)).then((ok) => {
+      if (ok) notify("success", t("rewriteFinished"));
+      openNextConflict();
+    });
+  };
+
+  const openCompareFile = async (ref: string, path: string) => {
+    try {
+      const opts: DiffOptions = {
+        path,
+        target: "range",
+        from: ref,
+        revision: "HEAD",
+        context: settingsRef.current?.diffContext ?? 3,
+        ignoreWhitespace: false,
+        ignoreWhitespaceEol: false,
+        noText: false,
+      };
+      const diff = await Git.diff(opts);
+      openDoc({ id: `diff:compare:${ref}:${path}`, title: path, kind: "diff", diff, opts });
+    } catch (err) {
+      fail(t("gitFailed"), err);
+    }
+  };
+
+  const stashBranch = async (index: number, branch: string) => {
+    setDialog(null);
+    await withBusy(async () => {
+      await Git.stashToBranch(index, branch);
+      notify("success", t("stashRestored", { branch }));
+      await reload(false);
+      void loadLog(true);
+    });
+  };
+
+  const openStashDiff = async (index: number, path: string) => {
+    try {
+      const opts: DiffOptions = {
+        path,
+        target: "range",
+        from: `stash@{${index}}^`,
+        revision: `stash@{${index}}`,
+        context: settingsRef.current?.diffContext ?? 3,
+        ignoreWhitespace: false,
+        ignoreWhitespaceEol: false,
+        noText: false,
+      };
+      const diff = await Git.diff(opts);
+      openDoc({ id: `diff:${path}:stash${index}`, title: path, kind: "diff", diff, opts });
+    } catch (err) {
+      fail(t("readStashFiles"), err);
+    }
+  };
+
+  const deleteCleanupBranches = async (names: string[]) => {
+    setDialog(null);
+    await withBusy(async () => {
+      const deleted = await Git.deleteBranches(names, true);
+      notify("success", t("cleanupDone", { n: deleted }));
+      await reload(false);
+      void loadLog(true);
+    });
+  };
+
+  const takeSideAll = async (paths: string[], side: "ours" | "theirs") => {
+    await withBusy(async () => {
+      await Git.takeSideAll(paths, side);
+      for (const path of paths) closeDoc(`conflict:${path}`);
+      notify("success", side === "ours" ? t("tookOurs") : t("tookTheirs"));
+      await reload(false);
+    });
+  };
+
+  const markResolvedAll = async (paths: string[]) => {
+    await withBusy(async () => {
+      await Git.markResolved(paths);
+      for (const path of paths) closeDoc(`conflict:${path}`);
+      await reload(false);
     });
   };
 
@@ -1530,6 +1685,15 @@ function AppShell({ onLangChange }: { onLangChange: (lang: Lang) => void }) {
         case "branches":
           setTab("branch");
           break;
+        case "repo-tools":
+          if (repoOpen) setDialog({ kind: "repoTools", tab: "worktrees" });
+          break;
+        case "cleanup-branches":
+          if (repoOpen) setDialog({ kind: "cleanupBranches" });
+          break;
+        case "resolve-conflicts":
+          if (repoOpen) setDialog({ kind: "conflicts" });
+          break;
         case "tab:commit":
           setTab("commit");
           break;
@@ -1639,7 +1803,11 @@ function AppShell({ onLangChange }: { onLangChange: (lang: Lang) => void }) {
     onToggleAmend: (amend) => void toggleAmend(amend),
     onCommitFormChange: setForm,
     onRequestPush: () => void commit(true),
-    onShowStash: (index) => void openStash(index),
+    onShowStashDetail: (index) => {
+      const stash = snapshot?.stashes.find((s) => s.index === index);
+      setDialog({ kind: "stashDetail", index, refName: stash?.ref ?? `stash@{${index}}` });
+    },
+    onResolveConflicts: () => setDialog({ kind: "conflicts" }),
     onStashPush: () => setDialog({ kind: "stash" }),
     onStashApply: (index, pop) => void stashApply(index, pop),
     onStashDrop: (index) => void stashDrop(index),
@@ -1787,6 +1955,7 @@ function AppShell({ onLangChange }: { onLangChange: (lang: Lang) => void }) {
                   onCopy={copyText}
                   onPull={(leaf) => pullBranch(leaf)}
                   onPush={(leaf) => pushBranch(leaf)}
+                  onCompare={(ref) => setDialog({ kind: "compare", ref })}
                 />
               ) : (
                 <NoRepo onOpen={() => void openRepo()} />
@@ -1908,8 +2077,9 @@ function AppShell({ onLangChange }: { onLangChange: (lang: Lang) => void }) {
             onCheckout={(ref) => void checkout(ref)}
             onNewBranch={(start) => setDialog({ kind: "newBranch", start })}
             onNewTag={(start) => setDialog({ kind: "tag", start })}
-            onCherryPick={(hash) => void cherryPick(hash)}
-            onRevert={(hash) => void revert(hash)}
+            onCherryPick={(hashes) => void cherryPick(hashes)}
+            onRevert={(hashes) => void revert(hashes)}
+            onRewrite={(oldest) => rewriteFrom(oldest)}
             onReset={(hash) => {
               const commit = logResult?.commits.find((c) => c.hash === hash);
               setDialog({ kind: "reset", hash, subject: commit?.subject ?? "" });
@@ -1984,6 +2154,7 @@ function AppShell({ onLangChange }: { onLangChange: (lang: Lang) => void }) {
         <QuickOpen
           onClose={() => setQuickOpen(false)}
           onOpen={(path) => void showFile(path, "")}
+          onOpenCommit={(hash) => void openCommit(hash)}
         />
       )}
 
@@ -2064,6 +2235,70 @@ function AppShell({ onLangChange }: { onLangChange: (lang: Lang) => void }) {
           current={state?.branch ?? ""}
           onClose={() => setDialog(null)}
           onSubmit={(ref, opts) => void merge(ref, opts)}
+        />
+      )}
+      {dialog?.kind === "editHistory" && (
+        <EditHistoryDialog
+          onto={dialog.onto}
+          onClose={() => setDialog(null)}
+          onSubmit={(steps) => applyRewrite(dialog.onto, steps)}
+        />
+      )}
+      {dialog?.kind === "stashDetail" && (
+        <StashDetailDialog
+          index={dialog.index}
+          refName={dialog.refName}
+          onClose={() => setDialog(null)}
+          onOpenDiff={(index, path) => void openStashDiff(index, path)}
+          onApply={(index, pop) => {
+            setDialog(null);
+            void stashApply(index, pop);
+          }}
+          onDrop={(index) => {
+            setDialog(null);
+            void stashDrop(index);
+          }}
+          onBranch={(index, branch) => void stashBranch(index, branch)}
+        />
+      )}
+      {dialog?.kind === "repoTools" && (
+        <RepoExtrasDialog
+          tab={dialog.tab}
+          shallow={state?.shallow ?? false}
+          onClose={() => setDialog(null)}
+          onOpenWorktree={(path) => void Workspace.openInWindow(path).catch((err) => fail(t("openNewWindow"), err))}
+          onChanged={() => void reload(false)}
+        />
+      )}
+      {dialog?.kind === "cleanupBranches" && (
+        <CleanupBranchesDialog
+          onClose={() => setDialog(null)}
+          onDelete={(names) => void deleteCleanupBranches(names)}
+        />
+      )}
+      {dialog?.kind === "compare" && (
+        <CompareDialog
+          from={dialog.ref}
+          onClose={() => setDialog(null)}
+          onOpenFile={(path) => void openCompareFile(dialog.ref, path)}
+        />
+      )}
+      {dialog?.kind === "conflicts" && (
+        <ConflictSummaryDialog
+          operation={state?.operation ?? ""}
+          conflicts={snapshot?.conflicts ?? []}
+          onClose={() => setDialog(null)}
+          onOpen={(path) => void openConflict(path)}
+          onTakeSide={(paths, side) => void takeSideAll(paths, side)}
+          onMarkResolved={(paths) => void markResolvedAll(paths)}
+          onContinue={() => {
+            setDialog(null);
+            void continueOperation();
+          }}
+          onAbort={() => {
+            setDialog(null);
+            void abortOperation();
+          }}
         />
       )}
       {confirm && (

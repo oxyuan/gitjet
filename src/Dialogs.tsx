@@ -1,13 +1,21 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState, type MouseEvent as ReactMouseEvent } from "react";
+import { buildChangeTree, directoryKeys } from "./changes";
+import { FileTree } from "./FileTree";
 import { Git, Workspace } from "./mygo";
 import type {
+  BranchCleanup,
+  Change,
+  BranchInfo,
   CommitDetail,
+  CommitFile,
   MergeOptions,
   PullOptions,
   PushOptions,
   PushPreview,
+  Conflict,
   Remote,
   Settings,
+  StashFile,
   StashOptions,
   TagOptions,
 } from "./mygo";
@@ -15,6 +23,7 @@ import { Icon } from "./icons";
 import {
   Button,
   Checkbox,
+  ContextMenu,
   cx,
   Field,
   IconButton,
@@ -24,6 +33,7 @@ import {
   StatusMark,
   TextInput,
   formatWhen,
+  type ContextItem,
 } from "./ui";
 
 import { count, useT } from "./i18n";
@@ -110,26 +120,30 @@ const T = {
     "push.remote": "Remote",
     "push.branch": "Branch",
     "push.setUpstream": "Set upstream (-u)",
-    "push.allTags": "Push all tags",
+    "push.allTags": "Push tags",
     "push.dryRun": "Dry run",
-    "push.force": "Force with lease (--force-with-lease)",
+    "push.force": "Force push (--force-with-lease)",
+    "push.moreOptions": "More push options",
     "push.warning": "Force push rewrites history on the remote. It only succeeds when the remote branch is where you last saw it.",
-    "push.footerCreate": "Creates {ref} on the remote",
-    "push.footerUpdate": "Updates {ref}",
+    "push.chooseRemote": "Choose the remote to push to",
     "push.detached": "detached HEAD",
     "push.newBranch": "new branch",
     "push.checking": "Reading what would be pushed…",
-    "push.summary": "{commits} · {files} files changed",
+    "push.summary": "{commits} · {files} changed",
     "push.commitOne": "1 commit",
     "push.commitOther": "{n} commits",
+    "push.fileOne": "1 file",
+    "push.fileOther": "{n} files",
     "push.behind": "{n} behind the remote",
     "push.truncated": "showing the first {n}",
-    "push.commitsHead": "Commits · {n}",
-    "push.everything": "All changes",
-    "push.noCommits": "Nothing to push",
+    "push.everything": "All commits",
     "push.filesHead": "Changed files · {n}",
     "push.allFilesHead": "All changed files · {n}",
     "push.noFiles": "No files changed",
+    "push.expandAll": "Expand all",
+    "push.collapseAll": "Collapse all",
+    "push.on": "on {when}",
+    "push.binary": "binary",
     "push.nothingToPush": "Everything here is already on the remote.",
     "push.createsOnly": "The branch has no new commits; pushing creates it at {hash}.",
     "push.dryRunAction": "Dry run",
@@ -172,6 +186,42 @@ const T = {
     "merge.branch": "Branch",
     "merge.noFF": "Create a merge commit (--no-ff)",
     "merge.squash": "Squash commits (--squash)",
+    "push.diverged": "The remote branch has commits you do not have (tip {tip}). Pushing overwrites them.",
+    "push.forceIfIncludes": "Refuse the force if the remote moved (--force-if-includes)",
+    "stashd.title": "Stash {ref}",
+    "stashd.loading": "Reading the stash",
+    "stashd.empty": "This stash has no files",
+    "stashd.binary": "binary",
+    "stashd.open": "Open the diff",
+    "stashd.pop": "Pop",
+    "stashd.apply": "Apply",
+    "stashd.branch": "Restore on a new branch",
+    "stashd.drop": "Drop",
+    "stashd.branchPlaceholder": "branch name",
+    "stashd.cancel": "Close",
+    "cleanup.title": "Clean Up Branches",
+    "cleanup.merged": "Merged into the current branch",
+    "cleanup.gone": "Upstream is gone",
+    "cleanup.empty": "No branch can be cleaned up",
+    "cleanup.delete": "Delete {n} branches",
+    "cleanup.cancel": "Cancel",
+    "conflicts.title": "Resolve Conflicts",
+    "conflicts.ours": "Take ours",
+    "conflicts.theirs": "Take theirs",
+    "conflicts.allOurs": "All ours",
+    "conflicts.allTheirs": "All theirs",
+    "conflicts.open": "Merge…",
+    "conflicts.mark": "Mark resolved",
+    "conflicts.markAll": "Mark all resolved",
+    "conflicts.continue": "Continue",
+    "conflicts.abort": "Abort",
+    "conflicts.close": "Close",
+    "conflicts.empty": "No conflicted files",
+    "compare.title": "Compare with the working branch",
+    "compare.loading": "Comparing",
+    "compare.empty": "No file differs",
+    "compare.close": "Close",
+    "compare.files": "{n} files differ",
   },
   zh: {
     "common.cancel": "取消",
@@ -254,26 +304,30 @@ const T = {
     "push.remote": "远程",
     "push.branch": "分支",
     "push.setUpstream": "设置上游 (-u)",
-    "push.allTags": "推送所有标签",
+    "push.allTags": "推送标签",
     "push.dryRun": "试运行",
     "push.force": "强制推送（--force-with-lease）",
+    "push.moreOptions": "更多推送选项",
     "push.warning": "强制推送会重写远程历史。仅当远程分支仍停在你上次看到的位置时才会成功。",
-    "push.footerCreate": "将在远程新建 {ref}",
-    "push.footerUpdate": "更新 {ref}",
+    "push.chooseRemote": "选择要推送到哪个远程",
     "push.detached": "游离 HEAD",
     "push.newBranch": "新建分支",
     "push.checking": "正在读取将要推送的内容…",
-    "push.summary": "{commits} · {files} 个文件变更",
+    "push.summary": "{commits} · {files} 项变更",
     "push.commitOne": "1 个提交",
     "push.commitOther": "{n} 个提交",
+    "push.fileOne": "1 个文件",
+    "push.fileOther": "{n} 个文件",
     "push.behind": "落后远程 {n} 个提交",
     "push.truncated": "仅显示前 {n} 个",
-    "push.commitsHead": "提交 · {n}",
-    "push.everything": "全部变更",
-    "push.noCommits": "没有要推送的提交",
+    "push.everything": "全部提交",
     "push.filesHead": "变更文件 · {n}",
     "push.allFilesHead": "全部变更文件 · {n}",
     "push.noFiles": "没有文件变更",
+    "push.expandAll": "全部展开",
+    "push.collapseAll": "全部折叠",
+    "push.on": "于 {when}",
+    "push.binary": "二进制",
     "push.nothingToPush": "本地内容都已经在远程上了。",
     "push.createsOnly": "该分支没有新提交，推送会在远程创建它（{hash}）。",
     "push.dryRunAction": "试运行",
@@ -316,6 +370,42 @@ const T = {
     "merge.branch": "分支",
     "merge.noFF": "创建合并提交（--no-ff）",
     "merge.squash": "压缩提交（--squash）",
+    "push.diverged": "远端分支有本地没有的提交（{tip}），推送会覆盖它。",
+    "push.forceIfIncludes": "远端有新提交时拒绝强推（--force-if-includes）",
+    "stashd.title": "贮藏 {ref}",
+    "stashd.loading": "正在读取贮藏内容",
+    "stashd.empty": "该贮藏没有文件",
+    "stashd.binary": "二进制",
+    "stashd.open": "查看差异",
+    "stashd.pop": "弹出",
+    "stashd.apply": "应用",
+    "stashd.branch": "恢复到新分支",
+    "stashd.drop": "删除贮藏",
+    "stashd.branchPlaceholder": "分支名",
+    "stashd.cancel": "关闭",
+    "cleanup.title": "清理分支",
+    "cleanup.merged": "已合并到当前分支",
+    "cleanup.gone": "上游已删除",
+    "cleanup.empty": "没有可清理的分支",
+    "cleanup.delete": "删除 {n} 个分支",
+    "cleanup.cancel": "取消",
+    "conflicts.title": "解决冲突",
+    "conflicts.ours": "采用我方",
+    "conflicts.theirs": "采用对方",
+    "conflicts.allOurs": "全部采用我方",
+    "conflicts.allTheirs": "全部采用对方",
+    "conflicts.open": "合并…",
+    "conflicts.mark": "标记为已解决",
+    "conflicts.markAll": "全部标记为已解决",
+    "conflicts.continue": "继续",
+    "conflicts.abort": "中止",
+    "conflicts.close": "关闭",
+    "conflicts.empty": "没有冲突文件",
+    "compare.title": "与当前分支比较",
+    "compare.loading": "正在比较",
+    "compare.empty": "没有不同的文件",
+    "compare.close": "关闭",
+    "compare.files": "{n} 个文件不同",
   },
 } as const;
 
@@ -854,7 +944,9 @@ export function PushDialog({
   onSubmit: (opts: PushOptions) => void;
 }) {
   const t = useT(T);
-  const branch = initialBranch || current;
+  const [branch, setBranch] = useState(initialBranch || current);
+  const [recent, setRecent] = useState<string[]>([]);
+  const [forceIfIncludes, setForceIfIncludes] = useState(false);
   const [remote, setRemote] = useState(remotes.find((r) => r.name === "origin")?.name ?? remotes[0]?.name ?? "origin");
   const [preview, setPreview] = useState<PushPreview | null>(null);
   const [error, setError] = useState("");
@@ -865,6 +957,8 @@ export function PushDialog({
   const [tags, setTags] = useState(false);
   const [dryRun, setDryRun] = useState(false);
   const [upstream, setUpstreamState] = useState(setUpstream);
+  const [expanded, setExpanded] = useState<ReadonlySet<string>>(new Set());
+  const [menu, setMenu] = useState<{ x: number; y: number; items: ContextItem[] } | null>(null);
 
   // The dialog is a confirmation: it shows what git would send before the
   // button sends it. Changing the remote changes the answer.
@@ -893,6 +987,12 @@ export function PushDialog({
     };
   }, [remote, branch]);
 
+  useEffect(() => {
+    Git.pushTargets()
+      .then((targets) => setRecent(targets))
+      .catch(() => setRecent([]));
+  }, []);
+
   // One commit's files are read on demand; the whole range comes with the
   // preview, so nothing is fetched twice.
   useEffect(() => {
@@ -914,154 +1014,294 @@ export function PushDialog({
   }, [selected]);
 
   const commits = preview?.commits ?? [];
-  const files = selected ? (detail?.files ?? []) : (preview?.files ?? []);
+  const files = useMemo<CommitFile[]>(
+    () => (selected ? (detail?.files ?? []) : (preview?.files ?? [])),
+    [selected, detail, preview],
+  );
+  const chosen = selected ? (commits.find((c) => c.hash === selected) ?? null) : null;
   const ahead = preview?.ahead ?? 0;
+
+  // A fresh range opens with every folder unfolded, like the IDE's detail
+  // pane: the shape of the change first, then the names.
+  useEffect(() => {
+    setExpanded(new Set(directoryKeys(buildChangeTree(files))));
+  }, [files]);
+
   // A branch with no new commits can still be worth pushing: creating it
   // on the remote is the point.
   const createsOnly = !loading && !error && ahead === 0 && !!preview?.creates;
   const nothing = !loading && !error && ahead === 0 && !preview?.creates;
+  const targetBranch = preview ? preview.remoteBranch.slice(remote.length + 1) || branch : branch;
+
+  const openRemoteMenu = (e: ReactMouseEvent<HTMLButtonElement>) => {
+    e.stopPropagation();
+    const rect = e.currentTarget.getBoundingClientRect();
+    setMenu({
+      x: rect.left,
+      y: rect.bottom + 4,
+      items: [
+        ...remotes.map((r) => ({
+          label: r.name,
+          checked: r.name === remote,
+          onClick: () => setRemote(r.name),
+        })),
+        ...(recent.length > 0
+          ? [
+              { separator: true } as ContextItem,
+              ...recent.map((target) => {
+                const cut = target.indexOf("/");
+                const targetRemote = cut > 0 ? target.slice(0, cut) : target;
+                const targetBranch = cut > 0 ? target.slice(cut + 1) : "";
+                return {
+                  label: target,
+                  icon: "clock" as const,
+                  onClick: () => {
+                    setRemote(targetRemote);
+                    if (targetBranch) setBranch(targetBranch);
+                  },
+                };
+              }),
+            ]
+          : []),
+      ],
+    });
+  };
+
+  // The split button's menu is where the options that change what git is
+  // asked to do live; the push itself stays the one obvious action.
+  const openOptionsMenu = (e: ReactMouseEvent<HTMLButtonElement>) => {
+    const rect = e.currentTarget.getBoundingClientRect();
+    setMenu({
+      x: Math.max(8, rect.right - 236),
+      y: rect.bottom + 4,
+      items: [
+        { label: t("push.force"), checked: force, onClick: () => setForce(!force) },
+        {
+          label: t("push.forceIfIncludes"),
+          checked: forceIfIncludes,
+          disabled: !force,
+          onClick: () => setForceIfIncludes(!forceIfIncludes),
+        },
+        { label: t("push.dryRun"), checked: dryRun, onClick: () => setDryRun(!dryRun) },
+        { separator: true },
+        { label: t("push.setUpstream"), checked: upstream, onClick: () => setUpstreamState(!upstream) },
+      ],
+    });
+  };
 
   return (
     <Modal
       title={t("push.title")}
       icon="push"
-      width={760}
+      width={900}
       className="push-modal"
       onClose={onClose}
       footer={
         <>
-          <span className="push-footer-note">
-            {preview?.creates
-              ? t("push.footerCreate", { ref: preview.remoteBranch })
-              : preview
-                ? t("push.footerUpdate", { ref: preview.remoteBranch })
-                : ""}
-          </span>
+          <Checkbox checked={tags} onChange={setTags} label={t("push.allTags")} />
+          <span className="pushd-gap" />
           <Button onClick={onClose}>{t("common.cancel")}</Button>
-          <Button
-            variant="primary"
-            disabled={loading || (nothing && !tags)}
-            onClick={() => onSubmit({ remote, branch, setUpstream: upstream, forceWithLease: force, tags, dryRun })}
-          >
-            {dryRun ? t("push.dryRunAction") : t("common.push")}
-          </Button>
+          <span className="pushd-split">
+            <Button
+              variant="primary"
+              disabled={loading || !!error || (nothing && !tags)}
+              onClick={() =>
+                onSubmit({
+                  remote,
+                  branch,
+                  setUpstream: upstream,
+                  forceWithLease: force,
+                  forceIfIncludes,
+                  tags,
+                  dryRun,
+                })
+              }
+            >
+              {dryRun ? t("push.dryRunAction") : t("common.push")}
+            </Button>
+            <button
+              type="button"
+              className="pushd-split-arrow"
+              title={t("push.moreOptions")}
+              aria-label={t("push.moreOptions")}
+              onClick={openOptionsMenu}
+            >
+              <Icon name="chevronDown" size={12} />
+            </button>
+          </span>
         </>
       }
     >
       {remotes.length === 0 ? (
-        <div className="dialog-note">
+        <div className="dialog-note pushd-noremotes">
           {t("push.noRemotes")}
           <code>git remote add origin &lt;url&gt;</code>
         </div>
       ) : (
-        <div className="push">
-          <div className="push-route">
-            <span className="push-ref" title={t("push.branch")}>
-              <Icon name="branch" size={13} />
-              {branch || t("push.detached")}
-            </span>
-            <Icon name="chevronRight" size={13} />
-            <span className="push-ref remote">
-              <Icon name="push" size={12} />
-              {preview?.remoteBranch ?? `${remote}/${branch}`}
-              {preview?.creates && <span className="push-badge">{t("push.newBranch")}</span>}
-            </span>
-            <span className="spacer" />
-            {remotes.length > 1 && (
-              <Select value={remote} onChange={setRemote}>
-                {remotes.map((r) => (
-                  <option key={r.name} value={r.name}>
-                    {r.name}
-                  </option>
-                ))}
-              </Select>
-            )}
-          </div>
-
-          <div className="push-summary">
-            {loading ? (
-              <Spinner label={t("push.checking")} />
-            ) : error ? (
-              <span className="push-error">{error}</span>
-            ) : nothing ? (
-              <span>{t("push.nothingToPush")}</span>
-            ) : createsOnly ? (
-              <span>{t("push.createsOnly", { hash: preview?.head ?? "" })}</span>
-            ) : (
-              <>
-                <span>
-                  {t("push.summary", {
-                    commits: count(ahead, t("push.commitOne"), t("push.commitOther", { n: ahead })),
-                    files: preview?.files.length ?? 0,
-                  })}
-                </span>
-                {preview?.behind ? <span className="push-behind">{t("push.behind", { n: preview.behind })}</span> : null}
-                {preview?.truncated ? <span className="push-behind">{t("push.truncated", { n: 200 })}</span> : null}
-              </>
-            )}
-          </div>
-
-          <div className="push-panes">
-            <div className="push-pane">
-              <div className="push-pane-head">
-                <Icon name="commit" size={12} />
-                <span>{t("push.commitsHead", { n: ahead })}</span>
-              </div>
-              <div className="push-list">
-                <button className={cx("push-row", "all", !selected && "active")} onClick={() => setSelected(null)}>
-                  <span className="push-row-main">{t("push.everything")}</span>
-                  <span className="push-row-meta">{preview?.files.length ?? 0}</span>
+        <div className="pushd">
+          <div className="pushd-left">
+            <div
+              className={cx("pushd-repo", !selected && "active")}
+              onClick={() => setSelected(null)}
+              title={t("push.everything")}
+            >
+              <Icon name="chevronDown" size={12} className="pushd-caret" />
+              <span className="pushd-local" title={t("push.branch")}>
+                {branch || t("push.detached")}
+              </span>
+              <Icon name="chevronRight" size={11} className="pushd-arrow" />
+              <button
+                type="button"
+                className="pushd-remote"
+                title={t("push.chooseRemote")}
+                onClick={openRemoteMenu}
+              >
+                {remote}
+              </button>
+              <span className="pushd-colon">:</span>
+              <span className="pushd-target">{targetBranch}</span>
+              {preview?.creates && <span className="pushd-badge">{t("push.newBranch")}</span>}
+            </div>
+            <div className="pushd-commits">
+              {commits.map((c) => (
+                <button
+                  key={c.hash}
+                  type="button"
+                  className={cx("pushd-commit", selected === c.hash && "active")}
+                  onClick={() => setSelected(c.hash)}
+                  title={c.message}
+                >
+                  <span className="pushd-commit-subject">{c.subject || c.short}</span>
+                  <span className="pushd-commit-meta">
+                    {c.short} · {c.author} · {formatWhen(c.commitTime)}
+                  </span>
                 </button>
-                {commits.map((c) => (
-                  <button
-                    key={c.hash}
-                    className={cx("push-row", selected === c.hash && "active")}
-                    onClick={() => setSelected(c.hash)}
-                    title={c.message}
-                  >
-                    <span className="push-row-main">{c.subject || c.short}</span>
-                    <span className="push-row-meta">
-                      <code>{c.short}</code> {c.author} · {formatWhen(c.commitTime)}
-                    </span>
-                  </button>
-                ))}
-                {!loading && !error && commits.length === 0 && <div className="push-empty">{t("push.noCommits")}</div>}
-              </div>
+              ))}
             </div>
+          </div>
 
-            <div className="push-pane">
-              <div className="push-pane-head">
-                <Icon name="file" size={12} />
-                <span>{selected ? t("push.filesHead", { n: files.length }) : t("push.allFilesHead", { n: files.length })}</span>
-              </div>
-              <div className="push-list">
-                {files.map((f) => (
-                  <div className="push-file" key={f.path} title={f.oldPath ? `${f.oldPath} → ${f.path}` : f.path}>
-                    <StatusMark kind={f.status} />
-                    <span className="push-file-path">{f.oldPath ? `${f.oldPath} → ${f.path}` : f.path}</span>
-                    <span className="push-file-stat">
-                      {f.binary ? "binary" : `+${f.additions} −${f.deletions}`}
+          <div className="pushd-right">
+            <div className="pushd-toolbar">
+              <IconButton
+                icon="expand"
+                title={t("push.expandAll")}
+                small
+                onClick={() => setExpanded(new Set(directoryKeys(buildChangeTree(files))))}
+              />
+              <IconButton
+                icon="collapse"
+                title={t("push.collapseAll")}
+                small
+                onClick={() => setExpanded(new Set())}
+              />
+              <span className="pushd-count">
+                {selected
+                  ? t("push.filesHead", { n: files.length })
+                  : t("push.allFilesHead", { n: files.length })}
+              </span>
+            </div>
+            <div className="pushd-files">
+              {files.length > 0 && (
+                <FileTree
+                  files={files}
+                  expanded={expanded}
+                  onToggleDir={(key) => {
+                    const next = new Set(expanded);
+                    if (next.has(key)) next.delete(key);
+                    else next.add(key);
+                    setExpanded(next);
+                  }}
+                  renderFile={(file, depth, flat) => {
+                    const slash = file.path.lastIndexOf("/");
+                    const name = slash < 0 ? file.path : file.path.slice(slash + 1);
+                    const dir = slash < 0 ? "" : file.path.slice(0, slash + 1);
+                    return (
+                      <div
+                        className="tree-row file"
+                        style={{ paddingLeft: 8 + depth * 12 }}
+                        title={file.oldPath ? `${file.oldPath} → ${file.path}` : file.path}
+                      >
+                        <span className="tree-chevron-spacer" />
+                        <StatusMark kind={file.status} />
+                        <span className="tree-name">
+                          <span className="file-base">{file.oldPath ? `${file.oldPath} → ${name}` : name}</span>
+                          {flat && dir !== "" && <span className="file-dir">{dir}</span>}
+                        </span>
+                        <span className="tree-stats">
+                          {file.binary ? (
+                            <span className="pushd-binary">{t("push.binary")}</span>
+                          ) : (
+                            <>
+                              {file.additions > 0 && <span className="add-count">+{file.additions}</span>}
+                              {file.deletions > 0 && <span className="del-count">−{file.deletions}</span>}
+                            </>
+                          )}
+                        </span>
+                      </div>
+                    );
+                  }}
+                />
+              )}
+              {files.length === 0 && !loading && !error && (
+                <div className="pushd-empty">{t("push.noFiles")}</div>
+              )}
+            </div>
+            <div className="pushd-detail">
+              {loading ? (
+                <Spinner label={t("push.checking")} />
+              ) : error ? (
+                <span className="push-error">{error}</span>
+              ) : nothing ? (
+                <span className="pushd-note">{t("push.nothingToPush")}</span>
+              ) : chosen ? (
+                <>
+                  <div className="pushd-message">{chosen.message.trim() || chosen.subject}</div>
+                  <div className="pushd-meta">
+                    <code>{chosen.short}</code>
+                    <span>
+                      {chosen.author} &lt;{chosen.authorEmail}&gt;
                     </span>
+                    <span>{t("push.on", { when: formatWhen(chosen.commitTime) })}</span>
                   </div>
-                ))}
-                {files.length === 0 && !loading && <div className="push-empty">{t("push.noFiles")}</div>}
-              </div>
+                </>
+              ) : (
+                <div className="pushd-summary">
+                  {createsOnly ? (
+                    <span>{t("push.createsOnly", { hash: preview?.head ?? "" })}</span>
+                  ) : (
+                    <>
+                      <span>
+                        {t("push.summary", {
+                          commits: count(ahead, t("push.commitOne"), t("push.commitOther", { n: ahead })),
+                          files: files.length,
+                        })}
+                      </span>
+                      {preview?.behind ? (
+                        <span className="pushd-behind">{t("push.behind", { n: preview.behind })}</span>
+                      ) : null}
+                      {preview?.truncated ? (
+                        <span className="pushd-behind">{t("push.truncated", { n: 200 })}</span>
+                      ) : null}
+                    </>
+                  )}
+                </div>
+              )}
             </div>
           </div>
 
-          <div className="push-options">
-            <Checkbox checked={upstream} onChange={setUpstreamState} label={t("push.setUpstream")} />
-            <Checkbox checked={tags} onChange={setTags} label={t("push.allTags")} />
-            <Checkbox checked={dryRun} onChange={setDryRun} label={t("push.dryRun")} />
-            <Checkbox checked={force} onChange={setForce} label={t("push.force")} />
-          </div>
           {force && (
-            <div className="dialog-warning">
-              <Icon name="warning" /> {t("push.warning")}
+            <div className="pushd-warning">
+              <Icon name="warning" size={13} /> {t("push.warning")}
+            </div>
+          )}
+          {preview?.diverged && !force && (
+            <div className="pushd-warning">
+              <Icon name="warning" size={13} /> {t("push.diverged", { tip: preview.remoteTip })}
             </div>
           )}
         </div>
       )}
+      {menu && <ContextMenu x={menu.x} y={menu.y} items={menu.items} onClose={() => setMenu(null)} />}
     </Modal>
   );
 }
@@ -1378,4 +1618,311 @@ export function IconHeader({ icon, children }: { icon: "warning" | "info"; child
 
 export function SmallIconButton({ icon, onClick, title }: { icon: "plus" | "minus"; onClick: () => void; title: string }) {
   return <IconButton icon={icon} onClick={onClick} title={title} small />;
+}
+
+/** StashDetailDialog shows what one stash entry contains and the actions
+ *  that rescue it: open a file diff, pop, apply, or restore on a branch. */
+export function StashDetailDialog({
+  index,
+  refName,
+  onClose,
+  onOpenDiff,
+  onApply,
+  onDrop,
+  onBranch,
+}: {
+  index: number;
+  refName: string;
+  onClose: () => void;
+  onOpenDiff: (index: number, path: string) => void;
+  onApply: (index: number, pop: boolean) => void;
+  onDrop: (index: number) => void;
+  onBranch: (index: number, branch: string) => void;
+}) {
+  const t = useT(T);
+  const [files, setFiles] = useState<StashFile[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [branch, setBranch] = useState(`stash-${index}`);
+
+  useEffect(() => {
+    let alive = true;
+    setLoading(true);
+    Git.stashFiles(index)
+      .then((list) => alive && setFiles(list))
+      .catch(() => alive && setFiles([]))
+      .finally(() => alive && setLoading(false));
+    return () => {
+      alive = false;
+    };
+  }, [index]);
+
+  return (
+    <Modal
+      title={t("stashd.title", { ref: refName })}
+      icon="stash"
+      width={620}
+      onClose={onClose}
+      footer={
+        <>
+          <Button onClick={onClose}>{t("stashd.cancel")}</Button>
+          <Button onClick={() => onApply(index, false)}>{t("stashd.apply")}</Button>
+          <Button variant="primary" onClick={() => onApply(index, true)}>
+            {t("stashd.pop")}
+          </Button>
+        </>
+      }
+    >
+      {loading ? (
+        <Spinner label={t("stashd.loading")} />
+      ) : files.length === 0 ? (
+        <p className="setting-hint">{t("stashd.empty")}</p>
+      ) : (
+        <div className="stashd-files">
+          {files.map((file) => (
+            <button
+              key={file.path}
+              className="stashd-file"
+              title={t("stashd.open")}
+              onClick={() => onOpenDiff(index, file.path)}
+            >
+              <Icon name="file" size={13} />
+              <span className="stashd-path">
+                {file.path}
+                {file.oldPath ? <span className="muted"> ← {file.oldPath}</span> : null}
+              </span>
+              {file.binary ? (
+                <span className="muted">{t("stashd.binary")}</span>
+              ) : (
+                <span className="stashd-counts">
+                  <span className="add">+{file.additions}</span>
+                  <span className="del">-{file.deletions}</span>
+                </span>
+              )}
+            </button>
+          ))}
+        </div>
+      )}
+      <div className="dialog-form stashd-branch">
+        <Field label={t("stashd.branch")}>
+          <TextInput value={branch} onChange={setBranch} placeholder={t("stashd.branchPlaceholder")} />
+        </Field>
+        <div className="stashd-branch-actions">
+          <Button onClick={() => onBranch(index, branch.trim())} disabled={!branch.trim()}>
+            {t("stashd.branch")}
+          </Button>
+          <Button variant="danger" onClick={() => onDrop(index)}>
+            {t("stashd.drop")}
+          </Button>
+        </div>
+      </div>
+    </Modal>
+  );
+}
+
+/** CleanupBranchesDialog deletes branches that are merged or whose
+ *  upstream disappeared, with a checkbox per branch. */
+export function CleanupBranchesDialog({
+  onClose,
+  onDelete,
+}: {
+  onClose: () => void;
+  onDelete: (names: string[]) => void;
+}) {
+  const t = useT(T);
+  const [data, setData] = useState<BranchCleanup | null>(null);
+  const [picked, setPicked] = useState<Set<string>>(new Set());
+  const [failed, setFailed] = useState("");
+
+  useEffect(() => {
+    let alive = true;
+    Git.cleanupCandidates()
+      .then((cleanup) => {
+        if (!alive) return;
+        setData(cleanup);
+        setPicked(new Set([...cleanup.merged, ...cleanup.gone].map((b) => b.name)));
+      })
+      .catch((err: unknown) => alive && setFailed(err instanceof Error ? err.message : String(err)));
+    return () => {
+      alive = false;
+    };
+  }, []);
+
+  const toggle = (name: string) => {
+    const next = new Set(picked);
+    if (next.has(name)) next.delete(name);
+    else next.add(name);
+    setPicked(next);
+  };
+
+  const group = (title: string, branches: BranchInfo[]) =>
+    branches.length > 0 && (
+      <div className="cleanup-group">
+        <div className="cleanup-head">{title}</div>
+        {branches.map((b) => (
+          <label className="cleanup-row" key={b.name}>
+            <Checkbox checked={picked.has(b.name)} onChange={() => toggle(b.name)} label={b.name} />
+            <span className="cleanup-subject" title={b.subject}>
+              {b.subject}
+            </span>
+            {b.upstream && <span className="muted cleanup-upstream">{b.upstream}</span>}
+          </label>
+        ))}
+      </div>
+    );
+
+  return (
+    <Modal
+      title={t("cleanup.title")}
+      icon="branch"
+      width={640}
+      onClose={onClose}
+      footer={
+        <>
+          <Button onClick={onClose}>{t("cleanup.cancel")}</Button>
+          <Button
+            variant="primary"
+            disabled={picked.size === 0}
+            onClick={() => onDelete([...picked])}
+          >
+            {t("cleanup.delete", { n: picked.size })}
+          </Button>
+        </>
+      }
+    >
+      {failed && <p className="dialog-error">{failed}</p>}
+      {!data && !failed && <Spinner />}
+      {data && data.merged.length === 0 && data.gone.length === 0 && (
+        <p className="setting-hint">{t("cleanup.empty")}</p>
+      )}
+      {data && group(t("cleanup.merged"), data.merged)}
+      {data && group(t("cleanup.gone"), data.gone)}
+    </Modal>
+  );
+}
+
+/** ConflictSummaryDialog lists every conflicted file and resolves them in
+ *  bulk, the way the IDE's conflicts dialog does. */
+export function ConflictSummaryDialog({
+  operation,
+  conflicts,
+  onClose,
+  onOpen,
+  onTakeSide,
+  onMarkResolved,
+  onContinue,
+  onAbort,
+}: {
+  operation: string;
+  conflicts: Conflict[];
+  onClose: () => void;
+  onOpen: (path: string) => void;
+  onTakeSide: (paths: string[], side: "ours" | "theirs") => void;
+  onMarkResolved: (paths: string[]) => void;
+  onContinue: () => void;
+  onAbort: () => void;
+}) {
+  const t = useT(T);
+  const paths = conflicts.map((c) => c.path);
+  return (
+    <Modal
+      title={operation ? `${t("conflicts.title")} — ${operation}` : t("conflicts.title")}
+      icon="merge"
+      width={720}
+      onClose={onClose}
+      footer={
+        <>
+          <Button variant="danger" onClick={onAbort}>
+            {t("conflicts.abort")}
+          </Button>
+          <Button onClick={onClose}>{t("conflicts.close")}</Button>
+          <Button variant="primary" onClick={onContinue} disabled={conflicts.length > 0 || operation === ""}>
+            {t("conflicts.continue")}
+          </Button>
+        </>
+      }
+    >
+      {conflicts.length === 0 ? (
+        <p className="setting-hint">{t("conflicts.empty")}</p>
+      ) : (
+        <>
+          <div className="conflict-bulk">
+            <Button onClick={() => onTakeSide(paths, "ours")}>{t("conflicts.allOurs")}</Button>
+            <Button onClick={() => onTakeSide(paths, "theirs")}>{t("conflicts.allTheirs")}</Button>
+            <Button onClick={() => onMarkResolved(paths)}>{t("conflicts.markAll")}</Button>
+          </div>
+          <div className="conflict-list">
+            {conflicts.map((c) => (
+              <div className="conflict-row" key={c.path}>
+                <span className="conflict-code">{c.code}</span>
+                <span className="conflict-path" title={c.path}>
+                  {c.path}
+                </span>
+                <Button onClick={() => onOpen(c.path)}>{t("conflicts.open")}</Button>
+                <Button onClick={() => onTakeSide([c.path], "ours")} disabled={!c.ours}>
+                  {t("conflicts.ours")}
+                </Button>
+                <Button onClick={() => onTakeSide([c.path], "theirs")} disabled={!c.theirs}>
+                  {t("conflicts.theirs")}
+                </Button>
+                <Button onClick={() => onMarkResolved([c.path])}>{t("conflicts.mark")}</Button>
+              </div>
+            ))}
+          </div>
+        </>
+      )}
+    </Modal>
+  );
+}
+
+/** CompareDialog lists the files that differ between a ref and HEAD. */
+export function CompareDialog({
+  from,
+  onClose,
+  onOpenFile,
+}: {
+  from: string;
+  onClose: () => void;
+  onOpenFile: (path: string) => void;
+}) {
+  const t = useT(T);
+  const [files, setFiles] = useState<Change[] | null>(null);
+  const [error, setError] = useState("");
+
+  useEffect(() => {
+    let alive = true;
+    Git.compare(from, "HEAD")
+      .then((list) => alive && setFiles(list))
+      .catch((err: unknown) => alive && setError(err instanceof Error ? err.message : String(err)));
+    return () => {
+      alive = false;
+    };
+  }, [from]);
+
+  return (
+    <Modal
+      title={`${t("compare.title")} — ${from}`}
+      icon="diff"
+      width={680}
+      onClose={onClose}
+      footer={<Button variant="primary" onClick={onClose}>{t("compare.close")}</Button>}
+    >
+      {error && <p className="dialog-error">{error}</p>}
+      {!files && !error && <Spinner label={t("compare.loading")} />}
+      {files && files.length === 0 && <p className="setting-hint">{t("compare.empty")}</p>}
+      {files && files.length > 0 && (
+        <>
+          <p className="setting-hint">{t("compare.files", { n: files.length })}</p>
+          <div className="repo-list">
+            {files.map((file) => (
+              <button className="repo-row compare-row" key={file.path} onClick={() => onOpenFile(file.path)}>
+                <StatusMark kind={file.kind} />
+                <span className="repo-row-title">{file.path}</span>
+                {file.oldPath && <span className="muted">{file.oldPath}</span>}
+              </button>
+            ))}
+          </div>
+        </>
+      )}
+    </Modal>
+  );
 }

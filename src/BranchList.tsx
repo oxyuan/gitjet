@@ -33,6 +33,7 @@ const T = {
     rebase: "Rebase current onto this",
     deleteBranch: "Delete branch",
     copyName: "Copy branch name",
+    compare: "Compare with the working branch",
     pullBranch: "Pull",
     pushBranch: "Push",
   },
@@ -56,6 +57,7 @@ const T = {
     rebase: "变基当前分支到此",
     deleteBranch: "删除分支",
     copyName: "复制分支名",
+    compare: "与当前分支比较",
     pullBranch: "拉取",
     pushBranch: "推送",
   },
@@ -81,6 +83,7 @@ export function BranchList({
   onCopy,
   onPull,
   onPush,
+  onCompare,
 }: {
   refs: RefsSnapshot | null;
   current: string;
@@ -98,6 +101,7 @@ export function BranchList({
   /** Pull the checked out branch, then push the given local branch. */
   onPull: (leaf: BranchLeaf) => void;
   onPush: (leaf: BranchLeaf) => void;
+  onCompare: (ref: string) => void;
 }) {
   const t = useT(T);
   const [query, setQuery] = useState("");
@@ -139,6 +143,8 @@ export function BranchList({
             { label: t("pushBranch"), icon: "push", onClick: () => onPush(leaf) } as ContextItem,
           ])
         : []),
+      { separator: true },
+      { label: t("compare"), icon: "diff", disabled: leaf.current, onClick: () => onCompare(leaf.name) },
       { separator: true },
       { label: t("copyName"), icon: "copy", onClick: () => onCopy(leaf.name) },
     ];

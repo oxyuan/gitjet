@@ -69,6 +69,12 @@ const T = {
     resetHard: "Reset Current Branch to Here — Hard",
     copyRevision: "Copy Revision Number",
     copyMessage: "Copy Commit Message",
+    checkedCount: "{n} selected",
+    clearChecked: "Clear selection",
+    rewriteHistory: "Edit History…",
+    rewriteNeedsRange: "Select one commit, or a run of consecutive commits",
+    cherryPickMany: "Cherry-Pick {n} Commits",
+    revertMany: "Revert {n} Commits",
     scope: "History of {branch}",
     pathScope: "File · {path}",
     clearPathScope: "Stop filtering by this file",
@@ -113,6 +119,12 @@ const T = {
     resetHard: "将当前分支重置到此处 — 硬重置",
     copyRevision: "复制提交哈希",
     copyMessage: "复制提交信息",
+    checkedCount: "已选 {n} 个提交",
+    clearChecked: "取消选择",
+    rewriteHistory: "编辑历史…",
+    rewriteNeedsRange: "请选择一个提交，或一段连续的提交",
+    cherryPickMany: "摘取 {n} 个提交",
+    revertMany: "还原 {n} 个提交",
     scope: "历史：{branch}",
     pathScope: "文件 · {path}",
     clearPathScope: "取消按此文件过滤",
@@ -172,6 +184,7 @@ export function LogDock({
   onNewTag,
   onCherryPick,
   onRevert,
+  onRewrite,
   onReset,
 }: {
   result: LogResult | null;
@@ -213,12 +226,17 @@ export function LogDock({
   onCheckout: (ref: string) => void;
   onNewBranch: (start: string) => void;
   onNewTag: (start: string) => void;
-  onCherryPick: (hash: string) => void;
-  onRevert: (hash: string) => void;
+  onCherryPick: (hashes: string[]) => void;
+  onRevert: (hashes: string[]) => void;
+  onRewrite: (oldest: Commit) => void;
   onReset: (hash: string, mode: "soft" | "mixed" | "hard") => void;
 }) {
   const t = useT(T);
   const [menu, setMenu] = useState<{ x: number; y: number; items: ContextItem[] } | null>(null);
+  // A commit row can be part of a multi-commit selection, which the context
+  // menu then acts on as a whole, like a table of commits.
+  const [checked, setChecked] = useState<Set<string>>(new Set());
+  const anchor = useRef<string | null>(null);
   const drag = useRef<{ y: number; h: number } | null>(null);
   const detailRef = useRef<HTMLDivElement>(null);
   const fileRowRef = useRef<HTMLDivElement>(null);
@@ -244,6 +262,45 @@ export function LogDock({
   const commits = result?.commits ?? [];
   const graph = useMemo(() => computeGraph(commits), [commits]);
   const width = useMemo(() => graphWidth(graph), [graph]);
+
+  // Rows selected as a group. The detail pane follows the row last clicked,
+  // so a selection and the commit being read do not fight each other.
+  const indexOf = useMemo(() => new Map(commits.map((c, i) => [c.hash, i])), [commits]);
+  const chosen = useMemo(() => commits.filter((c) => checked.has(c.hash)), [commits, checked]);
+  const chosenOldestFirst = useMemo(() => [...chosen].reverse(), [chosen]);
+  const isContiguous = useMemo(() => {
+    if (chosen.length === 0) return false;
+    const idx = chosen.map((c) => indexOf.get(c.hash) ?? -1);
+    const min = Math.min(...idx);
+    const max = Math.max(...idx);
+    return max - min + 1 === idx.length;
+  }, [chosen, indexOf]);
+
+  const pickRow = (commit: Commit, e: React.MouseEvent) => {
+    if (e.shiftKey && anchor.current) {
+      const from = indexOf.get(anchor.current);
+      const to = indexOf.get(commit.hash);
+      if (from !== undefined && to !== undefined) {
+        const next = new Set(checked);
+        for (let i = Math.min(from, to); i <= Math.max(from, to); i++) next.add(commits[i]!.hash);
+        setChecked(next);
+        onSelect(commit);
+        return;
+      }
+    }
+    if (e.metaKey || e.ctrlKey) {
+      const next = new Set(checked);
+      if (next.has(commit.hash)) next.delete(commit.hash);
+      else next.add(commit.hash);
+      anchor.current = commit.hash;
+      setChecked(next);
+      onSelect(commit);
+      return;
+    }
+    anchor.current = commit.hash;
+    setChecked(new Set([commit.hash]));
+    onSelect(commit);
+  };
 
   // Dragging a column edge resizes the column to its left; the columns to the
   // right of the message are laid out from the end, so they grow leftwards.
@@ -304,21 +361,41 @@ export function LogDock({
   };
 
   const commitMenu = (commit: Commit, x: number, y: number) => {
-    const items: ContextItem[] = [
-      { label: t("checkoutRevision"), icon: "branch", onClick: () => onCheckout(commit.hash) },
-      { label: t("newBranchHere"), icon: "plus", onClick: () => onNewBranch(commit.hash) },
-      { label: t("newTag"), icon: "tag", onClick: () => onNewTag(commit.hash) },
-      { separator: true },
-      { label: t("cherryPick"), icon: "cherry", onClick: () => onCherryPick(commit.hash) },
-      { label: t("revertCommit"), icon: "revert", onClick: () => onRevert(commit.hash) },
-      { separator: true },
-      { label: t("resetSoft"), icon: "reset", onClick: () => onReset(commit.hash, "soft") },
-      { label: t("resetMixed"), icon: "reset", onClick: () => onReset(commit.hash, "mixed") },
-      { label: t("resetHard"), icon: "reset", danger: true, onClick: () => onReset(commit.hash, "hard") },
-      { separator: true },
-      { label: t("copyRevision"), icon: "copy", onClick: () => onCopy(commit.hash) },
-      { label: t("copyMessage"), icon: "copy", onClick: () => onCopy(commit.message) },
-    ];
+    const target = checked.has(commit.hash) && chosenOldestFirst.length > 1 ? chosenOldestFirst : [commit];
+    const hashes = target.map((c) => c.hash);
+    const oldest = target[target.length - 1]!;
+    const canRewrite = target.length === 1 || (checked.has(commit.hash) && isContiguous);
+    let items: ContextItem[];
+    if (target.length > 1) {
+      items = [
+        { label: t("cherryPickMany", { n: target.length }), icon: "cherry", onClick: () => onCherryPick(hashes) },
+        { label: t("revertMany", { n: target.length }), icon: "revert", onClick: () => onRevert(hashes) },
+        { separator: true },
+        canRewrite
+          ? { label: t("rewriteHistory"), icon: "commit", onClick: () => onRewrite(oldest) }
+          : { label: t("rewriteNeedsRange"), disabled: true, onClick: () => {} },
+        { separator: true },
+        { label: t("copyRevision"), icon: "copy", onClick: () => onCopy(hashes.join("\n")) },
+      ];
+    } else {
+      items = [
+        { label: t("checkoutRevision"), icon: "branch", onClick: () => onCheckout(commit.hash) },
+        { label: t("newBranchHere"), icon: "plus", onClick: () => onNewBranch(commit.hash) },
+        { label: t("newTag"), icon: "tag", onClick: () => onNewTag(commit.hash) },
+        { separator: true },
+        { label: t("cherryPick"), icon: "cherry", onClick: () => onCherryPick(hashes) },
+        { label: t("revertCommit"), icon: "revert", onClick: () => onRevert(hashes) },
+        { separator: true },
+        { label: t("rewriteHistory"), icon: "commit", onClick: () => onRewrite(oldest) },
+        { separator: true },
+        { label: t("resetSoft"), icon: "reset", onClick: () => onReset(commit.hash, "soft") },
+        { label: t("resetMixed"), icon: "reset", onClick: () => onReset(commit.hash, "mixed") },
+        { label: t("resetHard"), icon: "reset", danger: true, onClick: () => onReset(commit.hash, "hard") },
+        { separator: true },
+        { label: t("copyRevision"), icon: "copy", onClick: () => onCopy(commit.hash) },
+        { label: t("copyMessage"), icon: "copy", onClick: () => onCopy(commit.message) },
+      ];
+    }
     setMenu({ x, y, items });
   };
 
@@ -362,6 +439,12 @@ export function LogDock({
               <Icon name="chevronDown" size={12} />
             </button>
             <span className="log-title">{t("title")}</span>
+            {checked.size > 1 && (
+              <button className="log-scope" title={t("clearChecked")} onClick={() => setChecked(new Set())}>
+                <span>{t("checkedCount", { n: checked.size })}</span>
+                <Icon name="close" size={11} />
+              </button>
+            )}
             <IconButton icon="refresh" title={t("refresh")} onClick={onRefresh} spinner={loading} />
             <IconButton icon="fetch" title={t("fetchAll")} onClick={onFetch} />
             <span className="toolbar-sep" />
@@ -456,8 +539,9 @@ export function LogDock({
                     "log-row",
                     commit.parents.length > 1 && "merge",
                     selected === commit.hash && "selected",
+                    checked.size > 1 && checked.has(commit.hash) && "checked",
                   )}
-                  onClick={() => onSelect(commit)}
+                  onClick={(e) => pickRow(commit, e)}
                   onContextMenu={(e) => {
                     e.preventDefault();
                     commitMenu(commit, e.clientX, e.clientY);
