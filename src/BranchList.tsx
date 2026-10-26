@@ -26,7 +26,7 @@ const T = {
     addFavorite: "Add to favorites",
     removeFavorite: "Remove from favorites",
     checkout: "Check out",
-    filterTip: "Click to show this history · double-click to check out",
+    filterTip: "Double-click to show this branch's history · right-click to check out",
     newBranch: "New branch from here…",
     merge: "Merge into current",
     rebase: "Rebase current onto this",
@@ -46,7 +46,7 @@ const T = {
     addFavorite: "收藏分支",
     removeFavorite: "取消收藏",
     checkout: "切换",
-    filterTip: "单击查看该分支历史 · 双击切换",
+    filterTip: "双击查看该分支历史 · 右键切换分支",
     newBranch: "从此分支新建…",
     merge: "合并到当前分支",
     rebase: "变基当前分支到此",
@@ -55,7 +55,11 @@ const T = {
   },
 } as const;
 
-/** The branch tree of the branch page: search, filter on click, checkout on double click. */
+/**
+ * The branch tree of the branch page. A single click only selects the row for
+ * reading; showing a branch's history and checking it out are deliberate, so
+ * they live on double click and in the context menu.
+ */
 export function BranchList({
   refs,
   current,
@@ -73,7 +77,7 @@ export function BranchList({
   refs: RefsSnapshot | null;
   current: string;
   favorites: string[];
-  /** Branch whose history is shown; "" follows the checked out branch. */
+  /** Branch whose history is shown; "" means every local and remote branch. */
   selected: string;
   onSelect: (name: string) => void;
   onCheckout: (name: string) => void;
@@ -130,10 +134,7 @@ export function BranchList({
         key={(full ? "fav:" : "") + leaf.key}
         className={cx("bp-leaf", !full && "nested", leaf.current && "current", selected === leaf.name && "selected")}
         title={leaf.upstream ? `${leaf.name} → ${leaf.upstream}` : t("filterTip")}
-        onClick={() => onSelect(leaf.name)}
-        onDoubleClick={() => {
-          if (!leaf.current) onCheckout(leaf.name);
-        }}
+        onDoubleClick={() => onSelect(leaf.name)}
         onContextMenu={(e) => {
           e.preventDefault();
           branchMenu(leaf, e.clientX, e.clientY);

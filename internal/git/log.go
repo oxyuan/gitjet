@@ -99,7 +99,9 @@ func (r *Repo) Log(ctx context.Context, opts LogOptions) (LogResult, error) {
 		args = append(args, "--first-parent")
 	}
 	if opts.All {
-		args = append(args, "--all")
+		// Every local and remote branch: work that was never merged or
+		// pushed still has to show up in the history.
+		args = append(args, "--branches", "--remotes")
 	}
 	if opts.Search != "" {
 		args = append(args, "-i", "--grep="+opts.Search)

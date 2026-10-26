@@ -19,6 +19,7 @@ import { AuthorPicker, type AuthorOption } from "./AuthorPicker";
 
 const T = {
   en: {
+    title: "History",
     refresh: "Refresh",
     fetchAll: "Fetch all remotes",
     searchCommits: "Search commits",
@@ -50,8 +51,11 @@ const T = {
     clearScope: "Show the checked out branch instead",
     inBranchesOne: "In 1 branch",
     inBranchesOther: "In {n} branches",
+    resizeDetails: "Drag to resize",
+    mergeParents: "Merge",
   },
   zh: {
+    title: "历史",
     refresh: "刷新",
     fetchAll: "获取所有远程仓库",
     searchCommits: "搜索提交",
@@ -83,6 +87,8 @@ const T = {
     clearScope: "回到当前分支",
     inBranchesOne: "在 1 个分支中",
     inBranchesOther: "在 {n} 个分支中",
+    resizeDetails: "拖动调整高度",
+    mergeParents: "合并",
   },
 } as const;
 
@@ -103,7 +109,10 @@ export function LogDock({
   onClearScope,
   height,
   onResize,
+  infoRatio,
+  onInfoResize,
   onSelect,
+  onOpenCommit,
   onSelectFile,
   onStepFile,
   onSearch,
@@ -134,7 +143,11 @@ export function LogDock({
   onClearScope: () => void;
   height: number;
   onResize: (h: number) => void;
+  /** Share of the details pane taken by the commit information block. */
+  infoRatio: number;
+  onInfoResize: (ratio: number) => void;
   onSelect: (commit: Commit) => void;
+  onOpenCommit: (hash: string) => void;
   onSelectFile: (file: CommitFile) => void;
   onStepFile: (delta: number) => void;
   onSearch: (s: string) => void;
@@ -190,6 +203,27 @@ export function LogDock({
     window.addEventListener("mouseup", up);
   };
 
+  // The files list and the commit's information share the details pane and
+  // the divider between them moves.
+  const startInfoResize = (e: React.MouseEvent) => {
+    const startY = e.clientY;
+    const startRatio = infoRatio;
+    const pane = detailRef.current?.getBoundingClientRect().height ?? 0;
+    if (pane <= 0) return;
+    const move = (ev: MouseEvent) => {
+      const next = Math.min(0.85, Math.max(0.16, startRatio + (startY - ev.clientY) / pane));
+      onInfoResize(Math.round(next * 1000) / 1000);
+    };
+    const up = () => {
+      document.body.classList.remove("resizing-row");
+      window.removeEventListener("mousemove", move);
+      window.removeEventListener("mouseup", up);
+    };
+    document.body.classList.add("resizing-row");
+    window.addEventListener("mousemove", move);
+    window.addEventListener("mouseup", up);
+  };
+
   const commitMenu = (commit: Commit, x: number, y: number) => {
     const items: ContextItem[] = [
       { label: t("checkoutRevision"), icon: "branch", onClick: () => onCheckout(commit.hash) },
@@ -226,6 +260,7 @@ export function LogDock({
       <div className="log-dock-body">
         <div className="log-history">
           <div className="panel-toolbar">
+            <span className="log-title">{t("title")}</span>
             <IconButton icon="refresh" title={t("refresh")} onClick={onRefresh} spinner={loading} />
             <IconButton icon="fetch" title={t("fetchAll")} onClick={onFetch} />
             <span className="toolbar-sep" />
@@ -413,7 +448,12 @@ export function LogDock({
                   ))}
                 </div>
               </div>
-              <div className="log-detail-info">
+              <div
+                className="log-detail-split"
+                onMouseDown={startInfoResize}
+                title={t("resizeDetails")}
+              />
+              <div className="log-detail-info" style={{ flexBasis: `${infoRatio * 100}%` }}>
                 <div className="log-detail-subject">{detail.subject}</div>
                 <div className="log-detail-meta">
                   <button className="hash-copy" title={t("copyHash")} onClick={() => onCopy(detail.hash)}>
@@ -427,6 +467,21 @@ export function LogDock({
                   </span>
                   <span className="muted">{formatStamp(detail.authorTime)}</span>
                 </div>
+                {detail.parents.length > 1 && (
+                  <div className="log-detail-merge">
+                    <span>{t("mergeParents")}</span>
+                    {detail.parents.map((parent) => (
+                      <button
+                        key={parent}
+                        className="merge-parent"
+                        title={parent}
+                        onClick={() => onOpenCommit(parent)}
+                      >
+                        {parent.slice(0, 8)}
+                      </button>
+                    ))}
+                  </div>
+                )}
                 {detail.committer !== detail.author && (
                   <div className="log-detail-meta muted">
                     {t("committedBy", { name: detail.committer, date: formatStamp(detail.commitTime) })}

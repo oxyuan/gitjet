@@ -487,6 +487,7 @@ function AppShell({ onLangChange }: { onLangChange: (lang: Lang) => void }) {
   const [logDetail, setLogDetail] = useState<CommitDetail | null>(null);
   const [logFile, setLogFile] = useState<string | null>(null);
   const [logDockHeight, setLogDockHeight] = useStoredState<number>("gitjet.logDock", 300);
+  const [logInfoRatio, setLogInfoRatio] = useStoredState<number>("gitjet.logInfoRatio", 0.52);
   const [logPath, setLogPath] = useState("");
   // Branch whose history is listed; "" follows the checked out branch.
   const [logRef, setLogRef] = useState("");
@@ -575,8 +576,9 @@ function AppShell({ onLangChange }: { onLangChange: (lang: Lang) => void }) {
       try {
         const s = settingsRef.current;
         const opts = {
-          all: false,
-          refs: [logRef || current.state.branch || "HEAD"],
+          // No filter means every local and remote branch, not just HEAD.
+          all: !logRef,
+          refs: logRef ? [logRef] : [],
           path: logPath,
           search: logSearch,
           author: logAuthor,
@@ -1513,6 +1515,22 @@ function AppShell({ onLangChange }: { onLangChange: (lang: Lang) => void }) {
       .catch((err) => fail(t("readCommit"), err));
   };
 
+  // A merge lists its parents; opening one selects it in the history when it
+  // is loaded, and otherwise just shows its details.
+  const openCommit = (hash: string) => {
+    const known = logResult?.commits.find((c) => c.hash === hash || c.hash.startsWith(hash));
+    if (known) {
+      selectCommit(known);
+      return;
+    }
+    setSelectedCommit(hash);
+    setLogDetail(null);
+    setLogFile(null);
+    Git.showCommit(hash)
+      .then((detail) => setLogDetail(detail))
+      .catch((err) => fail(t("readCommit"), err));
+  };
+
   const showFileHistory = (path: string) => {
     setLogPath(path);
     setTab("branch");
@@ -1815,8 +1833,11 @@ function AppShell({ onLangChange }: { onLangChange: (lang: Lang) => void }) {
             scope={logRef}
             onClearScope={() => setLogRef("")}
             height={logDockHeight}
+            infoRatio={logInfoRatio}
+            onInfoResize={setLogInfoRatio}
             onResize={setLogDockHeight}
             onSelect={selectCommit}
+            onOpenCommit={openCommit}
             onSelectFile={(file) => {
               if (logDetail) void openCommitFile(logDetail.hash, file);
             }}
