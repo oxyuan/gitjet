@@ -601,22 +601,25 @@ export function CommitPanel({
         <IconButton icon="refresh" title={t("refresh")} onClick={actions.onRefresh} spinner={busy} />
         <span className="toolbar-sep" />
         <IconButton
-          icon="stage"
-          title={t("stageSelected")}
-          disabled={selected.size === 0}
-          onClick={() => actions.onStage([...selected])}
+          icon="expand"
+          title={t("expandAll")}
+          onClick={() => {
+            setCollapsed(new Set());
+            setExpanded(allDirectories());
+          }}
         />
         <IconButton
-          icon="unstage"
-          title={t("unstageSelected")}
-          disabled={selected.size === 0}
-          onClick={() => actions.onUnstage([...selected])}
-        />
-        <IconButton
-          icon="undo"
-          title={t("rollbackSelected")}
-          disabled={selected.size === 0}
-          onClick={() => actions.onRollback([...selected])}
+          icon="collapse"
+          title={t("collapseAll")}
+          onClick={() => {
+            const next = new Set<string>();
+            for (const cl of changelists.items) next.add("cl:" + cl.id);
+            next.add("staged");
+            next.add("conflicts");
+            next.add("ignored");
+            setCollapsed(next);
+            setExpanded(new Set());
+          }}
         />
         <span className="spacer" />
         <IconButton
@@ -654,6 +657,26 @@ export function CommitPanel({
                 },
                 { separator: true },
                 {
+                  label: t("stageSelected"),
+                  icon: "stage",
+                  disabled: selected.size === 0,
+                  onClick: () => actions.onStage([...selected]),
+                },
+                {
+                  label: t("unstageSelected"),
+                  icon: "unstage",
+                  disabled: selected.size === 0,
+                  onClick: () => actions.onUnstage([...selected]),
+                },
+                {
+                  label: t("rollbackSelected"),
+                  icon: "undo",
+                  danger: true,
+                  disabled: selected.size === 0,
+                  onClick: () => actions.onRollback([...selected]),
+                },
+                { separator: true },
+                {
                   label: t("stashChanges"),
                   icon: "stash",
                   disabled: entries.length === 0,
@@ -670,28 +693,6 @@ export function CommitPanel({
                   icon: "stage",
                   checked: showStaged,
                   onClick: onToggleStaged,
-                },
-                { separator: true },
-                {
-                  label: t("expandAll"),
-                  icon: "expand",
-                  onClick: () => {
-                    setCollapsed(new Set());
-                    setExpanded(allDirectories());
-                  },
-                },
-                {
-                  label: t("collapseAll"),
-                  icon: "collapse",
-                  onClick: () => {
-                    const next = new Set<string>();
-                    for (const cl of changelists.items) next.add("cl:" + cl.id);
-                    next.add("staged");
-                    next.add("conflicts");
-                    next.add("ignored");
-                    setCollapsed(next);
-                    setExpanded(new Set());
-                  },
                 },
               ],
             });

@@ -4,6 +4,9 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"os"
+	"os/exec"
+	"path/filepath"
 	"strings"
 	"time"
 )
@@ -16,9 +19,13 @@ type ConsoleResult struct {
 	Duration int64  `json:"duration"` // milliseconds
 }
 
-// RunConsole runs a command line from the Git console and streams its
-// output. The line is run as typed: it has to start with "git", because a
-// console that silently prefixes one teaches the wrong command.
+// RunConsole runs a command line from the console and streams its output.
+//
+// The line runs as typed, in the repository root: "git status" and "ls -la"
+// both work, because a console that only accepts one program cannot be used
+// to look around the tree while debugging. Quoting follows a POSIX shell,
+// but nothing else does — there is no pipe, no expansion and no redirection,
+// so what runs is what is on the line.
 func (r *Repo) RunConsole(ctx context.Context, command string, emit func(string)) (ConsoleResult, error) {
 	res := ConsoleResult{Command: command, ExitCode: 0}
 	start := time.Now()
@@ -27,34 +34,73 @@ func (r *Repo) RunConsole(ctx context.Context, command string, emit func(string)
 		return res, err
 	}
 	if len(args) == 0 {
-		return res, errors.New("type a git command, for example: git status")
-	}
-	if args[0] != "git" {
-		return res, fmt.Errorf("%s is not a git command: start the line with git, for example: git %s", args[0], command)
-	}
-	args = args[1:]
-	if len(args) == 0 {
-		return res, errors.New("type a git command, for example: git status")
-	}
-	switch args[0] {
-	case "cd", "exit", "clear", "history":
-		return res, fmt.Errorf("%s is not a git command: the Git console runs in the repository root", args[0])
+		return res, errors.New("type a command, for example: git status")
 	}
 	r.write.Lock()
-	out, runErr := r.stream(ctx, emit, args...)
+	out, runErr := r.runTyped(ctx, args, emit)
 	r.write.Unlock()
 	res.Output = out
 	res.Duration = time.Since(start).Milliseconds()
 	if runErr != nil {
 		var gerr *Error
-		if errors.As(runErr, &gerr) {
-			res.ExitCode = gerr.Code
-		} else {
-			res.ExitCode = 1
+		if !errors.As(runErr, &gerr) {
+			// Nothing ran: a line that names a program which does not exist
+			// has to say so, not report an exit code and an empty output.
+			return res, runErr
 		}
-		return res, nil
+		res.ExitCode = gerr.Code
 	}
 	return res, nil
+}
+
+// lookTyped finds the program a console line names. PATH comes first; if that
+// fails, the directories Git for Windows installs beside git are searched too,
+// so ls, cat, grep and friends work for anyone who has git and nothing else on
+// PATH — the same binaries git's own shell uses.
+func lookTyped(name, gitPath string) (string, error) {
+	if exe, err := exec.LookPath(name); err == nil {
+		return exe, nil
+	}
+	dir := filepath.Dir(gitPath)
+	dirs := []string{
+		filepath.Join(dir, "..", "usr", "bin"),
+		filepath.Join(dir, "..", "bin"),
+		filepath.Join(dir, "..", "..", "usr", "bin"),
+		filepath.Join(dir, "..", "..", "bin"),
+		filepath.Join(dir, "..", "..", "usr", "local", "bin"),
+	}
+	for _, d := range dirs {
+		for _, candidate := range []string{name, name + ".exe"} {
+			p := filepath.Join(d, candidate)
+			if info, err := os.Stat(p); err == nil && !info.IsDir() {
+				return p, nil
+			}
+		}
+	}
+	return "", exec.ErrNotFound
+}
+
+// runTyped runs one line typed into the console. A line that names git gets
+// the same environment and repository flags as every other git call here, so
+// the console and the UI cannot disagree about what git sees; anything else
+// runs as the user typed it, with the repository root as its directory.
+func (r *Repo) runTyped(ctx context.Context, args []string, emit func(string)) (string, error) {
+	if args[0] == "git" {
+		return r.streamCmd(ctx, r.command(ctx, args[1:]...), args[1:], emit)
+	}
+	exe, err := lookTyped(args[0], r.git)
+	if err != nil {
+		switch args[0] {
+		case "cd", "exit":
+			return "", fmt.Errorf("%s needs a shell: every command already runs in %s", args[0], r.dir)
+		}
+		return "", fmt.Errorf("%s: command not found", args[0])
+	}
+	cmd := exec.CommandContext(ctx, exe, args[1:]...)
+	cmd.Dir = r.dir
+	cmd.Env = append(os.Environ(), "LC_ALL=C", "LANG=C")
+	prepareCmd(cmd)
+	return r.streamCmd(ctx, cmd, args, emit)
 }
 
 // SplitCommandLine splits a console line into arguments, following the
@@ -193,6 +239,22 @@ var gitOptions = []Completion{
 	{"-v", "option", "Verbose"},
 }
 
+// shellCommands are the programs worth suggesting after the console learned
+// to run more than git. They are all read-only, so a mis-click in the
+// completion popup cannot change the repository.
+var shellCommands = []Completion{
+	{"ls", "command", "List the files in the repository"},
+	{"pwd", "command", "Print the directory commands run in"},
+	{"cat", "command", "Print a file"},
+	{"head", "command", "Print the first lines of a file"},
+	{"tail", "command", "Print the last lines of a file"},
+	{"wc", "command", "Count lines, words and bytes"},
+	{"grep", "command", "Search the working tree"},
+	{"find", "command", "Find files by name"},
+	{"du", "command", "Show the size of files and directories"},
+	{"git", "command", "Git command"},
+}
+
 // ConsoleCompletions suggests commands, options and refs for a prefix.
 func (r *Repo) ConsoleCompletions(ctx context.Context, prefix string) []Completion {
 	prefix = strings.TrimLeft(prefix, " ")
@@ -202,10 +264,21 @@ func (r *Repo) ConsoleCompletions(ctx context.Context, prefix string) []Completi
 	}
 	var out []Completion
 	matches := func(s string) bool { return strings.HasPrefix(s, word) }
-	// The first word is the program, not a subcommand: complete it too, so
-	// "gi" turns into "git " rather than into a bare subcommand.
-	if !strings.ContainsAny(prefix, " \t") && matches("git") {
-		out = append(out, Completion{Text: "git", Kind: "command", Description: "Git command"})
+	firstWord := !strings.ContainsAny(prefix, " \t")
+	if firstWord {
+		// The first word is the program. Offering subcommands here would only
+		// complete lines the console then refuses to run.
+		for _, c := range shellCommands {
+			if matches(c.Text) {
+				out = append(out, c)
+			}
+		}
+		return out
+	}
+	// Options and refs belong to git. On any other program they would suggest
+	// flags it does not have.
+	if strings.Fields(prefix)[0] != "git" {
+		return nil
 	}
 	for _, c := range gitCommands {
 		if matches(c.Text) {

@@ -2,12 +2,32 @@ package git
 
 import (
 	"context"
+	"fmt"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 )
 
-// The console runs the line as typed. A bare subcommand is a mistake worth
-// naming, not something to paper over with an invisible prefix.
+// TestConsoleHelperProcess is not a test: it is the program the console runs
+// in TestRunConsoleRunsAProgramOtherThanGit, so a non-git executable exists
+// on every platform.
+func TestConsoleHelperProcess(t *testing.T) {
+	if os.Getenv("GITJET_CONSOLE_HELPER") != "1" {
+		return
+	}
+	wd, err := os.Getwd()
+	if err != nil {
+		t.Fatal(err)
+	}
+	fmt.Println("cwd=" + wd)
+	fmt.Println("args=" + strings.Join(os.Args[1:], " "))
+	fmt.Fprintln(os.Stderr, "on stderr")
+}
+
+// The console runs the line as typed. A git line keeps the repository flags
+// and environment every other call uses, so the console and the UI cannot
+// disagree about what git sees.
 func TestRunConsoleRunsTheLineAsTyped(t *testing.T) {
 	repo, dir := newTestRepo(t)
 	writeFile(t, dir, "b.txt", "new\n")
@@ -29,16 +49,68 @@ func TestRunConsoleRunsTheLineAsTyped(t *testing.T) {
 		t.Error("no output was streamed")
 	}
 
-	if _, err := repo.RunConsole(context.Background(), "status", func(string) {}); err == nil {
-		t.Fatal("a line without git was accepted")
-	} else if !strings.Contains(err.Error(), "start the line with git") {
-		t.Errorf("error = %q, want it to ask for the git prefix", err)
+	// A bare subcommand is not git, and is not silently prefixed either.
+	if _, err := repo.RunConsole(context.Background(), "status --porcelain", func(string) {}); err == nil {
+		t.Error("a bare subcommand should not be run as git")
 	}
 }
 
-func TestRunConsoleRefusesShellCommands(t *testing.T) {
+// Any other program runs as typed, in the repository root, so the tree can be
+// inspected while debugging: this is what makes "ls" and "pwd" useful.
+func TestRunConsoleRunsAProgramOtherThanGit(t *testing.T) {
+	repo, dir := newTestRepo(t)
+	exe, err := os.Executable()
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("GITJET_CONSOLE_HELPER", "1")
+
+	// Forward slashes so the quotes in the line stay a quoting test and not a
+	// test of how backslashes inside a string are escaped.
+	var lines []string
+	line := `"` + filepath.ToSlash(exe) + `" -test.run=TestConsoleHelperProcess`
+	res, err := repo.RunConsole(context.Background(), line, func(l string) { lines = append(lines, l) })
+	if err != nil {
+		t.Fatalf("RunConsole: %v", err)
+	}
+	if res.ExitCode != 0 {
+		t.Fatalf("exit code = %d, output = %q", res.ExitCode, res.Output)
+	}
+	out := strings.Join(lines, "\n")
+	if !strings.Contains(out, "on stderr") {
+		t.Errorf("stderr was not streamed with stdout: %q", out)
+	}
+	if !strings.Contains(out, "cwd="+strings.TrimSpace(dir)) {
+		t.Errorf("cwd is not the repository root (%s): %q", dir, out)
+	}
+	if !strings.Contains(out, "-test.run=TestConsoleHelperProcess") {
+		t.Errorf("arguments were not passed through: %q", out)
+	}
+}
+
+// A program that cannot be found is reported as such: the user typed
+// something that never ran, and an exit code with empty output hides that.
+func TestRunConsoleReportsAnUnknownProgram(t *testing.T) {
 	repo, _ := newTestRepo(t)
-	if _, err := repo.RunConsole(context.Background(), "git cd ..", func(string) {}); err == nil {
-		t.Fatal("git cd was accepted")
+	if _, err := repo.RunConsole(context.Background(), "gitjet-no-such-program", func(string) {}); err == nil {
+		t.Fatal("an unknown program was accepted")
+	} else if !strings.Contains(err.Error(), "command not found") {
+		t.Errorf("error = %q, want it to name the missing program", err)
+	}
+	if _, err := repo.RunConsole(context.Background(), "   ", func(string) {}); err == nil {
+		t.Fatal("an empty line was accepted")
+	}
+}
+
+// cd cannot work: the console keeps one working directory per run, and a
+// silent no-op would be worse than saying so.
+func TestRunConsoleExplainsCd(t *testing.T) {
+	repo, dir := newTestRepo(t)
+	_, err := repo.RunConsole(context.Background(), "cd ..", func(string) {})
+	if err == nil {
+		t.Fatal("cd was accepted")
+	}
+	if !strings.Contains(err.Error(), dir) {
+		t.Errorf("error = %q, want it to name the directory commands run in", err)
 	}
 }

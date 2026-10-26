@@ -264,7 +264,12 @@ func (r *Repo) writeRun(ctx context.Context, args ...string) (string, error) {
 // Git's progress messages end in carriage returns; those count as lines
 // too, so a progress bar reaches the page as it changes.
 func (r *Repo) stream(ctx context.Context, emit func(string), args ...string) (string, error) {
-	cmd := r.command(ctx, args...)
+	return r.streamCmd(ctx, r.command(ctx, args...), args, emit)
+}
+
+// streamCmd is stream for an already built command. The console uses it to
+// run the programs a user types, which are not always git.
+func (r *Repo) streamCmd(ctx context.Context, cmd *exec.Cmd, args []string, emit func(string)) (string, error) {
 	pr, pw := io.Pipe()
 	cmd.Stdout = pw
 	cmd.Stderr = pw

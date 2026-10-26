@@ -7,14 +7,17 @@ import { useT } from "./i18n";
 
 const T = {
   en: {
-    intro: "Git console — the line runs as typed, so start it with git (git status). Tab completes, ↑/↓ recalls history.",
+    title: "Console",
+    intro:
+      "Console — runs the line as typed, in the repository root: git status, ls, pwd. Tab completes, ↑/↓ recalls history.",
     copyOutput: "Copy console output",
     clearConsole: "Clear console",
     openRepositoryFirst: "Open a repository first",
     exitCode: "exit code {code} · {ms} ms",
   },
   zh: {
-    intro: "Git 控制台 — 命令按原样执行，请以 git 开头（如 git status）。Tab 补全，↑/↓ 调出历史。",
+    title: "控制台",
+    intro: "控制台 — 命令按原样在仓库根目录执行：git status、ls、pwd 都可以。Tab 补全，↑/↓ 调出历史。",
     copyOutput: "复制控制台输出",
     clearConsole: "清空控制台",
     openRepositoryFirst: "请先打开仓库",
@@ -127,7 +130,7 @@ export function ConsolePanel({ onCommandDone, repoOpen }: { onCommandDone: () =>
     <div className="console-panel">
       <div className="panel-toolbar">
         <span className="console-title">
-          <Icon name="console" /> Git
+          <Icon name="console" /> {t("title")}
         </span>
         <span className="spacer" />
         <IconButton
