@@ -127,7 +127,9 @@ func GitVersion(ctx context.Context, gitPath string) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	out, err := exec.CommandContext(ctx, exe, "--version").Output()
+	cmd := exec.CommandContext(ctx, exe, "--version")
+	prepareCmd(cmd)
+	out, err := cmd.Output()
 	if err != nil {
 		return "", err
 	}
@@ -203,6 +205,7 @@ func (r *Repo) command(ctx context.Context, args ...string) *exec.Cmd {
 	full := append([]string{"-C", r.dir, "--no-pager"}, args...)
 	cmd := exec.CommandContext(ctx, r.git, full...)
 	cmd.Env = gitEnv()
+	prepareCmd(cmd)
 	return cmd
 }
 
