@@ -46,6 +46,10 @@ const T = {
     resetHard: "Reset Current Branch to Here — Hard",
     copyRevision: "Copy Revision Number",
     copyMessage: "Copy Commit Message",
+    scope: "History of {branch}",
+    clearScope: "Show the checked out branch instead",
+    inBranchesOne: "In 1 branch",
+    inBranchesOther: "In {n} branches",
   },
   zh: {
     refresh: "刷新",
@@ -75,6 +79,10 @@ const T = {
     resetHard: "将当前分支重置到此处 — 硬重置",
     copyRevision: "复制提交哈希",
     copyMessage: "复制提交信息",
+    scope: "历史：{branch}",
+    clearScope: "回到当前分支",
+    inBranchesOne: "在 1 个分支中",
+    inBranchesOther: "在 {n} 个分支中",
   },
 } as const;
 
@@ -91,6 +99,8 @@ export function LogDock({
   search,
   author,
   authors,
+  scope,
+  onClearScope,
   height,
   onResize,
   onSelect,
@@ -119,6 +129,9 @@ export function LogDock({
   search: string;
   author: string;
   authors: AuthorOption[];
+  /** Branch whose history is listed; "" when it follows HEAD. */
+  scope: string;
+  onClearScope: () => void;
   height: number;
   onResize: (h: number) => void;
   onSelect: (commit: Commit) => void;
@@ -231,6 +244,13 @@ export function LogDock({
               )}
             </div>
             <AuthorPicker authors={authors} value={author} onChange={onAuthor} />
+            {scope && (
+              <button className="log-scope" title={t("clearScope")} onClick={onClearScope}>
+                <Icon name="branch" size={11} />
+                <span>{t("scope", { branch: scope })}</span>
+                <Icon name="close" size={11} />
+              </button>
+            )}
             <span className="spacer" />
             <IconButton
               icon="download"
@@ -341,40 +361,15 @@ export function LogDock({
             </div>
           ) : (
             <>
-              <div className="log-detail-head">
-                <div className="log-detail-title">
-                  {detail.refs.map((r, i) => (
-                    <RefChip key={i} name={r.name} type={r.type} head={r.head} />
-                  ))}
-                  <span className="log-detail-subject">{detail.subject}</span>
-                </div>
-                <div className="log-detail-meta">
-                  <span className="bp-avatar">{(detail.author || "?").slice(0, 1).toUpperCase()}</span>
-                  <span className="log-detail-author" title={detail.authorEmail}>
-                    {detail.author}
+              <div className="log-detail-files">
+                <div className="log-detail-files-head">
+                  <span className="details-stats">
+                    {count(detail.stats.files, t("filesChangedOne"), t("filesChangedOther", { n: detail.stats.files }))}
+                    {detail.stats.additions > 0 && <span className="add-count"> +{detail.stats.additions}</span>}
+                    {detail.stats.deletions > 0 && <span className="del-count"> −{detail.stats.deletions}</span>}
                   </span>
-                  <span className="muted">{formatStamp(detail.authorTime)}</span>
-                  <span className="spacer" />
-                  <button className="hash-copy" title={t("copyHash")} onClick={() => onCopy(detail.hash)}>
-                    <Icon name="hash" size={11} />
-                    <code>{detail.short}</code>
-                    <Icon name="copy" size={11} />
-                  </button>
                 </div>
-                {detail.committer !== detail.author && (
-                  <div className="log-detail-meta muted">
-                    {t("committedBy", { name: detail.committer, date: formatStamp(detail.commitTime) })}
-                  </div>
-                )}
-              </div>
-              <div className="log-detail-scroll">
-                {detail.body && <pre className="details-body">{detail.body}</pre>}
-                <div className="details-stats">
-                  {count(detail.stats.files, t("filesChangedOne"), t("filesChangedOther", { n: detail.stats.files }))}
-                  {detail.stats.additions > 0 && <span className="add-count"> +{detail.stats.additions}</span>}
-                  {detail.stats.deletions > 0 && <span className="del-count"> −{detail.stats.deletions}</span>}
-                </div>
-                <div className="details-files">
+                <div className="log-detail-files-list">
                   {detail.files.map((file) => (
                     <div
                       key={file.path}
@@ -417,6 +412,49 @@ export function LogDock({
                     </div>
                   ))}
                 </div>
+              </div>
+              <div className="log-detail-info">
+                <div className="log-detail-subject">{detail.subject}</div>
+                <div className="log-detail-meta">
+                  <button className="hash-copy" title={t("copyHash")} onClick={() => onCopy(detail.hash)}>
+                    <Icon name="hash" size={11} />
+                    <code>{detail.short}</code>
+                    <Icon name="copy" size={11} />
+                  </button>
+                  <span className="bp-avatar">{(detail.author || "?").slice(0, 1).toUpperCase()}</span>
+                  <span className="log-detail-author" title={detail.authorEmail}>
+                    {detail.author}
+                  </span>
+                  <span className="muted">{formatStamp(detail.authorTime)}</span>
+                </div>
+                {detail.committer !== detail.author && (
+                  <div className="log-detail-meta muted">
+                    {t("committedBy", { name: detail.committer, date: formatStamp(detail.commitTime) })}
+                  </div>
+                )}
+                {detail.refs.length > 0 && (
+                  <div className="log-detail-refs">
+                    {detail.refs.map((r, i) => (
+                      <RefChip key={i} name={r.name} type={r.type} head={r.head} />
+                    ))}
+                  </div>
+                )}
+                {detail.branches.length > 0 && (
+                  <div className="log-detail-branches">
+                    <span className="log-detail-branches-count">
+                      {count(detail.branches.length, t("inBranchesOne"), t("inBranchesOther", { n: detail.branches.length }))}
+                    </span>
+                    <div className="log-detail-branch-names">
+                      {detail.branches.map((name) => (
+                        <span key={name} className="log-detail-branch">
+                          <Icon name="branch" size={10} />
+                          {name}
+                        </span>
+                      ))}
+                    </div>
+                  </div>
+                )}
+                {detail.body && <pre className="details-body">{detail.body}</pre>}
               </div>
               <div className="log-detail-foot">
                 <span>{t("stepFiles")}</span>

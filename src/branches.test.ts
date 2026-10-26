@@ -2,7 +2,6 @@ import { describe, expect, it } from "bun:test";
 import {
   buildBranchSections,
   describeBranch,
-  favoriteLeaves,
   flattenSections,
   searchSections,
   splitRefName,
@@ -142,24 +141,5 @@ describe("searchSections", () => {
 
   it("drops groups and sections without a match", () => {
     expect(searchSections(sections, "nothing-here")).toEqual([]);
-  });
-});
-
-describe("favoriteLeaves", () => {
-  it("lists only starred branches, in tree order", () => {
-    const sections = buildBranchSections(snapshot, snapshot.current);
-    const stars = favoriteLeaves(sections, [
-      "refs/remotes/origin/feat/50514615/assembleSettlement",
-      "refs/heads/master",
-    ]);
-    expect(stars.map((leaf: BranchLeaf) => leaf.name)).toEqual([
-      "master",
-      "origin/feat/50514615/assembleSettlement",
-    ]);
-  });
-
-  it("ignores favourites that no longer exist", () => {
-    const sections = buildBranchSections(snapshot, snapshot.current);
-    expect(favoriteLeaves(sections, ["refs/heads/deleted"])).toEqual([]);
   });
 });

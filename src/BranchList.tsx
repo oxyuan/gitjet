@@ -2,7 +2,6 @@ import { useMemo, useState } from "react";
 import {
   buildBranchSections,
   COLLAPSE_THRESHOLD,
-  favoriteLeaves,
   flattenSections,
   searchSections,
   type BranchGroup,
@@ -16,7 +15,6 @@ import { ContextMenu, cx, type ContextItem } from "./ui";
 const T = {
   en: {
     searchBranches: "Search branches",
-    favorites: "Favorites",
     localBranches: "Local",
     remoteBranches: "Remote · {remote}",
     others: "Others",
@@ -28,7 +26,7 @@ const T = {
     addFavorite: "Add to favorites",
     removeFavorite: "Remove from favorites",
     checkout: "Check out",
-    checkoutTip: "Double-click to check out {name}",
+    filterTip: "Click to show this history · double-click to check out",
     newBranch: "New branch from here…",
     merge: "Merge into current",
     rebase: "Rebase current onto this",
@@ -37,7 +35,6 @@ const T = {
   },
   zh: {
     searchBranches: "搜索分支",
-    favorites: "收藏",
     localBranches: "本地",
     remoteBranches: "远程 · {remote}",
     others: "其它",
@@ -49,7 +46,7 @@ const T = {
     addFavorite: "收藏分支",
     removeFavorite: "取消收藏",
     checkout: "切换",
-    checkoutTip: "双击切换到 {name}",
+    filterTip: "单击查看该分支历史 · 双击切换",
     newBranch: "从此分支新建…",
     merge: "合并到当前分支",
     rebase: "变基当前分支到此",
@@ -58,11 +55,13 @@ const T = {
   },
 } as const;
 
-/** The branch tree of the branch page: search, favourites on top, checkout. */
+/** The branch tree of the branch page: search, filter on click, checkout on double click. */
 export function BranchList({
   refs,
   current,
   favorites,
+  selected,
+  onSelect,
   onCheckout,
   onToggleFavorite,
   onNewBranch,
@@ -74,6 +73,9 @@ export function BranchList({
   refs: RefsSnapshot | null;
   current: string;
   favorites: string[];
+  /** Branch whose history is shown; "" follows the checked out branch. */
+  selected: string;
+  onSelect: (name: string) => void;
   onCheckout: (name: string) => void;
   onToggleFavorite: (key: string) => void;
   onNewBranch: (start: string) => void;
@@ -89,7 +91,6 @@ export function BranchList({
 
   const sections = useMemo(() => buildBranchSections(refs, current), [refs, current]);
   const visible = useMemo(() => searchSections(sections, query), [sections, query]);
-  const starred = useMemo(() => favoriteLeaves(sections, favorites), [sections, favorites]);
   const leaves = useMemo(() => flattenSections(visible), [visible]);
   const searching = query.trim() !== "";
 
@@ -127,9 +128,10 @@ export function BranchList({
     return (
       <div
         key={(full ? "fav:" : "") + leaf.key}
-        className={cx("bp-leaf", !full && "nested", leaf.current && "current")}
-        title={leaf.upstream ? `${leaf.name} → ${leaf.upstream}` : t("checkoutTip", { name: leaf.name })}
-        onClick={() => {
+        className={cx("bp-leaf", !full && "nested", leaf.current && "current", selected === leaf.name && "selected")}
+        title={leaf.upstream ? `${leaf.name} → ${leaf.upstream}` : t("filterTip")}
+        onClick={() => onSelect(leaf.name)}
+        onDoubleClick={() => {
           if (!leaf.current) onCheckout(leaf.name);
         }}
         onContextMenu={(e) => {
@@ -137,7 +139,7 @@ export function BranchList({
           branchMenu(leaf, e.clientX, e.clientY);
         }}
         role="treeitem"
-        aria-selected={leaf.current}
+        aria-selected={selected === leaf.name}
       >
         <span className="bp-leaf-name">{full ? leaf.name : leaf.label}</span>
         {leaf.current && (
@@ -180,43 +182,44 @@ export function BranchList({
         )}
       </div>
       <div className="picker-scroll branch-scroll" role="tree">
-        {starred.length > 0 && (
-          <div className="bp-section bp-favorites">
-            <div className="bp-section-title">
-              <Icon name="star" size={11} className="bp-fav-mark" />
-              {t("favorites")}
-              <span className="bp-count">{starred.length}</span>
+        {visible.map((section) => {
+          const all = section.groups.flatMap((group) => group.branches);
+          // Favourites float to the top of their own section and leave the
+          // groups behind, so a branch appears exactly once.
+          const pinned = all.filter((leaf) => favorites.includes(leaf.key));
+          const pinnedKeys = new Set(pinned.map((leaf) => leaf.key));
+          const groups = section.groups
+            .map((group) => ({ ...group, branches: group.branches.filter((leaf) => !pinnedKeys.has(leaf.key)) }))
+            .filter((group) => group.branches.length > 0);
+          return (
+            <div className="bp-section" key={section.key}>
+              <div className="bp-section-title">
+                {section.remote ? t("remoteBranches", { remote: section.remote }) : t("localBranches")}
+              </div>
+              {pinned.map((leaf) => leafRow(leaf, true))}
+              {groups.map((group) => {
+                const closed = isCollapsed(section.key, group);
+                return (
+                  <div className="bp-group-block" key={section.key + group.name}>
+                    <button
+                      className="bp-group"
+                      onClick={() =>
+                        setCollapsed((prev) => ({ ...prev, [groupKey(section.key, group)]: !closed }))
+                      }
+                    >
+                      <Icon name={closed ? "chevronRight" : "chevronDown"} size={11} />
+                      <span className={cx("bp-dot", `tone-${group.tone}`)} />
+                      <span className="bp-group-name">{groupLabel(group)}</span>
+                      <span className="bp-count">{group.branches.length}</span>
+                    </button>
+                    {!closed && group.branches.map((leaf) => leafRow(leaf))}
+                  </div>
+                );
+              })}
             </div>
-            {starred.map((leaf) => leafRow(leaf, true))}
-          </div>
-        )}
-        {visible.map((section) => (
-          <div className="bp-section" key={section.key}>
-            <div className="bp-section-title">
-              {section.remote ? t("remoteBranches", { remote: section.remote }) : t("localBranches")}
-            </div>
-            {section.groups.map((group) => {
-              const closed = isCollapsed(section.key, group);
-              return (
-                <div className="bp-group-block" key={section.key + group.name}>
-                  <button
-                    className="bp-group"
-                    onClick={() =>
-                      setCollapsed((prev) => ({ ...prev, [groupKey(section.key, group)]: !closed }))
-                    }
-                  >
-                    <Icon name={closed ? "chevronRight" : "chevronDown"} size={11} />
-                    <span className={cx("bp-dot", `tone-${group.tone}`)} />
-                    <span className="bp-group-name">{groupLabel(group)}</span>
-                    <span className="bp-count">{group.branches.length}</span>
-                  </button>
-                  {!closed && group.branches.map((leaf) => leafRow(leaf))}
-                </div>
-              );
-            })}
-          </div>
-        ))}
-        {leaves.length === 0 && starred.length === 0 && (
+          );
+        })}
+        {leaves.length === 0 && (
           <div className="picker-empty">
             {searching ? t("noMatch", { query: query.trim() }) : t("noBranches")}
           </div>

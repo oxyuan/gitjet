@@ -100,6 +100,7 @@ export interface CommitDetail {
   refs: CommitRef[];
   files: CommitFile[];
   stats: CommitStats;
+  branches: string[];
 }
 
 export interface CommitFile {

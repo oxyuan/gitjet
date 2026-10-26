@@ -202,11 +202,5 @@ export function flattenSections(sections: BranchSection[]): BranchLeaf[] {
   return sections.flatMap((section) => section.groups.flatMap((group) => group.branches));
 }
 
-/** Favourites first, in the order the sections list them. */
-export function favoriteLeaves(sections: BranchSection[], favorites: string[]): BranchLeaf[] {
-  const wanted = new Set(favorites);
-  return flattenSections(sections).filter((leaf) => wanted.has(leaf.key));
-}
-
 /** Groups with more than this many branches start collapsed. */
 export const COLLAPSE_THRESHOLD = 8;

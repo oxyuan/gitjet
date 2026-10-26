@@ -314,6 +314,9 @@ type CommitDetail struct {
 	Commit
 	Files []CommitFile `json:"files"`
 	Stats CommitStats  `json:"stats"`
+	// Branches lists the local and remote branches whose history contains
+	// this commit, the current branch first.
+	Branches []string `json:"branches"`
 }
 
 // CommitFile is a path a commit changed.
@@ -375,7 +378,46 @@ func (r *Repo) ShowCommit(ctx context.Context, hash string) (CommitDetail, error
 		detail.Stats.Deletions += f.Deletions
 	}
 	detail.Stats.Files = len(files)
+	detail.Branches = r.branchesContaining(ctx, c.Hash)
 	return detail, nil
+}
+
+// branchesContaining names the branches that contain a commit. It is a
+// best-effort detail: a failure leaves the list empty rather than failing
+// the whole commit.
+func (r *Repo) branchesContaining(ctx context.Context, hash string) []string {
+	out, err := r.run(ctx, "branch", "-a", "--contains", hash, "--format=%(HEAD)%(refname)")
+	if err != nil {
+		return []string{}
+	}
+	names := []string{}
+	for _, line := range strings.Split(out, "\n") {
+		line = strings.TrimSpace(line)
+		if line == "" {
+			continue
+		}
+		current := strings.HasPrefix(line, "*")
+		full := strings.TrimSpace(strings.TrimPrefix(line, "*"))
+		var name string
+		switch {
+		case strings.HasPrefix(full, "refs/heads/"):
+			name = strings.TrimPrefix(full, "refs/heads/")
+		case strings.HasPrefix(full, "refs/remotes/"):
+			name = strings.TrimPrefix(full, "refs/remotes/")
+			// A remote's HEAD is a symbolic alias, not a branch.
+			if strings.HasSuffix(name, "/HEAD") {
+				continue
+			}
+		default:
+			continue
+		}
+		if current {
+			names = append([]string{name}, names...)
+			continue
+		}
+		names = append(names, name)
+	}
+	return names
 }
 
 // commitFiles lists the files a commit changed against its first parent

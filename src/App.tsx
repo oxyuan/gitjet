@@ -211,7 +211,7 @@ const T = {
     hintPush: "Push",
     hintUpdate: "Update",
     noFileOpen: "No file open",
-    emptyOpen: "Pick a change on the left to see its diff, or a commit below to see its details and first changed file.",
+    emptyOpen: "Pick a change on the left to see its diff, or a commit below to read its details.",
     emptyQuickOpen: "Search every file with",
     kindDiff: "Diff",
     kindSource: "Source",
@@ -377,7 +377,7 @@ const T = {
     hintPush: "推送",
     hintUpdate: "更新",
     noFileOpen: "没有打开的文件",
-    emptyOpen: "在左侧选择一项变更查看差异，或在下方选择提交查看详情与第一个变更文件。",
+    emptyOpen: "在左侧选择一项变更查看差异，或在下方选择提交查看详情。",
     emptyQuickOpen: "搜索任意文件",
     kindDiff: "差异",
     kindSource: "源码",
@@ -488,6 +488,8 @@ function AppShell({ onLangChange }: { onLangChange: (lang: Lang) => void }) {
   const [logFile, setLogFile] = useState<string | null>(null);
   const [logDockHeight, setLogDockHeight] = useStoredState<number>("gitjet.logDock", 300);
   const [logPath, setLogPath] = useState("");
+  // Branch whose history is listed; "" follows the checked out branch.
+  const [logRef, setLogRef] = useState("");
   const [logResult, setLogResult] = useState<LogResult | null>(null);
   const [logLoading, setLogLoading] = useState(false);
   const [selectedCommit, setSelectedCommit] = useState<string | null>(null);
@@ -574,7 +576,7 @@ function AppShell({ onLangChange }: { onLangChange: (lang: Lang) => void }) {
         const s = settingsRef.current;
         const opts = {
           all: false,
-          refs: [current.state.branch || "HEAD"],
+          refs: [logRef || current.state.branch || "HEAD"],
           path: logPath,
           search: logSearch,
           author: logAuthor,
@@ -612,7 +614,7 @@ function AppShell({ onLangChange }: { onLangChange: (lang: Lang) => void }) {
         if (req === logReq.current) setLogLoading(false);
       }
     },
-    [fail, logAuthor, logPath, logSearch, logResult?.commits.length, t],
+    [fail, logAuthor, logPath, logRef, logSearch, logResult?.commits.length, t],
   );
 
   const openDoc = useCallback((doc: Doc) => {
@@ -802,15 +804,17 @@ function AppShell({ onLangChange }: { onLangChange: (lang: Lang) => void }) {
     });
   };
 
-  // Up and down walk the changed files of the selected commit while the log
-  // page has focus; inside the editor they keep scrolling.
+  // Up and down walk the changed files of the selected commit; inside the
+  // editor they keep scrolling, and on other tabs they only work while the
+  // dock itself has focus.
   useEffect(() => {
-    if (tab !== "branch" || !logDetail) return;
+    if (!logDetail) return;
     const onKey = (e: KeyboardEvent) => {
       if (e.key !== "ArrowDown" && e.key !== "ArrowUp") return;
       if (e.metaKey || e.ctrlKey || e.altKey || e.shiftKey) return;
       const active = document.activeElement;
       if (active && active !== document.body && !active.closest(".log-dock")) return;
+      if (tab !== "branch" && (!active || active === document.body)) return;
       const target = e.target as HTMLElement | null;
       if (target && (target.tagName === "INPUT" || target.tagName === "TEXTAREA" || target.isContentEditable)) return;
       e.preventDefault();
@@ -826,12 +830,13 @@ function AppShell({ onLangChange }: { onLangChange: (lang: Lang) => void }) {
     return () => window.clearTimeout(timer);
   }, [searchInput]);
 
-  // Load the log when its tab is visible or its filters change.
+  // The log loads with the repository and reloads when its filters change;
+  // its dock stays on screen on every tab.
   useEffect(() => {
-    if (tab !== "branch" || !snapshot) return;
+    if (!snapshot) return;
     void loadLog(true);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [tab, logAuthor, logSearch, logPath, snapshot?.state.head]);
+  }, [logAuthor, logSearch, logPath, logRef, snapshot?.state.head]);
 
   useEffect(() => {
     if (!snapshot) return;
@@ -874,6 +879,7 @@ function AppShell({ onLangChange }: { onLangChange: (lang: Lang) => void }) {
       setLogDetail(null);
       setLogFile(null);
       setLogPath("");
+      setLogRef("");
       setSearchInput("");
       setLogSearch("");
       setLogAuthor("");
@@ -1239,6 +1245,7 @@ function AppShell({ onLangChange }: { onLangChange: (lang: Lang) => void }) {
     const out = await withBusy(() => Git.checkout(ref));
     if (out !== undefined) {
       notify("success", t("checkedOut"), ref);
+      setLogRef("");
       await reload(false);
       void loadLog(true);
     }
@@ -1450,7 +1457,7 @@ function AppShell({ onLangChange }: { onLangChange: (lang: Lang) => void }) {
           break;
         case "refresh":
           void reload(true);
-          if (tab === "branch") void loadLog(true);
+          void loadLog(true);
           break;
         case "settings":
           setDialog({ kind: "settings" });
@@ -1502,8 +1509,6 @@ function AppShell({ onLangChange }: { onLangChange: (lang: Lang) => void }) {
     Git.showCommit(commit.hash)
       .then((detail) => {
         setLogDetail(detail);
-        const first = detail.files[0];
-        if (first) void openCommitFile(commit.hash, first);
       })
       .catch((err) => fail(t("readCommit"), err));
   };
@@ -1671,7 +1676,6 @@ function AppShell({ onLangChange }: { onLangChange: (lang: Lang) => void }) {
         </div>
       </header>
       <div className="workspace">
-        <div className="workspace-main">
         <aside className="toolwindow" style={{ width: splitWidth }}>
           {tabHeader}
           <div className="toolwindow-content">
@@ -1696,6 +1700,13 @@ function AppShell({ onLangChange }: { onLangChange: (lang: Lang) => void }) {
                   refs={refs}
                   current={state?.branch ?? ""}
                   favorites={favorites}
+                  selected={logRef}
+                  onSelect={(name) => {
+                    setLogRef(name);
+                    setSelectedCommit(null);
+                    setLogDetail(null);
+                    setLogFile(null);
+                  }}
                   onCheckout={(name) => void checkout(name)}
                   onToggleFavorite={toggleFavorite}
                   onNewBranch={(start) => setDialog({ kind: "newBranch", start })}
@@ -1726,6 +1737,7 @@ function AppShell({ onLangChange }: { onLangChange: (lang: Lang) => void }) {
           )}
         </aside>
         <Splitter width={splitWidth} setWidth={setSplitWidth} />
+        <div className="workspace-right">
         <RightPane
             diffMode={diffMode}
             setDiffMode={setDiffMode}
@@ -1790,8 +1802,7 @@ function AppShell({ onLangChange }: { onLangChange: (lang: Lang) => void }) {
             recent={settings.recent}
             repoOpen={repoOpen}
           />
-        </div>
-        {tab === "branch" && snapshot && (
+        {snapshot && (
           <LogDock
             result={logResult}
             detail={logDetail}
@@ -1801,6 +1812,8 @@ function AppShell({ onLangChange }: { onLangChange: (lang: Lang) => void }) {
             search={searchInput}
             author={logAuthor}
             authors={authors}
+            scope={logRef}
+            onClearScope={() => setLogRef("")}
             height={logDockHeight}
             onResize={setLogDockHeight}
             onSelect={selectCommit}
@@ -1832,6 +1845,7 @@ function AppShell({ onLangChange }: { onLangChange: (lang: Lang) => void }) {
             }}
           />
         )}
+        </div>
       </div>
       <footer className="statusbar">
         <button className="status-branch" onClick={() => setTab("branch")} disabled={!repoOpen}>

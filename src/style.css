@@ -384,15 +384,18 @@ button {
 .workspace {
   flex: 1;
   display: flex;
-  flex-direction: column;
-  min-height: 0;
-}
-
-.workspace-main {
-  flex: 1;
-  display: flex;
   min-height: 0;
   min-width: 0;
+}
+
+/* The editor column owns the commit dock, so the branch sidebar keeps its
+   full height. */
+.workspace-right {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
 }
 
 .toolwindow {
@@ -1358,7 +1361,8 @@ body.resizing-row * {
 .log-list {
   flex: 1;
   min-height: 80px;
-  overflow: auto;
+  overflow-x: hidden;
+  overflow-y: auto;
 }
 
 .log-row {
@@ -1466,9 +1470,22 @@ body.resizing-row * {
   display: flex;
   align-items: center;
   gap: 4px;
-  flex: none;
+  flex: 0 1 auto;
+  min-width: 0;
   max-width: 34%;
   overflow: hidden;
+}
+
+/* A long ref name ends in an ellipsis instead of being cut mid glyph. */
+.log-refs .ref-chip {
+  min-width: 0;
+  overflow: hidden;
+}
+
+.log-refs .ref-chip span:not(.icon) {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .log-author {
@@ -6118,22 +6135,43 @@ body.resizing-row .log-dock-resizer::after {
   font-size: 11.5px;
 }
 
-.log-detail-head {
-  flex: none;
-  padding: 9px 12px 8px;
+/* Files on top, the commit's own information underneath. */
+.log-detail-files {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
   border-bottom: 1px solid var(--border);
 }
 
-.log-detail-title {
+.log-detail-files-head {
+  flex: none;
   display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 4px;
+  align-items: baseline;
+  justify-content: flex-end;
+  gap: 8px;
+  padding: 8px 12px 6px;
+}
+
+.log-detail-files-list {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  padding: 0 8px 8px;
+}
+
+.log-detail-info {
+  flex: 0 1 auto;
+  max-height: 62%;
+  overflow: auto;
+  padding: 9px 12px 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
 }
 
 .log-detail-subject {
   display: block;
-  margin-top: 4px;
   font-size: 13px;
   font-weight: 600;
   line-height: 1.4;
@@ -6145,7 +6183,6 @@ body.resizing-row .log-dock-resizer::after {
   display: flex;
   align-items: center;
   gap: 8px;
-  margin-top: 7px;
   font-size: 11px;
   color: var(--muted);
   white-space: nowrap;
@@ -6197,27 +6234,92 @@ body.resizing-row .log-dock-resizer::after {
   color: var(--fg-soft);
 }
 
-.log-detail-scroll {
-  flex: 1;
-  min-height: 0;
-  overflow: auto;
-  padding: 8px 12px 10px;
-}
-
-.log-detail-scroll .details-body {
-  margin-top: 0;
-}
-
-.log-detail-scroll .details-file {
+.log-detail-files-list .details-file {
   border-radius: 5px;
 }
 
-.log-detail-scroll .details-file.selected {
+.log-detail-files-list .details-file.selected {
   background: var(--selection);
 }
 
-.log-detail-scroll .details-file.selected .details-file-path {
+.log-detail-files-list .details-file.selected .details-file-path {
   color: var(--fg);
+}
+
+.log-detail-refs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+
+.log-detail-branches {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.log-detail-branches-count {
+  color: var(--muted-2);
+  font-size: 10.5px;
+}
+
+.log-detail-branch-names {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 10px;
+}
+
+.log-detail-branch {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+  color: var(--fg-soft);
+}
+
+.log-detail-branch .icon {
+  color: var(--muted-2);
+}
+
+.log-detail-info .details-body {
+  margin: 0;
+  padding: 0;
+  background: none;
+  border: 0;
+  white-space: pre-wrap;
+  font-size: 11.5px;
+  line-height: 1.5;
+  color: var(--muted);
+}
+
+.log-scope {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  height: 22px;
+  max-width: 240px;
+  padding: 0 7px;
+  border: 1px solid var(--border);
+  border-radius: 5px;
+  background: var(--hover);
+  color: var(--fg-soft);
+  font-size: 10.5px;
+  white-space: nowrap;
+}
+
+.log-scope span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.log-scope .icon {
+  color: var(--muted);
+  flex: none;
+}
+
+.log-scope:hover {
+  background: var(--hover-strong);
 }
 
 .log-detail-foot {
