@@ -50,6 +50,9 @@ type RepoMeta struct {
 	Changelists []git.Changelist  `json:"changelists"`
 	Assignments map[string]string `json:"assignments"`
 	Messages    []string          `json:"messages"`
+	// PushTargets remembers the remote branches this repository pushed to,
+	// newest first, so the push dialog starts where the user left off.
+	PushTargets []string `json:"pushTargets"`
 }
 
 func defaultSettings() Settings {

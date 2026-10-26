@@ -498,10 +498,12 @@ func (g *Git) Commit(opts git.CommitOptions) (git.CommitResult, error) {
 	if err != nil {
 		return git.CommitResult{}, err
 	}
-	res, err := repo.Commit(context.Background(), opts)
+	ctx, trace := git.WithCommandTrace(context.Background())
+	res, err := repo.Commit(ctx, opts)
 	if err != nil {
 		return git.CommitResult{}, err
 	}
+	res.Output = appendCommands(res.Output, *trace)
 	g.rememberMessage(opts.Message)
 	g.notify()
 	return res, nil
@@ -610,18 +612,19 @@ func (g *Git) Remotes() ([]git.Remote, error) {
 	return repo.Remotes(context.Background())
 }
 
-// Checkout switches branches.
+// Checkout switches branches. Uncommitted work is stashed and restored
+// around the switch, so a check out is never refused for local changes.
 func (g *Git) Checkout(ref string) (string, error) {
 	repo, err := g.c.currentRepo()
 	if err != nil {
 		return "", err
 	}
-	out, err := repo.Checkout(context.Background(), ref)
-	if err != nil {
-		return out, err
-	}
+	ctx, trace := git.WithCommandTrace(context.Background())
+	out, err := preserveLocalChanges(ctx, repo, "checking out "+ref, func() (string, error) {
+		return repo.Checkout(ctx, ref)
+	})
 	g.notify()
-	return out, nil
+	return appendCommands(out, *trace), err
 }
 
 // CreateBranch creates a branch and optionally checks it out.
@@ -676,74 +679,75 @@ func (g *Git) SetUpstream(branch, upstream string) error {
 	return nil
 }
 
-// Merge merges a ref into the current branch.
+// Merge merges a ref into the current branch. Local changes are stashed
+// and restored around it.
 func (g *Git) Merge(ref string, opts git.MergeOptions) (string, error) {
 	repo, err := g.c.currentRepo()
 	if err != nil {
 		return "", err
 	}
-	out, err := repo.Merge(context.Background(), ref, opts)
-	if err != nil {
-		return out, err
-	}
+	ctx, trace := git.WithCommandTrace(context.Background())
+	out, err := preserveLocalChanges(ctx, repo, "merging "+ref, func() (string, error) {
+		return repo.Merge(ctx, ref, opts)
+	})
 	g.notify()
-	return out, nil
+	return appendCommands(out, *trace), err
 }
 
-// Rebase rebases onto a ref.
+// Rebase rebases onto a ref. Local changes are stashed and restored around
+// it, in addition to git's own --autostash.
 func (g *Git) Rebase(onto string, autostash bool) (string, error) {
 	repo, err := g.c.currentRepo()
 	if err != nil {
 		return "", err
 	}
-	out, err := repo.Rebase(context.Background(), onto, autostash)
-	if err != nil {
-		return out, err
-	}
+	ctx, trace := git.WithCommandTrace(context.Background())
+	out, err := preserveLocalChanges(ctx, repo, "rebasing onto "+onto, func() (string, error) {
+		return repo.Rebase(ctx, onto, autostash)
+	})
 	g.notify()
-	return out, nil
+	return appendCommands(out, *trace), err
 }
 
-// CherryPick applies a commit.
-func (g *Git) CherryPick(hash string, noCommit bool) (string, error) {
+// CherryPick applies commits, oldest first.
+func (g *Git) CherryPick(hashes []string, noCommit bool) (string, error) {
 	repo, err := g.c.currentRepo()
 	if err != nil {
 		return "", err
 	}
-	out, err := repo.CherryPick(context.Background(), hash, noCommit)
-	if err != nil {
-		return out, err
-	}
+	ctx, trace := git.WithCommandTrace(context.Background())
+	out, err := preserveLocalChanges(ctx, repo, "cherry-picking", func() (string, error) {
+		return repo.CherryPick(ctx, hashes, noCommit)
+	})
 	g.notify()
-	return out, nil
+	return appendCommands(out, *trace), err
 }
 
-// Revert reverts a commit.
-func (g *Git) Revert(hash string) (string, error) {
+// Revert reverts commits.
+func (g *Git) Revert(hashes []string) (string, error) {
 	repo, err := g.c.currentRepo()
 	if err != nil {
 		return "", err
 	}
-	out, err := repo.Revert(context.Background(), hash)
-	if err != nil {
-		return out, err
-	}
+	ctx, trace := git.WithCommandTrace(context.Background())
+	out, err := preserveLocalChanges(ctx, repo, "reverting", func() (string, error) {
+		return repo.Revert(ctx, hashes)
+	})
 	g.notify()
-	return out, nil
+	return appendCommands(out, *trace), err
 }
 
-// Reset moves the current branch.
+// Reset moves the current branch. It deliberately does not stash: a hard
+// reset is asked for to throw local changes away.
 func (g *Git) Reset(hash, mode string) (string, error) {
 	repo, err := g.c.currentRepo()
 	if err != nil {
 		return "", err
 	}
-	out, err := repo.Reset(context.Background(), hash, mode)
-	if err != nil {
-		return out, err
-	}
+	ctx, trace := git.WithCommandTrace(context.Background())
+	out, err := repo.Reset(ctx, hash, mode)
 	g.notify()
-	return out, nil
+	return appendCommands(out, *trace), err
 }
 
 // CreateTag creates a tag.
@@ -788,20 +792,34 @@ func (g *Git) Push(opts git.PushOptions, out *mygo.Channel[string]) (string, err
 	if err != nil {
 		return "", err
 	}
-	text, err := repo.Push(context.Background(), opts, func(line string) { _ = out.Send(line) })
+	ctx, trace := git.WithCommandTrace(context.Background())
+	text, err := repo.Push(ctx, opts, func(line string) { _ = out.Send(line) })
+	if err == nil {
+		g.rememberPushTarget(opts.Remote, opts.Branch)
+	}
 	g.notify()
-	return text, err
+	return appendCommands(text, *trace), err
 }
 
-// Pull pulls and streams git's output.
+// Pull pulls and streams git's output. Without --autostash the local
+// changes are stashed and restored around the update.
 func (g *Git) Pull(opts git.PullOptions, out *mygo.Channel[string]) (string, error) {
 	repo, err := g.c.currentRepo()
 	if err != nil {
 		return "", err
 	}
-	text, err := repo.Pull(context.Background(), opts, func(line string) { _ = out.Send(line) })
+	ctx, trace := git.WithCommandTrace(context.Background())
+	run := func(ctx context.Context) (string, error) {
+		return repo.Pull(ctx, opts, func(line string) { _ = out.Send(line) })
+	}
+	var text string
+	if opts.Autostash {
+		text, err = run(ctx)
+	} else {
+		text, err = preserveLocalChanges(ctx, repo, "pulling", func() (string, error) { return run(ctx) })
+	}
 	g.notify()
-	return text, err
+	return appendCommands(text, *trace), err
 }
 
 // Fetch fetches and streams git's output.
@@ -810,9 +828,10 @@ func (g *Git) Fetch(opts git.FetchOptions, out *mygo.Channel[string]) (string, e
 	if err != nil {
 		return "", err
 	}
-	text, err := repo.Fetch(context.Background(), opts, func(line string) { _ = out.Send(line) })
+	ctx, trace := git.WithCommandTrace(context.Background())
+	text, err := repo.Fetch(ctx, opts, func(line string) { _ = out.Send(line) })
 	g.notify()
-	return text, err
+	return appendCommands(text, *trace), err
 }
 
 // Stashes lists the stash.
@@ -830,12 +849,13 @@ func (g *Git) StashPush(opts git.StashOptions) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	out, err := repo.StashPush(context.Background(), opts)
+	ctx, trace := git.WithCommandTrace(context.Background())
+	out, err := repo.StashPush(ctx, opts)
 	if err != nil {
 		return out, err
 	}
 	g.notify()
-	return out, nil
+	return appendCommands(out, *trace), nil
 }
 
 // StashApply applies or pops a stash.
@@ -844,12 +864,13 @@ func (g *Git) StashApply(index int, pop bool) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	out, err := repo.StashApply(context.Background(), index, pop)
+	ctx, trace := git.WithCommandTrace(context.Background())
+	out, err := repo.StashApply(ctx, index, pop)
 	if err != nil {
 		return out, err
 	}
 	g.notify()
-	return out, nil
+	return appendCommands(out, *trace), nil
 }
 
 // StashDrop drops a stash.
@@ -858,12 +879,13 @@ func (g *Git) StashDrop(index int) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	out, err := repo.StashDrop(context.Background(), index)
+	ctx, trace := git.WithCommandTrace(context.Background())
+	out, err := repo.StashDrop(ctx, index)
 	if err != nil {
 		return out, err
 	}
 	g.notify()
-	return out, nil
+	return appendCommands(out, *trace), nil
 }
 
 // Conflict reads the stages of an unmerged path.
@@ -920,12 +942,13 @@ func (g *Git) AbortOperation() (string, error) {
 	if err != nil {
 		return "", err
 	}
-	out, err := repo.AbortOperation(context.Background())
+	ctx, trace := git.WithCommandTrace(context.Background())
+	out, err := repo.AbortOperation(ctx)
 	if err != nil {
 		return out, err
 	}
 	g.notify()
-	return out, nil
+	return appendCommands(out, *trace), nil
 }
 
 // ContinueOperation continues the merge or rebase in progress.
@@ -934,12 +957,13 @@ func (g *Git) ContinueOperation() (string, error) {
 	if err != nil {
 		return "", err
 	}
-	out, err := repo.ContinueOperation(context.Background())
+	ctx, trace := git.WithCommandTrace(context.Background())
+	out, err := repo.ContinueOperation(ctx)
 	if err != nil {
 		return out, err
 	}
 	g.notify()
-	return out, nil
+	return appendCommands(out, *trace), nil
 }
 
 // File reads a file for the source viewer. An empty revision reads the
@@ -1114,4 +1138,332 @@ func (g *Git) changelists() (git.Changelists, error) {
 		return git.Changelists{}, err
 	}
 	return snap.Changelists, nil
+}
+
+// rememberPushTarget keeps the branch a push went to at the head of the
+// list the push dialog starts from.
+func (g *Git) rememberPushTarget(remote, branch string) {
+	remote = strings.TrimSpace(remote)
+	if remote == "" {
+		remote = "origin"
+	}
+	if strings.TrimSpace(branch) == "" && g.c.repo != nil {
+		if st, err := g.c.repo.Status(context.Background(), false); err == nil {
+			branch = st.State.Branch
+		}
+	}
+	branch = strings.TrimSpace(branch)
+	if branch == "" {
+		return
+	}
+	target := remote + "/" + branch
+	g.c.mu.Lock()
+	targets := []string{target}
+	for _, t := range g.c.meta.PushTargets {
+		if t != target {
+			targets = append(targets, t)
+		}
+	}
+	if len(targets) > 10 {
+		targets = targets[:10]
+	}
+	g.c.meta.PushTargets = targets
+	g.c.mu.Unlock()
+	_ = g.c.saveMeta()
+}
+
+// PushTargets lists the remote branches this repository pushed to, newest
+// first.
+func (g *Git) PushTargets() []string {
+	g.c.mu.Lock()
+	defer g.c.mu.Unlock()
+	return append([]string(nil), g.c.meta.PushTargets...)
+}
+
+// Compare lists the files that differ between two revisions.
+func (g *Git) Compare(from, to string) ([]git.Change, error) {
+	repo, err := g.c.currentRepo()
+	if err != nil {
+		return nil, err
+	}
+	changes, err := repo.CompareRefs(context.Background(), from, to)
+	if err != nil {
+		return nil, err
+	}
+	if changes == nil {
+		changes = []git.Change{}
+	}
+	return changes, nil
+}
+
+// ---- history rewriting ----
+
+// RewritePlan lists the commits a rewrite of the branch onto onto would
+// replay, so the plan dialog can show them with their actions.
+func (g *Git) RewritePlan(onto string) ([]git.PlanCommit, error) {
+	repo, err := g.c.currentRepo()
+	if err != nil {
+		return nil, err
+	}
+	commits, err := repo.RewritePlan(context.Background(), onto)
+	if err != nil {
+		return nil, err
+	}
+	if commits == nil {
+		commits = []git.PlanCommit{}
+	}
+	return commits, nil
+}
+
+// Rewrite replays the commits of the range with the plan's actions. A
+// conflicting step keeps the rest of the plan for ContinueOperation.
+func (g *Git) Rewrite(onto string, steps []git.PlanStep) (string, error) {
+	repo, err := g.c.currentRepo()
+	if err != nil {
+		return "", err
+	}
+	ctx, trace := git.WithCommandTrace(context.Background())
+	out, err := preserveLocalChanges(ctx, repo, "rewriting history", func() (string, error) {
+		return repo.Rewrite(ctx, onto, steps)
+	})
+	g.notify()
+	return appendCommands(out, *trace), err
+}
+
+// ---- worktrees ----
+
+// Worktrees lists the repository's working trees.
+func (g *Git) Worktrees() ([]git.Worktree, error) {
+	repo, err := g.c.currentRepo()
+	if err != nil {
+		return nil, err
+	}
+	trees, err := repo.Worktrees(context.Background())
+	if err != nil {
+		return nil, err
+	}
+	if trees == nil {
+		trees = []git.Worktree{}
+	}
+	return trees, nil
+}
+
+// AddWorktree checks a branch out in a new folder.
+func (g *Git) AddWorktree(path, branch string, newBranch bool) (string, error) {
+	repo, err := g.c.currentRepo()
+	if err != nil {
+		return "", err
+	}
+	ctx, trace := git.WithCommandTrace(context.Background())
+	out, err := repo.AddWorktree(ctx, path, branch, newBranch)
+	g.notify()
+	return appendCommands(out, *trace), err
+}
+
+// RemoveWorktree deletes a working tree.
+func (g *Git) RemoveWorktree(path string, force bool) (string, error) {
+	repo, err := g.c.currentRepo()
+	if err != nil {
+		return "", err
+	}
+	ctx, trace := git.WithCommandTrace(context.Background())
+	out, err := repo.RemoveWorktree(ctx, path, force)
+	g.notify()
+	return appendCommands(out, *trace), err
+}
+
+// PruneWorktrees forgets working trees whose folder is gone.
+func (g *Git) PruneWorktrees() (string, error) {
+	repo, err := g.c.currentRepo()
+	if err != nil {
+		return "", err
+	}
+	ctx, trace := git.WithCommandTrace(context.Background())
+	out, err := repo.PruneWorktrees(ctx)
+	return appendCommands(out, *trace), err
+}
+
+// ---- stash details ----
+
+// StashFiles lists the paths a stash entry touches.
+func (g *Git) StashFiles(index int) ([]git.StashFile, error) {
+	repo, err := g.c.currentRepo()
+	if err != nil {
+		return nil, err
+	}
+	files, err := repo.StashFiles(context.Background(), index)
+	if err != nil {
+		return nil, err
+	}
+	if files == nil {
+		files = []git.StashFile{}
+	}
+	return files, nil
+}
+
+// StashToBranch restores a stash on its own branch.
+func (g *Git) StashToBranch(index int, branch string) (string, error) {
+	repo, err := g.c.currentRepo()
+	if err != nil {
+		return "", err
+	}
+	ctx, trace := git.WithCommandTrace(context.Background())
+	out, err := repo.StashToBranch(ctx, index, branch)
+	g.notify()
+	return appendCommands(out, *trace), err
+}
+
+// ---- branch cleanup ----
+
+// CleanupCandidates lists branches a cleanup can delete.
+func (g *Git) CleanupCandidates() (git.BranchCleanup, error) {
+	repo, err := g.c.currentRepo()
+	if err != nil {
+		return git.BranchCleanup{}, err
+	}
+	return repo.CleanupCandidates(context.Background())
+}
+
+// DeleteBranches deletes several branches at once, reporting how many went.
+func (g *Git) DeleteBranches(names []string, force bool) (int, error) {
+	repo, err := g.c.currentRepo()
+	if err != nil {
+		return 0, err
+	}
+	deleted := 0
+	var firstErr error
+	for _, name := range names {
+		if err := repo.DeleteBranch(context.Background(), name, force); err != nil {
+			if firstErr == nil {
+				firstErr = fmt.Errorf("%s: %w", name, err)
+			}
+			continue
+		}
+		deleted++
+	}
+	g.notify()
+	return deleted, firstErr
+}
+
+// TakeSideAll takes ours or theirs for several conflicted paths.
+func (g *Git) TakeSideAll(paths []string, side string) error {
+	repo, err := g.c.currentRepo()
+	if err != nil {
+		return err
+	}
+	if len(paths) == 0 {
+		return errors.New("no conflicted files were chosen")
+	}
+	for _, path := range paths {
+		if err := repo.TakeConflictSide(context.Background(), path, side); err != nil {
+			return fmt.Errorf("%s: %w", path, err)
+		}
+	}
+	g.notify()
+	return nil
+}
+
+// ---- submodules, LFS, shallow clones ----
+
+// Submodules lists the repository's submodules.
+func (g *Git) Submodules() ([]git.Submodule, error) {
+	repo, err := g.c.currentRepo()
+	if err != nil {
+		return nil, err
+	}
+	subs, err := repo.Submodules(context.Background())
+	if err != nil {
+		return nil, err
+	}
+	if subs == nil {
+		subs = []git.Submodule{}
+	}
+	return subs, nil
+}
+
+// UpdateSubmodules checks the submodules out at their recorded commits.
+func (g *Git) UpdateSubmodules(init bool) (string, error) {
+	repo, err := g.c.currentRepo()
+	if err != nil {
+		return "", err
+	}
+	ctx, trace := git.WithCommandTrace(context.Background())
+	out, err := repo.UpdateSubmodules(ctx, init)
+	g.notify()
+	return appendCommands(out, *trace), err
+}
+
+// LFS reports whether Git LFS is installed and what it tracks.
+func (g *Git) LFS() (git.LFSStatus, error) {
+	repo, err := g.c.currentRepo()
+	if err != nil {
+		return git.LFSStatus{}, err
+	}
+	return repo.LFS(context.Background()), nil
+}
+
+// Unshallow fetches the full history of a shallow clone.
+func (g *Git) Unshallow(out *mygo.Channel[string]) (string, error) {
+	repo, err := g.c.currentRepo()
+	if err != nil {
+		return "", err
+	}
+	ctx, trace := git.WithCommandTrace(context.Background())
+	text, err := repo.Unshallow(ctx, func(line string) { _ = out.Send(line) })
+	g.notify()
+	return appendCommands(text, *trace), err
+}
+
+// ---- command echo and local-change protection ----
+
+// appendCommands adds the git commands an operation ran to its output, so
+// the operation dock can show and copy them.
+func appendCommands(out string, cmds []string) string {
+	if len(cmds) == 0 {
+		return out
+	}
+	lines := make([]string, 0, len(cmds))
+	for _, c := range cmds {
+		lines = append(lines, "$ "+c)
+	}
+	text := strings.TrimRight(out, "\n")
+	if text != "" {
+		text += "\n"
+	}
+	return text + strings.Join(lines, "\n")
+}
+
+// appendNote adds one line of explanation to an operation's output.
+func appendNote(out, note string) string {
+	text := strings.TrimRight(out, "\n")
+	if text != "" {
+		text += "\n"
+	}
+	return text + note
+}
+
+// preserveLocalChanges stashes uncommitted work, runs fn, then restores
+// it, the way an IDE offers to shelve changes an operation would
+// overwrite. label names the action in the stash message and the note.
+func preserveLocalChanges(ctx context.Context, repo *git.Repo, label string, fn func() (string, error)) (string, error) {
+	st, err := repo.Status(ctx, false)
+	if err != nil || len(st.Changes) == 0 {
+		return fn()
+	}
+	note := "local changes were stashed before " + label + " and restored after it"
+	if _, err := repo.StashPush(ctx, git.StashOptions{Message: "gitjet: before " + label, IncludeUntracked: true}); err != nil {
+		return "", fmt.Errorf("your local changes could not be saved before %s: %w", label, err)
+	}
+	out, opErr := fn()
+	if _, popErr := repo.StashRestore(ctx, 0); popErr != nil {
+		kept := "your local changes could not be restored and are in stash@{0}: " + popErr.Error()
+		if opErr != nil {
+			return appendNote(out, kept), fmt.Errorf("%v; %s", opErr, kept)
+		}
+		return appendNote(out, kept), errors.New(kept)
+	}
+	if opErr != nil {
+		return out, opErr
+	}
+	return appendNote(out, note), nil
 }

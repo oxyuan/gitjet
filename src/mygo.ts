@@ -33,6 +33,19 @@ export interface Bootstrap {
   platform: string;
 }
 
+export interface BranchCleanup {
+  merged: BranchInfo[];
+  gone: BranchInfo[];
+}
+
+export interface BranchInfo {
+  name: string;
+  hash: string;
+  upstream: string;
+  subject: string;
+  time: number;
+}
+
 export interface Change {
   path: string;
   oldPath?: string;
@@ -228,6 +241,17 @@ export interface FileDiff {
   hasChanges: boolean;
 }
 
+export interface LFSFile {
+  path: string;
+  oid: string;
+}
+
+export interface LFSStatus {
+  installed: boolean;
+  version: string;
+  files: LFSFile[];
+}
+
 export interface LogOptions {
   all: boolean;
   refs: string[];
@@ -254,6 +278,22 @@ export interface MergeOptions {
   message: string;
 }
 
+export interface PlanCommit {
+  hash: string;
+  short: string;
+  author: string;
+  time: number;
+  subject: string;
+  message: string;
+  merge: boolean;
+}
+
+export interface PlanStep {
+  hash: string;
+  action: string;
+  message?: string;
+}
+
 export interface PullOptions {
   remote: string;
   branch: string;
@@ -268,6 +308,7 @@ export interface PushOptions {
   branch: string;
   setUpstream: boolean;
   forceWithLease: boolean;
+  forceIfIncludes: boolean;
   tags: boolean;
   dryRun: boolean;
 }
@@ -282,6 +323,8 @@ export interface PushPreview {
   behind: number;
   base: string;
   head: string;
+  diverged: boolean;
+  remoteTip: string;
   commits: Commit[];
   files: CommitFile[];
   truncated: boolean;
@@ -401,6 +444,14 @@ export interface Stash {
   message: string;
 }
 
+export interface StashFile {
+  path: string;
+  oldPath?: string;
+  additions: number;
+  deletions: number;
+  binary: boolean;
+}
+
 export interface StashOptions {
   message: string;
   includeUntracked: boolean;
@@ -408,11 +459,33 @@ export interface StashOptions {
   paths: string[];
 }
 
+export interface Submodule {
+  path: string;
+  hash: string;
+  short: string;
+  url: string;
+  branch: string;
+  describe: string;
+  state: string;
+}
+
 export interface TagOptions {
   name: string;
   message: string;
   revision: string;
   force: boolean;
+}
+
+export interface Worktree {
+  path: string;
+  head: string;
+  short: string;
+  branch: string;
+  detached: boolean;
+  bare: boolean;
+  locked: boolean;
+  prunable: boolean;
+  main: boolean;
 }
 
 // ---- Services ----
@@ -505,6 +578,10 @@ export const Git = {
   abortOperation(): Promise<string> {
     return call("Git.AbortOperation");
   },
+  /** AddWorktree checks a branch out in a new folder. */
+  addWorktree(path: string, branch: string, newBranch: boolean): Promise<string> {
+    return call("Git.AddWorktree", path, branch, newBranch);
+  },
   /** ApplyFile stages, unstages or rolls back a whole file. */
   applyFile(opts: DiffOptions, action: string): Promise<void> {
     return call("Git.ApplyFile", opts, action);
@@ -521,17 +598,28 @@ export const Git = {
   changes(includeIgnored: boolean): Promise<ChangesSnapshot> {
     return call("Git.Changes", includeIgnored);
   },
-  /** Checkout switches branches. */
+  /**
+   * Checkout switches branches. Uncommitted work is stashed and restored
+   * around the switch, so a check out is never refused for local changes.
+   */
   checkout(ref: string): Promise<string> {
     return call("Git.Checkout", ref);
   },
-  /** CherryPick applies a commit. */
-  cherryPick(hash: string, noCommit: boolean): Promise<string> {
-    return call("Git.CherryPick", hash, noCommit);
+  /** CherryPick applies commits, oldest first. */
+  cherryPick(hashes: string[], noCommit: boolean): Promise<string> {
+    return call("Git.CherryPick", hashes, noCommit);
+  },
+  /** CleanupCandidates lists branches a cleanup can delete. */
+  cleanupCandidates(): Promise<BranchCleanup> {
+    return call("Git.CleanupCandidates");
   },
   /** Commit commits the selected changes. */
   commit(opts: CommitOptions): Promise<CommitResult> {
     return call("Git.Commit", opts);
+  },
+  /** Compare lists the files that differ between two revisions. */
+  compare(from: string, to: string): Promise<Change[]> {
+    return call("Git.Compare", from, to);
   },
   /** Completions suggests git commands and refs. */
   completions(prefix: string): Promise<Completion[]> {
@@ -564,6 +652,10 @@ export const Git = {
   /** DeleteBranch deletes a local or remote branch. */
   deleteBranch(name: string, force: boolean): Promise<void> {
     return call("Git.DeleteBranch", name, force);
+  },
+  /** DeleteBranches deletes several branches at once, reporting how many went. */
+  deleteBranches(names: string[], force: boolean): Promise<number> {
+    return call("Git.DeleteBranches", names, force);
   },
   /**
    * DeleteChangelist removes a changelist and moves its files to the
@@ -603,6 +695,10 @@ export const Git = {
   ignore(paths: string[]): Promise<string> {
     return call("Git.Ignore", paths);
   },
+  /** LFS reports whether Git LFS is installed and what it tracks. */
+  lfs(): Promise<LFSStatus> {
+    return call("Git.LFS");
+  },
   /** LastCommitMessage returns HEAD's message. */
   lastCommitMessage(): Promise<string> {
     return call("Git.LastCommitMessage");
@@ -615,7 +711,10 @@ export const Git = {
   markResolved(paths: string[]): Promise<void> {
     return call("Git.MarkResolved", paths);
   },
-  /** Merge merges a ref into the current branch. */
+  /**
+   * Merge merges a ref into the current branch. Local changes are stashed
+   * and restored around it.
+   */
   merge(ref: string, opts: MergeOptions): Promise<string> {
     return call("Git.Merge", ref, opts);
   },
@@ -627,7 +726,14 @@ export const Git = {
   moveToChangelist(paths: string[], id: string): Promise<Changelists> {
     return call("Git.MoveToChangelist", paths, id);
   },
-  /** Pull pulls and streams git's output. */
+  /** PruneWorktrees forgets working trees whose folder is gone. */
+  pruneWorktrees(): Promise<string> {
+    return call("Git.PruneWorktrees");
+  },
+  /**
+   * Pull pulls and streams git's output. Without --autostash the local
+   * changes are stashed and restored around the update.
+   */
   pull(opts: PullOptions, out: Channel<string>): Promise<string> {
     return call("Git.Pull", opts, out);
   },
@@ -642,7 +748,17 @@ export const Git = {
   pushPreview(remote: string, branch: string): Promise<PushPreview> {
     return call("Git.PushPreview", remote, branch);
   },
-  /** Rebase rebases onto a ref. */
+  /**
+   * PushTargets lists the remote branches this repository pushed to, newest
+   * first.
+   */
+  pushTargets(): Promise<string[]> {
+    return call("Git.PushTargets");
+  },
+  /**
+   * Rebase rebases onto a ref. Local changes are stashed and restored around
+   * it, in addition to git's own --autostash.
+   */
   rebase(onto: string, autostash: boolean): Promise<string> {
     return call("Git.Rebase", onto, autostash);
   },
@@ -658,6 +774,10 @@ export const Git = {
   remotes(): Promise<Remote[]> {
     return call("Git.Remotes");
   },
+  /** RemoveWorktree deletes a working tree. */
+  removeWorktree(path: string, force: boolean): Promise<string> {
+    return call("Git.RemoveWorktree", path, force);
+  },
   /** RenameBranch renames a local branch. */
   renameBranch(oldName: string, newName: string): Promise<void> {
     return call("Git.RenameBranch", oldName, newName);
@@ -666,13 +786,30 @@ export const Git = {
   renameChangelist(id: string, name: string, comment: string): Promise<Changelists> {
     return call("Git.RenameChangelist", id, name, comment);
   },
-  /** Reset moves the current branch. */
+  /**
+   * Reset moves the current branch. It deliberately does not stash: a hard
+   * reset is asked for to throw local changes away.
+   */
   reset(hash: string, mode: string): Promise<string> {
     return call("Git.Reset", hash, mode);
   },
-  /** Revert reverts a commit. */
-  revert(hash: string): Promise<string> {
-    return call("Git.Revert", hash);
+  /** Revert reverts commits. */
+  revert(hashes: string[]): Promise<string> {
+    return call("Git.Revert", hashes);
+  },
+  /**
+   * Rewrite replays the commits of the range with the plan's actions. A
+   * conflicting step keeps the rest of the plan for ContinueOperation.
+   */
+  rewrite(onto: string, steps: PlanStep[]): Promise<string> {
+    return call("Git.Rewrite", onto, steps);
+  },
+  /**
+   * RewritePlan lists the commits a rewrite of the branch onto onto would
+   * replay, so the plan dialog can show them with their actions.
+   */
+  rewritePlan(onto: string): Promise<PlanCommit[]> {
+    return call("Git.RewritePlan", onto);
   },
   /** Rollback discards local changes. */
   rollback(paths: string[]): Promise<void> {
@@ -706,21 +843,49 @@ export const Git = {
   stashDrop(index: number): Promise<string> {
     return call("Git.StashDrop", index);
   },
+  /** StashFiles lists the paths a stash entry touches. */
+  stashFiles(index: number): Promise<StashFile[]> {
+    return call("Git.StashFiles", index);
+  },
   /** StashPush saves local changes to the stash. */
   stashPush(opts: StashOptions): Promise<string> {
     return call("Git.StashPush", opts);
+  },
+  /** StashToBranch restores a stash on its own branch. */
+  stashToBranch(index: number, branch: string): Promise<string> {
+    return call("Git.StashToBranch", index, branch);
   },
   /** Stashes lists the stash. */
   stashes(): Promise<Stash[]> {
     return call("Git.Stashes");
   },
+  /** Submodules lists the repository's submodules. */
+  submodules(): Promise<Submodule[]> {
+    return call("Git.Submodules");
+  },
   /** TakeSide takes ours or theirs for a conflict. */
   takeSide(path: string, side: string): Promise<void> {
     return call("Git.TakeSide", path, side);
   },
+  /** TakeSideAll takes ours or theirs for several conflicted paths. */
+  takeSideAll(paths: string[], side: string): Promise<void> {
+    return call("Git.TakeSideAll", paths, side);
+  },
+  /** Unshallow fetches the full history of a shallow clone. */
+  unshallow(out: Channel<string>): Promise<string> {
+    return call("Git.Unshallow", out);
+  },
   /** Unstage removes paths from the index. */
   unstage(paths: string[]): Promise<void> {
     return call("Git.Unstage", paths);
+  },
+  /** UpdateSubmodules checks the submodules out at their recorded commits. */
+  updateSubmodules(init: boolean): Promise<string> {
+    return call("Git.UpdateSubmodules", init);
+  },
+  /** Worktrees lists the repository's working trees. */
+  worktrees(): Promise<Worktree[]> {
+    return call("Git.Worktrees");
   },
 } as const;
 
