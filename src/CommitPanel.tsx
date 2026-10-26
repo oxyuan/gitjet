@@ -418,10 +418,13 @@ export function CommitPanel({
 
   const renderFileRow = (entry: FileEntry, depth: number, flat: boolean) => {
     const isSelected = selected.has(entry.path);
+    const slash = entry.path.lastIndexOf("/");
+    const name = slash < 0 ? entry.path : entry.path.slice(slash + 1);
+    const dir = slash < 0 ? "" : entry.path.slice(0, slash + 1);
     return (
       <div
         key={"file:" + entry.path + (entry.staged ? ":s" : "")}
-        className={cx("tree-row file", isSelected && "selected")}
+        className={cx("tree-row file", flat && "flat", isSelected && "selected")}
         style={{ paddingLeft: 6 + depth * 12 }}
         onClick={(e) => selectRow(e, entry)}
         onContextMenu={(e) => {
@@ -439,10 +442,8 @@ export function CommitPanel({
         {entry.staged && <span className="staged-dot" title={t("staged")} />}
         <StatusMark kind={entry.kind} staged={entry.staged} />
         <span className="tree-name">
-          {flat && entry.path.includes("/") && (
-            <span className="file-dir">{entry.path.slice(0, entry.path.lastIndexOf("/") + 1)}</span>
-          )}
-          {entry.path.slice(entry.path.lastIndexOf("/") + 1)}
+          <span className="file-base">{name}</span>
+          {flat && dir !== "" && <span className="file-dir">{dir}</span>}
         </span>
         <span className="tree-stats">
           {entry.additions > 0 && <span className="add-count">+{entry.additions}</span>}

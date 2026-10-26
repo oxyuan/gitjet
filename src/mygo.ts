@@ -361,6 +361,7 @@ export interface Settings {
   updateMethod: string;
   confirmForcePush: boolean;
   confirmRollback: boolean;
+  openInNewWindow: boolean;
   recent: RecentRepo[];
 }
 
@@ -429,6 +430,14 @@ export const Workspace = {
   /** Open opens a repository and returns its local changes. */
   open(path: string): Promise<ChangesSnapshot> {
     return call("Workspace.Open", path);
+  },
+  /**
+   * OpenInWindow starts another copy of the app on path, letting the caller
+   * keep its own repository open. Each window is its own process, so the two
+   * cannot share a repository, a poll loop or a settings write.
+   */
+  openInWindow(path: string): Promise<void> {
+    return call("Workspace.OpenInWindow", path);
   },
   /** OpenURL opens a link in the browser. */
   openURL(url: string): Promise<void> {

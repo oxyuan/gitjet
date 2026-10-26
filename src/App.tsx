@@ -751,7 +751,7 @@ function AppShell({ onLangChange }: { onLangChange: (lang: Lang) => void }) {
         if (b.error) notify("error", tRef.current("reopenRepo"), b.error);
       })
       .catch((err) => {
-        setBoot({ settings: { gitPath: "", language: "system", theme: "system", diffContext: 3, ignoreWhitespace: false, showIgnored: false, autoFetch: false, autoFetchMinutes: 15, updateMethod: "merge", confirmForcePush: true, confirmRollback: true, recent: [] }, repo: null, error: String(err), version: "", platform: "" });
+        setBoot({ settings: { gitPath: "", language: "system", theme: "system", diffContext: 3, ignoreWhitespace: false, showIgnored: false, autoFetch: false, autoFetchMinutes: 15, updateMethod: "merge", confirmForcePush: true, confirmRollback: true, openInNewWindow: false, recent: [] }, repo: null, error: String(err), version: "", platform: "" });
         notify("error", tRef.current("startFailed"), err instanceof Error ? err.message : String(err));
       });
   }, [applyCheckedDefaults, notify, reload]);
@@ -866,10 +866,20 @@ function AppShell({ onLangChange }: { onLangChange: (lang: Lang) => void }) {
   selectedCommitRef.current = selectedCommit;
 
   const openRepo = async (path?: string) => {
+    // The picker can stay open for a while; spinning the toolbar meanwhile
+    // says the app is working when it is only waiting for a folder.
+    let chosen = path && path.trim() !== "" ? path.trim() : await Workspace.chooseFolder();
+    if (!chosen) return;
+    if (settingsRef.current?.openInNewWindow) {
+      try {
+        await Workspace.openInWindow(chosen);
+      } catch (err) {
+        fail(t("openRepoFailed"), err);
+      }
+      return;
+    }
     setBusy((n) => n + 1);
     try {
-      const chosen = path && path.trim() !== "" ? path : await Workspace.chooseFolder();
-      if (!chosen) return;
       const snap = await Workspace.open(chosen);
       const freshSettings = await Workspace.settings();
       knownPaths.current = new Set();
@@ -2410,7 +2420,7 @@ function RightPane({
                   setCommitDirs(new Map(commitDirs).set(active.id, current));
                 }}
                 indent={4}
-                renderFile={(file, depth) => (
+                renderFile={(file, depth, flat) => (
                 <div
                   className="details-file"
                   style={{ marginLeft: depth * 12 }}
@@ -2418,7 +2428,12 @@ function RightPane({
                   title={file.path}
                 >
                   <StatusMark kind={file.status} />
-                  <span className="details-file-path">{file.path}</span>
+                  <span className="details-file-path">
+                    <span className="file-base">{file.path.slice(file.path.lastIndexOf("/") + 1)}</span>
+                    {flat && file.path.includes("/") && (
+                      <span className="file-dir">{file.path.slice(0, file.path.lastIndexOf("/") + 1)}</span>
+                    )}
+                  </span>
                   <button
                     className="mini-icon"
                     title={t("openSourceAtCommit")}

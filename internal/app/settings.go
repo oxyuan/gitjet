@@ -31,6 +31,7 @@ type Settings struct {
 	UpdateMethod     string       `json:"updateMethod"` // merge, rebase
 	ConfirmForcePush bool         `json:"confirmForcePush"`
 	ConfirmRollback  bool         `json:"confirmRollback"`
+	OpenInNewWindow  bool         `json:"openInNewWindow"`
 	Recent           []RecentRepo `json:"recent"`
 }
 
@@ -203,6 +204,9 @@ type core struct {
 	settings Settings
 	lastSig  string
 	pollStop chan struct{}
+	// startup is the repository named on the command line, which wins over
+	// the last one the app had open.
+	startup string
 }
 
 func newCore() *core {

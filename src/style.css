@@ -1705,6 +1705,31 @@ body.resizing-row * {
   white-space: nowrap;
 }
 
+/* A changed file reads as a name first; the folders behind it are context,
+   and the first thing to give up room when the row is narrow. */
+.details-file-path,
+.tree-row.file.flat .tree-name {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  min-width: 0;
+}
+
+.details-file-path .file-base,
+.tree-row.file.flat .file-base {
+  flex: none;
+}
+
+.details-file-path .file-dir,
+.tree-row.file.flat .file-dir {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--muted-2);
+  font-size: 10.5px;
+}
+
 /* ---------- Diff ---------- */
 
 .diff-view,

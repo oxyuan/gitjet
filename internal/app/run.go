@@ -1,6 +1,8 @@
 package app
 
 import (
+	"os"
+
 	"github.com/egoist/mygo"
 )
 
@@ -13,6 +15,14 @@ func Run() error {
 	app := mygo.App
 	app.SetName("GitJet")
 	c := newCore()
+	if len(os.Args) > 1 {
+		if st, err := os.Stat(os.Args[1]); err == nil && st.IsDir() {
+			c.startup = os.Args[1]
+			// A window opened on another repository keeps its own geometry,
+			// so it does not land exactly on the window that opened it.
+			secondary = true
+		}
+	}
 	mygo.Bind(&Workspace{c: c})
 	mygo.Bind(&Git{c: c})
 
@@ -29,7 +39,15 @@ func Run() error {
 	return app.Run()
 }
 
+// secondary is true when this process was started on a repository given on
+// the command line, which makes it an extra window of the app.
+var secondary bool
+
 func openWindow() {
+	stateKey := "main"
+	if secondary {
+		stateKey = "main-2"
+	}
 	mygo.NewWindow(mygo.WindowOptions{
 		Title:                mygo.App.Name(),
 		Width:                1440,
@@ -40,7 +58,7 @@ func openWindow() {
 		TitleBarHeight:       52,
 		TrafficLightPosition: &mygo.Point{X: 20, Y: 19},
 		BackgroundColor:      "light-dark(#f5f5f7, #141416)",
-		StateKey:             "main",
+		StateKey:             stateKey,
 		URL:                  "/",
 	})
 }

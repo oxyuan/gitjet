@@ -491,10 +491,10 @@ export function LogDock({
                       >
                       <StatusMark kind={file.status} />
                       <span className="details-file-path">
+                        <span className="file-base">{file.path.slice(file.path.lastIndexOf("/") + 1)}</span>
                         {flat && file.path.includes("/") && (
                           <span className="file-dir">{file.path.slice(0, file.path.lastIndexOf("/") + 1)}</span>
                         )}
-                        <span className="file-base">{file.path.slice(file.path.lastIndexOf("/") + 1)}</span>
                       </span>
                       <button
                         className="mini-icon"

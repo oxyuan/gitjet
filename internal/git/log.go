@@ -5,6 +5,7 @@ import (
 	"errors"
 	"strconv"
 	"strings"
+	"sync"
 )
 
 // Commit is one commit of the log.
@@ -281,6 +282,7 @@ func (r *Repo) Refs(ctx context.Context) (RefsSnapshot, error) {
 			snap.Tags = append(snap.Tags, ref)
 		}
 	}
+	snap.fillUntrackedAhead(ctx, r)
 	if out, err := r.run(ctx, "rev-parse", "--verify", "--short", "HEAD"); err == nil {
 		snap.Head = strings.TrimSpace(out)
 	}
@@ -291,6 +293,67 @@ func (r *Repo) Refs(ctx context.Context) (RefsSnapshot, error) {
 		}
 	}
 	return snap, nil
+}
+
+// fillUntrackedAhead counts what a branch with no upstream still owes the
+// remote. Git reports ahead and behind only for tracking branches, but the
+// branch list has to say when the remote is behind a branch that was pushed
+// without -u, so the remote namesake is compared directly.
+func (s *RefsSnapshot) fillUntrackedAhead(ctx context.Context, r *Repo) {
+	if len(s.Local) == 0 || len(s.Remote) == 0 {
+		return
+	}
+	byName := make(map[string]string, len(s.Remote))
+	for _, ref := range s.Remote {
+		if !ref.Symbolic && ref.Remote != "" {
+			byName[strings.TrimPrefix(ref.Name, ref.Remote+"/")] = ref.FullName
+		}
+	}
+	// Several remotes can hold the same branch name; origin is the one the
+	// app pushes to, so it wins.
+	for _, ref := range s.Remote {
+		if !ref.Symbolic && ref.Remote == "origin" {
+			byName[strings.TrimPrefix(ref.Name, "origin/")] = ref.FullName
+		}
+	}
+	type pending struct {
+		index int
+		pair  string
+	}
+	var todo []pending
+	for i := range s.Local {
+		ref := &s.Local[i]
+		if ref.Upstream != "" || ref.Ahead != 0 || ref.Behind != 0 {
+			continue
+		}
+		if remote, ok := byName[ref.Name]; ok && remote != "" {
+			todo = append(todo, pending{i, ref.FullName + "..." + remote})
+			if len(todo) == 60 {
+				break
+			}
+		}
+	}
+	var wg sync.WaitGroup
+	slots := make(chan struct{}, 4)
+	for _, job := range todo {
+		wg.Add(1)
+		go func(job pending) {
+			defer wg.Done()
+			slots <- struct{}{}
+			defer func() { <-slots }()
+			out, err := r.run(ctx, "rev-list", "--left-right", "--count", job.pair)
+			if err != nil {
+				return
+			}
+			fields := strings.Fields(out)
+			if len(fields) != 2 {
+				return
+			}
+			s.Local[job.index].Ahead = atoi(fields[0])
+			s.Local[job.index].Behind = atoi(fields[1])
+		}(job)
+	}
+	wg.Wait()
 }
 
 func parseTrack(s string) (ahead, behind int) {

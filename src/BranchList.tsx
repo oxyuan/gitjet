@@ -17,6 +17,8 @@ const T = {
     searchBranches: "Search branches",
     localBranches: "Local",
     remoteBranches: "Remote · {remote}",
+    toPush: "{count} commit(s) to push",
+    toPull: "{count} commit(s) to pull",
     others: "Others",
     protected: "Protected",
     current: "current",
@@ -37,6 +39,8 @@ const T = {
     searchBranches: "搜索分支",
     localBranches: "本地",
     remoteBranches: "远程 · {remote}",
+    toPush: "{count} 个提交待推送",
+    toPull: "{count} 个提交待拉取",
     others: "其它",
     protected: "受保护",
     current: "当前",
@@ -149,8 +153,16 @@ export function BranchList({
             <span>{t("current")}</span>
           </span>
         )}
-        {leaf.ahead > 0 && <span className="bp-sync ahead">↑{leaf.ahead}</span>}
-        {leaf.behind > 0 && <span className="bp-sync behind">↓{leaf.behind}</span>}
+        {leaf.ahead > 0 && (
+          <span className="bp-sync ahead" title={t("toPush", { count: leaf.ahead })}>
+            ↑{leaf.ahead}
+          </span>
+        )}
+        {leaf.behind > 0 && (
+          <span className="bp-sync behind" title={t("toPull", { count: leaf.behind })}>
+            ↓{leaf.behind}
+          </span>
+        )}
         <button
           className={cx("bp-star", starredNow && "on")}
           title={starredNow ? t("removeFavorite") : t("addFavorite")}

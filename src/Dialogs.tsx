@@ -32,6 +32,9 @@ const T = {
     "settings.themeSystem": "Use system setting",
     "settings.themeLight": "Light",
     "settings.themeDark": "Dark",
+    "settings.openRepo": "Open Repository",
+    "settings.openRepoSame": "Replace this window",
+    "settings.openRepoNew": "Open a new window",
     "settings.git": "Git",
     "settings.gitPath": "Git executable",
     "settings.gitPathHint": "Leave empty to use the git on PATH.",
@@ -126,6 +129,9 @@ const T = {
     "settings.themeSystem": "跟随系统",
     "settings.themeLight": "浅色",
     "settings.themeDark": "深色",
+    "settings.openRepo": "打开仓库时",
+    "settings.openRepoSame": "替换当前窗口",
+    "settings.openRepoNew": "在新窗口中打开",
     "settings.git": "Git",
     "settings.gitPath": "Git 可执行文件",
     "settings.gitPathHint": "留空则使用 PATH 中的 git。",
@@ -280,6 +286,15 @@ export function SettingsDialog({
               <option value="system">{t("settings.themeSystem")}</option>
               <option value="light">{t("settings.themeLight")}</option>
               <option value="dark">{t("settings.themeDark")}</option>
+            </Select>
+          </SettingRow>
+          <SettingRow label={t("settings.openRepo")}>
+            <Select
+              value={draft.openInNewWindow ? "new" : "same"}
+              onChange={(v) => set("openInNewWindow", v === "new")}
+            >
+              <option value="same">{t("settings.openRepoSame")}</option>
+              <option value="new">{t("settings.openRepoNew")}</option>
             </Select>
           </SettingRow>
         </section>

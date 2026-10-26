@@ -52,8 +52,18 @@ func (w *Workspace) Bootstrap() (Bootstrap, error) {
 		Platform: runtime.GOOS + "/" + runtime.GOARCH,
 	}
 	w.c.mu.Lock()
+	startup := w.c.startup
 	recent := append([]RecentRepo(nil), w.c.settings.Recent...)
 	w.c.mu.Unlock()
+	if startup != "" {
+		snap, err := w.Open(startup)
+		if err != nil {
+			b.Error = err.Error()
+		} else {
+			b.Repo = &snap
+		}
+		return b, nil
+	}
 	if len(recent) > 0 {
 		path := recent[0].Path
 		if st, err := os.Stat(path); err == nil && st.IsDir() {
@@ -66,6 +76,23 @@ func (w *Workspace) Bootstrap() (Bootstrap, error) {
 		}
 	}
 	return b, nil
+}
+
+// OpenInWindow starts another copy of the app on path, letting the caller
+// keep its own repository open. Each window is its own process, so the two
+// cannot share a repository, a poll loop or a settings write.
+func (w *Workspace) OpenInWindow(path string) error {
+	path = strings.TrimSpace(path)
+	if path == "" {
+		return errors.New("no folder was given")
+	}
+	exe, err := os.Executable()
+	if err != nil {
+		return err
+	}
+	cmd := exec.Command(exe, path)
+	cmd.Dir = path
+	return cmd.Start()
 }
 
 // ChooseFolder shows the native folder picker and returns the chosen
