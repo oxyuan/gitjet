@@ -132,6 +132,8 @@ func (w *Workspace) Open(path string) (git.ChangesSnapshot, error) {
 	if err != nil {
 		return git.ChangesSnapshot{}, err
 	}
+	// A bridge belongs to the repository it was started for.
+	w.c.stopLSP()
 	w.c.mu.Lock()
 	w.c.repo = repo
 	w.c.meta = loadRepoMeta(repo.Dir())
@@ -149,6 +151,7 @@ func (w *Workspace) Open(path string) (git.ChangesSnapshot, error) {
 // Close closes the open repository.
 func (w *Workspace) Close() {
 	w.c.stopPolling()
+	w.c.stopLSP()
 	w.c.mu.Lock()
 	w.c.repo = nil
 	w.c.meta = RepoMeta{}

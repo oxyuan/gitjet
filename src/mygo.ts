@@ -252,6 +252,13 @@ export interface LFSStatus {
   files: LFSFile[];
 }
 
+/** LSPInfo identifies a running bridge. */
+export interface LSPInfo {
+  id: string;
+  root: string;
+  name: string;
+}
+
 export interface LogOptions {
   all: boolean;
   refs: string[];
@@ -399,6 +406,14 @@ export interface RepoState {
   shallow: boolean;
 }
 
+export interface Server {
+  name: string;
+  language: string;
+  command: string;
+  args: string[];
+  installed: boolean;
+}
+
 /**
  * Settings is the app's configuration, persisted in the user's config
  * directory. Repository-specific grouping and message history live in
@@ -467,6 +482,19 @@ export interface Submodule {
   branch: string;
   describe: string;
   state: string;
+}
+
+export interface SymbolHit {
+  path: string;
+  line: number;
+  column: number;
+  text: string;
+}
+
+export interface SymbolSearch {
+  query: string;
+  hits: SymbolHit[];
+  truncated: boolean;
 }
 
 export interface TagOptions {
@@ -699,6 +727,28 @@ export const Git = {
   lfs(): Promise<LFSStatus> {
     return call("Git.LFS");
   },
+  /**
+   * LSPProbe reports which language server this repository wants, and whether
+   * it is installed. Nothing is started.
+   */
+  lspProbe(): Promise<Server> {
+    return call("Git.LSPProbe");
+  },
+  /**
+   * LSPStart starts the language server for the open repository, or returns the
+   * running one. The page speaks the protocol; this only moves bytes.
+   */
+  lspStart(): Promise<LSPInfo> {
+    return call("Git.LSPStart");
+  },
+  /** LSPStop stops the language server, if one is running. */
+  lspStop(): Promise<void> {
+    return call("Git.LSPStop");
+  },
+  /** LSPWrite sends one message from the page to the server. */
+  lspWrite(id: string, message: string): Promise<void> {
+    return call("Git.LSPWrite", id, message);
+  },
   /** LastCommitMessage returns HEAD's message. */
   lastCommitMessage(): Promise<string> {
     return call("Git.LastCommitMessage");
@@ -819,6 +869,13 @@ export const Git = {
   saveResolution(path: string, content: string): Promise<void> {
     return call("Git.SaveResolution", path, content);
   },
+  /**
+   * SearchSymbol finds a word across the working tree, for jumping to a
+   * definition or a usage when no language server is available.
+   */
+  searchSymbol(query: string, limit: number): Promise<SymbolSearch> {
+    return call("Git.SearchSymbol", query, limit);
+  },
   /** SetActiveChangelist makes a changelist active. */
   setActiveChangelist(id: string): Promise<Changelists> {
     return call("Git.SetActiveChangelist", id);
@@ -893,6 +950,12 @@ export const Git = {
 
 /** Events sent by the Go side. Subscribe with `events.name.on(listener)`. */
 export const events = {
+  /**
+   * LSPMessage carries one message from the language server to the page. The
+   * page reads the envelope, and never the protocol, so the Go side stays a
+   * pipe: it frames messages and nothing else.
+   */
+  gitLsp: event<string>("git:lsp"),
   /**
    * Command is sent to the page when a menu item asks it to act, e.g.
    * "open", "commit" or "fetch".

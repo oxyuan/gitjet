@@ -212,6 +212,9 @@ type core struct {
 	settings Settings
 	lastSig  string
 	pollStop chan struct{}
+	// lsp is the language server bridge for the open repository.
+	lsp   *lspSession
+	lspMu sync.Mutex
 	// startup is the repository named on the command line, which wins over
 	// the last one the app had open.
 	startup string
