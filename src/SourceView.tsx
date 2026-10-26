@@ -1,8 +1,8 @@
 import { useMemo, useState } from "react";
 import type { SourceFile } from "./mygo";
-import { highlightLine } from "./highlight";
+import { SourceEditor } from "./SourceEditor";
 import { Icon } from "./icons";
-import { cx, IconButton } from "./ui";
+import { cx, formatWhen, IconButton } from "./ui";
 import { useT } from "./i18n";
 
 const T = {
@@ -26,6 +26,9 @@ const T = {
     binaryFile: "Binary file — no text to show",
     emptyFile: "Empty file",
     missingFile: "File does not exist in this revision",
+    addedHere: "Changed here — click to roll this block back",
+    deletedHere: "Deleted here — click to roll this back",
+    blameUncommitted: "You · uncommitted",
   },
   zh: {
     workingTree: "工作区",
@@ -47,6 +50,9 @@ const T = {
     binaryFile: "二进制文件 — 无文本可显示",
     emptyFile: "空文件",
     missingFile: "此版本中不存在该文件",
+    addedHere: "此处的修改 — 点击回滚这一块",
+    deletedHere: "此处有删除 — 点击回滚",
+    blameUncommitted: "你 · 未提交",
   },
 } as const;
 
@@ -69,20 +75,31 @@ function formatSize(bytes: number): string {
  *  read the code as it is. */
 export function SourceView({
   file,
+  line,
   onShowDiff,
   onBlame,
   onOpenWorkingTree,
   onOpenRevision,
   onCopyPath,
   onReveal,
+  onRollbackHunk,
+  onSymbol,
+  onJump,
+  onReferences,
 }: {
   file: SourceFile;
+  /** 1-based line to put the cursor on, for a jump from another file. */
+  line?: number;
   onShowDiff?: () => void;
   onBlame?: () => void;
   onOpenWorkingTree?: () => void;
   onOpenRevision?: () => void;
   onCopyPath: () => void;
   onReveal?: () => void;
+  onRollbackHunk?: (hunk: number) => void;
+  onSymbol?: (word: string) => void;
+  onJump?: (word: string) => void;
+  onReferences?: (word: string) => void;
 }) {
   const t = useT(T);
   const [wrap, setWrap] = useState(false);
@@ -93,14 +110,6 @@ export function SourceView({
     if (split.length > 0 && split[split.length - 1] === "") split.pop();
     return split;
   }, [file.text]);
-
-  const highlighted = useMemo(() => {
-    if (file.binary || lines.length === 0) return [];
-    if (lines.length > 4000 || file.text.length > 600_000) {
-      return lines.map((line) => line.replace(/[&<>]/g, (c) => (c === "&" ? "&amp;" : c === "<" ? "&lt;" : "&gt;")));
-    }
-    return lines.map((line) => highlightLine(line, file.language));
-  }, [file.binary, file.language, file.text.length, lines]);
 
   const dir = file.path.includes("/") ? file.path.slice(0, file.path.lastIndexOf("/") + 1) : "";
   const name = file.path.slice(dir.length);
@@ -172,16 +181,21 @@ export function SourceView({
           <div>{file.exists ? t("emptyFile") : t("missingFile")}</div>
         </div>
       ) : (
-        <div className={cx("source-body", wrap && "wrap")}>
-          <div className="source-rows">
-            {highlighted.map((html, i) => (
-              <div className="source-row" key={i}>
-                <span className="source-no">{i + 1}</span>
-                <code className="source-code" dangerouslySetInnerHTML={{ __html: html || " " }} />
-              </div>
-            ))}
-          </div>
-        </div>
+        <SourceEditor
+          file={file}
+          line={line}
+          wrap={wrap}
+          labels={{ addedHere: t("addedHere"), deletedHere: t("deletedHere") }}
+          blameFormat={(blame) =>
+            blame.uncommitted
+              ? t("blameUncommitted")
+              : [blame.author, blame.short, blame.summary, formatWhen(blame.time)].filter(Boolean).join(" · ")
+          }
+          onRollbackHunk={onRollbackHunk}
+          onSymbol={onSymbol}
+          onJump={onJump}
+          onReferences={onReferences}
+        />
       )}
     </div>
   );

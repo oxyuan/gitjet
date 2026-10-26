@@ -21,6 +21,7 @@ import {
   type RepoState,
   type Settings,
   type SourceFile,
+  type SymbolHit,
 } from "./mygo";
 import { CommitPanel, type CommitActions, type CommitForm, type FileEntry } from "./CommitPanel";
 import { ConflictView } from "./ConflictView";
@@ -52,6 +53,8 @@ import type { AuthorOption } from "./AuthorPicker";
 import { OperationDock, type OperationState } from "./OperationDock";
 import { QuickOpen } from "./QuickOpen";
 import { SourceView } from "./SourceView";
+import { SymbolPanel } from "./SymbolPanel";
+import { disconnectLSP, setDocumentOpener } from "./lsp";
 import {
   Button,
   ConfirmDialog,
@@ -113,6 +116,9 @@ const T = {
     openRepoFailed: "Could not open the repository",
     showDiffFailed: "Could not show the diff",
     openFileFailed: "Could not open the file",
+    symbolLookupFailed: "Could not search for that name",
+    rollbackHunkTitle: "Roll back this change",
+    rollbackHunkMessage: "Discard this block of changes in {path}?",
     openConflictFailed: "Could not open the conflict",
     annotateFailed: "Could not annotate the file",
     copyFailed: "Could not copy",
@@ -288,6 +294,9 @@ const T = {
     openRepoFailed: "无法打开仓库",
     showDiffFailed: "无法显示差异",
     openFileFailed: "无法打开文件",
+    symbolLookupFailed: "无法搜索该名称",
+    rollbackHunkTitle: "回滚这段修改",
+    rollbackHunkMessage: "要丢弃 {path} 里的这段修改吗?",
     openConflictFailed: "无法打开冲突文件",
     annotateFailed: "无法查看文件注解",
     copyFailed: "无法复制",
@@ -428,7 +437,7 @@ type Tab = "commit" | "branch" | "console";
 
 type Doc = { id: string; title: string } & (
   | { kind: "diff"; diff: FileDiff; opts: DiffOptions }
-  | { kind: "file"; file: SourceFile; revision: string }
+  | { kind: "file"; file: SourceFile; revision: string; line?: number }
   | { kind: "conflict"; path: string; content: ConflictContent }
   | { kind: "blame"; path: string; data: BlameResult }
   | { kind: "commit"; detail: CommitDetail }
@@ -493,6 +502,8 @@ function AppShell({ onLangChange }: { onLangChange: (lang: Lang) => void }) {
   const setTab = (next: Tab) => setStoredTab(next);
   const [docs, setDocs] = useState<Doc[]>([]);
   const [activeId, setActiveId] = useState<string | null>(null);
+  // The word a Cmd-click asked about, and where it turns up.
+  const [symbol, setSymbol] = useState<{ word: string; language: string; hits: SymbolHit[] | null } | null>(null);
   const [quickOpen, setQuickOpen] = useState(false);
   const [busy, setBusy] = useState(0);
   const [toast, setToast] = useState<{ kind: "info" | "success" | "error"; title: string; message?: string } | null>(null);
@@ -656,6 +667,8 @@ function AppShell({ onLangChange }: { onLangChange: (lang: Lang) => void }) {
     [fail, logAuthor, logPath, logRef, logSearch, logResult?.commits.length, t],
   );
 
+  const showFileRef = useRef<(path: string, revision?: string, line?: number) => Promise<void>>(async () => {});
+
   const openDoc = useCallback((doc: Doc) => {
     setDocs((prev) => {
       const index = prev.findIndex((d) => d.id === doc.id);
@@ -759,6 +772,15 @@ function AppShell({ onLangChange }: { onLangChange: (lang: Lang) => void }) {
   refreshRef.current = () => {
     void reload(false);
   };
+
+  // A definition jump opens the file it lands in, through the same dock tab
+  // the reader would have opened by hand.
+  useEffect(() => {
+    setDocumentOpener(async (path) => {
+      await showFileRef.current(path, "");
+    });
+    return () => setDocumentOpener(null);
+  }, []);
 
   // Boot: reopen the last repository and restore the tool window.
   useEffect(() => {
@@ -922,6 +944,8 @@ function AppShell({ onLangChange }: { onLangChange: (lang: Lang) => void }) {
     setBusy((n) => n + 1);
     try {
       const snap = await Workspace.open(chosen);
+      // The previous repository's language server died with it.
+      void disconnectLSP();
       const freshSettings = await Workspace.settings();
       knownPaths.current = new Set();
       setChecked(new Set());
@@ -963,6 +987,7 @@ function AppShell({ onLangChange }: { onLangChange: (lang: Lang) => void }) {
     });
     if (!ok) return;
     await Workspace.close();
+    void disconnectLSP();
     repoOpenRef.current = false;
     snapshotRef.current = null;
     setSnapshot(null);
@@ -987,7 +1012,7 @@ function AppShell({ onLangChange }: { onLangChange: (lang: Lang) => void }) {
     }
   };
 
-  const showFile = async (path: string, revision = "") => {
+  const showFile = async (path: string, revision = "", line?: number) => {
     try {
       const file = await Git.file(path, revision);
       openDoc({
@@ -996,11 +1021,13 @@ function AppShell({ onLangChange }: { onLangChange: (lang: Lang) => void }) {
         kind: "file",
         file,
         revision,
+        line,
       });
     } catch (err) {
       fail(t("openFileFailed"), err);
     }
   };
+  showFileRef.current = showFile;
 
   const diffOptionsForEntry = (entry: FileEntry): DiffOptions => ({
     path: entry.path,
@@ -1148,6 +1175,47 @@ function AppShell({ onLangChange }: { onLangChange: (lang: Lang) => void }) {
       const diff = await Git.diff(opts);
       openDoc({ id: `diff:${opts.target}:${opts.revision}:${opts.path}`, title: opts.path, kind: "diff", diff, opts });
     });
+
+  /** Cmd-click or F12 on a word without a language server: search the
+   *  working tree and let the reader pick the declaration. */
+  const lookUpSymbol = async (word: string, language: string) => {
+    setSymbol({ word, language, hits: null });
+    try {
+      const found = await Git.searchSymbol(word, 300);
+      setSymbol({ word, language, hits: found.hits });
+    } catch (err) {
+      setSymbol(null);
+      fail(t("symbolLookupFailed"), err);
+    }
+  };
+
+  /** Roll back the hunk under a change bar in the source editor. */
+  const rollbackEditorHunk = async (path: string, hunk: number) => {
+    const opts: DiffOptions = {
+      path,
+      target: "worktree",
+      revision: "",
+      from: "",
+      context: settingsRef.current?.diffContext ?? 3,
+      ignoreWhitespace: settingsRef.current?.ignoreWhitespace ?? false,
+      ignoreWhitespaceEol: false,
+      noText: true,
+    };
+    if (settingsRef.current?.confirmRollback) {
+      const ok = await ask({
+        title: t("rollbackHunkTitle"),
+        message: t("rollbackHunkMessage", { path }),
+        detail: t("rollbackChangesDetail"),
+        confirmLabel: t("rollback"),
+        danger: true,
+      });
+      if (!ok) return;
+    }
+    await withBusy(async () => {
+      await Git.applyHunk(opts, hunk, "rollback");
+      await reload(false);
+    });
+  };
 
   const applyFile = async (opts: DiffOptions, action: "stage" | "unstage" | "rollback") => {
     if (action === "rollback") {
@@ -1990,6 +2058,8 @@ function AppShell({ onLangChange }: { onLangChange: (lang: Lang) => void }) {
             onOpenDiff={(path, revision) => void showFileDiff(path, revision)}
             onCopyPath={copyText}
             onReveal={(path) => void Workspace.reveal(path).catch((err) => fail(t("revealFailed"), err))}
+            onRollbackHunk={(path, hunk) => void rollbackEditorHunk(path, hunk)}
+            onSymbol={(word, language) => void lookUpSymbol(word, language)}
             busy={diffBusy}
             reloadKey={reloadKey}
             onShowFileHistory={showFileHistory}
@@ -2155,6 +2225,19 @@ function AppShell({ onLangChange }: { onLangChange: (lang: Lang) => void }) {
           onClose={() => setQuickOpen(false)}
           onOpen={(path) => void showFile(path, "")}
           onOpenCommit={(hash) => void openCommit(hash)}
+        />
+      )}
+
+      {symbol && (
+        <SymbolPanel
+          word={symbol.word}
+          language={symbol.language}
+          hits={symbol.hits}
+          onClose={() => setSymbol(null)}
+          onOpen={(path, line) => {
+            setSymbol(null);
+            void showFile(path, "", line);
+          }}
         />
       )}
 
@@ -2443,6 +2526,8 @@ function RightPane({
   onOpenDiff,
   onCopyPath,
   onReveal,
+  onRollbackHunk,
+  onSymbol,
   busy,
   reloadKey,
   onShowFileHistory,
@@ -2473,6 +2558,8 @@ function RightPane({
   onOpenDiff: (path: string, revision: string) => void;
   onCopyPath: (text: string) => void;
   onReveal: (path: string) => void;
+  onRollbackHunk: (path: string, hunk: number) => void;
+  onSymbol: (word: string, language: string) => void;
   busy: boolean;
   reloadKey: number;
   onShowFileHistory: (path: string) => void;
@@ -2607,7 +2694,9 @@ function RightPane({
         )}
         {active.kind === "file" && (
           <SourceView
+            key={active.id}
             file={active.file}
+            line={active.line}
             onShowDiff={() => onOpenDiff(active.file.path, active.revision)}
             onBlame={() => onBlame(active.file.path)}
             onOpenWorkingTree={() => onOpenFile(active.file.path, "")}
@@ -2618,6 +2707,10 @@ function RightPane({
             }
             onCopyPath={() => onCopyPath(active.file.path)}
             onReveal={() => onReveal(active.file.path)}
+            onRollbackHunk={(hunk) => onRollbackHunk(active.file.path, hunk)}
+            onSymbol={(word) => onSymbol(word, active.file.language)}
+            onJump={(word) => onSymbol(word, active.file.language)}
+            onReferences={(word) => onSymbol(word, active.file.language)}
           />
         )}
         {active.kind === "commit" && (
