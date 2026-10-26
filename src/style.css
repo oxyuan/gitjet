@@ -3164,139 +3164,15 @@ kbd {
   font-size: 10.5px;
 }
 
-.source-body {
-  flex: 1;
-  min-height: 0;
-  overflow: auto;
-  font-family: var(--font-mono);
-  font-size: 12px;
-  line-height: 1.55;
-  padding: 8px 0 24px;
-  user-select: text;
-}
 
-.source-rows {
-  min-width: max-content;
-}
 
-.source-row {
-  display: flex;
-  align-items: flex-start;
-  min-height: 19px;
-  padding-right: 24px;
-}
 
-.source-row:hover {
-  background: var(--hover);
-}
 
-.source-no {
-  position: sticky;
-  left: 0;
-  z-index: 1;
-  flex: none;
-  width: 52px;
-  padding-right: 12px;
-  text-align: right;
-  color: var(--muted-2);
-  background: var(--gutter-bg);
-  font-size: 10.5px;
-  user-select: none;
-  border-right: 1px solid var(--border);
-}
 
-.source-code {
-  display: block;
-  padding-left: 14px;
-  white-space: pre;
-  font-family: inherit;
-  font-size: inherit;
-  min-width: 0;
-}
 
-.source-body.wrap .source-rows {
-  min-width: 100%;
-}
 
-.source-body.wrap .source-code {
-  white-space: pre-wrap;
-  overflow-wrap: anywhere;
-  word-break: break-word;
-}
 
 /* Prism tokens, using the app's own palette. */
-.token.comment,
-.token.prolog,
-.token.doctype,
-.token.cdata {
-  color: var(--syntax-comment);
-  font-style: italic;
-}
-
-.token.punctuation {
-  color: var(--syntax-punct);
-}
-
-.token.namespace {
-  opacity: 0.75;
-}
-
-.token.property,
-.token.tag,
-.token.constant,
-.token.symbol,
-.token.deleted {
-  color: var(--syntax-tag);
-}
-
-.token.boolean,
-.token.number {
-  color: var(--syntax-number);
-}
-
-.token.selector,
-.token.attr-name,
-.token.string,
-.token.char,
-.token.builtin,
-.token.inserted {
-  color: var(--syntax-string);
-}
-
-.token.operator,
-.token.entity,
-.token.url,
-.language-css .token.string,
-.style .token.string {
-  color: var(--syntax-operator);
-}
-
-.token.atrule,
-.token.attr-value,
-.token.keyword {
-  color: var(--syntax-keyword);
-}
-
-.token.function,
-.token.class-name {
-  color: var(--syntax-function);
-}
-
-.token.regex,
-.token.important,
-.token.variable {
-  color: var(--syntax-variable);
-}
-
-.token.important,
-.token.bold {
-  font-weight: 600;
-}
-
-.token.italic {
-  font-style: italic;
-}
-
 /* ---------- Quick open ---------- */
 
 .quick-overlay {
@@ -5385,20 +5261,8 @@ kbd {
   line-height: 16px;
 }
 
-.source-body {
-  padding: 10px 0 28px;
-  font-size: 12.5px;
-  line-height: 1.6;
-}
 
-.source-row {
-  min-height: 20px;
-}
 
-.source-no {
-  width: 54px;
-  font-size: 10.5px;
-}
 
 @media (max-width: 1180px) {
   .quick-trigger {
@@ -7379,4 +7243,175 @@ body.resizing-row .log-detail-split::after {
   text-transform: uppercase;
   letter-spacing: 0.04em;
   color: var(--muted);
+}
+
+/* ---------- Source editor ---------- */
+
+.source-editor {
+  flex: 1;
+  min-height: 0;
+  min-width: 0;
+  overflow: hidden;
+  display: flex;
+  background: var(--code-bg);
+}
+
+.source-editor .cm-editor {
+  flex: 1;
+  min-width: 0;
+  height: 100%;
+}
+
+.source-editor .cm-scroller {
+  overflow: auto;
+}
+
+/* The change gutter: a bar per added span, a wedge per deletion, both
+   clickable through the same hunk index the diff view stages with. */
+.cm-change-gutter {
+  width: 8px;
+  cursor: pointer;
+}
+
+.cm-change {
+  width: 3px;
+  height: 100%;
+  margin-left: 2px;
+  border-radius: 1px;
+}
+
+.cm-change-add {
+  background: var(--success);
+  opacity: 0.75;
+}
+
+.cm-change-del {
+  background: var(--error);
+  opacity: 0.7;
+  clip-path: polygon(0 0, 100% 50%, 0 100%);
+  width: 6px;
+}
+
+.cm-change:hover {
+  opacity: 1;
+}
+
+.cm-change-gutter .cm-gutterElement {
+  padding: 0;
+  display: flex;
+  align-items: stretch;
+}
+
+/* The blame of the line the cursor is on, in the trailing space. */
+.cm-blame {
+  display: inline-block;
+  margin-left: 18px;
+  color: var(--muted-2);
+  font-family: var(--font-ui, inherit);
+  font-size: 10.5px;
+  font-style: normal;
+  white-space: pre;
+  user-select: none;
+  pointer-events: none;
+}
+
+.source-editor .cm-selectionMatch {
+  background: color-mix(in srgb, var(--accent) 14%, transparent);
+}
+
+/* ---------- Symbol usages ---------- */
+
+.symbol-list {
+  display: flex;
+  flex-direction: column;
+  max-height: 60vh;
+  overflow: auto;
+  margin: -6px -4px;
+}
+
+.symbol-group {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  padding: 8px 6px 4px;
+  background: var(--panel-raised);
+  color: var(--muted);
+  font-size: 10.5px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.symbol-row {
+  display: grid;
+  grid-template-columns: minmax(0, 220px) 46px minmax(0, 1fr) 14px;
+  align-items: center;
+  gap: 10px;
+  padding: 5px 6px;
+  border: none;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--fg);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.symbol-row:hover {
+  background: var(--hover);
+}
+
+.symbol-path {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 11.5px;
+}
+
+.symbol-line {
+  color: var(--muted-2);
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+  text-align: right;
+}
+
+.symbol-code {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--muted);
+  font-family: var(--font-mono);
+  font-size: 11px;
+}
+
+.symbol-row:hover .symbol-code {
+  color: var(--fg-soft);
+}
+
+.symbol-empty {
+  padding: 18px 4px;
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.symbol-hint {
+  padding: 10px 6px 2px;
+  color: var(--muted-2);
+  font-size: 10.5px;
+}
+
+/* Language server popups (hover docs, definitions) are long; keep them from
+   covering the file. */
+.cm-tooltip.cm-tooltip-hover {
+  max-width: 620px;
+  max-height: 320px;
+  overflow: auto;
+}
+
+.cm-tooltip-hover p {
+  margin: 0 0 6px;
+}
+
+.cm-lsp-reference-panel .cm-panel.cm-panel-lsp-reference {
+  max-height: 220px;
+  overflow: auto;
 }

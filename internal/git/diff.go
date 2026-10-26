@@ -183,12 +183,22 @@ func (r *Repo) patchFor(ctx context.Context, opts DiffOptions, path string) (str
 		return "", err
 	}
 	if strings.TrimSpace(out) == "" && opts.Target == DiffWorkingTree && opts.Revision == "" {
-		// An untracked file is not in a diff; show it as a new file.
-		if content, rerr := os.ReadFile(r.AbsPath(path)); rerr == nil {
-			return syntheticNewFile(path, content), nil
+		// An untracked file is not in a diff; show it as a new file. A file
+		// git knows about simply has no changes, and an empty patch is the
+		// right answer for it.
+		if !r.isTracked(ctx, path) {
+			if content, rerr := os.ReadFile(r.AbsPath(path)); rerr == nil {
+				return syntheticNewFile(path, content), nil
+			}
 		}
 	}
 	return out, nil
+}
+
+// isTracked says whether the index knows the path.
+func (r *Repo) isTracked(ctx context.Context, path string) bool {
+	_, err := r.run(ctx, "ls-files", "--error-unmatch", "--", path)
+	return err == nil
 }
 
 // syntheticNewFile writes the patch git would print for an added file.

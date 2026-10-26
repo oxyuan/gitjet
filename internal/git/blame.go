@@ -35,7 +35,9 @@ func (r *Repo) Blame(ctx context.Context, path string) (BlameResult, error) {
 	if err != nil {
 		return BlameResult{}, err
 	}
-	out, err := r.run(ctx, "blame", "--line-porcelain", "--no-color", "--", clean)
+	// --line-porcelain is already colourless; git 2.54 refuses --no-color
+	// here because it means either --no-color-lines or --no-color-by-age.
+	out, err := r.run(ctx, "blame", "--line-porcelain", "--", clean)
 	if err != nil {
 		return BlameResult{}, err
 	}
