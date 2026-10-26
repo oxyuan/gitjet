@@ -1,6 +1,8 @@
 import { useMemo, useState } from "react";
-import { useT } from "./i18n";
-import type { ChangesSnapshot, Settings } from "./mygo";
+import { buildChangeTree, directoryKeys, splitTracked, treeFiles } from "./changes";
+import { FileTree } from "./FileTree";
+import { count, useT } from "./i18n";
+import type { Changelist, ChangesSnapshot, Settings } from "./mygo";
 import { Icon } from "./icons";
 import {
   Checkbox,
@@ -10,6 +12,7 @@ import {
   type ContextItem,
   StatusMark,
 } from "./ui";
+import type { TreeNode } from "./changes";
 
 const T = {
   en: {
@@ -34,6 +37,10 @@ const T = {
     newChangelistTitle: "New changelist",
     changelistActions: "Changelist actions",
     changelistActive: "{name} (active)",
+    changedFiles: "Changed",
+    untrackedFiles: "Unversioned Files",
+    changedOne: "1 file",
+    changedOther: "{n} files",
     noChanges: "No changes",
     refresh: "Refresh",
     stageSelected: "Stage selected",
@@ -95,6 +102,10 @@ const T = {
     newChangelistTitle: "新建变更列表",
     changelistActions: "变更列表操作",
     changelistActive: "{name}（活动）",
+    changedFiles: "更改",
+    untrackedFiles: "未进行版本管理的文件",
+    changedOne: "1 个文件",
+    changedOther: "{n} 个文件",
     noChanges: "无更改",
     refresh: "刷新",
     stageSelected: "暂存选中项",
@@ -146,14 +157,6 @@ export interface FileEntry {
   unmerged: boolean;
   conflictCode?: string;
   ignored?: boolean;
-}
-
-interface TreeNode {
-  name: string;
-  path: string;
-  isDir: boolean;
-  children: TreeNode[];
-  entry?: FileEntry;
 }
 
 export interface CommitForm {
@@ -231,47 +234,6 @@ export function entriesFor(snapshot: ChangesSnapshot): FileEntry[] {
   return out;
 }
 
-function buildTree(entries: FileEntry[]): TreeNode[] {
-  const root: TreeNode = { name: "", path: "", isDir: true, children: [] };
-  const dirs = new Map<string, TreeNode>([["", root]]);
-  for (const entry of entries) {
-    const parts = entry.path.split("/");
-    let parent = root;
-    let prefix = "";
-    for (let i = 0; i < parts.length - 1; i++) {
-      prefix = prefix ? prefix + "/" + parts[i] : parts[i]!;
-      let dir = dirs.get(prefix);
-      if (!dir) {
-        dir = { name: parts[i]!, path: prefix, isDir: true, children: [] };
-        dirs.set(prefix, dir);
-        parent.children.push(dir);
-      }
-      parent = dir;
-    }
-    parent.children.push({
-      name: parts[parts.length - 1]!,
-      path: entry.path,
-      isDir: false,
-      children: [],
-      entry,
-    });
-  }
-  const sort = (node: TreeNode) => {
-    node.children.sort((a, b) => {
-      if (a.isDir !== b.isDir) return a.isDir ? -1 : 1;
-      return a.name.localeCompare(b.name, undefined, { sensitivity: "base" });
-    });
-    node.children.forEach(sort);
-  };
-  sort(root);
-  return root.children;
-}
-
-function leaves(node: TreeNode): FileEntry[] {
-  if (node.entry) return [node.entry];
-  return node.children.flatMap(leaves);
-}
-
 export function CommitPanel({
   snapshot,
   settings,
@@ -296,6 +258,8 @@ export function CommitPanel({
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [menu, setMenu] = useState<{ x: number; y: number; items: ContextItem[] } | null>(null);
   const [collapsed, setCollapsed] = useState<Set<string>>(new Set());
+  // Directories start collapsed: the tree shows modules first, files on demand.
+  const [expanded, setExpanded] = useState<Set<string>>(new Set());
   const [showOptions, setShowOptions] = useState(false);
   const [showHistory, setShowHistory] = useState(false);
 
@@ -403,41 +367,30 @@ export function CommitPanel({
     setMenu({ x, y, items });
   };
 
-  const renderRow = (node: TreeNode, depth: number): React.ReactNode => {
-    if (node.isDir) {
-      const key = "dir:" + node.path;
-      const isCollapsed = collapsed.has(key);
-      const files = leaves(node).filter((e) => !e.unmerged && !e.ignored);
-      const state = checkState(files.map((f) => f.path));
-      return (
-        <div key={key}>
-          <div className="tree-row dir" style={{ paddingLeft: 6 + depth * 12 }}>
-            <button
-              className="tree-chevron"
-              onClick={() => {
-                const next = new Set(collapsed);
-                if (isCollapsed) next.delete(key);
-                else next.add(key);
-                setCollapsed(next);
-              }}
-            >
-              <Icon name={isCollapsed ? "chevronRight" : "chevronDown"} size={12} />
-            </button>
-            <Checkbox
-              checked={state === true}
-              indeterminate={state === "mixed"}
-              onChange={(v) => toggle(files.map((f) => f.path), v)}
-              disabled={files.length === 0}
-            />
-            <Icon name="folder" />
-            <span className="tree-name">{node.name}</span>
-            <span className="tree-count">{leaves(node).length}</span>
-          </div>
-          {!isCollapsed && node.children.map((child) => renderRow(child, depth + 1))}
-        </div>
-      );
-    }
-    const entry = node.entry!;
+  const toggleDir = (key: string) => {
+    const next = new Set(expanded);
+    if (next.has(key)) next.delete(key);
+    else next.add(key);
+    setExpanded(next);
+  };
+
+  // A directory row carries the checkbox of everything beneath it.
+  const renderDirLead = (node: TreeNode<FileEntry>) => {
+    const files = treeFiles(node).filter((e) => !e.unmerged && !e.ignored);
+    const state = checkState(files.map((f) => f.path));
+    return (
+      <span className="dir-check" onClick={(e) => e.stopPropagation()}>
+        <Checkbox
+          checked={state === true}
+          indeterminate={state === "mixed"}
+          onChange={(v) => toggle(files.map((f) => f.path), v)}
+          disabled={files.length === 0}
+        />
+      </span>
+    );
+  };
+
+  const renderFileRow = (entry: FileEntry, depth: number) => {
     const isSelected = selected.has(entry.path);
     return (
       <div
@@ -459,13 +412,34 @@ export function CommitPanel({
         )}
         {entry.staged && <span className="staged-dot" title={t("staged")} />}
         <StatusMark kind={entry.kind} staged={entry.staged} />
-        <span className="tree-name">{node.name}</span>
+        <span className="tree-name">{entry.path.slice(entry.path.lastIndexOf("/") + 1)}</span>
         <span className="tree-stats">
           {entry.additions > 0 && <span className="add-count">+{entry.additions}</span>}
           {entry.deletions > 0 && <span className="del-count">−{entry.deletions}</span>}
         </span>
       </div>
     );
+  };
+
+  const renderList = (files: FileEntry[], indent = 6) => (
+    <FileTree
+      files={files}
+      expanded={expanded}
+      onToggleDir={toggleDir}
+      renderFile={renderFileRow}
+      renderDirLead={renderDirLead}
+      indent={indent}
+    />
+  );
+
+  const allDirectories = () => {
+    const groups = [staged, conflicts, ignored, ...changelists.items.map((cl) => filesOfChangelist(cl))];
+    return new Set(groups.flatMap((files) => directoryKeys(buildChangeTree(files))));
+  };
+
+  const filesOfChangelist = (cl: Changelist) => {
+    const paths = new Set(cl.paths);
+    return entries.filter((e) => !e.staged && !e.unmerged && !e.ignored && paths.has(e.path));
   };
 
   const section = (key: string, title: string, icon: React.ReactNode, count: number, children: React.ReactNode, extra?: React.ReactNode) => {
@@ -496,11 +470,41 @@ export function CommitPanel({
     );
   };
 
-  const changelistNodes = changelists.items.map((cl) => {
-    const paths = new Set(cl.paths);
-    const list = entries.filter(
-      (e) => !e.staged && !e.unmerged && !e.ignored && paths.has(e.path),
+  const countLabel = (n: number) => count(n, t("changedOne"), t("changedOther", { n }));
+
+  // Untracked files are not part of the change yet, so they get their own
+  // group instead of sitting between modified files.
+  const renderChangelistBody = (list: FileEntry[]) => {
+    const { tracked, untracked } = splitTracked(list);
+    const split = tracked.length > 0 && untracked.length > 0;
+    return (
+      <>
+        {tracked.length > 0 && (
+          <>
+            {split && (
+              <div className="change-subgroup">
+                {t("changedFiles")}
+                <span className="subgroup-count">{countLabel(tracked.length)}</span>
+              </div>
+            )}
+            {renderList(tracked, 18)}
+          </>
+        )}
+        {untracked.length > 0 && (
+          <>
+            <div className="change-subgroup">
+              {t("untrackedFiles")}
+              <span className="subgroup-count">{countLabel(untracked.length)}</span>
+            </div>
+            {renderList(untracked, 18)}
+          </>
+        )}
+      </>
     );
+  };
+
+  const changelistNodes = changelists.items.map((cl) => {
+    const list = filesOfChangelist(cl);
     const isActive = cl.id === changelists.active;
     const extra = (
       <>
@@ -547,7 +551,7 @@ export function CommitPanel({
           list.length === 0 ? (
             entries.length === 0 ? null : <div className="empty-section">{t("noChanges")}</div>
           ) : (
-            buildTree(list).map((n) => renderRow(n, 1))
+            renderChangelistBody(list)
           ),
           extra,
         )}
@@ -615,7 +619,10 @@ export function CommitPanel({
         <IconButton
           icon="expand"
           title={t("expandAll")}
-          onClick={() => setCollapsed(new Set())}
+          onClick={() => {
+            setCollapsed(new Set());
+            setExpanded(allDirectories());
+          }}
         />
         <IconButton
           icon="collapse"
@@ -627,6 +634,7 @@ export function CommitPanel({
             next.add("conflicts");
             next.add("ignored");
             setCollapsed(next);
+            setExpanded(new Set());
           }}
         />
       </div>
@@ -638,7 +646,7 @@ export function CommitPanel({
             t("stagedChanges"),
             <Icon name="stage" />,
             staged.length,
-            buildTree(staged).map((n) => renderRow(n, 0)),
+            renderList(staged),
             <IconButton
               icon="unstage"
               title={t("unstageAll")}
@@ -652,7 +660,7 @@ export function CommitPanel({
             t("mergeConflicts"),
             <Icon name="warning" />,
             conflicts.length,
-            buildTree(conflicts).map((n) => renderRow(n, 0)),
+            renderList(conflicts),
           )}
         {changelistNodes}
         {snapshot.stashes.length > 0 && (
@@ -694,7 +702,7 @@ export function CommitPanel({
             t("ignoredFiles"),
             <Icon name="eye" />,
             ignored.length,
-            buildTree(ignored).map((n) => renderRow(n, 0)),
+            renderList(ignored),
           )}
         {entries.length === 0 && (
           <div className="changes-empty">

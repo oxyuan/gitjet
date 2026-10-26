@@ -39,6 +39,7 @@ import {
 import { Icon } from "./icons";
 import { LangProvider, count, resolveLang, useT, type Lang } from "./i18n";
 import { LogDock } from "./LogDock";
+import { FileTree } from "./FileTree";
 import { BranchList } from "./BranchList";
 import type { AuthorOption } from "./AuthorPicker";
 import { OperationDock, type OperationState } from "./OperationDock";
@@ -488,6 +489,7 @@ function AppShell({ onLangChange }: { onLangChange: (lang: Lang) => void }) {
   const [logFile, setLogFile] = useState<string | null>(null);
   const [logDockHeight, setLogDockHeight] = useStoredState<number>("gitjet.logDock", 300);
   const [logInfoRatio, setLogInfoRatio] = useStoredState<number>("gitjet.logInfoRatio", 0.52);
+  const [logDockFolded, setLogDockFolded] = useStoredState<boolean>("gitjet.logDockFolded", false);
   const [logPath, setLogPath] = useState("");
   // Branch whose history is listed; "" follows the checked out branch.
   const [logRef, setLogRef] = useState("");
@@ -1835,6 +1837,8 @@ function AppShell({ onLangChange }: { onLangChange: (lang: Lang) => void }) {
             height={logDockHeight}
             infoRatio={logInfoRatio}
             onInfoResize={setLogInfoRatio}
+            collapsed={logDockFolded}
+            onToggleCollapsed={() => setLogDockFolded(!logDockFolded)}
             onResize={setLogDockHeight}
             onSelect={selectCommit}
             onOpenCommit={openCommit}
@@ -2197,6 +2201,8 @@ function RightPane({
 }) {
   const active = docs.find((d) => d.id === activeId) ?? docs[0] ?? null;
   const t = useT(T);
+  // Each open commit keeps its own expanded directories.
+  const [commitDirs, setCommitDirs] = useState<Map<string, Set<string>>>(new Map());
 
   const welcome = (
     <div className="welcome">
@@ -2376,10 +2382,20 @@ function RightPane({
                 {active.detail.stats.additions > 0 && <span className="add-count"> +{active.detail.stats.additions}</span>}
                 {active.detail.stats.deletions > 0 && <span className="del-count"> −{active.detail.stats.deletions}</span>}
               </div>
-              {active.detail.files.map((file) => (
+              <FileTree
+                files={active.detail.files}
+                expanded={commitDirs.has(active.id) ? commitDirs.get(active.id)! : new Set()}
+                onToggleDir={(key) => {
+                  const current = new Set(commitDirs.get(active.id) ?? []);
+                  if (current.has(key)) current.delete(key);
+                  else current.add(key);
+                  setCommitDirs(new Map(commitDirs).set(active.id, current));
+                }}
+                indent={4}
+                renderFile={(file, depth) => (
                 <div
                   className="details-file"
-                  key={file.path}
+                  style={{ marginLeft: depth * 12 }}
                   onClick={() => onOpenDiff(file.path, active.detail.hash)}
                   title={file.path}
                 >
@@ -2410,7 +2426,8 @@ function RightPane({
                     {file.deletions > 0 && <span className="del-count">−{file.deletions}</span>}
                   </span>
                 </div>
-              ))}
+                )}
+              />
             </div>
           </div>
         )}

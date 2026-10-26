@@ -10,12 +10,12 @@ import {
   formatStamp,
   IconButton,
   RefChip,
-  shortPath,
   Spinner,
   StatusMark,
   type ContextItem,
 } from "./ui";
 import { AuthorPicker, type AuthorOption } from "./AuthorPicker";
+import { FileTree } from "./FileTree";
 
 const T = {
   en: {
@@ -53,6 +53,8 @@ const T = {
     inBranchesOther: "In {n} branches",
     resizeDetails: "Drag to resize",
     mergeParents: "Merge",
+    collapsePanel: "Hide the history panel",
+    expandPanel: "Show the history panel",
   },
   zh: {
     title: "历史",
@@ -89,6 +91,8 @@ const T = {
     inBranchesOther: "在 {n} 个分支中",
     resizeDetails: "拖动调整高度",
     mergeParents: "合并",
+    collapsePanel: "收起历史面板",
+    expandPanel: "展开历史面板",
   },
 } as const;
 
@@ -109,6 +113,8 @@ export function LogDock({
   onClearScope,
   height,
   onResize,
+  collapsed,
+  onToggleCollapsed,
   infoRatio,
   onInfoResize,
   onSelect,
@@ -143,6 +149,9 @@ export function LogDock({
   onClearScope: () => void;
   height: number;
   onResize: (h: number) => void;
+  /** The panel folds to its toolbar so the editor gets the whole window. */
+  collapsed: boolean;
+  onToggleCollapsed: () => void;
   /** Share of the details pane taken by the commit information block. */
   infoRatio: number;
   onInfoResize: (ratio: number) => void;
@@ -170,11 +179,17 @@ export function LogDock({
   const drag = useRef<{ y: number; h: number } | null>(null);
   const detailRef = useRef<HTMLDivElement>(null);
   const fileRowRef = useRef<HTMLDivElement>(null);
+  const [fileDirs, setFileDirs] = useState<Set<string>>(new Set());
 
   // Arrow keys switch files, so the details pane takes focus with the commit.
   useEffect(() => {
     if (!detail) return;
     detailRef.current?.focus({ preventScroll: true });
+  }, [detail?.hash]);
+
+  // Directories of the changed files start collapsed for every commit.
+  useEffect(() => {
+    setFileDirs(new Set());
   }, [detail?.hash]);
 
   // Keep the highlighted file visible while the arrow keys walk the list.
@@ -255,11 +270,33 @@ export function LogDock({
   };
 
   return (
-    <section className="log-dock" style={{ height }}>
-      <div className="log-dock-resizer" onMouseDown={startResize} />
-      <div className="log-dock-body">
+    <section className={cx("log-dock", collapsed && "collapsed")} style={{ height: collapsed ? undefined : height }}>
+      {collapsed && (
+        <div className="log-dock-head" onClick={onToggleCollapsed} title={t("expandPanel")}>
+          <button className="log-collapse" aria-expanded={false}>
+            <Icon name="chevronUp" size={12} />
+          </button>
+          <span className="log-title">{t("title")}</span>
+          {detail && (
+            <span className="log-dock-head-sub">
+              <code>{detail.short}</code>
+              <span>{detail.subject}</span>
+            </span>
+          )}
+        </div>
+      )}
+      {!collapsed && <div className="log-dock-resizer" onMouseDown={startResize} />}
+      <div className="log-dock-body" hidden={collapsed}>
         <div className="log-history">
           <div className="panel-toolbar">
+            <button
+              className="log-collapse"
+              title={t("collapsePanel")}
+              aria-expanded
+              onClick={onToggleCollapsed}
+            >
+              <Icon name="chevronDown" size={12} />
+            </button>
             <span className="log-title">{t("title")}</span>
             <IconButton icon="refresh" title={t("refresh")} onClick={onRefresh} spinner={loading} />
             <IconButton icon="fetch" title={t("fetchAll")} onClick={onFetch} />
@@ -349,7 +386,12 @@ export function LogDock({
                         className={`lane-${target % 6}`}
                       />
                     ))}
-                    <circle cx={10 + row.lane * 14} cy={MID} r={4.6} className={cx("graph-dot", `lane-${row.lane % 6}`)} />
+                    <circle
+                      cx={10 + row.lane * 14}
+                      cy={MID}
+                      r={4.6}
+                      className={cx("graph-dot", `lane-${row.lane % 6}`, commit.parents.length > 1 && "merge")}
+                    />
                   </svg>
                   <span className="log-hash">{commit.short}</span>
                   <span className="log-subject" title={commit.subject}>
@@ -405,20 +447,29 @@ export function LogDock({
                   </span>
                 </div>
                 <div className="log-detail-files-list">
-                  {detail.files.map((file) => (
-                    <div
-                      key={file.path}
-                      ref={selectedFile === file.path ? fileRowRef : undefined}
-                      className={cx("details-file", selectedFile === file.path && "selected")}
-                      onClick={() => onSelectFile(file)}
-                      title={file.oldPath ? `${file.oldPath} → ${file.path}` : file.path}
-                    >
+                  <FileTree
+                    files={detail.files}
+                    expanded={fileDirs}
+                    onToggleDir={(key) =>
+                      setFileDirs((prev) => {
+                        const next = new Set(prev);
+                        if (next.has(key)) next.delete(key);
+                        else next.add(key);
+                        return next;
+                      })
+                    }
+                    indent={8}
+                    renderFile={(file, depth) => (
+                      <div
+                        ref={selectedFile === file.path ? fileRowRef : undefined}
+                        style={{ marginLeft: depth * 12 }}
+                        className={cx("details-file", selectedFile === file.path && "selected")}
+                        onClick={() => onSelectFile(file)}
+                        title={file.oldPath ? `${file.oldPath} → ${file.path}` : file.path}
+                      >
                       <StatusMark kind={file.status} />
                       <span className="details-file-path">
                         <span className="file-base">{file.path.slice(file.path.lastIndexOf("/") + 1)}</span>
-                        {file.path.includes("/") && (
-                          <span className="file-dir">{shortPath(file.path.slice(0, file.path.lastIndexOf("/")), 38)}</span>
-                        )}
                       </span>
                       <button
                         className="mini-icon"
@@ -444,8 +495,9 @@ export function LogDock({
                         {file.additions > 0 && <span className="add-count">+{file.additions}</span>}
                         {file.deletions > 0 && <span className="del-count">−{file.deletions}</span>}
                       </span>
-                    </div>
-                  ))}
+                      </div>
+                    )}
+                  />
                 </div>
               </div>
               <div
