@@ -1,4 +1,5 @@
 import { useMemo, useRef, useState } from "react";
+import { count, useT } from "./i18n";
 import type { Commit, CommitDetail, CommitFile, LogResult, RefsSnapshot } from "./mygo";
 import { computeGraph, graphWidth } from "./graph";
 import { Icon } from "./icons";
@@ -13,6 +14,75 @@ import {
   StatusMark,
   type ContextItem,
 } from "./ui";
+
+const T = {
+  en: {
+    checkoutRevision: "Checkout Revision",
+    newBranchHere: "New Branch from Here…",
+    newTag: "New Tag…",
+    cherryPick: "Cherry-Pick",
+    revertCommit: "Revert Commit",
+    resetSoft: "Reset Current Branch to Here — Soft",
+    resetMixed: "Reset Current Branch to Here — Mixed",
+    resetHard: "Reset Current Branch to Here — Hard",
+    copyRevision: "Copy Revision Number",
+    copyMessage: "Copy Commit Message",
+    refresh: "Refresh",
+    fetchAll: "Fetch all remotes",
+    branchFilter: "Branch filter",
+    currentBranch: "Current branch",
+    allBranches: "All branches",
+    loadMoreCommits: "Load more commits",
+    searchCommits: "Search commits",
+    clearSearch: "Clear search",
+    noCommits: "No commits",
+    noMatch: "No commit matches “{search}”.",
+    loadingCommits: "Loading commits",
+    selectCommit: "Select a commit to see its details",
+    authored: "authored {date}",
+    committedBy: "committed by {name} {date}",
+    copy: "Copy",
+    filesChangedOne: "1 file changed",
+    filesChangedOther: "{n} files changed",
+    showDiff: "Show Diff",
+    openSourceFile: "Open Source File",
+    showHistory: "Show History",
+    copyPath: "Copy Path",
+  },
+  zh: {
+    checkoutRevision: "检出此提交",
+    newBranchHere: "从此处新建分支…",
+    newTag: "新建标签…",
+    cherryPick: "摘取提交",
+    revertCommit: "还原提交",
+    resetSoft: "将当前分支重置到此处 — 软重置",
+    resetMixed: "将当前分支重置到此处 — 混合重置",
+    resetHard: "将当前分支重置到此处 — 硬重置",
+    copyRevision: "复制提交哈希",
+    copyMessage: "复制提交信息",
+    refresh: "刷新",
+    fetchAll: "获取所有远程仓库",
+    branchFilter: "分支筛选",
+    currentBranch: "当前分支",
+    allBranches: "所有分支",
+    loadMoreCommits: "加载更多提交",
+    searchCommits: "搜索提交",
+    clearSearch: "清除搜索",
+    noCommits: "没有提交",
+    noMatch: "没有匹配“{search}”的提交。",
+    loadingCommits: "正在加载提交",
+    selectCommit: "选择一个提交以查看详情",
+    authored: "作者提交于 {date}",
+    committedBy: "由 {name} 提交于 {date}",
+    copy: "复制",
+    filesChangedOne: "1 个文件已更改",
+    filesChangedOther: "{n} 个文件已更改",
+    showDiff: "显示差异",
+    openSourceFile: "打开源文件",
+    showHistory: "显示历史",
+    copyPath: "复制路径",
+  },
+} as const;
 
 export type LogBranchFilter = "all" | "current" | string;
 
@@ -65,6 +135,7 @@ export function LogPanel({
   onOpenSource: (path: string, revision: string) => void;
   onShowFileHistory: (path: string) => void;
 }) {
+  const t = useT(T);
   const [menu, setMenu] = useState<{ x: number; y: number; items: ContextItem[] } | null>(null);
   const [detailsHeight, setDetailsHeight] = useState(280);
   const drag = useRef<{ y: number; h: number } | null>(null);
@@ -92,19 +163,19 @@ export function LogPanel({
 
   const commitMenu = (commit: Commit, x: number, y: number) => {
     const items: ContextItem[] = [
-      { label: "Checkout Revision", icon: "branch", onClick: () => onCheckout(commit.hash) },
-      { label: "New Branch from Here…", icon: "plus", onClick: () => onNewBranch(commit.hash) },
-      { label: "New Tag…", icon: "tag", onClick: () => onNewTag(commit.hash) },
+      { label: t("checkoutRevision"), icon: "branch", onClick: () => onCheckout(commit.hash) },
+      { label: t("newBranchHere"), icon: "plus", onClick: () => onNewBranch(commit.hash) },
+      { label: t("newTag"), icon: "tag", onClick: () => onNewTag(commit.hash) },
       { separator: true },
-      { label: "Cherry-Pick", icon: "cherry", onClick: () => onCherryPick(commit.hash) },
-      { label: "Revert Commit", icon: "revert", onClick: () => onRevert(commit.hash) },
+      { label: t("cherryPick"), icon: "cherry", onClick: () => onCherryPick(commit.hash) },
+      { label: t("revertCommit"), icon: "revert", onClick: () => onRevert(commit.hash) },
       { separator: true },
-      { label: "Reset Current Branch to Here — Soft", icon: "reset", onClick: () => onReset(commit.hash, "soft") },
-      { label: "Reset Current Branch to Here — Mixed", icon: "reset", onClick: () => onReset(commit.hash, "mixed") },
-      { label: "Reset Current Branch to Here — Hard", icon: "reset", danger: true, onClick: () => onReset(commit.hash, "hard") },
+      { label: t("resetSoft"), icon: "reset", onClick: () => onReset(commit.hash, "soft") },
+      { label: t("resetMixed"), icon: "reset", onClick: () => onReset(commit.hash, "mixed") },
+      { label: t("resetHard"), icon: "reset", danger: true, onClick: () => onReset(commit.hash, "hard") },
       { separator: true },
-      { label: "Copy Revision Number", icon: "copy", onClick: () => onCopy(commit.hash) },
-      { label: "Copy Commit Message", icon: "copy", onClick: () => onCopy(commit.message) },
+      { label: t("copyRevision"), icon: "copy", onClick: () => onCopy(commit.hash) },
+      { label: t("copyMessage"), icon: "copy", onClick: () => onCopy(commit.message) },
     ];
     setMenu({ x, y, items });
   };
@@ -112,17 +183,17 @@ export function LogPanel({
   return (
     <div className="log-panel">
       <div className="panel-toolbar">
-        <IconButton icon="refresh" title="Refresh" onClick={onRefresh} spinner={loading} />
-        <IconButton icon="fetch" title="Fetch all remotes" onClick={onFetch} />
+        <IconButton icon="refresh" title={t("refresh")} onClick={onRefresh} spinner={loading} />
+        <IconButton icon="fetch" title={t("fetchAll")} onClick={onFetch} />
         <span className="toolbar-sep" />
         <select
           className="select compact"
           value={filter === "all" || filter === "current" ? filter : filter}
           onChange={(e) => onFilter(e.target.value)}
-          title="Branch filter"
+          title={t("branchFilter")}
         >
-          <option value="current">Current branch</option>
-          <option value="all">All branches</option>
+          <option value="current">{t("currentBranch")}</option>
+          <option value="all">{t("allBranches")}</option>
           {refs?.local.map((r) => (
             <option key={r.fullName} value={r.name}>
               {r.name}
@@ -137,7 +208,7 @@ export function LogPanel({
         <span className="spacer" />
         <IconButton
           icon="download"
-          title="Load more commits"
+          title={t("loadMoreCommits")}
           onClick={onLoadMore}
           disabled={!result?.hasMore || loading}
         />
@@ -148,11 +219,11 @@ export function LogPanel({
           <input
             value={search}
             onChange={(e) => onSearch(e.target.value)}
-            placeholder="Search commits"
-            aria-label="Search commits"
+            placeholder={t("searchCommits")}
+            aria-label={t("searchCommits")}
           />
           {search && (
-            <button className="search-clear" onClick={() => onSearch("")} aria-label="Clear search">
+            <button className="search-clear" onClick={() => onSearch("")} aria-label={t("clearSearch")}>
               <Icon name="close" size={11} />
             </button>
           )}
@@ -162,8 +233,8 @@ export function LogPanel({
         {commits.length === 0 && !loading && (
           <div className="changes-empty">
             <Icon name="log" size={20} />
-            <span>No commits</span>
-            {search && <span className="muted">No commit matches “{search}”.</span>}
+            <span>{t("noCommits")}</span>
+            {search && <span className="muted">{t("noMatch", { search })}</span>}
           </div>
         )}
         {commits.map((commit, i) => {
@@ -233,12 +304,12 @@ export function LogPanel({
         })}
         {loading && (
           <div className="log-loading">
-            <Spinner label="Loading commits" />
+            <Spinner label={t("loadingCommits")} />
           </div>
         )}
         {result?.hasMore && !loading && (
           <button className="load-more" onClick={onLoadMore}>
-            Load more commits
+            {t("loadMoreCommits")}
           </button>
         )}
       </div>
@@ -247,7 +318,7 @@ export function LogPanel({
         {!detail ? (
           <div className="details-empty">
             <Icon name="log" size={18} />
-            <span>Select a commit to see its details</span>
+            <span>{t("selectCommit")}</span>
           </div>
         ) : (
           <div className="details-scroll">
@@ -264,10 +335,10 @@ export function LogPanel({
               <span>
                 <b>{detail.author}</b> &lt;{detail.authorEmail}&gt;
               </span>
-              <span className="muted">authored {formatFullDate(detail.authorTime)}</span>
+              <span className="muted">{t("authored", { date: formatFullDate(detail.authorTime) })}</span>
               {detail.committer !== detail.author && (
                 <span className="muted">
-                  committed by {detail.committer} {formatFullDate(detail.commitTime)}
+                  {t("committedBy", { name: detail.committer, date: formatFullDate(detail.commitTime) })}
                 </span>
               )}
             </div>
@@ -275,12 +346,16 @@ export function LogPanel({
               <Icon name="hash" size={12} />
               <code>{detail.hash}</code>
               <button className="mini-btn" onClick={() => onCopy(detail.hash)}>
-                Copy
+                {t("copy")}
               </button>
             </div>
             {detail.body && <pre className="details-body">{detail.body}</pre>}
             <div className="details-stats">
-              {detail.stats.files} files changed
+              {count(
+                detail.stats.files,
+                t("filesChangedOne"),
+                t("filesChangedOther", { n: detail.stats.files }),
+              )}
               {detail.stats.additions > 0 && <span className="add-count"> +{detail.stats.additions}</span>}
               {detail.stats.deletions > 0 && <span className="del-count"> −{detail.stats.deletions}</span>}
             </div>
@@ -296,10 +371,10 @@ export function LogPanel({
                       x: e.clientX,
                       y: e.clientY,
                       items: [
-                        { label: "Show Diff", icon: "diff", onClick: () => onOpenFile(detail.hash, file) },
-                        { label: "Open Source File", icon: "file", onClick: () => onOpenSource(file.path, detail.hash) },
-                        { label: "Show History", icon: "log", onClick: () => onShowFileHistory(file.path) },
-                        { label: "Copy Path", icon: "copy", onClick: () => onCopy(file.path) },
+                        { label: t("showDiff"), icon: "diff", onClick: () => onOpenFile(detail.hash, file) },
+                        { label: t("openSourceFile"), icon: "file", onClick: () => onOpenSource(file.path, detail.hash) },
+                        { label: t("showHistory"), icon: "log", onClick: () => onShowFileHistory(file.path) },
+                        { label: t("copyPath"), icon: "copy", onClick: () => onCopy(file.path) },
                       ],
                     });
                   }}

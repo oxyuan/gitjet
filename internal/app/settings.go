@@ -21,7 +21,8 @@ import (
 // RepoMeta instead.
 type Settings struct {
 	GitPath          string       `json:"gitPath"`
-	Theme            string       `json:"theme"` // system, light, dark
+	Language         string       `json:"language"` // system, en, zh
+	Theme            string       `json:"theme"`    // system, light, dark
 	DiffContext      int          `json:"diffContext"`
 	IgnoreWhitespace bool         `json:"ignoreWhitespace"`
 	ShowIgnored      bool         `json:"showIgnored"`
@@ -51,6 +52,7 @@ type RepoMeta struct {
 
 func defaultSettings() Settings {
 	return Settings{
+		Language:         "system",
 		Theme:            "system",
 		DiffContext:      3,
 		UpdateMethod:     "merge",
@@ -205,6 +207,13 @@ type core struct {
 
 func newCore() *core {
 	return &core{settings: loadSettings()}
+}
+
+// uiLang is the language the native side should speak.
+func (c *core) uiLang() lang {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return resolveLang(c.settings.Language)
 }
 
 func (c *core) currentRepo() (*git.Repo, error) {

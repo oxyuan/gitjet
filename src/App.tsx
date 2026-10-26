@@ -38,6 +38,7 @@ import {
   TagDialog,
 } from "./Dialogs";
 import { Icon } from "./icons";
+import { LangProvider, count, resolveLang, useT, type Lang } from "./i18n";
 import { LogPanel, type LogBranchFilter } from "./LogPanel";
 import { OperationDock, type OperationState } from "./OperationDock";
 import { QuickOpen } from "./QuickOpen";
@@ -56,6 +57,339 @@ import {
   useStoredState,
 } from "./ui";
 import type { BlameResult } from "./mygo";
+
+const T = {
+  en: {
+    starting: "Starting GitJet",
+    openRepo: "Open Repository (⌘/Ctrl+O)",
+    refresh: "Refresh (⌘/Ctrl+R)",
+    fetchTooltip: "Fetch (right-click for options)",
+    updateProject: "Update Project (⌘/Ctrl+T)",
+    pushTip: "Push (⌘/Ctrl+Shift+K)",
+    branches: "Branches",
+    detachedAt: "detached at {ref}",
+    noCommitsParen: "(no commits)",
+    noRepository: "No repository",
+    quickOpenTip: "Quick Open (⌘/Ctrl+P)",
+    searchFiles: "Search files",
+    settingsTip: "Settings (⌘/Ctrl+,)",
+    commitTab: "Commit",
+    logTab: "Log",
+    consoleTab: "Console",
+    historyOf: "History of {path}",
+    clear: "Clear",
+    detachedHead: "Detached HEAD",
+    noCommitsYet: "No commits yet",
+    pushOne: "Push {n} commit",
+    pushOther: "Push {n} commits",
+    pullOne: "Pull {n} commit from the remote",
+    pullOther: "Pull {n} commits from the remote",
+    conflictOne: "{n} conflict",
+    conflictOther: "{n} conflicts",
+    changed: "{n} changed",
+    staged: "{n} staged",
+    untracked: "{n} untracked",
+    continueOp: "Continue",
+    abort: "Abort",
+    merging: "Merging",
+    rebasing: "Rebasing",
+    interactiveRebase: "Interactive rebase",
+    cherryPicking: "Cherry-picking",
+    reverting: "Reverting",
+    applyingPatches: "Applying patches",
+    bisecting: "Bisecting",
+    readLog: "Could not read the log",
+    readCommit: "Could not read the commit",
+    refreshRepo: "Could not refresh the repository",
+    reopenRepo: "Could not reopen the last repository",
+    startFailed: "GitJet could not start",
+    openRepoFailed: "Could not open the repository",
+    showDiffFailed: "Could not show the diff",
+    openFileFailed: "Could not open the file",
+    openConflictFailed: "Could not open the conflict",
+    readStash: "Could not read the stash",
+    annotateFailed: "Could not annotate the file",
+    copyFailed: "Could not copy",
+    gitFailed: "Git command failed",
+    deleteBranchFailed: "Could not delete the branch",
+    revealFailed: "Could not reveal the file",
+    saveSettingsFailed: "Could not save settings",
+    lastCommitMessage: "Could not read the last commit message",
+    done: "Done",
+    conflictDoc: "Conflict: {path}",
+    stashDoc: "Stash: {subject}",
+    annotationsDoc: "Annotations: {path}",
+    closeRepoTitle: "Close Repository",
+    closeRepoMessage: "Close this repository and return to the welcome screen?",
+    close: "Close",
+    rollbackChangesTitle: "Rollback Changes",
+    rollbackFilesOne: "Discard local changes to {n} file?",
+    rollbackFilesOther: "Discard local changes to {n} files?",
+    rollbackChangesDetail: "The files are restored from HEAD. This cannot be undone.",
+    rollback: "Rollback",
+    deleteFilesTitle: "Delete Files",
+    deleteFilesOne: "Delete {n} untracked file?",
+    deleteFilesOther: "Delete {n} untracked files?",
+    deleteFilesDetail: "The files are removed from disk. This cannot be undone.",
+    delete: "Delete",
+    rollbackFileTitle: "Rollback File",
+    rollbackFileMessage: "Discard all changes to {path}?",
+    forcePushTitle: "Force Push",
+    forcePushMessage: "Force push rewrites the remote branch. Continue?",
+    forcePushDetail: "{ref} will be updated with --force-with-lease.",
+    currentBranch: "current branch",
+    deleteBranchTitle: "Delete Branch",
+    deleteBranchCurrentTitle: "Delete Current Branch",
+    deleteBranchMessage: "Delete branch “{name}”?",
+    deleteBranchCurrentDetail: "You are on this branch. Git will refuse to delete the checked out branch.",
+    branchNotMergedTitle: "Branch Not Merged",
+    branchNotMergedMessage: "“{name}” has commits that are not merged. Delete it anyway?",
+    forceDelete: "Force Delete",
+    hardResetTitle: "Hard Reset",
+    hardResetMessage: "Discard every local change and move the branch?",
+    cannotUndo: "This cannot be undone.",
+    resetHard: "Reset Hard",
+    rebaseTitle: "Rebase Branch",
+    rebaseMessage: "Rebase “{branch}” onto “{onto}”?",
+    rebaseDetail: "Local commits are replayed on top of that branch.",
+    rebase: "Rebase",
+    revertTitle: "Revert Commit",
+    revertMessage: "Create a commit that undoes {hash}?",
+    revert: "Revert",
+    dropStashTitle: "Drop Stash",
+    dropStashMessage: "Delete stash@{index}?",
+    drop: "Drop",
+    abortTitle: "Abort Operation",
+    abortMessage: "Abort the {op} operation and restore the previous state?",
+    abortMessageCurrent: "Abort the current operation and restore the previous state?",
+    deleteChangelistTitle: "Delete Changelist",
+    deleteChangelistMessage: "Delete “{name}”? Its files move to the default changelist.",
+    addedToGitignore: "Added to .gitignore",
+    nothingToCommit: "Nothing to commit",
+    nothingToCommitMessage: "Check at least one file in the commit panel.",
+    commitNeedsMessage: "A commit needs a message",
+    commitFailed: "Commit failed",
+    committed: "Committed {hash}",
+    checkedOut: "Checked out",
+    branchDeleted: "Branch deleted",
+    branchReset: "Branch reset ({mode})",
+    merged: "Merged",
+    rebaseFinished: "Rebase finished",
+    cherryPicked: "Cherry-picked",
+    reverted: "Reverted",
+    tagCreated: "Tag created",
+    changesStashed: "Changes stashed",
+    stashPopped: "Stash popped",
+    stashApplied: "Stash applied",
+    operationContinued: "Operation continued",
+    operationAborted: "Operation aborted",
+    tookOurs: "Took ours",
+    tookTheirs: "Took theirs",
+    settingsSaved: "Settings saved",
+    conflictResolved: "Conflict resolved",
+    markedResolved: "Marked resolved",
+    branchCreated: "Branch created",
+    fetchAllRemotes: "Fetch all remotes",
+    fetchOrigin: "Fetch origin",
+    pruneBranches: "Prune deleted branches",
+    fetchTags: "Fetch tags",
+    operationPush: "Push",
+    operationPull: "Update Project",
+    operationFetch: "Fetch",
+    noRepoMessage: "Open a Git repository to get started.",
+    openRepoEllipsis: "Open Repository…",
+    welcomeHeadline: "Git, with a clearer view.",
+    welcomeTagline:
+      "Review changes, follow every branch, and resolve conflicts line by line — then land a clean commit without leaving the window.",
+    openRepository: "Open repository",
+    recentRepositories: "Recent repositories",
+    removeFromRecent: "Remove from recent",
+    hintOpen: "Open",
+    hintQuickOpen: "Quick open",
+    hintCommit: "Commit",
+    hintPush: "Push",
+    hintUpdate: "Update",
+    kindDiff: "Diff",
+    kindSource: "Source",
+    kindMerge: "Merge",
+    kindBlame: "Blame",
+    kindCommit: "Commit",
+    mergeTab: "Merge: {name}",
+    blameTab: "Blame: {name}",
+    copyHash: "Copy hash",
+    filesChanged: "{n} files changed",
+    openSourceAtCommit: "Open the source file at this commit",
+    showFileHistory: "Show file history",
+    title: "{name} – GitJet",
+    repoFallback: "Repository",
+  },
+  zh: {
+    starting: "正在启动 GitJet",
+    openRepo: "打开仓库 (⌘/Ctrl+O)",
+    refresh: "刷新 (⌘/Ctrl+R)",
+    fetchTooltip: "获取（右键查看选项）",
+    updateProject: "更新项目 (⌘/Ctrl+T)",
+    pushTip: "推送 (⌘/Ctrl+Shift+K)",
+    branches: "分支",
+    detachedAt: "分离于 {ref}",
+    noCommitsParen: "（无提交）",
+    noRepository: "未打开仓库",
+    quickOpenTip: "快速打开 (⌘/Ctrl+P)",
+    searchFiles: "搜索文件",
+    settingsTip: "设置 (⌘/Ctrl+,)",
+    commitTab: "提交",
+    logTab: "日志",
+    consoleTab: "控制台",
+    historyOf: "{path} 的历史",
+    clear: "清除",
+    detachedHead: "分离的 HEAD",
+    noCommitsYet: "暂无提交",
+    pushOne: "推送 {n} 个提交",
+    pushOther: "推送 {n} 个提交",
+    pullOne: "从远程拉取 {n} 个提交",
+    pullOther: "从远程拉取 {n} 个提交",
+    conflictOne: "{n} 个冲突",
+    conflictOther: "{n} 个冲突",
+    changed: "{n} 项更改",
+    staged: "{n} 项已暂存",
+    untracked: "{n} 个未跟踪文件",
+    continueOp: "继续",
+    abort: "中止",
+    merging: "合并中",
+    rebasing: "变基中",
+    interactiveRebase: "交互式变基",
+    cherryPicking: "拣选提交中",
+    reverting: "还原中",
+    applyingPatches: "应用补丁中",
+    bisecting: "二分查找中",
+    readLog: "无法读取日志",
+    readCommit: "无法读取提交",
+    refreshRepo: "无法刷新仓库",
+    reopenRepo: "无法重新打开上次的仓库",
+    startFailed: "GitJet 无法启动",
+    openRepoFailed: "无法打开仓库",
+    showDiffFailed: "无法显示差异",
+    openFileFailed: "无法打开文件",
+    openConflictFailed: "无法打开冲突文件",
+    readStash: "无法读取贮藏",
+    annotateFailed: "无法查看文件注解",
+    copyFailed: "无法复制",
+    gitFailed: "Git 命令失败",
+    deleteBranchFailed: "无法删除分支",
+    revealFailed: "无法在文件管理器中显示该文件",
+    saveSettingsFailed: "无法保存设置",
+    lastCommitMessage: "无法读取上一条提交信息",
+    done: "完成",
+    conflictDoc: "冲突：{path}",
+    stashDoc: "贮藏：{subject}",
+    annotationsDoc: "注解：{path}",
+    closeRepoTitle: "关闭仓库",
+    closeRepoMessage: "关闭此仓库并返回欢迎界面？",
+    close: "关闭",
+    rollbackChangesTitle: "回滚更改",
+    rollbackFilesOne: "放弃对 {n} 个文件的本地更改？",
+    rollbackFilesOther: "放弃对 {n} 个文件的本地更改？",
+    rollbackChangesDetail: "文件将从 HEAD 恢复。此操作无法撤销。",
+    rollback: "回滚",
+    deleteFilesTitle: "删除文件",
+    deleteFilesOne: "删除 {n} 个未跟踪文件？",
+    deleteFilesOther: "删除 {n} 个未跟踪文件？",
+    deleteFilesDetail: "文件将从磁盘删除。此操作无法撤销。",
+    delete: "删除",
+    rollbackFileTitle: "回滚文件",
+    rollbackFileMessage: "放弃对 {path} 的所有更改？",
+    forcePushTitle: "强制推送",
+    forcePushMessage: "强制推送会重写远程分支。是否继续？",
+    forcePushDetail: "{ref} 将使用 --force-with-lease 更新。",
+    currentBranch: "当前分支",
+    deleteBranchTitle: "删除分支",
+    deleteBranchCurrentTitle: "删除当前分支",
+    deleteBranchMessage: "删除分支“{name}”？",
+    deleteBranchCurrentDetail: "你当前位于该分支。Git 将拒绝删除已检出的分支。",
+    branchNotMergedTitle: "分支未合并",
+    branchNotMergedMessage: "“{name}”包含尚未合并的提交。仍要删除吗？",
+    forceDelete: "强制删除",
+    hardResetTitle: "硬重置",
+    hardResetMessage: "放弃所有本地更改并移动分支？",
+    cannotUndo: "此操作无法撤销。",
+    resetHard: "硬重置",
+    rebaseTitle: "变基分支",
+    rebaseMessage: "将“{branch}”变基到“{onto}”上？",
+    rebaseDetail: "本地提交将重放到该分支之上。",
+    rebase: "变基",
+    revertTitle: "还原提交",
+    revertMessage: "创建一个撤销 {hash} 的提交？",
+    revert: "还原",
+    dropStashTitle: "删除贮藏",
+    dropStashMessage: "删除 stash@{index}？",
+    drop: "删除",
+    abortTitle: "中止操作",
+    abortMessage: "中止 {op} 操作并恢复之前的状态？",
+    abortMessageCurrent: "中止当前操作并恢复之前的状态？",
+    deleteChangelistTitle: "删除变更列表",
+    deleteChangelistMessage: "删除“{name}”？其中的文件将移至默认变更列表。",
+    addedToGitignore: "已添加到 .gitignore",
+    nothingToCommit: "没有可提交的内容",
+    nothingToCommitMessage: "请在提交面板中至少勾选一个文件。",
+    commitNeedsMessage: "提交需要填写提交信息",
+    commitFailed: "提交失败",
+    committed: "已提交 {hash}",
+    checkedOut: "已检出",
+    branchDeleted: "分支已删除",
+    branchReset: "分支已重置（{mode}）",
+    merged: "已合并",
+    rebaseFinished: "变基完成",
+    cherryPicked: "已拣选提交",
+    reverted: "已还原",
+    tagCreated: "标签已创建",
+    changesStashed: "更改已贮藏",
+    stashPopped: "已恢复贮藏（pop）",
+    stashApplied: "已应用贮藏",
+    operationContinued: "操作已继续",
+    operationAborted: "操作已中止",
+    tookOurs: "已采用我方",
+    tookTheirs: "已采用对方",
+    settingsSaved: "设置已保存",
+    conflictResolved: "冲突已解决",
+    markedResolved: "已标记为已解决",
+    branchCreated: "分支已创建",
+    fetchAllRemotes: "获取所有远程",
+    fetchOrigin: "获取 origin",
+    pruneBranches: "清理已删除的分支",
+    fetchTags: "获取标签",
+    operationPush: "推送",
+    operationPull: "更新项目",
+    operationFetch: "获取",
+    noRepoMessage: "打开一个 Git 仓库以开始使用。",
+    openRepoEllipsis: "打开仓库…",
+    welcomeHeadline: "Git，看得更清楚。",
+    welcomeTagline: "审查更改、跟踪每个分支、逐行解决冲突，然后不离开窗口就能完成一次干净的提交。",
+    openRepository: "打开仓库",
+    recentRepositories: "最近的仓库",
+    removeFromRecent: "从最近列表中移除",
+    hintOpen: "打开",
+    hintQuickOpen: "快速打开",
+    hintCommit: "提交",
+    hintPush: "推送",
+    hintUpdate: "更新",
+    kindDiff: "差异",
+    kindSource: "源码",
+    kindMerge: "合并",
+    kindBlame: "注解",
+    kindCommit: "提交",
+    mergeTab: "合并：{name}",
+    blameTab: "注解：{name}",
+    copyHash: "复制哈希",
+    filesChanged: "{n} 个文件已更改",
+    openSourceAtCommit: "打开该提交下的源文件",
+    showFileHistory: "查看文件历史",
+    title: "{name} – GitJet",
+    repoFallback: "仓库",
+  },
+} as const;
+
+type TKey = keyof typeof T["en"];
+type Translate = (key: TKey, vars?: Record<string, string | number>) => string;
 
 type Tab = "commit" | "log" | "console";
 
@@ -99,6 +433,16 @@ const emptyForm: CommitForm = {
 };
 
 export default function App() {
+  const [lang, setLang] = useState<Lang>(() => resolveLang("system"));
+  return (
+    <LangProvider lang={lang}>
+      <AppShell onLangChange={setLang} />
+    </LangProvider>
+  );
+}
+
+function AppShell({ onLangChange }: { onLangChange: (lang: Lang) => void }) {
+  const t = useT(T);
   const [boot, setBoot] = useState<Bootstrap | null>(null);
   const [settings, setSettings] = useState<Settings | null>(null);
   const [snapshot, setSnapshot] = useState<ChangesSnapshot | null>(null);
@@ -145,6 +489,8 @@ export default function App() {
   const amendBackup = useRef("");
   const logReq = useRef(0);
   const opLines = useRef<string[]>([]);
+  const tRef = useRef(t);
+  tRef.current = t;
 
   const repoOpen = !!snapshot;
   const branch = snapshot?.state.branch ?? "";
@@ -230,12 +576,12 @@ export default function App() {
         }
         if (s) void s;
       } catch (err) {
-        fail("Could not read the log", err);
+        fail(t("readLog"), err);
       } finally {
         if (req === logReq.current) setLogLoading(false);
       }
     },
-    [fail, logFilter, logPath, logSearch, logResult?.commits.length],
+    [fail, logFilter, logPath, logSearch, logResult?.commits.length, t],
   );
 
   const openDoc = useCallback((doc: Doc) => {
@@ -268,10 +614,10 @@ export default function App() {
         const detail = await Git.showCommit(hash);
         setLogDetail(detail);
       } catch (err) {
-        fail("Could not read the commit", err);
+        fail(t("readCommit"), err);
       }
     },
-    [fail],
+    [fail, t],
   );
 
   const reload = useCallback(
@@ -306,7 +652,7 @@ export default function App() {
         if (selectedCommit) void loadCommitDetail(selectedCommit);
         setReloadKey((k) => k + 1);
       } catch (err) {
-        fail("Could not refresh the repository", err);
+        fail(t("refreshRepo"), err);
       } finally {
         if (spinner) setBusy((n) => n - 1);
       }
@@ -335,11 +681,11 @@ export default function App() {
           setHistory(await Git.messageHistory().catch(() => []));
           void reload(false);
         }
-        if (b.error) notify("error", "Could not reopen the last repository", b.error);
+        if (b.error) notify("error", tRef.current("reopenRepo"), b.error);
       })
       .catch((err) => {
-        setBoot({ settings: { gitPath: "", theme: "system", diffContext: 3, ignoreWhitespace: false, showIgnored: false, autoFetch: false, autoFetchMinutes: 15, updateMethod: "merge", confirmForcePush: true, confirmRollback: true, recent: [] }, repo: null, error: String(err), version: "", platform: "" });
-        notify("error", "GitJet could not start", err instanceof Error ? err.message : String(err));
+        setBoot({ settings: { gitPath: "", language: "system", theme: "system", diffContext: 3, ignoreWhitespace: false, showIgnored: false, autoFetch: false, autoFetchMinutes: 15, updateMethod: "merge", confirmForcePush: true, confirmRollback: true, recent: [] }, repo: null, error: String(err), version: "", platform: "" });
+        notify("error", tRef.current("startFailed"), err instanceof Error ? err.message : String(err));
       });
   }, [applyCheckedDefaults, notify, reload]);
 
@@ -375,8 +721,8 @@ export default function App() {
 
   // Debounce the log's search box.
   useEffect(() => {
-    const t = window.setTimeout(() => setLogSearch(searchInput), 250);
-    return () => window.clearTimeout(t);
+    const timer = window.setTimeout(() => setLogSearch(searchInput), 250);
+    return () => window.clearTimeout(timer);
   }, [searchInput]);
 
   // Load the log when its tab is visible or its filters change.
@@ -388,11 +734,15 @@ export default function App() {
 
   useEffect(() => {
     if (!snapshot) return;
-    document.title = `${snapshot.state.name || "Repository"} – GitJet`;
-  }, [snapshot?.state.name]);
+    document.title = t("title", { name: snapshot.state.name || t("repoFallback") });
+  }, [snapshot?.state.name, t]);
 
   function applyTheme(s: Settings) {
     document.documentElement.dataset.theme = s.theme;
+    document.documentElement.lang = resolveLang(s.language);
+    onLangChange(resolveLang(s.language));
+    // A toast created before the switch would keep the old language.
+    setToast(null);
     setIgnoreWhitespace(s.ignoreWhitespace);
   }
 
@@ -429,7 +779,7 @@ export default function App() {
       void reload(false);
       void loadLog(true);
     } catch (err) {
-      fail("Could not open the repository", err);
+      fail(t("openRepoFailed"), err);
     } finally {
       setBusy((n) => n - 1);
     }
@@ -442,9 +792,9 @@ export default function App() {
 
   const closeRepo = async () => {
     const ok = await ask({
-      title: "Close Repository",
-      message: "Close this repository and return to the welcome screen?",
-      confirmLabel: "Close",
+      title: t("closeRepoTitle"),
+      message: t("closeRepoMessage"),
+      confirmLabel: t("close"),
     });
     if (!ok) return;
     await Workspace.close();
@@ -466,7 +816,7 @@ export default function App() {
       const diff = await Git.diff(opts);
       openDoc({ id, title, kind: "diff", diff, opts });
     } catch (err) {
-      fail("Could not show the diff", err);
+      fail(t("showDiffFailed"), err);
     } finally {
       setDiffBusy(false);
     }
@@ -475,7 +825,6 @@ export default function App() {
   const showFile = async (path: string, revision = "") => {
     try {
       const file = await Git.file(path, revision);
-      const label = revision === "" ? "Working Tree" : revision === "INDEX" ? "Index" : revision.slice(0, 8);
       openDoc({
         id: `file:${revision || "worktree"}:${path}`,
         title: path,
@@ -484,7 +833,7 @@ export default function App() {
         revision,
       });
     } catch (err) {
-      fail("Could not open the file", err);
+      fail(t("openFileFailed"), err);
     }
   };
 
@@ -531,9 +880,9 @@ export default function App() {
   const openConflict = async (path: string) => {
     try {
       const content = await Git.conflict(path);
-      openDoc({ id: `conflict:${path}`, title: `Conflict: ${path}`, kind: "conflict", path, content });
+      openDoc({ id: `conflict:${path}`, title: t("conflictDoc", { path }), kind: "conflict", path, content });
     } catch (err) {
-      fail("Could not open the conflict", err);
+      fail(t("openConflictFailed"), err);
     }
   };
 
@@ -545,18 +894,18 @@ export default function App() {
   const openStash = async (index: number) => {
     try {
       const detail = await Git.showCommit(`stash@{${index}}`);
-      openDoc({ id: `commit:${detail.hash}`, title: `Stash: ${detail.subject}`, kind: "commit", detail });
+      openDoc({ id: `commit:${detail.hash}`, title: t("stashDoc", { subject: detail.subject }), kind: "commit", detail });
     } catch (err) {
-      fail("Could not read the stash", err);
+      fail(t("readStash"), err);
     }
   };
 
   const openBlame = async (path: string) => {
     try {
       const data = await Git.blame(path);
-      openDoc({ id: `blame:${path}`, title: `Annotations: ${path}`, kind: "blame", path, data });
+      openDoc({ id: `blame:${path}`, title: t("annotationsDoc", { path }), kind: "blame", path, data });
     } catch (err) {
-      fail("Could not annotate the file", err);
+      fail(t("annotateFailed"), err);
     }
   };
 
@@ -570,10 +919,10 @@ export default function App() {
   };
 
   const copyText = (text: string) => {
-    void Workspace.copy(text).catch((err) => fail("Could not copy", err));
+    void Workspace.copy(text).catch((err) => fail(t("copyFailed"), err));
   };
 
-  const withBusy = async <T,>(fn: () => Promise<T>, label = "Git command failed"): Promise<T | undefined> => {
+  const withBusy = async <T,>(fn: () => Promise<T>, label = t("gitFailed")): Promise<T | undefined> => {
     setBusy((n) => n + 1);
     try {
       return await fn();
@@ -600,10 +949,10 @@ export default function App() {
   const rollback = async (paths: string[]) => {
     if (settings?.confirmRollback) {
       const ok = await ask({
-        title: "Rollback Changes",
-        message: `Discard local changes to ${paths.length} file${paths.length === 1 ? "" : "s"}?`,
-        detail: "The files are restored from HEAD. This cannot be undone.",
-        confirmLabel: "Rollback",
+        title: t("rollbackChangesTitle"),
+        message: count(paths.length, t("rollbackFilesOne", { n: paths.length }), t("rollbackFilesOther", { n: paths.length })),
+        detail: t("rollbackChangesDetail"),
+        confirmLabel: t("rollback"),
         danger: true,
       });
       if (!ok) return;
@@ -616,10 +965,10 @@ export default function App() {
 
   const deleteUntracked = async (paths: string[]) => {
     const ok = await ask({
-      title: "Delete Files",
-      message: `Delete ${paths.length} untracked file${paths.length === 1 ? "" : "s"}?`,
-      detail: "The files are removed from disk. This cannot be undone.",
-      confirmLabel: "Delete",
+      title: t("deleteFilesTitle"),
+      message: count(paths.length, t("deleteFilesOne", { n: paths.length }), t("deleteFilesOther", { n: paths.length })),
+      detail: t("deleteFilesDetail"),
+      confirmLabel: t("delete"),
       danger: true,
     });
     if (!ok) return;
@@ -632,7 +981,7 @@ export default function App() {
   const ignorePaths = (paths: string[]) =>
     withBusy(async () => {
       const file = await Git.ignore(paths);
-      notify("success", "Added to .gitignore", file);
+      notify("success", t("addedToGitignore"), file);
       await reload(false);
     });
 
@@ -647,9 +996,9 @@ export default function App() {
   const applyFile = async (opts: DiffOptions, action: "stage" | "unstage" | "rollback") => {
     if (action === "rollback") {
       const ok = await ask({
-        title: "Rollback File",
-        message: `Discard all changes to ${opts.path}?`,
-        confirmLabel: "Rollback",
+        title: t("rollbackFileTitle"),
+        message: t("rollbackFileMessage", { path: opts.path }),
+        confirmLabel: t("rollback"),
         danger: true,
       });
       if (!ok) return;
@@ -675,11 +1024,11 @@ export default function App() {
     }
     const paths = [...checked].filter((p) => eligible.has(p));
     if (paths.length === 0 && !form.amend) {
-      notify("error", "Nothing to commit", "Check at least one file in the commit panel.");
+      notify("error", t("nothingToCommit"), t("nothingToCommitMessage"));
       return;
     }
     if (form.message.trim() === "" && !form.amend) {
-      notify("error", "A commit needs a message");
+      notify("error", t("commitNeedsMessage"));
       return;
     }
     const ok = await withBusy(async () => {
@@ -693,9 +1042,9 @@ export default function App() {
         authorEmail: form.authorEmail,
       });
       return result;
-    }, "Commit failed");
+    }, t("commitFailed"));
     if (!ok) return;
-    notify("success", `Committed ${ok.short}`, ok.subject);
+    notify("success", t("committed", { hash: ok.short }), ok.subject);
     setForm((f) => ({ ...f, message: "", amend: false }));
     amendBackup.current = "";
     setHistory(await Git.messageHistory().catch(() => []));
@@ -713,7 +1062,7 @@ export default function App() {
         const message = await Git.lastCommitMessage();
         setForm((f) => ({ ...f, amend: true, message }));
       } catch (err) {
-        fail("Could not read the last commit message", err);
+        fail(t("lastCommitMessage"), err);
         setForm((f) => ({ ...f, amend: true }));
       }
     } else if (!amend) {
@@ -746,7 +1095,7 @@ export default function App() {
         .map((l) => l.trim())
         .filter(Boolean)
         .pop();
-      update({ running: false, success: first || "Done" });
+      update({ running: false, success: first || t("done") });
     } catch (err) {
       update({ running: false, error: err instanceof Error ? err.message : String(err) });
     }
@@ -757,28 +1106,30 @@ export default function App() {
   const push = async (opts: PushOptions) => {
     if (opts.forceWithLease && (settingsRef.current?.confirmForcePush ?? true)) {
       const ok = await ask({
-        title: "Force Push",
-        message: "Force push rewrites the remote branch. Continue?",
-        detail: `${opts.remote || "origin"}/${opts.branch || "current branch"} will be updated with --force-with-lease.`,
-        confirmLabel: "Force Push",
+        title: t("forcePushTitle"),
+        message: t("forcePushMessage"),
+        detail: t("forcePushDetail", {
+          ref: `${opts.remote || "origin"}/${opts.branch || t("currentBranch")}`,
+        }),
+        confirmLabel: t("forcePushTitle"),
         danger: true,
       });
       if (!ok) return;
     }
     setDialog(null);
-    void runOperation("Push", "push", (ch) => Git.push(opts, ch));
+    void runOperation(t("operationPush"), "push", (ch) => Git.push(opts, ch));
   };
 
   const pull = (opts: Parameters<typeof Git.pull>[0]) => {
     setDialog(null);
-    void runOperation("Update Project", "pull", (ch) => Git.pull(opts, ch)).then(openNextConflict);
+    void runOperation(t("operationPull"), "pull", (ch) => Git.pull(opts, ch)).then(openNextConflict);
   };
 
   // Fetch has no dialog: the toolbar fetches at once and keeps the options,
   // which a right click cycles through, in the background.
   const fetch = (opts?: FetchOptions) => {
     setFetchMenu(null);
-    void runOperation("Fetch", "fetch", (ch) =>
+    void runOperation(t("operationFetch"), "fetch", (ch) =>
       Git.fetch(
         opts ?? { all: true, remote: "", prune: fetchOptions.prune, tags: fetchOptions.tags },
         ch,
@@ -789,7 +1140,7 @@ export default function App() {
   const checkout = async (ref: string) => {
     const out = await withBusy(() => Git.checkout(ref));
     if (out !== undefined) {
-      notify("success", "Checked out", ref);
+      notify("success", t("checkedOut"), ref);
       await reload(false);
       void loadLog(true);
     }
@@ -798,30 +1149,30 @@ export default function App() {
   const deleteBranch = async (name: string) => {
     const isCurrent = name === branch;
     const ok = await ask({
-      title: isCurrent ? "Delete Current Branch" : "Delete Branch",
-      message: `Delete branch “${name}”?`,
-      detail: isCurrent ? "You are on this branch. Git will refuse to delete the checked out branch." : undefined,
-      confirmLabel: "Delete",
+      title: isCurrent ? t("deleteBranchCurrentTitle") : t("deleteBranchTitle"),
+      message: t("deleteBranchMessage", { name }),
+      detail: isCurrent ? t("deleteBranchCurrentDetail") : undefined,
+      confirmLabel: t("delete"),
       danger: true,
     });
     if (!ok) return;
     try {
       await Git.deleteBranch(name, false);
-      notify("success", "Branch deleted", name);
+      notify("success", t("branchDeleted"), name);
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
       if (/not fully merged/i.test(message)) {
         const force = await ask({
-          title: "Branch Not Merged",
-          message: `“${name}” has commits that are not merged. Delete it anyway?`,
+          title: t("branchNotMergedTitle"),
+          message: t("branchNotMergedMessage", { name }),
           detail: message,
-          confirmLabel: "Force Delete",
+          confirmLabel: t("forceDelete"),
           danger: true,
         });
         if (!force) return;
         await withBusy(() => Git.deleteBranch(name, true));
       } else {
-        fail("Could not delete the branch", err);
+        fail(t("deleteBranchFailed"), err);
         return;
       }
     }
@@ -833,17 +1184,17 @@ export default function App() {
     setDialog(null);
     if (mode === "hard") {
       const ok = await ask({
-        title: "Hard Reset",
-        message: "Discard every local change and move the branch?",
-        detail: "This cannot be undone.",
-        confirmLabel: "Reset Hard",
+        title: t("hardResetTitle"),
+        message: t("hardResetMessage"),
+        detail: t("cannotUndo"),
+        confirmLabel: t("resetHard"),
         danger: true,
       });
       if (!ok) return;
     }
     await withBusy(async () => {
       await Git.reset(hash, mode);
-      notify("success", `Branch reset (${mode})`);
+      notify("success", t("branchReset", { mode }));
       await reload(false);
       void loadLog(true);
     });
@@ -853,7 +1204,7 @@ export default function App() {
     setDialog(null);
     await withBusy(async () => {
       const out = await Git.merge(ref, opts);
-      notify("success", "Merged", out.split("\n")[0]);
+      notify("success", t("merged"), out.split("\n")[0]);
       await reload(false);
       openNextConflict();
       void loadLog(true);
@@ -862,15 +1213,15 @@ export default function App() {
 
   const rebase = async (onto: string) => {
     const ok = await ask({
-      title: "Rebase Branch",
-      message: `Rebase “${branch || "HEAD"}” onto “${onto}”?`,
-      detail: "Local commits are replayed on top of that branch.",
-      confirmLabel: "Rebase",
+      title: t("rebaseTitle"),
+      message: t("rebaseMessage", { branch: branch || "HEAD", onto }),
+      detail: t("rebaseDetail"),
+      confirmLabel: t("rebase"),
     });
     if (!ok) return;
     await withBusy(async () => {
       await Git.rebase(onto, true);
-      notify("success", "Rebase finished");
+      notify("success", t("rebaseFinished"));
       await reload(false);
       openNextConflict();
       void loadLog(true);
@@ -880,7 +1231,7 @@ export default function App() {
   const cherryPick = async (hash: string) => {
     await withBusy(async () => {
       const out = await Git.cherryPick(hash, false);
-      notify("success", "Cherry-picked", out.split("\n")[0]);
+      notify("success", t("cherryPicked"), out.split("\n")[0]);
       await reload(false);
       openNextConflict();
       void loadLog(true);
@@ -889,14 +1240,14 @@ export default function App() {
 
   const revert = async (hash: string) => {
     const ok = await ask({
-      title: "Revert Commit",
-      message: `Create a commit that undoes ${hash.slice(0, 8)}?`,
-      confirmLabel: "Revert",
+      title: t("revertTitle"),
+      message: t("revertMessage", { hash: hash.slice(0, 8) }),
+      confirmLabel: t("revert"),
     });
     if (!ok) return;
     await withBusy(async () => {
       await Git.revert(hash);
-      notify("success", "Reverted", hash.slice(0, 8));
+      notify("success", t("reverted"), hash.slice(0, 8));
       await reload(false);
       openNextConflict();
       void loadLog(true);
@@ -907,7 +1258,7 @@ export default function App() {
     setDialog(null);
     await withBusy(async () => {
       await Git.createTag(opts);
-      notify("success", "Tag created", opts.name);
+      notify("success", t("tagCreated"), opts.name);
       await reload(false);
     });
   };
@@ -916,7 +1267,7 @@ export default function App() {
     setDialog(null);
     void withBusy(async () => {
       await Git.stashPush({ ...opts, paths: [] });
-      notify("success", "Changes stashed");
+      notify("success", t("changesStashed"));
       await reload(false);
     });
   };
@@ -924,16 +1275,16 @@ export default function App() {
   const stashApply = async (index: number, pop: boolean) => {
     await withBusy(async () => {
       await Git.stashApply(index, pop);
-      notify("success", pop ? "Stash popped" : "Stash applied");
+      notify("success", pop ? t("stashPopped") : t("stashApplied"));
       await reload(false);
     });
   };
 
   const stashDrop = async (index: number) => {
     const ok = await ask({
-      title: "Drop Stash",
-      message: `Delete stash@{${index}}?`,
-      confirmLabel: "Drop",
+      title: t("dropStashTitle"),
+      message: t("dropStashMessage", { index }),
+      confirmLabel: t("drop"),
       danger: true,
     });
     if (!ok) return;
@@ -963,22 +1314,23 @@ export default function App() {
   const continueOperation = async () => {
     await withBusy(async () => {
       const out = await Git.continueOperation();
-      notify("success", "Operation continued", out.split("\n")[0]);
+      notify("success", t("operationContinued"), out.split("\n")[0]);
       await reload(false);
     });
   };
 
   const abortOperation = async () => {
+    const operation = state?.operation ?? "";
     const ok = await ask({
-      title: "Abort Operation",
-      message: `Abort the ${state?.operation || "current"} operation and restore the previous state?`,
-      confirmLabel: "Abort",
+      title: t("abortTitle"),
+      message: operation === "" ? t("abortMessageCurrent") : t("abortMessage", { op: operation }),
+      confirmLabel: t("abort"),
       danger: true,
     });
     if (!ok) return;
     await withBusy(async () => {
       await Git.abortOperation();
-      notify("success", "Operation aborted");
+      notify("success", t("operationAborted"));
       await reload(false);
     });
   };
@@ -1092,7 +1444,7 @@ export default function App() {
     onRollback: (paths) => void rollback(paths),
     onDelete: (paths) => void deleteUntracked(paths),
     onIgnore: (paths) => void ignorePaths(paths),
-    onReveal: (path) => void Workspace.reveal(path).catch((err) => fail("Could not reveal the file", err)),
+    onReveal: (path) => void Workspace.reveal(path).catch((err) => fail(t("revealFailed"), err)),
     onCopyPath: copyText,
     onMoveToChangelist: (paths, id) => void moveToChangelist(paths, id),
     onCreateChangelist: () => setDialog({ kind: "changelist", mode: "new" }),
@@ -1103,9 +1455,9 @@ export default function App() {
     onDeleteChangelist: async (id) => {
       const cl = snapshot?.changelists.items.find((c) => c.id === id);
       const ok = await ask({
-        title: "Delete Changelist",
-        message: `Delete “${cl?.name ?? id}”? Its files move to the default changelist.`,
-        confirmLabel: "Delete",
+        title: t("deleteChangelistTitle"),
+        message: t("deleteChangelistMessage", { name: cl?.name ?? id }),
+        confirmLabel: t("delete"),
         danger: true,
       });
       if (!ok) return;
@@ -1121,7 +1473,7 @@ export default function App() {
     onTakeSide: (path, side) =>
       void withBusy(async () => {
         await Git.takeSide(path, side);
-        notify("success", side === "ours" ? "Took ours" : "Took theirs", path);
+        notify("success", side === "ours" ? t("tookOurs") : t("tookTheirs"), path);
         closeDoc(`conflict:${path}`);
         await reload(false);
       }),
@@ -1147,10 +1499,10 @@ export default function App() {
       setSettings(saved);
       applyTheme(saved);
       setDialog(null);
-      notify("success", "Settings saved");
+      notify("success", t("settingsSaved"));
       await reload(false);
     } catch (err) {
-      fail("Could not save settings", err);
+      fail(t("saveSettingsFailed"), err);
     }
   };
 
@@ -1158,7 +1510,7 @@ export default function App() {
     return (
       <div className="boot-screen">
         <Icon name="git" size={28} />
-        <Spinner label="Starting GitJet" />
+        <Spinner label={t("starting")} />
       </div>
     );
   }
@@ -1167,24 +1519,24 @@ export default function App() {
     <div className="toolwindow-tabs">
       <button className={cx("toolwindow-tab", tab === "commit" && "active")} onClick={() => setTab("commit")}>
         <Icon name="commit" />
-        Commit
+        {t("commitTab")}
         {snapshot && snapshot.state.changed + snapshot.state.untracked + snapshot.state.conflicts > 0 && (
           <span className="tab-count">{snapshot.state.changed + snapshot.state.untracked + snapshot.state.conflicts}</span>
         )}
       </button>
       <button className={cx("toolwindow-tab", tab === "log" && "active")} onClick={() => setTab("log")}>
         <Icon name="log" />
-        Log
+        {t("logTab")}
       </button>
       <button className={cx("toolwindow-tab", tab === "console" && "active")} onClick={() => setTab("console")}>
         <Icon name="console" />
-        Console
+        {t("consoleTab")}
       </button>
     </div>
   );
 
   return (
-    <div className="app">
+    <div className="app" style={{ "--op-dock-left": `${splitWidth + 10}px` } as React.CSSProperties}>
       <header className="titlebar">
         <div className="titlebar-brand">
           <span className="brand-mark">
@@ -1201,9 +1553,9 @@ export default function App() {
           )}
         </div>
         <div className="titlebar-actions">
-          <IconButton icon="open" title="Open Repository (⌘/Ctrl+O)" onClick={() => void openRepo()} />
+          <IconButton icon="open" title={t("openRepo")} onClick={() => void openRepo()} />
           <span className="toolbar-sep" />
-          <IconButton icon="refresh" title="Refresh (⌘/Ctrl+R)" onClick={() => void reload(true)} spinner={busy > 0} />
+          <IconButton icon="refresh" title={t("refresh")} onClick={() => void reload(true)} spinner={busy > 0} />
           <span
             className="icon-slot"
             onContextMenu={(e) => {
@@ -1214,25 +1566,25 @@ export default function App() {
           >
             <IconButton
               icon="fetch"
-              title="Fetch (right-click for options)"
+              title={t("fetchTooltip")}
               onClick={() => fetch()}
               spinner={!!op?.running && op.icon === "fetch"}
               disabled={!repoOpen}
             />
           </span>
           <span className="icon-slot">
-            <IconButton icon="pull" title="Update Project (⌘/Ctrl+T)" onClick={() => setDialog({ kind: "pull" })} disabled={!repoOpen} />
+            <IconButton icon="pull" title={t("updateProject")} onClick={() => setDialog({ kind: "pull" })} disabled={!repoOpen} />
             {state && state.behind > 0 && <span className="icon-dot" />}
           </span>
-          <IconButton icon="push" title="Push (⌘/Ctrl+Shift+K)" onClick={() => setDialog({ kind: "push", setUpstream: !snapshot?.state.upstream })} disabled={!repoOpen} />
+          <IconButton icon="push" title={t("pushTip")} onClick={() => setDialog({ kind: "push", setUpstream: !snapshot?.state.upstream })} disabled={!repoOpen} />
           <button
             className="branch-button"
             onClick={openBranchPopupFromStatus}
             disabled={!repoOpen}
-            title="Branches"
+            title={t("branches")}
           >
             <Icon name="branch" />
-            <span>{state ? (state.detached ? `detached at ${state.shortHead}` : state.unborn ? "(no commits)" : state.branch) : "No repository"}</span>
+            <span>{state ? (state.detached ? t("detachedAt", { ref: state.shortHead }) : state.unborn ? t("noCommitsParen") : state.branch) : t("noRepository")}</span>
             {state && (state.ahead > 0 || state.behind > 0) && (
               <span className="sync">
                 {state.ahead > 0 && <span className="ahead">↑{state.ahead}</span>}
@@ -1242,13 +1594,13 @@ export default function App() {
             <Icon name="chevronDown" size={12} />
           </button>
           <span className="spacer" />
-          <button className="quick-trigger" onClick={() => setQuickOpen(true)} title="Quick Open (⌘/Ctrl+P)" disabled={!repoOpen}>
+          <button className="quick-trigger" onClick={() => setQuickOpen(true)} title={t("quickOpenTip")} disabled={!repoOpen}>
             <Icon name="search" />
-            <span>Search files</span>
+            <span>{t("searchFiles")}</span>
             <kbd>⌘P</kbd>
           </button>
           <span className="spacer" />
-          <IconButton icon="settings" title="Settings (⌘/Ctrl+,)" onClick={() => setDialog({ kind: "settings" })} />
+          <IconButton icon="settings" title={t("settingsTip")} onClick={() => setDialog({ kind: "settings" })} />
         </div>
       </header>
       <div className="workspace">
@@ -1312,7 +1664,7 @@ export default function App() {
           {logPath && tab === "log" && (
             <div className="history-banner">
               <Icon name="log" />
-              <span>History of {logPath}</span>
+              <span>{t("historyOf", { path: logPath })}</span>
               <button
                 className="mini-btn"
                 onClick={() => {
@@ -1321,7 +1673,7 @@ export default function App() {
                   setLogDetail(null);
                 }}
               >
-                Clear
+                {t("clear")}
               </button>
             </div>
           )}
@@ -1350,14 +1702,14 @@ export default function App() {
             onOpenFile={(path, revision) => void showFile(path, revision)}
             onOpenDiff={(path, revision) => void showFileDiff(path, revision)}
             onCopyPath={copyText}
-            onReveal={(path) => void Workspace.reveal(path).catch((err) => fail("Could not reveal the file", err))}
+            onReveal={(path) => void Workspace.reveal(path).catch((err) => fail(t("revealFailed"), err))}
             busy={diffBusy}
             reloadKey={reloadKey}
             onShowFileHistory={showFileHistory}
             onSaveConflict={async (path, content) => {
               await withBusy(async () => {
                 await Git.saveResolution(path, content);
-                notify("success", "Conflict resolved", path);
+                notify("success", t("conflictResolved"), path);
                 closeDoc(`conflict:${path}`);
                 await reload(false);
                 openNextConflict();
@@ -1366,7 +1718,7 @@ export default function App() {
             onTakeSide={async (path, side) => {
               await withBusy(async () => {
                 await Git.takeSide(path, side);
-                notify("success", side === "ours" ? "Took ours" : "Took theirs", path);
+                notify("success", side === "ours" ? t("tookOurs") : t("tookTheirs"), path);
                 closeDoc(`conflict:${path}`);
                 await reload(false);
                 openNextConflict();
@@ -1375,7 +1727,7 @@ export default function App() {
             onMarkResolved={async (path) => {
               await withBusy(async () => {
                 await Git.markResolved([path]);
-                notify("success", "Marked resolved", path);
+                notify("success", t("markedResolved"), path);
                 closeDoc(`conflict:${path}`);
                 await reload(false);
                 openNextConflict();
@@ -1394,7 +1746,7 @@ export default function App() {
       <footer className="statusbar">
         <button className="status-branch" id="branch-widget" onClick={openBranchPopupFromStatus} disabled={!repoOpen}>
           <Icon name="branch" size={13} />
-          <span>{state ? (state.detached ? "Detached HEAD" : state.unborn ? "No commits yet" : state.branch) : "No repository"}</span>
+          <span>{state ? (state.detached ? t("detachedHead") : state.unborn ? t("noCommitsYet") : state.branch) : t("noRepository")}</span>
           {state && state.upstream && <span className="status-upstream">{state.upstream}</span>}
         </button>
         {state && (state.ahead > 0 || state.behind > 0) && (
@@ -1402,7 +1754,7 @@ export default function App() {
             {state.ahead > 0 && (
               <button
                 className="status-sync-btn ahead"
-                title={`Push ${state.ahead} commit${state.ahead === 1 ? "" : "s"}`}
+                title={count(state.ahead, t("pushOne", { n: state.ahead }), t("pushOther", { n: state.ahead }))}
                 onClick={() => setDialog({ kind: "push", setUpstream: !state.upstream })}
               >
                 ↑ {state.ahead}
@@ -1411,7 +1763,7 @@ export default function App() {
             {state.behind > 0 && (
               <button
                 className="status-sync-btn behind"
-                title={`Pull ${state.behind} commit${state.behind === 1 ? "" : "s"} from the remote`}
+                title={count(state.behind, t("pullOne", { n: state.behind }), t("pullOther", { n: state.behind }))}
                 onClick={() => setDialog({ kind: "pull" })}
               >
                 ↓ {state.behind}
@@ -1422,28 +1774,29 @@ export default function App() {
         {state?.operation && (
           <span className="status-operation">
             <Icon name="warning" size={12} />
-            <span className="op-name">{operationLabel(state.operation)}</span>
+            <span className="op-name">{operationLabel(state.operation, t)}</span>
             {state.opProgress && <span className="op-progress">{state.opProgress}</span>}
             {state.opDetail && <span className="op-detail">{state.opDetail}</span>}
             <button className="mini-btn" onClick={() => void continueOperation()}>
-              Continue
+              {t("continueOp")}
             </button>
             <button className="mini-btn danger" onClick={() => void abortOperation()}>
-              Abort
+              {t("abort")}
             </button>
           </span>
         )}
         {state?.conflicts ? (
           <span className="status-conflicts">
-            <Icon name="warning" size={12} /> {state.conflicts} conflict{state.conflicts === 1 ? "" : "s"}
+            <Icon name="warning" size={12} />{" "}
+            {count(state.conflicts, t("conflictOne", { n: state.conflicts }), t("conflictOther", { n: state.conflicts }))}
           </span>
         ) : null}
         <span className="spacer" />
         {snapshot && (
           <>
-            <span className="status-item">{snapshot.state.changed} changed</span>
-            {snapshot.state.staged > 0 && <span className="status-item">{snapshot.state.staged} staged</span>}
-            {snapshot.state.untracked > 0 && <span className="status-item">{snapshot.state.untracked} untracked</span>}
+            <span className="status-item">{t("changed", { n: snapshot.state.changed })}</span>
+            {snapshot.state.staged > 0 && <span className="status-item">{t("staged", { n: snapshot.state.staged })}</span>}
+            {snapshot.state.untracked > 0 && <span className="status-item">{t("untracked", { n: snapshot.state.untracked })}</span>}
             <span className="status-item status-path" title={snapshot.state.root}>
               {snapshot.state.root}
             </span>
@@ -1503,7 +1856,7 @@ export default function App() {
             setDialog(null);
             void withBusy(async () => {
               await Git.createBranch(name, start, checkoutNow);
-              notify("success", "Branch created", name);
+              notify("success", t("branchCreated"), name);
               await reload(false);
               void loadLog(true);
             });
@@ -1583,14 +1936,14 @@ export default function App() {
           onClose={() => setFetchMenu(null)}
           items={[
             {
-              label: "Fetch all remotes",
+              label: t("fetchAllRemotes"),
               icon: "fetch",
               onClick: () => fetch({ all: true, remote: "", prune: fetchOptions.prune, tags: fetchOptions.tags }),
             },
             ...(remotes.some((r) => r.name === "origin")
               ? [
                   {
-                    label: "Fetch origin",
+                    label: t("fetchOrigin"),
                     icon: "download" as const,
                     onClick: () =>
                       fetch({ all: false, remote: "origin", prune: fetchOptions.prune, tags: fetchOptions.tags }),
@@ -1599,12 +1952,12 @@ export default function App() {
               : []),
             { separator: true as const },
             {
-              label: "Prune deleted branches",
+              label: t("pruneBranches"),
               checked: fetchOptions.prune,
               onClick: () => setFetchOptions({ ...fetchOptions, prune: !fetchOptions.prune }),
             },
             {
-              label: "Fetch tags",
+              label: t("fetchTags"),
               checked: fetchOptions.tags,
               onClick: () => setFetchOptions({ ...fetchOptions, tags: !fetchOptions.tags }),
             },
@@ -1616,38 +1969,35 @@ export default function App() {
   );
 }
 
-function operationLabel(op: string): string {
+function operationLabel(op: string, t: Translate): string {
   switch (op) {
     case "merge":
-      return "Merging";
+      return t("merging");
     case "rebase":
-      return "Rebasing";
+      return t("rebasing");
     case "rebase-interactive":
-      return "Interactive rebase";
+      return t("interactiveRebase");
     case "cherry-pick":
-      return "Cherry-picking";
+      return t("cherryPicking");
     case "revert":
-      return "Reverting";
+      return t("reverting");
     case "am":
-      return "Applying patches";
+      return t("applyingPatches");
     case "bisect":
-      return "Bisecting";
+      return t("bisecting");
     default:
       return op;
   }
 }
 
-function noRepoMessage() {
-  return "Open a Git repository to get started.";
-}
-
 function NoRepo({ onOpen }: { onOpen: () => void }) {
+  const t = useT(T);
   return (
     <div className="no-repo">
       <Icon name="git" size={26} />
-      <div>{noRepoMessage()}</div>
+      <div>{t("noRepoMessage")}</div>
       <Button variant="primary" onClick={onOpen}>
-        Open Repository…
+        {t("openRepoEllipsis")}
       </Button>
     </div>
   );
@@ -1673,16 +2023,16 @@ function baseName(path: string): string {
   return slash >= 0 ? path.slice(slash + 1) : path;
 }
 
-function tabTitle(doc: Doc): string {
+function tabTitle(doc: Doc, t: Translate): string {
   switch (doc.kind) {
     case "diff":
       return baseName(doc.opts.path);
     case "file":
       return baseName(doc.file.path);
     case "conflict":
-      return `Merge: ${baseName(doc.path)}`;
+      return t("mergeTab", { name: baseName(doc.path) });
     case "blame":
-      return `Blame: ${baseName(doc.path)}`;
+      return t("blameTab", { name: baseName(doc.path) });
     case "commit":
       return doc.detail.short;
   }
@@ -1744,6 +2094,7 @@ function RightPane({
   recent: Settings["recent"];
 }) {
   const active = docs.find((d) => d.id === activeId) ?? docs[0] ?? null;
+  const t = useT(T);
 
   const welcome = (
     <div className="welcome">
@@ -1751,20 +2102,17 @@ function RightPane({
         <div className="welcome-logo">
           <Icon name="git" size={36} />
         </div>
-        <h1>Git, with a clearer view.</h1>
-        <p className="welcome-tagline">
-          Review changes, follow every branch, and resolve conflicts line by line — then land a
-          clean commit without leaving the window.
-        </p>
+        <h1>{t("welcomeHeadline")}</h1>
+        <p className="welcome-tagline">{t("welcomeTagline")}</p>
         <div className="welcome-actions">
           <Button variant="primary" onClick={() => onOpenRecent("")}>
-            <Icon name="open" /> Open repository
+            <Icon name="open" /> {t("openRepository")}
           </Button>
         </div>
         {recent.length > 0 && (
           <div className="recent-list">
             <div className="recent-head">
-              <span className="recent-title">Recent repositories</span>
+              <span className="recent-title">{t("recentRepositories")}</span>
               <span className="recent-count">{recent.length}</span>
             </div>
             <div className="recent-grid">
@@ -1778,7 +2126,7 @@ function RightPane({
                   <Icon name="chevronRight" size={14} className="recent-arrow" />
                   <button
                     className="recent-remove"
-                    title="Remove from recent"
+                    title={t("removeFromRecent")}
                     onClick={(e) => {
                       e.stopPropagation();
                       void onRemoveRecent(r.path);
@@ -1792,11 +2140,11 @@ function RightPane({
           </div>
         )}
         <div className="welcome-hints">
-          <span><kbd>⌘/Ctrl</kbd><kbd>O</kbd>Open</span>
-          <span><kbd>⌘/Ctrl</kbd><kbd>P</kbd>Quick open</span>
-          <span><kbd>⌘/Ctrl</kbd><kbd>K</kbd>Commit</span>
-          <span><kbd>⌘/Ctrl</kbd><kbd>Shift</kbd><kbd>K</kbd>Push</span>
-          <span><kbd>⌘/Ctrl</kbd><kbd>T</kbd>Update</span>
+          <span><kbd>⌘/Ctrl</kbd><kbd>O</kbd>{t("hintOpen")}</span>
+          <span><kbd>⌘/Ctrl</kbd><kbd>P</kbd>{t("hintQuickOpen")}</span>
+          <span><kbd>⌘/Ctrl</kbd><kbd>K</kbd>{t("hintCommit")}</span>
+          <span><kbd>⌘/Ctrl</kbd><kbd>Shift</kbd><kbd>K</kbd>{t("hintPush")}</span>
+          <span><kbd>⌘/Ctrl</kbd><kbd>T</kbd>{t("hintUpdate")}</span>
         </div>
       </div>
     </div>
@@ -1822,9 +2170,9 @@ function RightPane({
             title={doc.kind === "diff" ? doc.opts.path : doc.kind === "file" ? doc.file.path : doc.title}
           >
             <Icon name={docIcon(doc)} size={14} />
-            <span className="editor-tab-title">{tabTitle(doc)}</span>
+            <span className="editor-tab-title">{tabTitle(doc, t)}</span>
             <span className="editor-tab-kind">
-              {doc.kind === "diff" ? "Diff" : doc.kind === "file" ? "Source" : doc.kind === "conflict" ? "Merge" : doc.kind === "blame" ? "Blame" : "Commit"}
+              {doc.kind === "diff" ? t("kindDiff") : doc.kind === "file" ? t("kindSource") : doc.kind === "conflict" ? t("kindMerge") : doc.kind === "blame" ? t("kindBlame") : t("kindCommit")}
             </span>
             {doc.kind === "diff" && (
               <span className={cx("tab-status", `st-${doc.diff.status === "modified" ? "modified" : doc.diff.status === "added" ? "added" : "deleted"}`)}>
@@ -1833,7 +2181,7 @@ function RightPane({
             )}
             <button
               className="editor-tab-close"
-              title="Close"
+              title={t("close")}
               onClick={(e) => {
                 e.stopPropagation();
                 onCloseDoc(doc.id);
@@ -1889,9 +2237,9 @@ function RightPane({
                 <span className="muted">{formatWhen(active.detail.authorTime)}</span>
                 <span className="spacer" />
                 <button className="toolbar-text-btn" onClick={() => onCopyPath(active.detail.hash)}>
-                  <Icon name="copy" /> Copy hash
+                  <Icon name="copy" /> {t("copyHash")}
                 </button>
-                <IconButton icon="close" title="Close" small onClick={() => onCloseDoc(active.id)} />
+                <IconButton icon="close" title={t("close")} small onClick={() => onCloseDoc(active.id)} />
               </div>
               <div className="diff-toolbar">
                 <span className="muted">
@@ -1903,7 +2251,7 @@ function RightPane({
               <div className="details-subject commit-view-subject">{active.detail.subject}</div>
               {active.detail.body && <pre className="details-body">{active.detail.body}</pre>}
               <div className="details-stats">
-                {active.detail.stats.files} files changed
+                {t("filesChanged", { n: active.detail.stats.files })}
                 {active.detail.stats.additions > 0 && <span className="add-count"> +{active.detail.stats.additions}</span>}
                 {active.detail.stats.deletions > 0 && <span className="del-count"> −{active.detail.stats.deletions}</span>}
               </div>
@@ -1918,7 +2266,7 @@ function RightPane({
                   <span className="details-file-path">{file.path}</span>
                   <button
                     className="mini-icon"
-                    title="Open the source file at this commit"
+                    title={t("openSourceAtCommit")}
                     onClick={(e) => {
                       e.stopPropagation();
                       onOpenFile(file.path, active.detail.hash);
@@ -1928,7 +2276,7 @@ function RightPane({
                   </button>
                   <button
                     className="mini-icon"
-                    title="Show file history"
+                    title={t("showFileHistory")}
                     onClick={(e) => {
                       e.stopPropagation();
                       onShowFileHistory(file.path);

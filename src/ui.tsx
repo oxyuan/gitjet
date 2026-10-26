@@ -8,6 +8,48 @@ import {
 } from "react";
 import { createPortal } from "react-dom";
 import { Icon, type IconName } from "./icons";
+import { useT } from "./i18n";
+
+const T = {
+  en: {
+    close: "Close",
+    ok: "OK",
+    cancel: "Cancel",
+    dismiss: "Dismiss",
+    branchTip: "Branch {name}",
+    tagTip: "Tag {name}",
+    remoteBranchTip: "Remote branch {name}",
+    stagedTip: "{status} (staged)",
+    added: "added",
+    deleted: "deleted",
+    modified: "modified",
+    renamed: "renamed",
+    copied: "copied",
+    typechange: "typechange",
+    conflict: "conflict",
+    untracked: "untracked",
+    ignored: "ignored",
+  },
+  zh: {
+    close: "关闭",
+    ok: "确定",
+    cancel: "取消",
+    dismiss: "关闭",
+    branchTip: "分支 {name}",
+    tagTip: "标签 {name}",
+    remoteBranchTip: "远程分支 {name}",
+    stagedTip: "{status}（已暂存）",
+    added: "新增",
+    deleted: "已删除",
+    modified: "已修改",
+    renamed: "已重命名",
+    copied: "已复制",
+    typechange: "类型变更",
+    conflict: "冲突",
+    untracked: "未跟踪",
+    ignored: "已忽略",
+  },
+} as const;
 
 export function Button({
   children,
@@ -222,6 +264,7 @@ export function Modal({
   width?: number;
   className?: string;
 }) {
+  const t = useT(T);
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if (e.key === "Escape") {
@@ -238,7 +281,7 @@ export function Modal({
         <div className="modal-header">
           {icon && <Icon name={icon} />}
           <span className="modal-title">{title}</span>
-          <button className="modal-close" onClick={onClose} title="Close" aria-label="Close">
+          <button className="modal-close" onClick={onClose} title={t("close")} aria-label={t("close")}>
             <Icon name="close" size={14} />
           </button>
         </div>
@@ -254,7 +297,7 @@ export function ConfirmDialog({
   title,
   message,
   detail,
-  confirmLabel = "OK",
+  confirmLabel,
   danger,
   onConfirm,
   onCancel,
@@ -267,6 +310,7 @@ export function ConfirmDialog({
   onConfirm: () => void;
   onCancel: () => void;
 }) {
+  const t = useT(T);
   return (
     <Modal
       title={title}
@@ -275,9 +319,9 @@ export function ConfirmDialog({
       onClose={onCancel}
       footer={
         <>
-          <Button onClick={onCancel}>Cancel</Button>
+          <Button onClick={onCancel}>{t("cancel")}</Button>
           <Button variant={danger ? "danger" : "primary"} onClick={onConfirm} autoFocus>
-            {confirmLabel}
+            {confirmLabel ?? t("ok")}
           </Button>
         </>
       }
@@ -378,9 +422,10 @@ export function Toast({
   message?: string;
   onClose: () => void;
 }) {
+  const t = useT(T);
   useEffect(() => {
-    const t = setTimeout(onClose, kind === "error" ? 9000 : 4000);
-    return () => clearTimeout(t);
+    const timer = setTimeout(onClose, kind === "error" ? 9000 : 4000);
+    return () => clearTimeout(timer);
   }, [onClose, kind]);
   return createPortal(
     <div className={`toast toast-${kind}`} role="status">
@@ -391,7 +436,7 @@ export function Toast({
         <div className="toast-title">{title}</div>
         {message && <div className="toast-message">{message}</div>}
       </div>
-      <button className="toast-close" onClick={onClose} aria-label="Dismiss">
+      <button className="toast-close" onClick={onClose} aria-label={t("dismiss")}>
         <Icon name="close" size={12} />
       </button>
     </div>,
@@ -457,11 +502,13 @@ const KIND_LETTER: Record<string, { letter: string; cls: string }> = {
 
 /** StatusMark is the coloured letter shown next to a changed file. */
 export function StatusMark({ kind, staged }: { kind: string; staged?: boolean }) {
+  const t = useT(T);
   const meta = KIND_LETTER[kind] ?? KIND_LETTER.modified!;
+  const status = kind in KIND_LETTER ? t(kind as keyof typeof T["en"]) : kind;
   return (
     <span
       className={`status-mark ${meta.cls}${staged ? " staged" : ""}`}
-      title={staged ? `${kind} (staged)` : kind}
+      title={staged ? t("stagedTip", { status }) : status}
     >
       {meta.letter}
     </span>
@@ -479,11 +526,18 @@ export function RefChip({
   head?: boolean;
   onClick?: () => void;
 }) {
+  const t = useT(T);
   return (
     <span
       className={`ref-chip ref-${type}${head ? " ref-head" : ""}${onClick ? " clickable" : ""}`}
       onClick={onClick}
-      title={type === "tag" ? "Tag " + name : type === "remote" ? "Remote branch " + name : "Branch " + name}
+      title={
+        type === "tag"
+          ? t("tagTip", { name })
+          : type === "remote"
+            ? t("remoteBranchTip", { name })
+            : t("branchTip", { name })
+      }
     >
       {type === "tag" ? <Icon name="tag" size={11} /> : head ? <Icon name="check" size={11} /> : <Icon name="branch" size={11} />}
       {name}

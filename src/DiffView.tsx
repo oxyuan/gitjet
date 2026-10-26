@@ -2,9 +2,91 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import type { DiffOptions, FileDiff } from "./mygo";
 import { buildDiffRows, isCollapsed, type AlignedRow, type DiffRows, type WordSegment } from "./diff";
 import { Icon } from "./icons";
+import { useT } from "./i18n";
 import { cx, formatWhen, IconButton, Spinner } from "./ui";
 
 type Mode = "split" | "unified";
+
+const T = {
+  en: {
+    from: "from {path}",
+    openSourceFile: "Open the source file",
+    openFile: "Open File",
+    copyPath: "Copy path",
+    diffLayout: "Diff layout",
+    sideBySide: "Side-by-side diff",
+    unifiedDiff: "Unified diff",
+    wrapLongLines: "Wrap long lines",
+    wrap: "Wrap",
+    ignoreWhitespace: "Ignore whitespace",
+    whitespace: "Whitespace",
+    previousChange: "Previous change",
+    nextChange: "Next change",
+    noChanges: "No changes",
+    position: "{current} of {total}",
+    stageWholeFile: "Stage the whole file",
+    unstageWholeFile: "Unstage the whole file",
+    stageFile: "Stage file",
+    unstageFile: "Unstage file",
+    rollbackFile: "Roll back the file",
+    rollback: "Rollback",
+    annotateBlame: "Annotate with Git blame",
+    annotate: "Annotate",
+    binaryDiff: "Binary file — no textual diff to show",
+    noDifferences: "No differences",
+    before: "Before",
+    after: "After",
+    workingTree: "Working Tree",
+    index: "Index",
+    truncated: "This file is too large: only its beginning is shown.",
+    stageHunk: "Stage this hunk",
+    unstageHunk: "Unstage this hunk",
+    rollbackHunk: "Roll back this hunk",
+    unchangedLines: "{n} unchanged lines",
+    annotations: "Annotations · {path}",
+    close: "Close",
+    local: "local",
+  },
+  zh: {
+    from: "来自 {path}",
+    openSourceFile: "打开源文件",
+    openFile: "打开文件",
+    copyPath: "复制路径",
+    diffLayout: "差异布局",
+    sideBySide: "并排差异",
+    unifiedDiff: "统一差异",
+    wrapLongLines: "长行折行显示",
+    wrap: "折行",
+    ignoreWhitespace: "忽略空白字符",
+    whitespace: "忽略空白",
+    previousChange: "上一处更改",
+    nextChange: "下一处更改",
+    noChanges: "无更改",
+    position: "{current} / {total}",
+    stageWholeFile: "暂存整个文件",
+    unstageWholeFile: "取消暂存整个文件",
+    stageFile: "暂存文件",
+    unstageFile: "取消暂存文件",
+    rollbackFile: "还原文件",
+    rollback: "还原",
+    annotateBlame: "使用 Git blame 标注",
+    annotate: "标注",
+    binaryDiff: "二进制文件 — 无文本差异可显示",
+    noDifferences: "无差异",
+    before: "更改前",
+    after: "更改后",
+    workingTree: "工作区",
+    index: "暂存区",
+    truncated: "此文件过大：仅显示开头部分。",
+    stageHunk: "暂存此代码块",
+    unstageHunk: "取消暂存此代码块",
+    rollbackHunk: "还原此代码块",
+    unchangedLines: "{n} 行未更改",
+    annotations: "标注 · {path}",
+    close: "关闭",
+    local: "本地",
+  },
+} as const;
 
 export function DiffView({
   diff,
@@ -39,6 +121,10 @@ export function DiffView({
   wrap: boolean;
   onToggleWrap: () => void;
 }) {
+  const t = useT(T);
+  // git names these sides; translate the two the app itself introduces.
+  const sideLabel = (raw: string) =>
+    raw === "Working Tree" ? t("workingTree") : raw === "Index" ? t("index") : raw;
   const rows = useMemo(() => buildDiffRows(diff), [diff]);
   const [expanded, setExpanded] = useState<Set<number>>(new Set());
   const [current, setCurrent] = useState(-1);
@@ -85,28 +171,30 @@ export function DiffView({
           <span className="diff-path" title={diff.path}>
             {diff.path}
           </span>
-          {diff.oldPath && diff.oldPath !== diff.path && <span className="diff-oldpath">from {diff.oldPath}</span>}
+          {diff.oldPath && diff.oldPath !== diff.path && (
+            <span className="diff-oldpath">{t("from", { path: diff.oldPath })}</span>
+          )}
           {stats && <span className="diff-stats">{stats}</span>}
           {busy && <Spinner />}
           <span className="spacer" />
-          <button className="toolbar-text-btn" onClick={onOpenFile} title="Open the source file">
-            <Icon name="file" /> Open File
+          <button className="toolbar-text-btn" onClick={onOpenFile} title={t("openSourceFile")}>
+            <Icon name="file" /> {t("openFile")}
           </button>
-          <IconButton icon="copy" title="Copy path" small onClick={onCopyPath} />
+          <IconButton icon="copy" title={t("copyPath")} small onClick={onCopyPath} />
         </div>
         <div className="diff-toolbar">
-          <div className="segmented" role="group" aria-label="Diff layout">
+          <div className="segmented" role="group" aria-label={t("diffLayout")}>
             <button
               className={cx("segmented-btn", mode === "split" && "active")}
               onClick={() => setMode("split")}
-              title="Side-by-side diff"
+              title={t("sideBySide")}
             >
               <Icon name="columns" />
             </button>
             <button
               className={cx("segmented-btn", mode === "unified" && "active")}
               onClick={() => setMode("unified")}
-              title="Unified diff"
+              title={t("unifiedDiff")}
             >
               <Icon name="rows" />
             </button>
@@ -114,42 +202,48 @@ export function DiffView({
           <button
             className={cx("toolbar-text-btn", wrap && "active")}
             onClick={onToggleWrap}
-            title="Wrap long lines"
+            title={t("wrapLongLines")}
           >
-            <Icon name="rows" /> Wrap
+            <Icon name="rows" /> {t("wrap")}
           </button>
           <button
             className={cx("toolbar-text-btn", ignoreWhitespace && "active")}
             onClick={onToggleWhitespace}
-            title="Ignore whitespace"
+            title={t("ignoreWhitespace")}
           >
-            <Icon name="eye" /> Whitespace
+            <Icon name="eye" /> {t("whitespace")}
           </button>
           <span className="toolbar-sep" />
-          <IconButton icon="prevDiff" title="Previous change" small onClick={() => goto(-1)} />
-          <IconButton icon="nextDiff" title="Next change" small onClick={() => goto(1)} />
+          <IconButton icon="prevDiff" title={t("previousChange")} small onClick={() => goto(-1)} />
+          <IconButton icon="nextDiff" title={t("nextChange")} small onClick={() => goto(1)} />
           <span className="diff-nav-count">
-            {changeRows.length === 0 ? "No changes" : `${current + 1 || "–"} of ${changeRows.length}`}
+            {changeRows.length === 0
+              ? t("noChanges")
+              : t("position", { current: current + 1 || "–", total: changeRows.length })}
           </span>
           <span className="spacer" />
           {canApply && (
             <>
-              <button className="toolbar-text-btn" onClick={() => onApplyFile(fileAction)} title={fileAction === "stage" ? "Stage the whole file" : "Unstage the whole file"}>
+              <button
+                className="toolbar-text-btn"
+                onClick={() => onApplyFile(fileAction)}
+                title={fileAction === "stage" ? t("stageWholeFile") : t("unstageWholeFile")}
+              >
                 <Icon name={fileAction === "stage" ? "stage" : "unstage"} />
-                {fileAction === "stage" ? "Stage file" : "Unstage file"}
+                {fileAction === "stage" ? t("stageFile") : t("unstageFile")}
               </button>
               {opts.target === "worktree" && (
-                <button className="toolbar-text-btn" onClick={() => onApplyFile("rollback")} title="Roll back the file">
+                <button className="toolbar-text-btn" onClick={() => onApplyFile("rollback")} title={t("rollbackFile")}>
                   <Icon name="undo" />
-                  Rollback
+                  {t("rollback")}
                 </button>
               )}
             </>
           )}
           {onBlame && (
-            <button className="toolbar-text-btn" onClick={onBlame} title="Annotate with Git blame">
+            <button className="toolbar-text-btn" onClick={onBlame} title={t("annotateBlame")}>
               <Icon name="user" />
-              Annotate
+              {t("annotate")}
             </button>
           )}
         </div>
@@ -157,18 +251,18 @@ export function DiffView({
       {diff.binary ? (
         <div className="diff-empty">
           <Icon name="file" size={24} />
-          <div>Binary file — no textual diff to show</div>
+          <div>{t("binaryDiff")}</div>
         </div>
       ) : rows.length === 0 ? (
         <div className="diff-empty">
           <Icon name="check" size={24} />
-          <div>No differences</div>
+          <div>{t("noDifferences")}</div>
         </div>
       ) : (
         <div className={cx("diff-body", mode, wrap && "wrap")} ref={bodyRef}>
           <div className="diff-columns">
-            <div className="diff-col-label left">{diff.oldLabel || "Before"}</div>
-            <div className="diff-col-label right">{diff.newLabel || "After"}</div>
+            <div className="diff-col-label left">{sideLabel(diff.oldLabel) || t("before")}</div>
+            <div className="diff-col-label right">{sideLabel(diff.newLabel) || t("after")}</div>
           </div>
           {mode === "split" ? (
             <SplitRows
@@ -195,7 +289,7 @@ export function DiffView({
               currentRow={current >= 0 ? (changeRows[current] ?? -1) : -1}
             />
           )}
-          {diff.truncated && <div className="diff-truncated">This file is too large: only its beginning is shown.</div>}
+          {diff.truncated && <div className="diff-truncated">{t("truncated")}</div>}
         </div>
       )}
     </div>
@@ -239,12 +333,13 @@ function ApplyChevrons({
   canApply: boolean;
   onApply: (hunk: number, action: "stage" | "unstage" | "rollback") => void;
 }) {
+  const t = useT(T);
   if (!canApply) return <div className="diff-action" />;
   return (
     <div className="diff-action">
       <button
         className="diff-apply"
-        title={action === "stage" ? "Stage this hunk" : "Unstage this hunk"}
+        title={action === "stage" ? t("stageHunk") : t("unstageHunk")}
         onClick={(e) => {
           e.stopPropagation();
           onApply(hunk, action);
@@ -255,7 +350,7 @@ function ApplyChevrons({
       {action === "stage" && (
         <button
           className="diff-apply"
-          title="Roll back this hunk"
+          title={t("rollbackHunk")}
           onClick={(e) => {
             e.stopPropagation();
             onApply(hunk, "rollback");
@@ -306,6 +401,7 @@ function SplitRows({
   onApply: (hunk: number, action: "stage" | "unstage" | "rollback") => void;
   currentRow: number;
 }) {
+  const t = useT(T);
   const out: React.ReactNode[] = [];
   rows.forEach((row, i) => {
     if (isCollapsed(row)) {
@@ -322,7 +418,7 @@ function SplitRows({
             }}
           >
             <Icon name={isExpanded ? "chevronDown" : "chevronRight"} size={12} />
-            {row.collapsed} unchanged lines
+            {t("unchangedLines", { n: row.collapsed })}
           </button>
         </div>,
       );
@@ -377,6 +473,7 @@ function UnifiedRows({
   onApply: (hunk: number, action: "stage" | "unstage" | "rollback") => void;
   currentRow: number;
 }) {
+  const t = useT(T);
   const out: React.ReactNode[] = [];
   rows.forEach((row, i) => {
     if (isCollapsed(row)) {
@@ -392,7 +489,7 @@ function UnifiedRows({
             }}
           >
             <Icon name={expanded.has(row.key) ? "chevronDown" : "chevronRight"} size={12} />
-            {row.collapsed} unchanged lines
+            {t("unchangedLines", { n: row.collapsed })}
           </button>
         </div>,
       );
@@ -440,15 +537,16 @@ export function BlameView({
   onClose: () => void;
   onCopy: (text: string) => void;
 }) {
+  const t = useT(T);
   return (
     <div className="blame-view">
       <div className="diff-header">
         <div className="diff-title-row">
           <Icon name="user" />
-          <span className="diff-path">Annotations · {path}</span>
+          <span className="diff-path">{t("annotations", { path })}</span>
           <span className="spacer" />
           <button className="toolbar-text-btn" onClick={onClose}>
-            <Icon name="close" /> Close
+            <Icon name="close" /> {t("close")}
           </button>
         </div>
       </div>
@@ -460,7 +558,7 @@ export function BlameView({
               title={`${l.short} ${l.summary}\n${formatWhen(l.time)}`}
               onClick={() => onCopy(l.short)}
             >
-              <span className="blame-hash">{l.uncommitted ? "local" : l.short}</span>
+              <span className="blame-hash">{l.uncommitted ? t("local") : l.short}</span>
               <span className="blame-author">{l.author}</span>
               <span className="blame-time">{formatWhen(l.time)}</span>
             </button>

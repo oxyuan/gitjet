@@ -10,11 +10,113 @@ import {
   type ConflictSegment,
 } from "./merge";
 import { Button, cx, IconButton, Spinner } from "./ui";
+import { count, useT } from "./i18n";
 
 type Choice = "ours" | "theirs" | "both" | "custom" | "none";
 
+const T = {
+  en: {
+    empty: "(empty)",
+    noMarkers: "No conflict markers remain — choose a side or mark it resolved",
+    close: "Close",
+    takeOurs: "Take Ours",
+    takeTheirs: "Take Theirs",
+    markResolved: "Mark Resolved",
+    oursHead: "Ours (HEAD)",
+    theirs: "Theirs",
+    allResolved: "All conflicts resolved",
+    unresolved: "{n} unresolved",
+    block: "block",
+    blocks: "blocks",
+    blocksMode: "Blocks",
+    wholeFile: "Whole file",
+    wholeFileHint: "Edit the complete result as one file",
+    previousConflict: "Previous conflict",
+    nextConflict: "Next conflict",
+    allOurs: "All Ours",
+    allTheirs: "All Theirs",
+    copyResult: "Copy result",
+    saveResolution: "Save Resolution",
+    binaryConflict: "Binary conflict — choose a side",
+    completeResult: "Complete result",
+    markersRemaining: " — resolve every “<<<<<<<” marker before saving",
+    mergeHint:
+      "Click any line beside a conflict to add it to the result, or choose Ours / Theirs / Both. The result is editable, so you can adjust it line by line.",
+    unchangedLine: "{n} unchanged line",
+    unchangedLines: "{n} unchanged lines",
+    conflictNumber: "Conflict {n}",
+    ours: "Ours",
+    both: "Both",
+    resetConflict: "Reset this conflict",
+    insertOurs: "Insert this line from Ours",
+    insertTheirs: "Insert this line from Theirs",
+    useAllOurs: "Use all Ours",
+    useAllTheirs: "Use all Theirs",
+    hideBase: "Hide base",
+    showBase: "Show base",
+    resolved: "resolved",
+    pending: "pending",
+    commonAncestor: "Common ancestor",
+    result: "Result",
+    resultPlaceholder:
+      "Choose Ours, Theirs or Both, click lines above to insert them, or type the merged code here.",
+    nothingToResolve: "Nothing to resolve",
+    finalResult: "Final result",
+    lines: "{n} lines",
+  },
+  zh: {
+    empty: "（空）",
+    noMarkers: "已无冲突标记 — 请选择一侧或标记为已解决",
+    close: "关闭",
+    takeOurs: "采用我方",
+    takeTheirs: "采用对方",
+    markResolved: "标记为已解决",
+    oursHead: "我方（HEAD）",
+    theirs: "对方",
+    allResolved: "所有冲突已解决",
+    unresolved: "{n} 处未解决",
+    block: "个冲突块",
+    blocks: "个冲突块",
+    blocksMode: "冲突块",
+    wholeFile: "整个文件",
+    wholeFileHint: "将完整结果作为单个文件编辑",
+    previousConflict: "上一处冲突",
+    nextConflict: "下一处冲突",
+    allOurs: "全部采用我方",
+    allTheirs: "全部采用对方",
+    copyResult: "复制结果",
+    saveResolution: "保存解决方案",
+    binaryConflict: "二进制文件冲突 — 请选择一侧",
+    completeResult: "完整结果",
+    markersRemaining: " — 保存前请解决所有“<<<<<<<”标记",
+    mergeHint:
+      "点击冲突旁边的任意行即可将其加入结果，或选择我方 / 对方 / 两者。结果可直接编辑，可逐行调整。",
+    unchangedLine: "{n} 行未更改",
+    unchangedLines: "{n} 行未更改",
+    conflictNumber: "冲突 {n}",
+    ours: "我方",
+    both: "两者",
+    resetConflict: "重置此冲突",
+    insertOurs: "插入我方此行",
+    insertTheirs: "插入对方此行",
+    useAllOurs: "全部使用我方",
+    useAllTheirs: "全部使用对方",
+    hideBase: "隐藏基线",
+    showBase: "显示基线",
+    resolved: "已解决",
+    pending: "待解决",
+    commonAncestor: "共同祖先",
+    result: "结果",
+    resultPlaceholder: "选择我方、对方或两者，点击上方各行插入，或在此直接输入合并后的代码。",
+    nothingToResolve: "没有需要解决的冲突",
+    finalResult: "最终结果",
+    lines: "{n} 行",
+  },
+} as const;
+
 function Lines({ text }: { text: string }) {
-  if (text === "") return <span className="muted">(empty)</span>;
+  const t = useT(T);
+  if (text === "") return <span className="muted">{t("empty")}</span>;
   return (
     <>
       {text.split("\n").map((line, i) => (
@@ -61,6 +163,7 @@ export function ConflictView({
   onClose: () => void;
 }) {
   const { segments, trailingNewline } = useMemo(() => parseConflicts(conflict.working), [conflict.working]);
+  const t = useT(T);
   const conflicts = useMemo(
     () => segments.filter((s): s is ConflictSegment => s.kind === "conflict"),
     [segments],
@@ -130,6 +233,7 @@ export function ConflictView({
 
   const unresolved = resolved.filter((r) => !r).length;
   const result = free ? freeText : assembleMerge(segments, contents, trailingNewline);
+  const resultLines = result.endsWith("\n") ? result.split("\n").length - 1 : result.split("\n").length;
   const hasMarkers = result.includes("<<<<<<<") || result.includes("=======") || result.includes(">>>>>>>");
   const canSave = !busy && !conflict.binary && (free ? !hasMarkers : unresolved === 0 && !hasMarkers);
 
@@ -140,34 +244,34 @@ export function ConflictView({
           <div className="diff-title-row">
             <span className="diff-status st-conflict">!</span>
             <span className="diff-path">{path}</span>
-            <span className="muted">No conflict markers remain — choose a side or mark it resolved</span>
+            <span className="muted">{t("noMarkers")}</span>
             <span className="spacer" />
             {busy && <Spinner />}
-            <IconButton icon="close" title="Close" small onClick={onClose} />
+            <IconButton icon="close" title={t("close")} small onClick={onClose} />
           </div>
           <div className="diff-toolbar conflict-toolbar">
             <Button size="small" onClick={() => onTakeSide("ours")} disabled={!conflict.hasOurs || busy}>
-              <Icon name="ours" /> Take Ours
+              <Icon name="ours" /> {t("takeOurs")}
             </Button>
             <Button size="small" onClick={() => onTakeSide("theirs")} disabled={!conflict.hasTheirs || busy}>
-              <Icon name="theirs" /> Take Theirs
+              <Icon name="theirs" /> {t("takeTheirs")}
             </Button>
             <span className="toolbar-sep" />
             <Button size="small" onClick={onMarkResolved} disabled={busy}>
-              <Icon name="check" /> Mark Resolved
+              <Icon name="check" /> {t("markResolved")}
             </Button>
           </div>
         </div>
         <div className="conflict-body">
           <div className="conflict-sides">
             <div className="conflict-side ours">
-              <div className="side-label">Ours (HEAD)</div>
+              <div className="side-label">{t("oursHead")}</div>
               <pre>
                 <Lines text={conflict.ours} />
               </pre>
             </div>
             <div className="conflict-side theirs">
-              <div className="side-label">Theirs</div>
+              <div className="side-label">{t("theirs")}</div>
               <pre>
                 <Lines text={conflict.theirs} />
               </pre>
@@ -185,17 +289,17 @@ export function ConflictView({
           <span className="diff-status st-conflict">!</span>
           <span className="diff-path">{path}</span>
           <span className={cx("merge-progress", unresolved === 0 ? "done" : "")}>
-            {unresolved === 0 ? "All conflicts resolved" : `${unresolved} unresolved`} · {conflicts.length}{" "}
-            {conflicts.length === 1 ? "block" : "blocks"}
+            {unresolved === 0 ? t("allResolved") : t("unresolved", { n: unresolved })} ·{" "}
+            {conflicts.length} {count(conflicts.length, t("block"), t("blocks"))}
           </span>
           <span className="spacer" />
           {busy && <Spinner />}
-          <IconButton icon="close" title="Close" small onClick={onClose} />
+          <IconButton icon="close" title={t("close")} small onClick={onClose} />
         </div>
         <div className="diff-toolbar merge-toolbar">
           <div className="segmented">
             <button className={cx("segmented-btn text", !free && "active")} onClick={() => setFree(false)}>
-              Blocks
+              {t("blocksMode")}
             </button>
             <button
               className={cx("segmented-btn text", free && "active")}
@@ -203,16 +307,16 @@ export function ConflictView({
                 setFreeText(assembleFreeText(segments, contents, resolved, trailingNewline));
                 setFree(true);
               }}
-              title="Edit the complete result as one file"
+              title={t("wholeFileHint")}
             >
-              Whole file
+              {t("wholeFile")}
             </button>
           </div>
           {!free && conflicts.length > 0 && (
             <>
               <span className="toolbar-sep" />
-              <IconButton icon="chevronUp" title="Previous conflict" small onClick={() => jump(-1)} />
-              <IconButton icon="chevronDown" title="Next conflict" small onClick={() => jump(1)} />
+              <IconButton icon="chevronUp" title={t("previousConflict")} small onClick={() => jump(-1)} />
+              <IconButton icon="chevronDown" title={t("nextConflict")} small onClick={() => jump(1)} />
               <span className="muted">
                 {Math.min(current + 1, conflicts.length)} / {conflicts.length}
               </span>
@@ -222,10 +326,10 @@ export function ConflictView({
           {!free && conflicts.length > 0 && (
             <>
               <button className="toolbar-text-btn" onClick={() => conflicts.forEach((_, i) => useSide(i, "ours"))}>
-                <Icon name="ours" /> All Ours
+                <Icon name="ours" /> {t("allOurs")}
               </button>
               <button className="toolbar-text-btn" onClick={() => conflicts.forEach((_, i) => useSide(i, "theirs"))}>
-                <Icon name="theirs" /> All Theirs
+                <Icon name="theirs" /> {t("allTheirs")}
               </button>
               <span className="toolbar-sep" />
             </>
@@ -236,10 +340,10 @@ export function ConflictView({
               void navigator.clipboard.writeText(result);
             }}
           >
-            <Icon name="copy" /> Copy result
+            <Icon name="copy" /> {t("copyResult")}
           </button>
           <Button size="small" variant="primary" onClick={() => onSave(result)} disabled={!canSave}>
-            <Icon name="check" /> Save Resolution
+            <Icon name="check" /> {t("saveResolution")}
           </Button>
         </div>
       </div>
@@ -247,13 +351,13 @@ export function ConflictView({
       {conflict.binary ? (
         <div className="diff-empty">
           <Icon name="warning" size={24} />
-          <div>Binary conflict — choose a side</div>
+          <div>{t("binaryConflict")}</div>
         </div>
       ) : free ? (
         <div className="merge-free">
           <div className="side-label">
-            Complete result
-            {hasMarkers && <span className="muted"> — resolve every “{'<<<<<<<'}” marker before saving</span>}
+            {t("completeResult")}
+            {hasMarkers && <span className="muted">{t("markersRemaining")}</span>}
           </div>
           <textarea
             className="conflict-editor"
@@ -266,18 +370,15 @@ export function ConflictView({
         <div className="merge-body">
           <div className="merge-hint">
             <Icon name="info" size={13} />
-            <span>
-              Click any line beside a conflict to add it to the result, or choose Ours / Theirs / Both.
-              The result is editable, so you can adjust it line by line.
-            </span>
+            <span>{t("mergeHint")}</span>
           </div>
           {segments.map((seg, si) => {
             if (seg.kind === "text") {
-              const count = seg.text === "" ? 0 : seg.text.split("\n").length;
-              if (count === 0) return null;
+              const lineCount = seg.text === "" ? 0 : seg.text.split("\n").length;
+              if (lineCount === 0) return null;
               return (
                 <div className="merge-unchanged" key={si}>
-                  <span>{count} unchanged line{count === 1 ? "" : "s"}</span>
+                  <span>{count(lineCount, t("unchangedLine"), t("unchangedLines"))}</span>
                 </div>
               );
             }
@@ -296,7 +397,7 @@ export function ConflictView({
               >
                 <div className="merge-card-header">
                   <span className={cx("merge-dot", isResolved ? "done" : "")} />
-                  <span className="merge-title">Conflict {index + 1}</span>
+                  <span className="merge-title">{t("conflictNumber", { n: index + 1 })}</span>
                   {c.label && <span className="muted">({c.label})</span>}
                   <span className="spacer" />
                   <div className="segmented">
@@ -306,13 +407,13 @@ export function ConflictView({
                         className={cx("segmented-btn text", choices[index] === side && "active")}
                         onClick={() => useSide(index, side)}
                       >
-                        {side === "ours" ? "Ours" : side === "theirs" ? "Theirs" : "Both"}
+                        {side === "ours" ? t("ours") : side === "theirs" ? t("theirs") : t("both")}
                       </button>
                     ))}
                   </div>
                   <IconButton
                     icon="undo"
-                    title="Reset this conflict"
+                    title={t("resetConflict")}
                     small
                     onClick={() => {
                       setContents((prev) => prev.map((v, k) => (k === index ? "" : v)));
@@ -323,15 +424,15 @@ export function ConflictView({
                 </div>
                 <div className="merge-sides">
                   <div className="merge-side-labels">
-                    <span>Ours (HEAD)</span>
-                    <span>Theirs</span>
+                    <span>{t("oursHead")}</span>
+                    <span>{t("theirs")}</span>
                   </div>
                   {rows.map((row, ri) => (
                     <div className="merge-row" key={ri}>
                       <button
                         className={cx("merge-cell ours", !row.ours && "empty")}
                         disabled={!row.ours}
-                        title={row.ours ? "Insert this line from Ours" : undefined}
+                        title={row.ours ? t("insertOurs") : undefined}
                         onClick={() => row.ours && insertLine(index, row.ours.text)}
                       >
                         {row.ours ? (
@@ -351,7 +452,7 @@ export function ConflictView({
                       <button
                         className={cx("merge-cell theirs", !row.theirs && "empty")}
                         disabled={!row.theirs}
-                        title={row.theirs ? "Insert this line from Theirs" : undefined}
+                        title={row.theirs ? t("insertTheirs") : undefined}
                         onClick={() => row.theirs && insertLine(index, row.theirs.text)}
                       >
                         {row.theirs ? (
@@ -373,33 +474,33 @@ export function ConflictView({
                 </div>
                 <div className="merge-actions">
                   <button className="merge-quick" onClick={() => insertAll(index, "ours")}>
-                    Use all Ours
+                    {t("useAllOurs")}
                   </button>
                   <button className="merge-quick" onClick={() => insertAll(index, "theirs")}>
-                    Use all Theirs
+                    {t("useAllTheirs")}
                   </button>
                   {c.base.length > 0 && (
                     <button
                       className="merge-quick"
                       onClick={() => setBaseOpen(baseOpen === index ? null : index)}
                     >
-                      {baseOpen === index ? "Hide base" : "Show base"}
+                      {baseOpen === index ? t("hideBase") : t("showBase")}
                     </button>
                   )}
                   <span className="spacer" />
                   <span className={cx("merge-state", isResolved ? "done" : "")}>
-                    {isResolved ? "resolved" : "pending"}
+                    {isResolved ? t("resolved") : t("pending")}
                   </span>
                 </div>
                 {baseOpen === index && c.base.length > 0 && (
                   <div className="merge-base">
-                    <div className="side-label">Common ancestor</div>
+                    <div className="side-label">{t("commonAncestor")}</div>
                     <pre>{c.base.join("\n")}</pre>
                   </div>
                 )}
                 <div className="merge-result">
                   <div className="side-label">
-                    Result
+                    {t("result")}
                     {isResolved && <Icon name="check" size={12} />}
                   </div>
                   <textarea
@@ -408,7 +509,7 @@ export function ConflictView({
                     }}
                     className="conflict-editor merge-editor"
                     value={contents[index] ?? ""}
-                    placeholder="Choose Ours, Theirs or Both, click lines above to insert them, or type the merged code here."
+                    placeholder={t("resultPlaceholder")}
                     spellCheck={false}
                     rows={Math.min(8, Math.max(2, (contents[index] ?? "").split("\n").length))}
                     onChange={(e) => setConflictText(index, e.target.value, "custom")}
@@ -420,13 +521,12 @@ export function ConflictView({
           {conflicts.length === 0 && (
             <div className="diff-empty">
               <Icon name="check" size={22} />
-              <div>Nothing to resolve</div>
+              <div>{t("nothingToResolve")}</div>
             </div>
           )}
           <div className="merge-result-preview">
             <div className="side-label">
-              Final result ·{" "}
-              {(result.endsWith("\n") ? result.split("\n").length - 1 : result.split("\n").length)} lines
+              {t("finalResult")} · {t("lines", { n: resultLines })}
             </div>
             <pre>{free ? freeText : result}</pre>
           </div>

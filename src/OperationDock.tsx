@@ -1,6 +1,26 @@
 import { useEffect, useRef } from "react";
 import { Icon } from "./icons";
+import { useT } from "./i18n";
 import { cx, Spinner } from "./ui";
+
+const T = {
+  en: {
+    show: "Show output",
+    hide: "Hide output",
+    starting: "Starting…",
+    noOutput: "No output.",
+    copy: "Copy",
+    dismiss: "Dismiss",
+  },
+  zh: {
+    show: "显示输出",
+    hide: "隐藏输出",
+    starting: "正在启动…",
+    noOutput: "无输出。",
+    copy: "复制",
+    dismiss: "关闭",
+  },
+} as const;
 
 /** A git operation streamed to the page while it runs. */
 export interface OperationState {
@@ -28,6 +48,7 @@ export function OperationDock({
   onToggle: () => void;
   onClose: () => void;
 }) {
+  const t = useT(T);
   const logRef = useRef<HTMLPreElement>(null);
   const closeRef = useRef(onClose);
   closeRef.current = onClose;
@@ -50,28 +71,28 @@ export function OperationDock({
 
   return (
     <section className={cx("op-dock", op.running && "running", op.error && "failed")} aria-live="polite">
-      <button className="op-dock-head" onClick={onToggle} title={open ? "Hide output" : "Show output"}>
+      <button className="op-dock-head" onClick={onToggle} title={open ? t("hide") : t("show")}>
         {op.running ? <Spinner /> : <Icon name={op.error ? "error" : "check"} size={13} />}
         <span className="op-dock-title">{op.title}</span>
-        <span className="op-dock-status">{status || "Starting…"}</span>
+        <span className="op-dock-status">{status || t("starting")}</span>
         <Icon name={open ? "chevronDown" : "chevronUp"} size={12} className="op-dock-chevron" />
       </button>
       {open && (
         <div className="op-dock-body">
           <pre className="op-dock-log" ref={logRef}>
-            {op.lines.join("\n") || (op.running ? "Starting…" : "No output.")}
+            {op.lines.join("\n") || (op.running ? t("starting") : t("noOutput"))}
           </pre>
           <div className="op-dock-foot">
             <button
               className="op-dock-link"
               onClick={() => void navigator.clipboard.writeText(op.lines.join("\n"))}
             >
-              <Icon name="copy" size={12} /> Copy
+              <Icon name="copy" size={12} /> {t("copy")}
             </button>
             <span className="spacer" />
             {!op.running && (
               <button className="op-dock-link" onClick={onClose}>
-                Dismiss
+                {t("dismiss")}
               </button>
             )}
           </div>

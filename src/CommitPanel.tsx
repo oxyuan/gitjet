@@ -1,4 +1,5 @@
 import { useMemo, useState } from "react";
+import { useT } from "./i18n";
 import type { ChangesSnapshot, Settings } from "./mygo";
 import { Icon } from "./icons";
 import {
@@ -9,6 +10,131 @@ import {
   type ContextItem,
   StatusMark,
 } from "./ui";
+
+const T = {
+  en: {
+    showDiff: "Show Diff",
+    openSourceFile: "Open Source File",
+    showHistory: "Show History",
+    resolveConflict: "Resolve Conflict…",
+    acceptOurs: "Accept Ours",
+    acceptTheirs: "Accept Theirs",
+    markResolved: "Mark Resolved",
+    unstage: "Unstage",
+    rollback: "Rollback…",
+    addToVcs: "Add to VCS",
+    delete: "Delete…",
+    addToGitignore: "Add to .gitignore",
+    stage: "Stage",
+    copyPath: "Copy Path",
+    revealInFileManager: "Reveal in File Manager",
+    newChangelist: "New Changelist…",
+    rename: "Rename…",
+    setActive: "Set Active",
+    newChangelistTitle: "New changelist",
+    changelistActions: "Changelist actions",
+    changelistActive: "{name} (active)",
+    noChanges: "No changes",
+    refresh: "Refresh",
+    stageSelected: "Stage selected",
+    unstageSelected: "Unstage selected",
+    rollbackSelected: "Rollback selected",
+    openSourceFileTitle: "Open source file",
+    showDiffTitle: "Show diff",
+    stashChanges: "Stash changes",
+    expandAll: "Expand all",
+    collapseAll: "Collapse all",
+    unstageAll: "Unstage all",
+    stagedChanges: "Staged Changes",
+    mergeConflicts: "Merge Conflicts",
+    stashes: "Stashes",
+    ignoredFiles: "Ignored Files",
+    staged: "Staged",
+    popStash: "Pop stash",
+    applyStash: "Apply stash",
+    dropStash: "Drop stash",
+    pop: "Pop",
+    apply: "Apply",
+    drop: "Drop",
+    noLocalChanges: "No local changes",
+    workingTreeClean: "The working tree is clean.",
+    commitMessage: "Commit message",
+    recentMessages: "Recent messages",
+    amend: "Amend",
+    commitOptions: "Commit options",
+    options: "Options",
+    signOff: "Sign-off commit",
+    skipHooks: "Skip hooks (--no-verify)",
+    author: "Author",
+    nameOptional: "Name (optional)",
+    email: "Email",
+    commitTooltip: "Commit (⌘/Ctrl+Enter)",
+    commit: "Commit",
+    commitCount: "Commit ({n})",
+    commitAndPush: "Commit and Push…",
+  },
+  zh: {
+    showDiff: "显示差异",
+    openSourceFile: "打开源文件",
+    showHistory: "显示历史",
+    resolveConflict: "解决冲突…",
+    acceptOurs: "采用我方版本",
+    acceptTheirs: "采用对方版本",
+    markResolved: "标记为已解决",
+    unstage: "取消暂存",
+    rollback: "回滚…",
+    addToVcs: "添加到版本控制",
+    delete: "删除…",
+    addToGitignore: "添加到 .gitignore",
+    stage: "暂存",
+    copyPath: "复制路径",
+    revealInFileManager: "在文件管理器中显示",
+    newChangelist: "新建变更列表…",
+    rename: "重命名…",
+    setActive: "设为活动列表",
+    newChangelistTitle: "新建变更列表",
+    changelistActions: "变更列表操作",
+    changelistActive: "{name}（活动）",
+    noChanges: "无更改",
+    refresh: "刷新",
+    stageSelected: "暂存选中项",
+    unstageSelected: "取消暂存选中项",
+    rollbackSelected: "回滚选中项",
+    openSourceFileTitle: "打开源文件",
+    showDiffTitle: "显示差异",
+    stashChanges: "贮藏更改",
+    expandAll: "全部展开",
+    collapseAll: "全部折叠",
+    unstageAll: "全部取消暂存",
+    stagedChanges: "已暂存的更改",
+    mergeConflicts: "合并冲突",
+    stashes: "贮藏",
+    ignoredFiles: "已忽略的文件",
+    staged: "已暂存",
+    popStash: "弹出贮藏",
+    applyStash: "应用贮藏",
+    dropStash: "删除贮藏",
+    pop: "弹出",
+    apply: "应用",
+    drop: "删除",
+    noLocalChanges: "没有本地更改",
+    workingTreeClean: "工作区是干净的。",
+    commitMessage: "提交信息",
+    recentMessages: "最近的提交信息",
+    amend: "修补提交",
+    commitOptions: "提交选项",
+    options: "选项",
+    signOff: "签名提交（Signed-off-by）",
+    skipHooks: "跳过钩子（--no-verify）",
+    author: "作者",
+    nameOptional: "姓名（可选）",
+    email: "邮箱",
+    commitTooltip: "提交（⌘/Ctrl+Enter）",
+    commit: "提交",
+    commitCount: "提交（{n}）",
+    commitAndPush: "提交并推送…",
+  },
+} as const;
 
 export interface FileEntry {
   path: string;
@@ -165,6 +291,7 @@ export function CommitPanel({
   busy: boolean;
   history: string[];
 }) {
+  const t = useT(T);
   const entries = useMemo(() => entriesFor(snapshot), [snapshot]);
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [menu, setMenu] = useState<{ x: number; y: number; items: ContextItem[] } | null>(null);
@@ -229,34 +356,34 @@ export function CommitPanel({
   const menuFor = (entry: FileEntry, x: number, y: number) => {
     const chosen = selected.has(entry.path) && selected.size > 1 ? [...selected] : [entry.path];
     const items: ContextItem[] = [
-      { label: "Show Diff", icon: "diff", onClick: () => actions.onShowDiff(entry) },
-      { label: "Open Source File", icon: "file", onClick: () => actions.onOpenSource(entry.path, entry.staged ? "INDEX" : "") },
-      { label: "Show History", icon: "log", onClick: () => actions.onShowHistory(entry.path) },
+      { label: t("showDiff"), icon: "diff", onClick: () => actions.onShowDiff(entry) },
+      { label: t("openSourceFile"), icon: "file", onClick: () => actions.onOpenSource(entry.path, entry.staged ? "INDEX" : "") },
+      { label: t("showHistory"), icon: "log", onClick: () => actions.onShowHistory(entry.path) },
       { separator: true },
     ];
     if (entry.unmerged) {
       items.push(
-        { label: "Resolve Conflict…", icon: "merge", onClick: () => actions.onShowConflict(entry.path) },
-        { label: "Accept Ours", icon: "ours", onClick: () => actions.onTakeSide(entry.path, "ours") },
-        { label: "Accept Theirs", icon: "theirs", onClick: () => actions.onTakeSide(entry.path, "theirs") },
-        { label: "Mark Resolved", icon: "check", onClick: () => actions.onMarkResolved(chosen) },
+        { label: t("resolveConflict"), icon: "merge", onClick: () => actions.onShowConflict(entry.path) },
+        { label: t("acceptOurs"), icon: "ours", onClick: () => actions.onTakeSide(entry.path, "ours") },
+        { label: t("acceptTheirs"), icon: "theirs", onClick: () => actions.onTakeSide(entry.path, "theirs") },
+        { label: t("markResolved"), icon: "check", onClick: () => actions.onMarkResolved(chosen) },
       );
     } else if (entry.staged) {
       items.push(
-        { label: "Unstage", icon: "unstage", onClick: () => actions.onUnstage(chosen) },
-        { label: "Rollback…", icon: "undo", danger: true, onClick: () => actions.onRollback(chosen) },
+        { label: t("unstage"), icon: "unstage", onClick: () => actions.onUnstage(chosen) },
+        { label: t("rollback"), icon: "undo", danger: true, onClick: () => actions.onRollback(chosen) },
       );
     } else {
       if (entry.kind === "untracked") {
         items.push(
-          { label: "Add to VCS", icon: "stage", onClick: () => actions.onStage(chosen) },
-          { label: "Delete…", icon: "trash", danger: true, onClick: () => actions.onDelete(chosen) },
-          { label: "Add to .gitignore", icon: "eye", onClick: () => actions.onIgnore(chosen) },
+          { label: t("addToVcs"), icon: "stage", onClick: () => actions.onStage(chosen) },
+          { label: t("delete"), icon: "trash", danger: true, onClick: () => actions.onDelete(chosen) },
+          { label: t("addToGitignore"), icon: "eye", onClick: () => actions.onIgnore(chosen) },
         );
       } else {
         items.push(
-          { label: "Stage", icon: "stage", onClick: () => actions.onStage(chosen) },
-          { label: "Rollback…", icon: "undo", danger: true, onClick: () => actions.onRollback(chosen) },
+          { label: t("stage"), icon: "stage", onClick: () => actions.onStage(chosen) },
+          { label: t("rollback"), icon: "undo", danger: true, onClick: () => actions.onRollback(chosen) },
         );
       }
       const clItems = changelists.items
@@ -270,8 +397,8 @@ export function CommitPanel({
     }
     items.push(
       { separator: true },
-      { label: "Copy Path", icon: "copy", onClick: () => actions.onCopyPath(entry.path) },
-      { label: "Reveal in File Manager", icon: "external", onClick: () => actions.onReveal(entry.path) },
+      { label: t("copyPath"), icon: "copy", onClick: () => actions.onCopyPath(entry.path) },
+      { label: t("revealInFileManager"), icon: "external", onClick: () => actions.onReveal(entry.path) },
     );
     setMenu({ x, y, items });
   };
@@ -330,7 +457,7 @@ export function CommitPanel({
         ) : (
           <Checkbox checked={checked.has(entry.path)} onChange={(v) => toggle([entry.path], v)} />
         )}
-        {entry.staged && <span className="staged-dot" title="Staged" />}
+        {entry.staged && <span className="staged-dot" title={t("staged")} />}
         <StatusMark kind={entry.kind} staged={entry.staged} />
         <span className="tree-name">{node.name}</span>
         <span className="tree-stats">
@@ -379,13 +506,13 @@ export function CommitPanel({
       <>
         <IconButton
           icon="plus"
-          title="New changelist"
+          title={t("newChangelistTitle")}
           small
           onClick={actions.onCreateChangelist}
         />
         <IconButton
           icon="more"
-          title="Changelist actions"
+          title={t("changelistActions")}
           small
           onClick={(e) => {
             const rect = (e.currentTarget as HTMLElement).getBoundingClientRect();
@@ -393,12 +520,12 @@ export function CommitPanel({
               x: rect.left,
               y: rect.bottom,
               items: [
-                { label: "New Changelist…", icon: "plus", onClick: actions.onCreateChangelist },
-                { label: "Rename…", icon: "edit", onClick: () => actions.onRenameChangelist(cl.id) },
-                { label: "Set Active", icon: "check", checked: isActive, onClick: () => actions.onSetActiveChangelist(cl.id) },
+                { label: t("newChangelist"), icon: "plus", onClick: actions.onCreateChangelist },
+                { label: t("rename"), icon: "edit", onClick: () => actions.onRenameChangelist(cl.id) },
+                { label: t("setActive"), icon: "check", checked: isActive, onClick: () => actions.onSetActiveChangelist(cl.id) },
                 { separator: true },
                 {
-                  label: "Delete…",
+                  label: t("delete"),
                   icon: "trash",
                   danger: true,
                   disabled: cl.default,
@@ -414,11 +541,11 @@ export function CommitPanel({
       <div key={cl.id}>
         {section(
           "cl:" + cl.id,
-          cl.name + (isActive ? " (active)" : ""),
+          isActive ? t("changelistActive", { name: cl.name }) : cl.name,
           <Icon name={isActive ? "check" : "list"} />,
           list.length,
           list.length === 0 ? (
-            entries.length === 0 ? null : <div className="empty-section">No changes</div>
+            entries.length === 0 ? null : <div className="empty-section">{t("noChanges")}</div>
           ) : (
             buildTree(list).map((n) => renderRow(n, 1))
           ),
@@ -433,29 +560,29 @@ export function CommitPanel({
   return (
     <div className="commit-panel">
       <div className="panel-toolbar">
-        <IconButton icon="refresh" title="Refresh" onClick={actions.onRefresh} spinner={busy} />
+        <IconButton icon="refresh" title={t("refresh")} onClick={actions.onRefresh} spinner={busy} />
         <span className="toolbar-sep" />
         <IconButton
           icon="stage"
-          title="Stage selected"
+          title={t("stageSelected")}
           disabled={selected.size === 0}
           onClick={() => actions.onStage([...selected])}
         />
         <IconButton
           icon="unstage"
-          title="Unstage selected"
+          title={t("unstageSelected")}
           disabled={selected.size === 0}
           onClick={() => actions.onUnstage([...selected])}
         />
         <IconButton
           icon="undo"
-          title="Rollback selected"
+          title={t("rollbackSelected")}
           disabled={selected.size === 0}
           onClick={() => actions.onRollback([...selected])}
         />
         <IconButton
           icon="file"
-          title="Open source file"
+          title={t("openSourceFileTitle")}
           disabled={selected.size !== 1}
           onClick={() => {
             const p = [...selected][0]!;
@@ -466,7 +593,7 @@ export function CommitPanel({
         />
         <IconButton
           icon="diff"
-          title="Show diff"
+          title={t("showDiffTitle")}
           disabled={selected.size !== 1}
           onClick={() => {
             const p = [...selected][0]!;
@@ -481,18 +608,18 @@ export function CommitPanel({
         <span className="spacer" />
         <IconButton
           icon="stash"
-          title="Stash changes"
+          title={t("stashChanges")}
           onClick={actions.onStashPush}
           disabled={entries.length === 0}
         />
         <IconButton
           icon="expand"
-          title="Expand all"
+          title={t("expandAll")}
           onClick={() => setCollapsed(new Set())}
         />
         <IconButton
           icon="collapse"
-          title="Collapse all"
+          title={t("collapseAll")}
           onClick={() => {
             const next = new Set<string>();
             for (const cl of changelists.items) next.add("cl:" + cl.id);
@@ -508,13 +635,13 @@ export function CommitPanel({
         {staged.length > 0 &&
           section(
             "staged",
-            "Staged Changes",
+            t("stagedChanges"),
             <Icon name="stage" />,
             staged.length,
             buildTree(staged).map((n) => renderRow(n, 0)),
             <IconButton
               icon="unstage"
-              title="Unstage all"
+              title={t("unstageAll")}
               small
               onClick={() => actions.onUnstage(staged.map((e) => e.path))}
             />,
@@ -522,7 +649,7 @@ export function CommitPanel({
         {conflicts.length > 0 &&
           section(
             "conflicts",
-            "Merge Conflicts",
+            t("mergeConflicts"),
             <Icon name="warning" />,
             conflicts.length,
             buildTree(conflicts).map((n) => renderRow(n, 0)),
@@ -532,10 +659,10 @@ export function CommitPanel({
           <div className="stash-section">
             <div className="section-header static">
               <Icon name="stash" />
-              <span className="section-title">Stashes</span>
+              <span className="section-title">{t("stashes")}</span>
               <span className="section-count">{snapshot.stashes.length}</span>
               <span className="spacer" />
-              <IconButton icon="plus" title="Stash changes" small onClick={actions.onStashPush} />
+              <IconButton icon="plus" title={t("stashChanges")} small onClick={actions.onStashPush} />
             </div>
             {snapshot.stashes.map((s) => (
               <div
@@ -547,14 +674,14 @@ export function CommitPanel({
                 <span className="stash-ref">stash@{"{" + s.index + "}"}</span>
                 <span className="tree-name">{s.message}</span>
                 <span className="stash-actions" onClick={(e) => e.stopPropagation()}>
-                  <button className="mini-btn" onClick={() => actions.onStashApply(s.index, true)} title="Pop stash">
-                    Pop
+                  <button className="mini-btn" onClick={() => actions.onStashApply(s.index, true)} title={t("popStash")}>
+                    {t("pop")}
                   </button>
-                  <button className="mini-btn" onClick={() => actions.onStashApply(s.index, false)} title="Apply stash">
-                    Apply
+                  <button className="mini-btn" onClick={() => actions.onStashApply(s.index, false)} title={t("applyStash")}>
+                    {t("apply")}
                   </button>
-                  <button className="mini-btn danger" onClick={() => actions.onStashDrop(s.index)} title="Drop stash">
-                    Drop
+                  <button className="mini-btn danger" onClick={() => actions.onStashDrop(s.index)} title={t("dropStash")}>
+                    {t("drop")}
                   </button>
                 </span>
               </div>
@@ -564,7 +691,7 @@ export function CommitPanel({
         {settings.showIgnored && ignored.length > 0 &&
           section(
             "ignored",
-            "Ignored Files",
+            t("ignoredFiles"),
             <Icon name="eye" />,
             ignored.length,
             buildTree(ignored).map((n) => renderRow(n, 0)),
@@ -572,8 +699,8 @@ export function CommitPanel({
         {entries.length === 0 && (
           <div className="changes-empty">
             <Icon name="check" size={20} />
-            <span>No local changes</span>
-            <span className="muted">The working tree is clean.</span>
+            <span>{t("noLocalChanges")}</span>
+            <span className="muted">{t("workingTreeClean")}</span>
           </div>
         )}
       </div>
@@ -582,7 +709,7 @@ export function CommitPanel({
         <div className="commit-message-wrap">
           <textarea
             className="commit-message"
-            placeholder="Commit message"
+            placeholder={t("commitMessage")}
             value={form.message}
             spellCheck
             onChange={(e) => actions.onCommitFormChange({ ...form, message: e.target.value })}
@@ -596,7 +723,7 @@ export function CommitPanel({
           <div className="commit-message-tools">
             <button
               className="mini-icon"
-              title="Recent messages"
+              title={t("recentMessages")}
               onClick={() => setShowHistory((v) => !v)}
             >
               <Icon name="clock" size={13} />
@@ -623,12 +750,12 @@ export function CommitPanel({
           <Checkbox
             checked={form.amend}
             onChange={actions.onToggleAmend}
-            label="Amend"
+            label={t("amend")}
           />
           <span className="spacer" />
-          <button className="commit-options-btn" onClick={() => setShowOptions((v) => !v)} title="Commit options">
+          <button className="commit-options-btn" onClick={() => setShowOptions((v) => !v)} title={t("commitOptions")}>
             <Icon name="settings" size={13} />
-            Options
+            {t("options")}
             {(form.signOff || form.noVerify || form.authorName) && <span className="dot-badge" />}
           </button>
           {showOptions && (
@@ -636,24 +763,24 @@ export function CommitPanel({
               <Checkbox
                 checked={form.signOff}
                 onChange={(v) => actions.onCommitFormChange({ ...form, signOff: v })}
-                label="Sign-off commit"
+                label={t("signOff")}
               />
               <Checkbox
                 checked={form.noVerify}
                 onChange={(v) => actions.onCommitFormChange({ ...form, noVerify: v })}
-                label="Skip hooks (--no-verify)"
+                label={t("skipHooks")}
               />
               <label className="field field-inline">
-                <span className="field-label">Author</span>
+                <span className="field-label">{t("author")}</span>
                 <input
                   className="text-input"
-                  placeholder="Name (optional)"
+                  placeholder={t("nameOptional")}
                   value={form.authorName}
                   onChange={(e) => actions.onCommitFormChange({ ...form, authorName: e.target.value })}
                 />
               </label>
               <label className="field field-inline">
-                <span className="field-label">Email</span>
+                <span className="field-label">{t("email")}</span>
                 <input
                   className="text-input"
                   placeholder="email@example.com"
@@ -669,16 +796,16 @@ export function CommitPanel({
             className="btn btn-primary commit-btn"
             onClick={() => actions.onCommit(false)}
             disabled={busy || !canCommit}
-            title="Commit (⌘/Ctrl+Enter)"
+            title={t("commitTooltip")}
           >
             <Icon name="commit" />
-            Commit {uniqueChecked.length > 0 ? `(${uniqueChecked.length})` : ""}
+            {uniqueChecked.length > 0 ? t("commitCount", { n: uniqueChecked.length }) : t("commit")}
           </button>
           <button
             className="btn btn-primary split-arrow"
             onClick={() => actions.onRequestPush()}
             disabled={busy || !canCommit}
-            title="Commit and Push…"
+            title={t("commitAndPush")}
           >
             <Icon name="chevronUp" size={12} />
           </button>

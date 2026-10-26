@@ -4464,23 +4464,43 @@ kbd {
   gap: 0;
 }
 
+/* The commit action stays a tool, not a billboard: a compact split button
+   with a flat fill, no glow. */
+.commit-btn,
+.split-arrow {
+  height: 30px;
+  background: var(--accent);
+  border-color: color-mix(in srgb, var(--accent) 82%, black);
+  box-shadow: none;
+}
+
 .commit-btn {
-  height: 36px;
-  border-radius: 10px 0 0 10px;
-  font-size: 12.5px;
+  border-radius: 7px 0 0 7px;
+  font-size: 12px;
   font-weight: 600;
+  letter-spacing: 0.005em;
 }
 
 .commit-btn .icon {
-  width: 15px;
-  height: 15px;
+  width: 14px;
+  height: 14px;
 }
 
 .split-arrow {
-  width: 34px;
-  height: 36px;
-  border-radius: 0 10px 10px 0;
-  border-left: 1px solid rgba(255, 255, 255, 0.24);
+  width: 28px;
+  border-radius: 0 7px 7px 0;
+  border-left: 1px solid color-mix(in srgb, var(--accent-fg) 24%, transparent);
+}
+
+.commit-btn:hover:not(:disabled),
+.split-arrow:hover:not(:disabled) {
+  background: var(--accent-hover);
+  border-color: var(--accent-hover);
+}
+
+.commit-btn:disabled,
+.split-arrow:disabled {
+  box-shadow: none;
 }
 
 .options-popover {
@@ -5776,7 +5796,7 @@ kbd {
    instead of taking the window with a modal. */
 .op-dock {
   position: fixed;
-  left: 16px;
+  left: var(--op-dock-left, 16px);
   bottom: 40px;
   z-index: 118;
   width: min(420px, calc(100vw - 32px));
@@ -5940,3 +5960,124 @@ kbd {
   color: var(--st-deleted);
 }
 
+
+/* ---------- Settings sheet ----------
+   Two aligned columns: a muted label rail and a control column, so every
+   row starts on the same x whether it holds a select, an input or a
+   checkbox. */
+.settings-modal .modal-body {
+  padding: 4px 24px 18px;
+}
+
+.settings-modal .modal-footer {
+  padding: 12px 24px;
+}
+
+.settings {
+  display: flex;
+  flex-direction: column;
+  padding-bottom: 6px;
+}
+
+.settings-group {
+  padding: 18px 0;
+  border-top: 1px solid var(--border);
+}
+
+.settings-group:first-child {
+  border-top: 0;
+  padding-top: 10px;
+}
+
+.settings-group-title {
+  margin: 0 0 14px;
+  font-size: 10px;
+  font-weight: 650;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--muted-2);
+}
+
+/* CJK does not need the tracking Latin small caps want. */
+:lang(zh) .settings-group-title {
+  letter-spacing: 0.03em;
+  font-size: 10.5px;
+}
+
+.setting-row {
+  display: grid;
+  grid-template-columns: 132px minmax(0, 1fr);
+  column-gap: 20px;
+  align-items: start;
+  margin-bottom: 14px;
+}
+
+.setting-row:last-child {
+  margin-bottom: 0;
+}
+
+.setting-label {
+  padding-top: 7px;
+  font-size: 11.5px;
+  line-height: 1.35;
+  color: var(--muted);
+}
+
+.setting-control {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 6px;
+  min-width: 0;
+}
+
+.setting-control > .select {
+  width: 100%;
+  max-width: 300px;
+}
+
+.setting-control > .checkbox {
+  padding-top: 5px;
+}
+
+.setting-inline {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+}
+
+.setting-inline .text-input {
+  flex: 1;
+  max-width: 300px;
+}
+
+.setting-hint {
+  font-size: 10.5px;
+  line-height: 1.45;
+  color: var(--muted-2);
+}
+
+.setting-note {
+  font-size: 11px;
+  line-height: 1.45;
+}
+
+.setting-note.ok {
+  color: var(--success);
+}
+
+.setting-note.error {
+  color: var(--danger);
+  white-space: pre-wrap;
+}
+
+.setting-unit {
+  font-size: 11.5px;
+  color: var(--muted);
+}
+
+.text-input.number {
+  width: 84px;
+  flex: none;
+}

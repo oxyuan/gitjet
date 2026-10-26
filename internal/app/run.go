@@ -17,7 +17,7 @@ func Run() error {
 	mygo.Bind(&Git{c: c})
 
 	app.WhenReady(func() {
-		app.SetMenu(buildMenu())
+		applyMenu(c.uiLang())
 		openWindow()
 	})
 	app.OnWindowAllClosed(func() {})
@@ -45,46 +45,49 @@ func openWindow() {
 	})
 }
 
-func buildMenu() *mygo.Menu {
+// applyMenu installs the menu in lang, replacing whatever menu is showing.
+func applyMenu(l lang) { mygo.App.SetMenu(buildMenu(l)) }
+
+func buildMenu(l lang) *mygo.Menu {
 	send := func(cmd string) func(*mygo.MenuItem, *mygo.Window) {
 		return func(*mygo.MenuItem, *mygo.Window) { Command.Broadcast(cmd) }
 	}
 	return mygo.NewMenu([]*mygo.MenuItem{
 		{Role: mygo.RoleAppMenu},
-		{Label: "File", Submenu: []*mygo.MenuItem{
-			{Label: "Open Repository…", Accelerator: "CmdOrCtrl+O", Click: send("open")},
-			{Label: "Quick Open File…", Accelerator: "CmdOrCtrl+P", Click: send("quickopen")},
-			{Label: "Close Editor Tab", Accelerator: "CmdOrCtrl+W", Click: send("closetab")},
-			{Label: "Close Repository", Accelerator: "CmdOrCtrl+Shift+W", Click: send("close")},
+		{Label: l.tr("menu.file"), Submenu: []*mygo.MenuItem{
+			{Label: l.tr("menu.openRepo"), Accelerator: "CmdOrCtrl+O", Click: send("open")},
+			{Label: l.tr("menu.quickOpen"), Accelerator: "CmdOrCtrl+P", Click: send("quickopen")},
+			{Label: l.tr("menu.closeTab"), Accelerator: "CmdOrCtrl+W", Click: send("closetab")},
+			{Label: l.tr("menu.closeRepo"), Accelerator: "CmdOrCtrl+Shift+W", Click: send("close")},
 			mygo.Separator(),
-			{Label: "Settings…", Accelerator: "CmdOrCtrl+,", Click: send("settings")},
+			{Label: l.tr("menu.settings"), Accelerator: "CmdOrCtrl+,", Click: send("settings")},
 			mygo.Separator(),
 			{Role: mygo.RoleQuit},
 		}},
-		{Label: "Edit", Submenu: []*mygo.MenuItem{
+		{Label: l.tr("menu.edit"), Submenu: []*mygo.MenuItem{
 			{Role: mygo.RoleUndo}, {Role: mygo.RoleRedo}, mygo.Separator(),
 			{Role: mygo.RoleCut}, {Role: mygo.RoleCopy}, {Role: mygo.RolePaste},
 			{Role: mygo.RoleSelectAll},
 		}},
-		{Label: "View", Submenu: []*mygo.MenuItem{
-			{Label: "Commit", Accelerator: "CmdOrCtrl+9", Click: send("tab:commit")},
-			{Label: "Log", Accelerator: "CmdOrCtrl+0", Click: send("tab:log")},
-			{Label: "Console", Accelerator: "CmdOrCtrl+Shift+9", Click: send("tab:console")},
+		{Label: l.tr("menu.view"), Submenu: []*mygo.MenuItem{
+			{Label: l.tr("menu.commitTab"), Accelerator: "CmdOrCtrl+9", Click: send("tab:commit")},
+			{Label: l.tr("menu.logTab"), Accelerator: "CmdOrCtrl+0", Click: send("tab:log")},
+			{Label: l.tr("menu.consoleTab"), Accelerator: "CmdOrCtrl+Shift+9", Click: send("tab:console")},
 			mygo.Separator(),
-			{Label: "Refresh", Accelerator: "CmdOrCtrl+R", Click: send("refresh")},
+			{Label: l.tr("menu.refresh"), Accelerator: "CmdOrCtrl+R", Click: send("refresh")},
 			mygo.Separator(),
 			{Role: mygo.RoleToggleFullScreen},
 		}},
-		{Label: "Git", Submenu: []*mygo.MenuItem{
-			{Label: "Commit…", Accelerator: "CmdOrCtrl+K", Click: send("commit")},
-			{Label: "Push…", Accelerator: "CmdOrCtrl+Shift+K", Click: send("push")},
-			{Label: "Update Project…", Accelerator: "CmdOrCtrl+T", Click: send("pull")},
-			{Label: "Fetch", Click: send("fetch")},
-			{Label: "Branches…", Accelerator: "CmdOrCtrl+Shift+`", Click: send("branches")},
-			{Label: "Stash Changes…", Accelerator: "CmdOrCtrl+Shift+S", Click: send("stash")},
+		{Label: l.tr("menu.git"), Submenu: []*mygo.MenuItem{
+			{Label: l.tr("menu.commit"), Accelerator: "CmdOrCtrl+K", Click: send("commit")},
+			{Label: l.tr("menu.push"), Accelerator: "CmdOrCtrl+Shift+K", Click: send("push")},
+			{Label: l.tr("menu.pull"), Accelerator: "CmdOrCtrl+T", Click: send("pull")},
+			{Label: l.tr("menu.fetch"), Click: send("fetch")},
+			{Label: l.tr("menu.branches"), Accelerator: "CmdOrCtrl+Shift+`", Click: send("branches")},
+			{Label: l.tr("menu.stash"), Accelerator: "CmdOrCtrl+Shift+S", Click: send("stash")},
 			mygo.Separator(),
-			{Label: "Show Git Console", Click: send("tab:console")},
+			{Label: l.tr("menu.showConsole"), Click: send("tab:console")},
 		}},
-		{Label: "Window", Submenu: []*mygo.MenuItem{{Role: mygo.RoleMinimize}, {Role: mygo.RoleZoom}}},
+		{Label: l.tr("menu.window"), Submenu: []*mygo.MenuItem{{Role: mygo.RoleMinimize}, {Role: mygo.RoleZoom}}},
 	})
 }

@@ -2,7 +2,31 @@ import { useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { Git, type RepoFile } from "./mygo";
 import { Icon } from "./icons";
+import { count, useT } from "./i18n";
 import { cx, Spinner } from "./ui";
+
+const T = {
+  en: {
+    label: "Quick open file",
+    placeholder: "Search files by name…",
+    noMatch: "No file matches “{query}”",
+    untracked: "untracked",
+    navigate: "navigate",
+    open: "open",
+    fileCountOne: "{n} file",
+    fileCountOther: "{n} files",
+  },
+  zh: {
+    label: "快速打开文件",
+    placeholder: "按文件名搜索…",
+    noMatch: "没有匹配“{query}”的文件",
+    untracked: "未跟踪",
+    navigate: "导航",
+    open: "打开",
+    fileCountOne: "{n} 个文件",
+    fileCountOther: "{n} 个文件",
+  },
+} as const;
 
 export function QuickOpen({
   onClose,
@@ -11,6 +35,7 @@ export function QuickOpen({
   onClose: () => void;
   onOpen: (path: string) => void;
 }) {
+  const t = useT(T);
   const [query, setQuery] = useState("");
   const [files, setFiles] = useState<RepoFile[]>([]);
   const [index, setIndex] = useState(0);
@@ -54,13 +79,13 @@ export function QuickOpen({
 
   return createPortal(
     <div className="quick-overlay" onMouseDown={(e) => e.target === e.currentTarget && onClose()}>
-      <div className="quick-panel" role="dialog" aria-label="Quick open file">
+      <div className="quick-panel" role="dialog" aria-label={t("label")}>
         <div className="quick-input-row">
           <Icon name="search" />
           <input
             autoFocus
             value={query}
-            placeholder="Search files by name…"
+            placeholder={t("placeholder")}
             onChange={(e) => setQuery(e.target.value)}
             onKeyDown={(e) => {
               if (e.key === "Escape") {
@@ -84,7 +109,7 @@ export function QuickOpen({
         <div className="quick-list" ref={listRef}>
           {error && <div className="quick-empty">{error}</div>}
           {!error && files.length === 0 && !loading && (
-            <div className="quick-empty">No file matches “{query}”</div>
+            <div className="quick-empty">{t("noMatch", { query })}</div>
           )}
           {files.map((file, i) => {
             const slash = file.path.lastIndexOf("/");
@@ -101,16 +126,22 @@ export function QuickOpen({
                 <Icon name="file" size={14} />
                 <span className="quick-dir">{dir}</span>
                 <span className="quick-name">{name}</span>
-                {!file.tracked && <span className="quick-badge">untracked</span>}
+                {!file.tracked && <span className="quick-badge">{t("untracked")}</span>}
               </button>
             );
           })}
         </div>
         <div className="quick-footer">
-          <span><kbd>↑</kbd><kbd>↓</kbd> navigate</span>
-          <span><kbd>↵</kbd> open</span>
+          <span><kbd>↑</kbd><kbd>↓</kbd> {t("navigate")}</span>
+          <span><kbd>↵</kbd> {t("open")}</span>
           <span className="spacer" />
-          <span>{files.length} files</span>
+          <span>
+            {count(
+              files.length,
+              t("fileCountOne", { n: files.length }),
+              t("fileCountOther", { n: files.length }),
+            )}
+          </span>
         </div>
       </div>
     </div>,

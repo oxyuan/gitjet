@@ -3,10 +3,58 @@ import type { SourceFile } from "./mygo";
 import { highlightLine } from "./highlight";
 import { Icon } from "./icons";
 import { cx, IconButton } from "./ui";
+import { useT } from "./i18n";
 
-function revisionLabel(revision: string): string {
-  if (revision === "") return "Working Tree";
-  if (revision === "INDEX") return "Index";
+const T = {
+  en: {
+    workingTree: "Working Tree",
+    index: "Index",
+    deletedInWorktree: "deleted in working tree",
+    meta: "{language} · {lines} · {size}",
+    lines: "{n} lines",
+    openHead: "Open the HEAD version",
+    openWorkingTree: "Open the working tree version",
+    workingTreeButton: "Working Tree",
+    showDiff: "Show this file as a diff",
+    diff: "Diff",
+    annotateFile: "Annotate this file",
+    annotate: "Annotate",
+    copyPath: "Copy path",
+    revealInManager: "Reveal in file manager",
+    wrap: "Wrap",
+    truncated: "File truncated at 8 MB",
+    binaryFile: "Binary file — no text to show",
+    emptyFile: "Empty file",
+    missingFile: "File does not exist in this revision",
+  },
+  zh: {
+    workingTree: "工作区",
+    index: "暂存区",
+    deletedInWorktree: "工作区中已删除",
+    meta: "{language} · {lines} · {size}",
+    lines: "{n} 行",
+    openHead: "打开 HEAD 版本",
+    openWorkingTree: "打开工作区版本",
+    workingTreeButton: "工作区",
+    showDiff: "以差异方式显示此文件",
+    diff: "差异",
+    annotateFile: "标注此文件",
+    annotate: "标注",
+    copyPath: "复制路径",
+    revealInManager: "在文件管理器中显示",
+    wrap: "折行",
+    truncated: "文件已截断至 8 MB",
+    binaryFile: "二进制文件 — 无文本可显示",
+    emptyFile: "空文件",
+    missingFile: "此版本中不存在该文件",
+  },
+} as const;
+
+type Translate = (key: keyof typeof T["en"], vars?: Record<string, string | number>) => string;
+
+function revisionLabel(revision: string, t: Translate): string {
+  if (revision === "") return t("workingTree");
+  if (revision === "INDEX") return t("index");
   if (/^[0-9a-f]{7,40}$/i.test(revision)) return revision.slice(0, 8);
   return revision;
 }
@@ -36,6 +84,7 @@ export function SourceView({
   onCopyPath: () => void;
   onReveal?: () => void;
 }) {
+  const t = useT(T);
   const [wrap, setWrap] = useState(false);
   const lines = useMemo(() => {
     if (file.text === "") return [];
@@ -55,7 +104,7 @@ export function SourceView({
 
   const dir = file.path.includes("/") ? file.path.slice(0, file.path.lastIndexOf("/") + 1) : "";
   const name = file.path.slice(dir.length);
-  const revision = revisionLabel(file.revision);
+  const revision = revisionLabel(file.revision, t);
 
   return (
     <div className="source-view">
@@ -69,54 +118,58 @@ export function SourceView({
             <span className="path-name">{name}</span>
           </span>
           <span className={cx("revision-chip", file.revision === "" ? "working" : "")}>{revision}</span>
-          {!file.exists && <span className="deleted-badge">deleted in working tree</span>}
+          {!file.exists && <span className="deleted-badge">{t("deletedInWorktree")}</span>}
           <span className="muted source-meta">
-            {file.language} · {lines.length} lines · {formatSize(file.size)}
+            {t("meta", {
+              language: file.language,
+              lines: t("lines", { n: lines.length }),
+              size: formatSize(file.size),
+            })}
           </span>
           <span className="spacer" />
           {file.revision === "" && onOpenRevision && (
-            <button className="toolbar-text-btn" onClick={onOpenRevision} title="Open the HEAD version">
+            <button className="toolbar-text-btn" onClick={onOpenRevision} title={t("openHead")}>
               <Icon name="hash" /> HEAD
             </button>
           )}
           {file.revision !== "" && onOpenWorkingTree && (
-            <button className="toolbar-text-btn" onClick={onOpenWorkingTree} title="Open the working tree version">
-              <Icon name="edit" /> Working Tree
+            <button className="toolbar-text-btn" onClick={onOpenWorkingTree} title={t("openWorkingTree")}>
+              <Icon name="edit" /> {t("workingTreeButton")}
             </button>
           )}
           {onShowDiff && (
-            <button className="toolbar-text-btn" onClick={onShowDiff} title="Show this file as a diff">
-              <Icon name="diff" /> Diff
+            <button className="toolbar-text-btn" onClick={onShowDiff} title={t("showDiff")}>
+              <Icon name="diff" /> {t("diff")}
             </button>
           )}
           {onBlame && file.revision === "" && (
-            <button className="toolbar-text-btn" onClick={onBlame} title="Annotate this file">
-              <Icon name="user" /> Annotate
+            <button className="toolbar-text-btn" onClick={onBlame} title={t("annotateFile")}>
+              <Icon name="user" /> {t("annotate")}
             </button>
           )}
-          <IconButton icon="copy" title="Copy path" small onClick={onCopyPath} />
-          {onReveal && <IconButton icon="external" title="Reveal in file manager" small onClick={onReveal} />}
+          <IconButton icon="copy" title={t("copyPath")} small onClick={onCopyPath} />
+          {onReveal && <IconButton icon="external" title={t("revealInManager")} small onClick={onReveal} />}
         </div>
         <div className="diff-toolbar source-toolbar">
           <button className={cx("toolbar-text-btn", wrap && "active")} onClick={() => setWrap((v) => !v)}>
-            <Icon name="rows" /> Wrap
+            <Icon name="rows" /> {t("wrap")}
           </button>
           <span className="toolbar-sep" />
           <span className="muted">UTF-8</span>
           <span className="spacer" />
-          {file.truncated && <span className="source-warning">File truncated at 8 MB</span>}
+          {file.truncated && <span className="source-warning">{t("truncated")}</span>}
         </div>
       </div>
       {file.binary ? (
         <div className="diff-empty">
           <Icon name="file" size={24} />
-          <div>Binary file — no text to show</div>
+          <div>{t("binaryFile")}</div>
           <div className="muted">{formatSize(file.size)}</div>
         </div>
       ) : lines.length === 0 ? (
         <div className="diff-empty">
           <Icon name="file" size={20} />
-          <div>{file.exists ? "Empty file" : "File does not exist in this revision"}</div>
+          <div>{file.exists ? t("emptyFile") : t("missingFile")}</div>
         </div>
       ) : (
         <div className={cx("source-body", wrap && "wrap")}>

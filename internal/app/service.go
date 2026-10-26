@@ -72,12 +72,13 @@ func (w *Workspace) Bootstrap() (Bootstrap, error) {
 // path, or "" when the user canceled.
 func (w *Workspace) ChooseFolder(ctx context.Context) (string, error) {
 	win := mygo.CallerWindow(ctx)
+	l := w.c.uiLang()
 	paths, err := mygo.Dialog.Open(mygo.OpenDialogOptions{
 		Parent:      win,
-		Title:       "Open Git Repository",
-		ButtonLabel: "Open",
+		Title:       l.tr("dialog.openRepo"),
+		ButtonLabel: l.tr("dialog.openRepoButton"),
 		Directory:   true,
-		Message:     "Choose a folder inside a Git working tree",
+		Message:     l.tr("dialog.openRepoMessage"),
 	})
 	if err != nil || len(paths) == 0 {
 		return "", err
@@ -139,6 +140,9 @@ func (w *Workspace) SaveSettings(s Settings) (Settings, error) {
 	if s.Theme != "light" && s.Theme != "dark" {
 		s.Theme = "system"
 	}
+	if s.Language != "en" && s.Language != "zh" {
+		s.Language = "system"
+	}
 	if s.UpdateMethod != "rebase" {
 		s.UpdateMethod = "merge"
 	}
@@ -151,6 +155,7 @@ func (w *Workspace) SaveSettings(s Settings) (Settings, error) {
 		}
 	}
 	oldGitPath := w.c.settings.GitPath
+	oldLang := w.c.settings.Language
 	w.c.mu.Lock()
 	oldRecent := w.c.settings.Recent
 	s.Recent = oldRecent
@@ -159,6 +164,9 @@ func (w *Workspace) SaveSettings(s Settings) (Settings, error) {
 	w.c.mu.Unlock()
 	if err := saveSettings(s); err != nil {
 		return s, err
+	}
+	if s.Language != oldLang {
+		applyMenu(resolveLang(s.Language))
 	}
 	if repo != nil && s.GitPath != oldGitPath {
 		reopened, err := git.Open(context.Background(), repo.Dir(), s.GitPath)

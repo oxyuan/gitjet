@@ -347,6 +347,8 @@ export interface RepoState {
  */
 export interface Settings {
   gitPath: string;
+  /** system, en, zh */
+  language: string;
   /** system, light, dark */
   theme: string;
   diffContext: number;

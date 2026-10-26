@@ -3,6 +3,28 @@ import { Channel } from "mygo-runtime";
 import { Git, type Completion } from "./mygo";
 import { Icon } from "./icons";
 import { cx, IconButton, Spinner, useStoredState } from "./ui";
+import { useT } from "./i18n";
+
+const T = {
+  en: {
+    intro: "Git console — type a git command, Tab completes, ↑/↓ recalls history.",
+    copyOutput: "Copy console output",
+    clearConsole: "Clear console",
+    openRepositoryFirst: "Open a repository first",
+    exitCode: "exit code {code} · {ms} ms",
+  },
+  zh: {
+    intro: "Git 控制台 — 输入 git 命令，Tab 补全，↑/↓ 调出历史记录。",
+    copyOutput: "复制控制台输出",
+    clearConsole: "清空控制台",
+    openRepositoryFirst: "请先打开仓库",
+    exitCode: "退出码 {code} · {ms} 毫秒",
+  },
+} as const;
+
+/** GREETING_ID marks the opening hint line, which is re-rendered in the
+ *  current language instead of being stored as literal text. */
+const GREETING_ID = 0;
 
 interface ConsoleLine {
   id: number;
@@ -13,9 +35,8 @@ interface ConsoleLine {
 let nextId = 1;
 
 export function ConsolePanel({ onCommandDone, repoOpen }: { onCommandDone: () => void; repoOpen: boolean }) {
-  const [lines, setLines] = useState<ConsoleLine[]>([
-    { id: nextId++, kind: "info", text: "Git console — type a git command, Tab completes, ↑/↓ recalls history." },
-  ]);
+  const t = useT(T);
+  const [lines, setLines] = useState<ConsoleLine[]>([{ id: GREETING_ID, kind: "info", text: "" }]);
   const [input, setInput] = useState("");
   const [history, setHistory] = useStoredState<string[]>("gitjet.console.history", []);
   const [historyIndex, setHistoryIndex] = useState(-1);
@@ -82,7 +103,7 @@ export function ConsolePanel({ onCommandDone, repoOpen }: { onCommandDone: () =>
       }
       const result = await promise;
       if (result.exitCode !== 0) {
-        append("error", `exit code ${result.exitCode} · ${result.duration} ms`);
+        append("error", t("exitCode", { code: result.exitCode, ms: result.duration }));
       }
       onCommandDone();
     } catch (err) {
@@ -111,19 +132,21 @@ export function ConsolePanel({ onCommandDone, repoOpen }: { onCommandDone: () =>
         <span className="spacer" />
         <IconButton
           icon="copy"
-          title="Copy console output"
+          title={t("copyOutput")}
           small
           onClick={() => {
-            void navigator.clipboard.writeText(lines.map((l) => l.text).join("\n"));
+            void navigator.clipboard.writeText(
+              lines.map((l) => (l.id === GREETING_ID ? t("intro") : l.text)).join("\n"),
+            );
           }}
         />
-        <IconButton icon="trash" title="Clear console" small onClick={() => setLines([])} />
+        <IconButton icon="trash" title={t("clearConsole")} small onClick={() => setLines([])} />
       </div>
       <div className="console-output" ref={outputRef} onClick={() => inputRef.current?.focus()}>
         {lines.map((line) => (
           <div className={cx("console-line", line.kind)} key={line.id}>
             {line.kind === "command" ? <span className="console-prompt-inline">git&gt;</span> : null}
-            <span className="console-text">{line.text || "\u00a0"}</span>
+            <span className="console-text">{line.id === GREETING_ID ? t("intro") : line.text || "\u00a0"}</span>
           </div>
         ))}
         {running && (
@@ -139,7 +162,7 @@ export function ConsolePanel({ onCommandDone, repoOpen }: { onCommandDone: () =>
           className="console-input"
           value={input}
           disabled={!repoOpen || running}
-          placeholder={repoOpen ? "status" : "Open a repository first"}
+          placeholder={repoOpen ? "status" : t("openRepositoryFirst")}
           onChange={(e) => setInput(e.target.value)}
           onKeyDown={(e) => {
             if (e.key === "Enter") {
