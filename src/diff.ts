@@ -160,8 +160,10 @@ export function buildDiffRows(diff: FileDiff): DiffRows {
         ni++;
       } else if (line.kind === "del") {
         dels.push(line);
+        oi++;
       } else {
         adds.push(line);
+        ni++;
       }
     }
     flush();
