@@ -11,18 +11,23 @@ import (
 // the machine: the commits and files that would travel, and the branch on
 // the other side they would land on.
 type PushPreview struct {
-	Branch       string       `json:"branch"`
-	Remote       string       `json:"remote"`
-	RemoteBranch string       `json:"remoteBranch"`
-	Upstream     string       `json:"upstream"`
-	Creates      bool         `json:"creates"`
-	Ahead        int          `json:"ahead"`
-	Behind       int          `json:"behind"`
-	Base         string       `json:"base"`
-	Head         string       `json:"head"`
-	Commits      []Commit     `json:"commits"`
-	Files        []CommitFile `json:"files"`
-	Truncated    bool         `json:"truncated"`
+	Branch       string `json:"branch"`
+	Remote       string `json:"remote"`
+	RemoteBranch string `json:"remoteBranch"`
+	Upstream     string `json:"upstream"`
+	Creates      bool   `json:"creates"`
+	Ahead        int    `json:"ahead"`
+	Behind       int    `json:"behind"`
+	Base         string `json:"base"`
+	Head         string `json:"head"`
+	// Diverged reports that the remote branch has commits the local branch
+	// does not, so a plain push is refused and history would be rewritten.
+	Diverged bool `json:"diverged"`
+	// RemoteTip is the short hash of the remote branch, when it exists.
+	RemoteTip string       `json:"remoteTip"`
+	Commits   []Commit     `json:"commits"`
+	Files     []CommitFile `json:"files"`
+	Truncated bool         `json:"truncated"`
 }
 
 // pushPreviewLimit caps the commit list; Ahead still carries the real
@@ -80,6 +85,15 @@ func (r *Repo) PushPreview(ctx context.Context, remote, branch string) (PushPrev
 		p.Behind = r.countCommits(ctx, branch+".."+other)
 		if out, err := r.run(ctx, "merge-base", branch, other); err == nil {
 			p.Base = strings.TrimSpace(out)
+		}
+		if out, err := r.run(ctx, "rev-parse", "--short", other); err == nil {
+			p.RemoteTip = strings.TrimSpace(out)
+		}
+		// A remote branch that is not an ancestor of the local one has
+		// commits the local branch never saw: pushing would overwrite them.
+		if _, err := r.run(ctx, "merge-base", "--is-ancestor", other, branch); err != nil {
+			var gerr *Error
+			p.Diverged = errors.As(err, &gerr) && gerr.Code == 1
 		}
 	} else {
 		p.Ahead = r.countCommits(ctx, branch)

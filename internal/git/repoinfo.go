@@ -3,6 +3,7 @@ package git
 import (
 	"bytes"
 	"context"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -14,6 +15,9 @@ import (
 func (r *Repo) operation() (name, progress, detail string) {
 	if r.gitDir == "" {
 		return "", "", ""
+	}
+	if state, ok := r.readPlan(); ok && state.Index < len(state.Steps) {
+		return "rebase-interactive", fmt.Sprintf("%d/%d", state.Index+1, len(state.Steps)), ""
 	}
 	read := func(rel string) string {
 		b, err := os.ReadFile(filepath.Join(r.gitDir, rel))

@@ -202,6 +202,7 @@ func gitEnv() []string {
 }
 
 func (r *Repo) command(ctx context.Context, args ...string) *exec.Cmd {
+	recordCommand(ctx, args)
 	full := append([]string{"-C", r.dir, "--no-pager"}, args...)
 	cmd := exec.CommandContext(ctx, r.git, full...)
 	cmd.Env = gitEnv()

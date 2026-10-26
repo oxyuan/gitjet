@@ -35,8 +35,11 @@ type PushOptions struct {
 	Branch         string `json:"branch"`
 	SetUpstream    bool   `json:"setUpstream"`
 	ForceWithLease bool   `json:"forceWithLease"`
-	Tags           bool   `json:"tags"`
-	DryRun         bool   `json:"dryRun"`
+	// ForceIfIncludes adds --force-if-includes, which refuses the forced
+	// update when the remote moved since the last fetch.
+	ForceIfIncludes bool `json:"forceIfIncludes"`
+	Tags            bool `json:"tags"`
+	DryRun          bool `json:"dryRun"`
 }
 
 // PullOptions selects how to integrate the upstream.
@@ -400,25 +403,44 @@ func (r *Repo) Rebase(ctx context.Context, onto string, autostash bool) (string,
 	return r.writeRun(ctx, args...)
 }
 
-// CherryPick applies a commit to the current branch.
-func (r *Repo) CherryPick(ctx context.Context, hash string, noCommit bool) (string, error) {
-	if strings.TrimSpace(hash) == "" || strings.HasPrefix(hash, "-") {
-		return "", errors.New("invalid revision")
-	}
+// CherryPick applies commits to the current branch, oldest first.
+func (r *Repo) CherryPick(ctx context.Context, hashes []string, noCommit bool) (string, error) {
 	args := []string{"cherry-pick"}
 	if noCommit {
 		args = append(args, "--no-commit")
 	}
-	args = append(args, hash)
+	clean, err := cleanRevisions(hashes)
+	if err != nil {
+		return "", err
+	}
+	args = append(args, clean...)
 	return r.writeRun(ctx, args...)
 }
 
-// Revert creates a commit that undoes a commit.
-func (r *Repo) Revert(ctx context.Context, hash string) (string, error) {
-	if strings.TrimSpace(hash) == "" || strings.HasPrefix(hash, "-") {
-		return "", errors.New("invalid revision")
+// Revert creates commits that undo commits.
+func (r *Repo) Revert(ctx context.Context, hashes []string) (string, error) {
+	clean, err := cleanRevisions(hashes)
+	if err != nil {
+		return "", err
 	}
-	return r.writeRun(ctx, "revert", "--no-edit", hash)
+	return r.writeRun(ctx, append([]string{"revert", "--no-edit"}, clean...)...)
+}
+
+// cleanRevisions validates a list of commits to apply, keeping the order
+// the page sent and rejecting anything that could be read as a flag.
+func cleanRevisions(hashes []string) ([]string, error) {
+	clean := make([]string, 0, len(hashes))
+	for _, h := range hashes {
+		h = strings.TrimSpace(h)
+		if h == "" || strings.HasPrefix(h, "-") {
+			return nil, errors.New("invalid revision")
+		}
+		clean = append(clean, h)
+	}
+	if len(clean) == 0 {
+		return nil, errors.New("choose a commit first")
+	}
+	return clean, nil
 }
 
 // Reset moves the current branch to a commit. mode is soft, mixed or hard.
@@ -538,6 +560,9 @@ func (r *Repo) Push(ctx context.Context, opts PushOptions, emit func(string)) (s
 	if opts.ForceWithLease {
 		args = append(args, "--force-with-lease")
 	}
+	if opts.ForceIfIncludes {
+		args = append(args, "--force-if-includes")
+	}
 	if opts.SetUpstream {
 		args = append(args, "--set-upstream")
 	}
@@ -615,6 +640,15 @@ func (r *Repo) StashApply(ctx context.Context, index int, pop bool) (string, err
 		action = "pop"
 	}
 	return r.writeRun(ctx, "stash", action, "stash@{"+strconv.Itoa(index)+"}")
+}
+
+// StashRestore pops a stash and restores what was staged, which is how the
+// app puts back the local changes it saved before an operation.
+func (r *Repo) StashRestore(ctx context.Context, index int) (string, error) {
+	if index < 0 {
+		return "", errors.New("invalid stash")
+	}
+	return r.writeRun(ctx, "stash", "pop", "--index", "stash@{"+strconv.Itoa(index)+"}")
 }
 
 // StashDrop deletes a stash entry.
@@ -717,6 +751,13 @@ func (r *Repo) MarkResolved(ctx context.Context, paths []string) error {
 // AbortOperation cancels the merge, rebase, cherry-pick, revert, am or
 // bisect in progress.
 func (r *Repo) AbortOperation(ctx context.Context) (string, error) {
+	r.write.Lock()
+	defer r.write.Unlock()
+	// A rewrite plan is aborted by rewinding to where it started, which
+	// is what rebase --abort would do for an interactive rebase.
+	if out, ok, err := r.abortPlan(ctx); ok {
+		return out, err
+	}
 	op, _, _ := r.operation()
 	var args []string
 	switch op {
@@ -733,22 +774,40 @@ func (r *Repo) AbortOperation(ctx context.Context) (string, error) {
 	default:
 		return "", errors.New("no operation to abort")
 	}
-	return r.writeRun(ctx, args...)
+	return r.run(ctx, args...)
 }
 
 // ContinueOperation finishes the operation in progress after conflicts
-// were resolved.
+// were resolved. When a rewrite plan is running, the rest of the plan
+// follows the commit the user just resolved.
 func (r *Repo) ContinueOperation(ctx context.Context) (string, error) {
+	r.write.Lock()
+	defer r.write.Unlock()
+	// A plan always stops on a conflicting cherry-pick, so continue that
+	// step and replay the rest.
+	plan, hasPlan := r.readPlan()
+	if hasPlan && plan != nil {
+		out := ""
+		committed := false
+		if _, err := r.run(ctx, "rev-parse", "--verify", "--quiet", "CHERRY_PICK_HEAD"); err == nil {
+			res, err := r.run(ctx, "cherry-pick", "--continue")
+			if err != nil {
+				return res, err
+			}
+			out = res
+			committed = true
+		}
+		rest, err := r.resumePlan(ctx, committed)
+		return strings.TrimSpace(strings.TrimSpace(out) + "\n" + rest), err
+	}
 	op, _, _ := r.operation()
 	var args []string
 	switch op {
 	case "merge":
 		// A merge is finished by committing the index.
 		args = []string{"commit", "--no-edit"}
-	case "rebase", "rebase-interactive":
+	case "rebase", "rebase-interactive", "am":
 		args = []string{"rebase", "--continue"}
-	case "am":
-		args = []string{"am", "--continue"}
 	case "cherry-pick":
 		args = []string{"cherry-pick", "--continue"}
 	case "revert":
@@ -756,7 +815,7 @@ func (r *Repo) ContinueOperation(ctx context.Context) (string, error) {
 	default:
 		return "", errors.New("no operation to continue")
 	}
-	return r.writeRun(ctx, args...)
+	return r.run(ctx, args...)
 }
 
 // Ignore appends paths to the repository's .gitignore.
