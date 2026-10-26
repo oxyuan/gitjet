@@ -365,34 +365,6 @@ button {
   flex: 1;
 }
 
-.branch-button {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  height: 26px;
-  max-width: 280px;
-  padding: 0 8px;
-  margin-left: 4px;
-  border: 1px solid var(--border);
-  border-radius: 5px;
-  background: var(--panel-raised);
-  font-size: 12px;
-  white-space: nowrap;
-}
-
-.branch-button:hover:not(:disabled) {
-  background: var(--hover);
-}
-
-.branch-button:disabled {
-  opacity: 0.55;
-}
-
-.branch-button > span:not(.sync) {
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-
 .sync {
   display: inline-flex;
   gap: 4px;
@@ -1391,8 +1363,8 @@ body.resizing-row * {
 
 .log-row {
   display: flex;
-  align-items: stretch;
-  gap: 6px;
+  align-items: center;
+  gap: 8px;
   height: 26px;
   padding-right: 10px;
   font-size: 12px;
@@ -1473,11 +1445,14 @@ body.resizing-row * {
   stroke: var(--lane-5);
 }
 
+/* Columns, not a flex tail: every row's hash, subject, author and time
+   starts at the same x, so the list reads as a table. */
 .log-hash {
+  flex: none;
+  width: 58px;
   font-family: var(--font-mono);
   font-size: 10.5px;
   color: var(--muted-2);
-  flex: none;
 }
 
 .log-subject {
@@ -1487,30 +1462,30 @@ body.resizing-row * {
   flex: 1;
 }
 
-.log-meta {
-  margin-left: auto;
+.log-refs {
   display: flex;
   align-items: center;
-  gap: 5px;
+  gap: 4px;
   flex: none;
+  max-width: 34%;
+  overflow: hidden;
+}
+
+.log-author {
+  flex: none;
+  width: 92px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  text-align: right;
   font-size: 10.5px;
   color: var(--muted-2);
 }
 
-.log-author {
-  max-width: 160px;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.log-sep {
-  color: var(--muted-2);
-  opacity: 0.7;
-  font-size: 10px;
-}
-
 .log-time {
+  flex: none;
+  width: 116px;
+  text-align: right;
   font-family: var(--font-mono);
   font-size: 10.5px;
   color: var(--muted);
@@ -2467,145 +2442,6 @@ kbd {
   color: var(--muted);
 }
 
-/* ---------- Branch popup ---------- */
-
-.branch-popup {
-  position: fixed;
-  z-index: 60;
-  width: 560px;
-  max-width: calc(100vw - 16px);
-  max-height: 70vh;
-  display: flex;
-  flex-direction: column;
-  background: var(--panel-raised);
-  border: 1px solid var(--border);
-  border-radius: 7px;
-  box-shadow: var(--shadow);
-  overflow: hidden;
-}
-
-.popup-search {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  padding: 7px 8px;
-  border-bottom: 1px solid var(--border);
-  color: var(--muted);
-}
-
-.popup-search input {
-  flex: 1;
-  border: 0;
-  outline: none;
-  background: transparent;
-  font-size: 12.5px;
-  user-select: text;
-}
-
-.popup-actions {
-  display: flex;
-  gap: 2px;
-  padding: 5px 8px;
-  border-bottom: 1px solid var(--border);
-  flex-wrap: wrap;
-}
-
-.popup-action {
-  display: inline-flex;
-  align-items: center;
-  gap: 4px;
-  height: 24px;
-  padding: 0 7px;
-  border: 1px solid transparent;
-  border-radius: 4px;
-  background: transparent;
-  color: var(--fg-soft);
-  font-size: 11.5px;
-}
-
-.popup-action:hover {
-  background: var(--hover);
-}
-
-.popup-action .icon {
-  width: 13px;
-  height: 13px;
-}
-
-.popup-scroll {
-  overflow: auto;
-  padding-bottom: 6px;
-}
-
-.popup-section-title {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  padding: 7px 10px 3px;
-  font-size: 10.5px;
-  font-weight: 600;
-  text-transform: uppercase;
-  letter-spacing: 0.04em;
-  color: var(--muted-2);
-  width: 100%;
-  border: 0;
-  background: transparent;
-  text-align: left;
-}
-
-.popup-section-title.tags-toggle:hover {
-  color: var(--fg);
-}
-
-.popup-section-title .muted {
-  text-transform: none;
-  letter-spacing: 0;
-}
-
-.popup-empty {
-  padding: 6px 12px 10px;
-  color: var(--muted-2);
-  font-size: 11.5px;
-}
-
-.ref-row {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  height: 25px;
-  padding: 0 8px 0 12px;
-  font-size: 12px;
-  cursor: default;
-}
-
-.ref-row:hover {
-  background: var(--hover);
-}
-
-.ref-row.current {
-  background: var(--accent-soft);
-}
-
-.ref-row .ref-icon {
-  width: 14px;
-  display: grid;
-  place-items: center;
-  color: var(--muted);
-}
-
-.ref-row.current .ref-icon {
-  color: var(--st-added);
-}
-
-.ref-name {
-  font-family: var(--font-mono);
-  font-size: 11.5px;
-  flex: none;
-  max-width: 170px;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-
 .ref-upstream {
   font-family: var(--font-mono);
   font-size: 10px;
@@ -2632,10 +2468,6 @@ kbd {
   display: none;
   gap: 2px;
   flex: none;
-}
-
-.ref-row:hover .ref-actions {
-  display: flex;
 }
 
 /* ---------- Modal, menu, toast ---------- */
@@ -3951,30 +3783,6 @@ kbd {
   background: var(--border);
 }
 
-.branch-button {
-  height: 30px;
-  max-width: 260px;
-  margin-left: 2px;
-  padding: 0 10px;
-  border: 1px solid transparent;
-  border-radius: 8px;
-  background: var(--hover);
-  color: var(--fg-soft);
-  font-size: 12px;
-  font-weight: 500;
-}
-
-.branch-button:hover:not(:disabled) {
-  background: var(--hover-strong);
-  color: var(--fg);
-}
-
-.branch-button .icon {
-  width: 14px;
-  height: 14px;
-  color: var(--accent);
-}
-
 .quick-trigger {
   width: 240px;
   height: 30px;
@@ -4495,12 +4303,9 @@ kbd {
 }
 
 .log-row {
-  height: 32px;
-  gap: 8px;
   margin: 1px 0;
   padding: 0 9px;
   border-radius: 7px;
-  font-size: 12px;
 }
 
 .log-row:hover {
@@ -4522,8 +4327,6 @@ kbd {
 }
 
 .log-hash {
-  color: var(--muted-2);
-  font-size: 10px;
   letter-spacing: -0.02em;
 }
 
@@ -4948,60 +4751,6 @@ kbd {
   background: var(--panel);
 }
 
-.branch-popup {
-  border-radius: 14px;
-  border: 1px solid var(--border);
-  background: color-mix(in srgb, var(--panel-raised) 94%, transparent);
-  box-shadow: var(--shadow-lg);
-  backdrop-filter: saturate(1.4) blur(24px);
-  -webkit-backdrop-filter: saturate(1.4) blur(24px);
-}
-
-.popup-search {
-  gap: 8px;
-  padding: 12px 14px;
-  border-bottom: 1px solid var(--border);
-}
-
-.popup-search input {
-  font-size: 13px;
-}
-
-.popup-actions {
-  gap: 4px;
-  padding: 6px 10px;
-  border-bottom: 1px solid var(--border);
-}
-
-.popup-action {
-  height: 28px;
-  padding: 0 8px;
-  border-radius: 7px;
-  font-size: 11.5px;
-}
-
-.popup-section-title {
-  padding: 9px 14px 4px;
-  color: var(--muted-2);
-  font-size: 9.5px;
-  letter-spacing: 0.07em;
-}
-
-.ref-row {
-  height: 30px;
-  margin: 0 6px;
-  padding: 0 8px;
-  border-radius: 6px;
-}
-
-.ref-row.current {
-  background: var(--selection);
-}
-
-.ref-name {
-  font-size: 11px;
-}
-
 .context-menu {
   min-width: 230px;
   padding: 5px;
@@ -5245,19 +4994,6 @@ kbd {
 .op-error,
 .op-success {
   border-radius: 8px;
-}
-
-/* Log typography gets a little more presence. */
-.log-row {
-  height: 34px;
-}
-
-.log-hash {
-  font-size: 10.5px;
-}
-
-.log-subject {
-  font-size: 12.5px;
 }
 
 /* Final spacing and affordance pass. */
@@ -6223,11 +5959,27 @@ html[lang="zh"] .bp-section-title {
 }
 
 .bp-leaf-name {
+  flex: 1;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
   font-family: var(--font-mono);
   font-size: 11.5px;
+}
+
+/* Ahead/behind counts sit at the right edge, before the favourite star. */
+.bp-sync {
+  flex: none;
+  font-size: 9.5px;
+  font-family: var(--font-mono);
+}
+
+.bp-sync.ahead {
+  color: var(--success);
+}
+
+.bp-sync.behind {
+  color: var(--warning);
 }
 
 .bp-current {
@@ -6240,7 +5992,7 @@ html[lang="zh"] .bp-section-title {
 }
 
 .bp-star {
-  margin-left: auto;
+  margin-left: 2px;
   width: 18px;
   height: 18px;
   flex: none;
@@ -6250,7 +6002,7 @@ html[lang="zh"] .bp-section-title {
   border-radius: 4px;
   background: none;
   color: var(--muted-2);
-  opacity: 0.32;
+  opacity: 0;
   transition: opacity 120ms ease, color 120ms ease;
 }
 

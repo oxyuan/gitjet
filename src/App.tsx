@@ -21,7 +21,6 @@ import {
   type Settings,
   type SourceFile,
 } from "./mygo";
-import { BranchPopup } from "./BranchPopup";
 import { CommitPanel, type CommitActions, type CommitForm, type FileEntry } from "./CommitPanel";
 import { ConflictView } from "./ConflictView";
 import { ConsolePanel } from "./ConsolePanel";
@@ -76,7 +75,7 @@ const T = {
     searchFiles: "Search files",
     settingsTip: "Settings (⌘/Ctrl+,)",
     commitTab: "Commit",
-    logTab: "Log",
+    branchTab: "Branch",
     consoleTab: "Console",
     historyOf: "History of {path}",
     clear: "Clear",
@@ -243,7 +242,7 @@ const T = {
     searchFiles: "搜索文件",
     settingsTip: "设置 (⌘/Ctrl+,)",
     commitTab: "提交",
-    logTab: "日志",
+    branchTab: "分支",
     consoleTab: "控制台",
     historyOf: "{path} 的历史",
     clear: "清除",
@@ -399,10 +398,9 @@ const T = {
 type TKey = keyof typeof T["en"];
 type Translate = (key: TKey, vars?: Record<string, string | number>) => string;
 
-type Tab = "commit" | "log" | "console";
+type Tab = "commit" | "branch" | "console";
 
 /** "all", "current", or the name of a branch. */
-type LogBranchFilter = string;
 
 type Doc = { id: string; title: string } & (
   | { kind: "diff"; diff: FileDiff; opts: DiffOptions }
@@ -459,7 +457,10 @@ function AppShell({ onLangChange }: { onLangChange: (lang: Lang) => void }) {
   const [snapshot, setSnapshot] = useState<ChangesSnapshot | null>(null);
   const [refs, setRefs] = useState<RefsSnapshot | null>(null);
   const [remotes, setRemotes] = useState<Remote[]>([]);
-  const [tab, setTab] = useStoredState<Tab>("gitjet.tab", "commit");
+  // Tabs were renamed once; keep an old stored "log" pointing at the branch page.
+  const [storedTab, setStoredTab] = useStoredState<Tab | "log">("gitjet.tab", "commit");
+  const tab: Tab = storedTab === "log" ? "branch" : storedTab;
+  const setTab = (next: Tab) => setStoredTab(next);
   const [docs, setDocs] = useState<Doc[]>([]);
   const [activeId, setActiveId] = useState<string | null>(null);
   const [quickOpen, setQuickOpen] = useState(false);
@@ -471,7 +472,6 @@ function AppShell({ onLangChange }: { onLangChange: (lang: Lang) => void }) {
   const [fetchMenu, setFetchMenu] = useState<{ x: number; y: number } | null>(null);
   const [fetchOptions, setFetchOptions] = useStoredState("gitjet.fetchOptions", { prune: true, tags: true });
   const [confirm, setConfirm] = useState<ConfirmState | null>(null);
-  const [branchPopup, setBranchPopup] = useState<{ x: number; y: number } | null>(null);
   const [splitWidth, setSplitWidth] = useStoredState<number>("gitjet.split", 430);
   const [diffMode, setDiffMode] = useStoredState<"split" | "unified">("gitjet.diffMode", "split");
   const [diffWrap, setDiffWrap] = useStoredState<boolean>("gitjet.diffWrap", true);
@@ -479,7 +479,6 @@ function AppShell({ onLangChange }: { onLangChange: (lang: Lang) => void }) {
   const [form, setForm] = useState<CommitForm>(emptyForm);
   const [history, setHistory] = useState<string[]>([]);
   const [checked, setChecked] = useState<Set<string>>(new Set());
-  const [logFilter, setLogFilter] = useState<LogBranchFilter>("current");
   const [searchInput, setSearchInput] = useState("");
   const [logSearch, setLogSearch] = useState("");
   const [logAuthor, setLogAuthor] = useState("");
@@ -574,8 +573,8 @@ function AppShell({ onLangChange }: { onLangChange: (lang: Lang) => void }) {
       try {
         const s = settingsRef.current;
         const opts = {
-          all: logFilter === "all",
-          refs: logFilter === "all" ? [] : logFilter === "current" ? [current.state.branch || "HEAD"] : [logFilter],
+          all: false,
+          refs: [current.state.branch || "HEAD"],
           path: logPath,
           search: logSearch,
           author: logAuthor,
@@ -613,7 +612,7 @@ function AppShell({ onLangChange }: { onLangChange: (lang: Lang) => void }) {
         if (req === logReq.current) setLogLoading(false);
       }
     },
-    [fail, logAuthor, logFilter, logPath, logSearch, logResult?.commits.length, t],
+    [fail, logAuthor, logPath, logSearch, logResult?.commits.length, t],
   );
 
   const openDoc = useCallback((doc: Doc) => {
@@ -806,7 +805,7 @@ function AppShell({ onLangChange }: { onLangChange: (lang: Lang) => void }) {
   // Up and down walk the changed files of the selected commit while the log
   // page has focus; inside the editor they keep scrolling.
   useEffect(() => {
-    if (tab !== "log" || !logDetail) return;
+    if (tab !== "branch" || !logDetail) return;
     const onKey = (e: KeyboardEvent) => {
       if (e.key !== "ArrowDown" && e.key !== "ArrowUp") return;
       if (e.metaKey || e.ctrlKey || e.altKey || e.shiftKey) return;
@@ -829,10 +828,10 @@ function AppShell({ onLangChange }: { onLangChange: (lang: Lang) => void }) {
 
   // Load the log when its tab is visible or its filters change.
   useEffect(() => {
-    if (tab !== "log" || !snapshot) return;
+    if (tab !== "branch" || !snapshot) return;
     void loadLog(true);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [tab, logAuthor, logFilter, logSearch, logPath, snapshot?.state.head]);
+  }, [tab, logAuthor, logSearch, logPath, snapshot?.state.head]);
 
   useEffect(() => {
     if (!snapshot) return;
@@ -879,7 +878,6 @@ function AppShell({ onLangChange }: { onLangChange: (lang: Lang) => void }) {
       setLogSearch("");
       setLogAuthor("");
       authorCache.current = new Map();
-      setFilterDefault(snap.state);
       setHistory(await Git.messageHistory().catch(() => []));
       void reload(false);
       void loadLog(true);
@@ -888,11 +886,6 @@ function AppShell({ onLangChange }: { onLangChange: (lang: Lang) => void }) {
     } finally {
       setBusy((n) => n - 1);
     }
-  };
-
-  const setFilterDefault = (st: RepoState) => {
-    setLogFilter("current");
-    if (st.branch === "") setLogFilter("all");
   };
 
   const closeRepo = async () => {
@@ -1457,7 +1450,7 @@ function AppShell({ onLangChange }: { onLangChange: (lang: Lang) => void }) {
           break;
         case "refresh":
           void reload(true);
-          if (tab === "log") void loadLog(true);
+          if (tab === "branch") void loadLog(true);
           break;
         case "settings":
           setDialog({ kind: "settings" });
@@ -1479,13 +1472,13 @@ function AppShell({ onLangChange }: { onLangChange: (lang: Lang) => void }) {
           if (repoOpen) setDialog({ kind: "stash" });
           break;
         case "branches":
-          openBranchPopupFromStatus();
+          setTab("branch");
           break;
         case "tab:commit":
           setTab("commit");
           break;
-        case "tab:log":
-          setTab("log");
+        case "tab:branch":
+          setTab("branch");
           break;
         case "tab:console":
           setTab("console");
@@ -1502,13 +1495,6 @@ function AppShell({ onLangChange }: { onLangChange: (lang: Lang) => void }) {
     return off;
   }, [handleCommand]);
 
-  const openBranchPopupFromStatus = () => {
-    const el = document.querySelector<HTMLElement>("#branch-widget");
-    if (!el) return;
-    const rect = el.getBoundingClientRect();
-    setBranchPopup({ x: rect.left, y: rect.top });
-  };
-
   const selectCommit = (commit: Commit) => {
     setSelectedCommit(commit.hash);
     setLogDetail(null);
@@ -1524,7 +1510,7 @@ function AppShell({ onLangChange }: { onLangChange: (lang: Lang) => void }) {
 
   const showFileHistory = (path: string) => {
     setLogPath(path);
-    setTab("log");
+    setTab("branch");
     setSelectedCommit(null);
     setLogDetail(null);
     setLogFile(null);
@@ -1621,9 +1607,9 @@ function AppShell({ onLangChange }: { onLangChange: (lang: Lang) => void }) {
           <span className="tab-count">{snapshot.state.changed + snapshot.state.untracked + snapshot.state.conflicts}</span>
         )}
       </button>
-      <button className={cx("toolwindow-tab", tab === "log" && "active")} onClick={() => setTab("log")}>
-        <Icon name="log" />
-        {t("logTab")}
+      <button className={cx("toolwindow-tab", tab === "branch" && "active")} onClick={() => setTab("branch")}>
+        <Icon name="branch" />
+        {t("branchTab")}
       </button>
       <button className={cx("toolwindow-tab", tab === "console" && "active")} onClick={() => setTab("console")}>
         <Icon name="console" />
@@ -1674,22 +1660,6 @@ function AppShell({ onLangChange }: { onLangChange: (lang: Lang) => void }) {
             {state && state.behind > 0 && <span className="icon-dot" />}
           </span>
           <IconButton icon="push" title={t("pushTip")} onClick={() => setDialog({ kind: "push", setUpstream: !snapshot?.state.upstream })} disabled={!repoOpen} />
-          <button
-            className="branch-button"
-            onClick={openBranchPopupFromStatus}
-            disabled={!repoOpen}
-            title={t("branches")}
-          >
-            <Icon name="branch" />
-            <span>{state ? (state.detached ? t("detachedAt", { ref: state.shortHead }) : state.unborn ? t("noCommitsParen") : state.branch) : t("noRepository")}</span>
-            {state && (state.ahead > 0 || state.behind > 0) && (
-              <span className="sync">
-                {state.ahead > 0 && <span className="ahead">↑{state.ahead}</span>}
-                {state.behind > 0 && <span className="behind">↓{state.behind}</span>}
-              </span>
-            )}
-            <Icon name="chevronDown" size={12} />
-          </button>
           <span className="spacer" />
           <button className="quick-trigger" onClick={() => setQuickOpen(true)} title={t("quickOpenTip")} disabled={!repoOpen}>
             <Icon name="search" />
@@ -1720,27 +1690,26 @@ function AppShell({ onLangChange }: { onLangChange: (lang: Lang) => void }) {
               ) : (
                 <NoRepo onOpen={() => void openRepo()} />
               ))}
-            {tab === "log" &&
+            {tab === "branch" &&
               (snapshot ? (
                 <BranchList
                   refs={refs}
                   current={state?.branch ?? ""}
-                  value={logFilter}
                   favorites={favorites}
-                  onPick={(name) => {
-                    setLogFilter(name);
-                    setSelectedCommit(null);
-                    setLogDetail(null);
-                    setLogFile(null);
-                  }}
+                  onCheckout={(name) => void checkout(name)}
                   onToggleFavorite={toggleFavorite}
+                  onNewBranch={(start) => setDialog({ kind: "newBranch", start })}
+                  onMerge={(name) => setDialog({ kind: "merge", refs: [name] })}
+                  onRebase={(name) => void rebase(name)}
+                  onDelete={(name) => void deleteBranch(name)}
+                  onCopy={copyText}
                 />
               ) : (
                 <NoRepo onOpen={() => void openRepo()} />
               ))}
             {tab === "console" && <ConsolePanel onCommandDone={() => void reload(false)} repoOpen={repoOpen} />}
           </div>
-          {logPath && tab === "log" && (
+          {logPath && tab === "branch" && (
             <div className="history-banner">
               <Icon name="log" />
               <span>{t("historyOf", { path: logPath })}</span>
@@ -1822,7 +1791,7 @@ function AppShell({ onLangChange }: { onLangChange: (lang: Lang) => void }) {
             repoOpen={repoOpen}
           />
         </div>
-        {tab === "log" && snapshot && (
+        {tab === "branch" && snapshot && (
           <LogDock
             result={logResult}
             detail={logDetail}
@@ -1865,7 +1834,7 @@ function AppShell({ onLangChange }: { onLangChange: (lang: Lang) => void }) {
         )}
       </div>
       <footer className="statusbar">
-        <button className="status-branch" id="branch-widget" onClick={openBranchPopupFromStatus} disabled={!repoOpen}>
+        <button className="status-branch" onClick={() => setTab("branch")} disabled={!repoOpen}>
           <Icon name="branch" size={13} />
           <span>{state ? (state.detached ? t("detachedHead") : state.unborn ? t("noCommitsYet") : state.branch) : t("noRepository")}</span>
           {state && state.upstream && <span className="status-upstream">{state.upstream}</span>}
@@ -1925,30 +1894,6 @@ function AppShell({ onLangChange }: { onLangChange: (lang: Lang) => void }) {
         )}
         <span className="status-item">git {snapshot?.state.gitVersion || boot.version}</span>
       </footer>
-
-      {branchPopup && refs && (
-        <BranchPopup
-          refs={refs}
-          current={refs.current}
-          detached={refs.detached}
-          x={branchPopup.x}
-          y={branchPopup.y}
-          onClose={() => setBranchPopup(null)}
-          onCheckout={(name) => void checkout(name)}
-          onNewBranch={() => setDialog({ kind: "newBranch", start: "" })}
-          onMerge={(name) => setDialog({ kind: "merge", refs: [name] })}
-          onRebase={(name) => void rebase(name)}
-          onDelete={(name) => void deleteBranch(name)}
-          onFetch={() => fetch()}
-          onPull={() => setDialog({ kind: "pull" })}
-          onPush={() => setDialog({ kind: "push", setUpstream: !snapshot?.state.upstream })}
-          onFilterLog={(name) => {
-            setLogFilter(name);
-            setTab("log");
-            setSelectedCommit(null);
-          }}
-        />
-      )}
 
       {quickOpen && (
         <QuickOpen

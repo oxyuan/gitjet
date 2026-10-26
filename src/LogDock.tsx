@@ -297,19 +297,20 @@ export function LogDock({
                     <circle cx={10 + row.lane * 14} cy={MID} r={4.6} className={cx("graph-dot", `lane-${row.lane % 6}`)} />
                   </svg>
                   <span className="log-hash">{commit.short}</span>
-                  {commit.refs.slice(0, 5).map((ref, ri) => (
-                    <RefChip key={ri} name={ref.name} type={ref.type} head={ref.head} />
-                  ))}
                   <span className="log-subject" title={commit.subject}>
                     {commit.subject}
                   </span>
-                  <span className="log-meta">
-                    <span className="log-author" title={commit.author}>
-                      {commit.author}
+                  {commit.refs.length > 0 && (
+                    <span className="log-refs">
+                      {commit.refs.slice(0, 4).map((ref, ri) => (
+                        <RefChip key={ri} name={ref.name} type={ref.type} head={ref.head} />
+                      ))}
                     </span>
-                    <span className="log-sep">·</span>
-                    <span className="log-time">{formatStamp(commit.authorTime)}</span>
+                  )}
+                  <span className="log-author" title={commit.author}>
+                    {commit.author}
                   </span>
+                  <span className="log-time">{formatStamp(commit.authorTime)}</span>
                 </div>
               );
             })}

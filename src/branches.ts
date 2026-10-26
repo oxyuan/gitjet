@@ -1,7 +1,7 @@
 import type { RefsSnapshot, RepoRef } from "./mygo";
 
 /**
- * Branch trees for the picker in the log toolbar.
+ * Branch trees for the branch page.
  *
  * A repository with a hundred branches is unreadable as a flat list, so the
  * picker groups branches by their leading path segment: `feat/…` sits under
