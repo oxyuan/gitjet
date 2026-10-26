@@ -17,9 +17,12 @@ GitJet 是一个面向 Windows 与 macOS 的桌面 Git 客户端。界面由 Go 
 - 提交并推送、提交后自动刷新日志
 - 未跟踪文件：加入版本控制、删除、写入 `.gitignore`
 - 贮藏（Stash）：创建、列表、应用、弹出、删除；支持包含未跟踪文件与保留暂存区
+- 贮藏详情：列出该贮藏改动的文件与行数，逐文件查看差异，可恢复到新分支
+- 操作保护：检出、合并、变基、摘取、还原、拉取前自动贮藏本地改动，完成后自动恢复；恢复失败时保留在 stash 中并提示
 - 合并冲突逐行解决：并排对比 Ours / Theirs（含词级差异），点击任意一行插入结果，或整段选择 Ours / Theirs / Both；可查看共同祖先、编辑最终文件、查看最终结果预览；支持继续/中止 merge、rebase、cherry-pick、revert
+- 冲突汇总对话框：一次列出全部冲突文件，全部采用我方/对方、批量标记已解决、继续或中止操作
 - 源码查看：直接打开工作区、索引或任意提交中的文件，带语法高亮、行号、自动换行与文件内变更跳转；可在源码与差异之间一键切换
-- 快速打开：`⌘/Ctrl+P` 按文件名或路径片段搜索工作区文件（包含未跟踪文件）
+- 快速打开：`⌘/Ctrl+P` 按文件名或路径片段搜索工作区文件（包含未跟踪文件）；输入两个字以上时同时搜索提交信息与作者
 - 编辑器标签页：差异、源码、冲突、Blame 与提交详情同时打开，支持关闭与中键关闭
 
 ### 日志与历史
@@ -28,6 +31,9 @@ GitJet 是一个面向 Windows 与 macOS 的桌面 Git 客户端。界面由 Go 
 - 按当前分支、全部分支或指定分支过滤；全文搜索、按路径查看文件历史
 - 提交详情：作者、时间、完整提交信息、引用、文件列表与行数统计
 - 提交操作：检出、从此新建分支/标签、Cherry-Pick、Revert、Soft/Mixed/Hard Reset、复制哈希
+- 多选提交：⌘/Ctrl 点击与 Shift 连选，可批量摘取、批量还原、复制多个哈希
+- 编辑历史（交互式 rebase 的可视化版本）：对一段提交逐条选择保留 / 改写信息 / 压缩 / 合并（fixup）/ 删除；遇到冲突暂停，用「继续」接着重放，用「中止」回到起点
+- 与当前分支比较：分支右键列出与 HEAD 之间的差异文件，逐个打开差异
 - 文件历史与作者标注（Blame）
 - 在提交详情中直接打开对应版本的源码文件
 
@@ -42,10 +48,15 @@ GitJet 是一个面向 Windows 与 macOS 的桌面 Git 客户端。界面由 Go 
 ### 分支与远端
 
 - 分支弹窗：本地/远程分支、标签、上游跟踪、领先/落后计数、搜索
+- 清理分支：列出已合并到当前分支、以及上游已删除的本地分支，勾选后删除
+- 工作树：列出全部工作树，新建（可同时建分支）、在新窗口打开、移除、清理失效项
+- 子模块与 Git LFS：列出子模块状态并初始化/更新；显示 LFS 是否安装与跟踪的文件；浅克隆可补全历史
 - 检出、新建、重命名、删除（含强制删除二次确认）、合并、变基、设置上游
 - Fetch / Pull（merge 或 rebase、autostash、prune、tags）
-- Push 前二次确认：当前分支 → 远程分支的走向、本次提交列表（选中单个提交可看它的文件）、全部变更文件；远程分支不存在时标出「新建分支」，并支持 set-upstream、`--force-with-lease`、tags、dry run
+- Push 前二次确认：当前分支 → 远程分支的走向、本次提交列表（选中单个提交可看它的文件）、全部变更文件；远程分支不存在时标出「新建分支」，并支持 set-upstream、`--force-with-lease`、`--force-if-includes`、tags、dry run
+- Push 安全提示：远端分支有本地没有的提交（历史已分叉）时明确警告；记住最近推送过的目标分支
 - 操作输出实时流式显示，失败时保留完整错误信息
+- 命令回显：每个操作实际执行的 git 命令（如 `$ git fetch --progress --all --prune --tags`）显示在操作面板中，可一键复制
 
 ### 其他
 
@@ -99,20 +110,24 @@ bun run build -- -platform darwin/universal,windows/amd64
 ```
 main.go                 应用入口
 internal/app/           窗口、菜单、事件、绑定服务（Workspace / Git）、设置与仓库元数据
-internal/git/           Git 命令层：状态、差异、日志、分支、提交、贮藏、冲突、Blame、控制台
+internal/git/           Git 命令层：状态、差异、日志、分支、提交、贮藏、冲突、Blame、控制台、
+                        历史重写（rewrite.go）、工作树/清理/子模块/LFS/浅克隆（repo_extra.go）
 src/                    React 前端
   App.tsx               应用状态、编辑器标签页与操作编排
   CommitPanel.tsx       变更列表与提交面板
   SourceView.tsx        源码查看（语法高亮、行号、换行）
-  QuickOpen.tsx         快速打开文件
+  QuickOpen.tsx         快速打开文件与提交
   highlight.ts          Prism 语法高亮
-  LogPanel.tsx          提交图与提交详情
+  LogDock.tsx           提交图与提交详情（含多选）
   DiffView.tsx          并排/统一差异查看器、Blame 视图
   ConflictView.tsx      逐行冲突解决与三路对比
   merge.ts              冲突解析、行对齐与结果组装（纯函数，带测试）
+  graph.ts              提交图 lane 计算（纯函数，带测试）
   ConsolePanel.tsx      Git 控制台
   Dialogs.tsx           推送、拉取、重置、标签、设置等对话框
-  BranchPopup.tsx       分支弹窗
+  BranchList.tsx        分支弹窗
+  EditHistoryDialog.tsx 编辑历史（reword / squash / fixup / drop）
+  RepoExtrasDialog.tsx  工作树 / 子模块 / Git LFS
   mygo.ts               由 Go 服务生成的类型安全客户端
 ```
 
@@ -133,5 +148,6 @@ src/                    React 前端
 ## 说明
 
 - GitJet 调用本机 Git，不内置 Git 实现；认证沿用系统 SSH agent 或 Git credential helper。
-- 当前不支持交互式 rebase 编辑器、子模块与 worktree 管理。
+- 编辑历史的计划按时间顺序执行，暂不支持在列表内拖动重排或 `edit`（停下来修改内容）动作。
+- 子模块与 LFS 是只读状态加更新动作，没有子模块新增/删除与 LFS 跟踪规则编辑。
 - 所有 Git 写操作串行执行，避免并发操作争用 `index.lock`。

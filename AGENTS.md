@@ -40,9 +40,9 @@ There is no router, no state library, no ORM: dock/tab/dialog state lives in
 
 |Path|Purpose|
 |---|---|
-|`internal/git/`|Git execution and parsing: `git.go` (spawn/env/paths), `status.go`, `diff.go`, `log.go`, `actions.go`, `blame.go`, `console.go`, `files.go`, `repoinfo.go`, `exec_windows.go`|
+|`internal/git/`|Git execution and parsing: `git.go` (spawn/env/paths), `status.go`, `diff.go`, `log.go`, `actions.go`, `blame.go`, `console.go`, `files.go`, `repoinfo.go`, `rewrite.go` (commit plan replay), `repo_extra.go` (worktrees, cleanup, submodules, LFS, shallow), `trace.go` (command echo), `exec_windows.go`|
 |`internal/app/`|Host: `run.go` (window/menu/events), `service.go` (bound services, poll), `settings.go` (`core`, persistence), `i18n.go`|
-|`src/`|React UI; `*.test.ts` next to the module under test|
+|`src/`|React UI; `*.test.ts` next to the module under test. `EditHistoryDialog.tsx` (rewrite plan) and `RepoExtrasDialog.tsx` (worktrees/submodules/LFS) are the only standalone dialogs; the rest live in `Dialogs.tsx`|
 |`src/mygo.ts`|**Generated** bindings — never hand-edit|
 |`resources/`|`icon.png` only, copied into the bundle by MyGo|
 |`dist/`, `build/`, `.mygo/`|Build output, gitignored|
@@ -84,6 +84,19 @@ use it only for layout work. Vite's port is pinned to 5173 in **both**
   `GIT_TERMINAL_PROMPT=0`, `GIT_OPTIONAL_LOCKS=0`) is load-bearing: parsers and
   date ordering depend on the C locale, and `GIT_TERMINAL_PROMPT=0` stops the
   UI hanging on a credential prompt.
+- Mutating service methods (`Checkout`, `Merge`, `Rebase`, `CherryPick`,
+  `Revert`, `Pull` without `--autostash`, `Rewrite`) run through
+  `preserveLocalChanges` (`internal/app/service.go`): a dirty tree is stashed
+  as `gitjet: before <action>` and restored with `stash pop --index`; a failed
+  restore keeps the stash and says so in the output. `Reset` is deliberately
+  not wrapped — a hard reset is asked for to discard changes.
+- `Rewrite` replays a plan of cherry-picks, so a conflict leaves the rest of
+  the plan in `<git dir>/gitjet-rewrite-plan.json`; `ContinueOperation`
+  finishes it and `AbortOperation` resets back to the original tip. Progress
+  shows as the `rebase-interactive` operation.
+- Every operation opens a command trace (`git.WithCommandTrace`), and its
+  output ends with the `$ git …` lines the UI displays, so no command string
+  is ever duplicated in TypeScript.
 - Mutations are serialized by `Repo.write`. Use `writeRun` (locks) or lock
   manually like `Rollback`/`Commit`; **never** call `writeRun` while already
   holding the lock — `sync.Mutex` is not reentrant. Read methods stay lock-free
