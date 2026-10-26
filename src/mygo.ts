@@ -362,6 +362,8 @@ export interface Settings {
   confirmForcePush: boolean;
   confirmRollback: boolean;
   openInNewWindow: boolean;
+  /** percent, 100 is the design size */
+  uiScale: number;
   recent: RecentRepo[];
 }
 

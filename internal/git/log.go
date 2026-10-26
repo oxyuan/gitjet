@@ -3,6 +3,7 @@ package git
 import (
 	"context"
 	"errors"
+	"sort"
 	"strconv"
 	"strings"
 	"sync"
@@ -223,8 +224,16 @@ func parseRefDecorations(s string) []CommitRef {
 			}
 			ref.Name = part
 		}
+		// origin/HEAD is a pointer to a branch, not a label of its own.
+		if strings.HasSuffix(ref.Name, "/HEAD") {
+			continue
+		}
 		out = append(out, ref)
 	}
+	// The chips are read left to right; the branch checked out here, then
+	// local branches, then remotes, then tags.
+	rank := map[string]int{"head": 0, "local": 1, "remote": 2, "tag": 3}
+	sort.SliceStable(out, func(i, j int) bool { return rank[out[i].Type] < rank[out[j].Type] })
 	return out
 }
 

@@ -176,6 +176,9 @@ func (w *Workspace) SaveSettings(s Settings) (Settings, error) {
 	if s.AutoFetchMinutes <= 0 {
 		s.AutoFetchMinutes = 15
 	}
+	if s.UIScale < 70 || s.UIScale > 160 {
+		s.UIScale = 100
+	}
 	if s.GitPath != "" {
 		if _, err := git.GitVersion(context.Background(), s.GitPath); err != nil {
 			return w.c.settings, fmt.Errorf("the git executable cannot be used: %w", err)

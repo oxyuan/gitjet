@@ -32,6 +32,7 @@ type Settings struct {
 	ConfirmForcePush bool         `json:"confirmForcePush"`
 	ConfirmRollback  bool         `json:"confirmRollback"`
 	OpenInNewWindow  bool         `json:"openInNewWindow"`
+	UIScale          int          `json:"uiScale"` // percent, 100 is the design size
 	Recent           []RecentRepo `json:"recent"`
 }
 
@@ -60,6 +61,7 @@ func defaultSettings() Settings {
 		ConfirmRollback:  true,
 		ConfirmForcePush: true,
 		AutoFetchMinutes: 15,
+		UIScale:          100,
 	}
 }
 
@@ -90,6 +92,9 @@ func loadSettings() Settings {
 	}
 	if s.AutoFetchMinutes <= 0 {
 		s.AutoFetchMinutes = 15
+	}
+	if s.UIScale < 70 || s.UIScale > 160 {
+		s.UIScale = 100
 	}
 	return s
 }

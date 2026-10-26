@@ -32,6 +32,11 @@ const T = {
     "settings.themeSystem": "Use system setting",
     "settings.themeLight": "Light",
     "settings.themeDark": "Dark",
+    "settings.uiScale": "Font size",
+    "settings.uiScaleSmall": "Small",
+    "settings.uiScaleNormal": "Default",
+    "settings.uiScaleLarge": "Large",
+    "settings.uiScaleLargest": "Largest",
     "settings.openRepo": "Open Repository",
     "settings.openRepoSame": "Replace this window",
     "settings.openRepoNew": "Open a new window",
@@ -129,6 +134,11 @@ const T = {
     "settings.themeSystem": "跟随系统",
     "settings.themeLight": "浅色",
     "settings.themeDark": "深色",
+    "settings.uiScale": "字号",
+    "settings.uiScaleSmall": "小",
+    "settings.uiScaleNormal": "默认",
+    "settings.uiScaleLarge": "大",
+    "settings.uiScaleLargest": "特大",
     "settings.openRepo": "打开仓库时",
     "settings.openRepoSame": "替换当前窗口",
     "settings.openRepoNew": "在新窗口中打开",
@@ -286,6 +296,14 @@ export function SettingsDialog({
               <option value="system">{t("settings.themeSystem")}</option>
               <option value="light">{t("settings.themeLight")}</option>
               <option value="dark">{t("settings.themeDark")}</option>
+            </Select>
+          </SettingRow>
+          <SettingRow label={t("settings.uiScale")}>
+            <Select value={String(draft.uiScale)} onChange={(v) => set("uiScale", Number(v))}>
+              <option value="90">{t("settings.uiScaleSmall")}</option>
+              <option value="100">{t("settings.uiScaleNormal")}</option>
+              <option value="112">{t("settings.uiScaleLarge")}</option>
+              <option value="125">{t("settings.uiScaleLargest")}</option>
             </Select>
           </SettingRow>
           <SettingRow label={t("settings.openRepo")}>

@@ -751,7 +751,7 @@ function AppShell({ onLangChange }: { onLangChange: (lang: Lang) => void }) {
         if (b.error) notify("error", tRef.current("reopenRepo"), b.error);
       })
       .catch((err) => {
-        setBoot({ settings: { gitPath: "", language: "system", theme: "system", diffContext: 3, ignoreWhitespace: false, showIgnored: false, autoFetch: false, autoFetchMinutes: 15, updateMethod: "merge", confirmForcePush: true, confirmRollback: true, openInNewWindow: false, recent: [] }, repo: null, error: String(err), version: "", platform: "" });
+        setBoot({ settings: { gitPath: "", language: "system", theme: "system", diffContext: 3, ignoreWhitespace: false, showIgnored: false, autoFetch: false, autoFetchMinutes: 15, updateMethod: "merge", confirmForcePush: true, confirmRollback: true, openInNewWindow: false, uiScale: 100, recent: [] }, repo: null, error: String(err), version: "", platform: "" });
         notify("error", tRef.current("startFailed"), err instanceof Error ? err.message : String(err));
       });
   }, [applyCheckedDefaults, notify, reload]);
@@ -855,6 +855,9 @@ function AppShell({ onLangChange }: { onLangChange: (lang: Lang) => void }) {
 
   function applyTheme(s: Settings) {
     document.documentElement.dataset.theme = s.theme;
+    // One scale for the whole window, so code, tables and labels keep their
+    // proportions instead of drifting apart.
+    document.documentElement.style.zoom = `${(s.uiScale || 100) / 100}`;
     document.documentElement.lang = resolveLang(s.language);
     onLangChange(resolveLang(s.language));
     // A toast created before the switch would keep the old language.
@@ -1269,6 +1272,34 @@ function AppShell({ onLangChange }: { onLangChange: (lang: Lang) => void }) {
       await reload(false);
       void loadLog(true);
     }
+  };
+
+  // Both act on the branch the user pointed at: a pull takes the checked out
+  // branch and its upstream, a push names the branch explicitly.
+  const branchRemote = (upstream: string) => (upstream.includes("/") ? upstream.slice(0, upstream.indexOf("/")) : "origin");
+
+  const pullBranch = (leaf: { name: string; upstream: string }) => {
+    const remote = branchRemote(leaf.upstream);
+    const branch = leaf.upstream.startsWith(remote + "/") ? leaf.upstream.slice(remote.length + 1) : leaf.upstream;
+    pull({
+      remote,
+      branch: branch || leaf.name,
+      rebase: settingsRef.current?.updateMethod === "rebase",
+      autostash: true,
+      prune: false,
+      tags: false,
+    });
+  };
+
+  const pushBranch = (leaf: { name: string; upstream: string }) => {
+    push({
+      remote: branchRemote(leaf.upstream),
+      branch: leaf.name,
+      setUpstream: leaf.upstream === "",
+      forceWithLease: false,
+      tags: false,
+      dryRun: false,
+    });
   };
 
   const deleteBranch = async (name: string) => {
@@ -1756,6 +1787,8 @@ function AppShell({ onLangChange }: { onLangChange: (lang: Lang) => void }) {
                   onRebase={(name) => void rebase(name)}
                   onDelete={(name) => void deleteBranch(name)}
                   onCopy={copyText}
+                  onPull={(leaf) => pullBranch(leaf)}
+                  onPush={(leaf) => pushBranch(leaf)}
                 />
               ) : (
                 <NoRepo onOpen={() => void openRepo()} />
@@ -2237,8 +2270,15 @@ function RightPane({
         <div className="welcome-logo">
           <Icon name="git" size={36} />
         </div>
-        <h1>{t("welcomeHeadline")}</h1>
-        <p className="welcome-tagline">{t("welcomeTagline")}</p>
+        <h1>{repoOpen ? t("noFileOpen") : t("welcomeHeadline")}</h1>
+        <p className="welcome-tagline">{repoOpen ? t("emptyOpen") : t("welcomeTagline")}</p>
+        {repoOpen && (
+          <span className="welcome-key">
+            {t("emptyQuickOpen")}
+            <kbd>⌘/Ctrl</kbd>
+            <kbd>P</kbd>
+          </span>
+        )}
         <div className="welcome-actions">
           <Button variant="primary" onClick={() => onOpenRecent("")}>
             <Icon name="open" /> {t("openRepository")}
@@ -2286,26 +2326,7 @@ function RightPane({
   );
 
   if (!active) {
-    return (
-      <main className="editor-area">
-        {repoOpen ? (
-          <div className="editor-empty">
-            <span className="editor-empty-icon">
-              <Icon name="file" size={20} />
-            </span>
-            <div className="editor-empty-title">{t("noFileOpen")}</div>
-            <p className="editor-empty-hint">{t("emptyOpen")}</p>
-            <span className="editor-empty-key">
-              {t("emptyQuickOpen")}
-              <kbd>⌘/Ctrl</kbd>
-              <kbd>P</kbd>
-            </span>
-          </div>
-        ) : (
-          welcome
-        )}
-      </main>
-    );
+    return <main className="editor-area">{welcome}</main>;
   }
 
   return (

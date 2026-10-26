@@ -12,10 +12,32 @@ import {
   RefChip,
   Spinner,
   StatusMark,
+  useStoredState,
   type ContextItem,
 } from "./ui";
 import { AuthorPicker, type AuthorOption } from "./AuthorPicker";
 import { FileTree, type ChangeView } from "./FileTree";
+
+/** Widths of the fixed columns of the history list, in pixels. */
+interface LogColumns {
+  hash: number;
+  refs: number;
+  author: number;
+  time: number;
+}
+
+const DEFAULT_COLUMNS: LogColumns = { hash: 58, refs: 210, author: 92, time: 116 };
+const COLUMN_LIMITS: Record<keyof LogColumns, [number, number]> = {
+  hash: [40, 140],
+  refs: [60, 460],
+  author: [50, 220],
+  time: [70, 220],
+};
+
+function clampColumn(key: keyof LogColumns, value: number): number {
+  const [min, max] = COLUMN_LIMITS[key];
+  return Math.round(Math.min(max, Math.max(min, value)));
+}
 
 const T = {
   en: {
@@ -57,6 +79,13 @@ const T = {
     expandPanel: "Show the history panel",
     viewTree: "Group by folder",
     viewFlat: "Plain file list",
+    colHash: "Hash",
+    colSubject: "Message",
+    colRefs: "Refs",
+    colAuthor: "Author",
+    colDate: "Date",
+    moreRefs: "Also: {names}",
+    resizeColumn: "Drag to resize this column",
   },
   zh: {
     title: "历史",
@@ -97,6 +126,13 @@ const T = {
     expandPanel: "展开历史面板",
     viewTree: "按目录分组",
     viewFlat: "平铺文件列表",
+    colHash: "哈希",
+    colSubject: "提交信息",
+    colRefs: "引用",
+    colAuthor: "作者",
+    colDate: "时间",
+    moreRefs: "另有：{names}",
+    resizeColumn: "拖动调整列宽",
   },
 } as const;
 
@@ -189,6 +225,8 @@ export function LogDock({
   const detailRef = useRef<HTMLDivElement>(null);
   const fileRowRef = useRef<HTMLDivElement>(null);
   const [fileDirs, setFileDirs] = useState<Set<string>>(new Set());
+  const [storedCols, setStoredCols] = useStoredState<LogColumns>("gitjet.logColumns", DEFAULT_COLUMNS);
+  const cols: LogColumns = { ...DEFAULT_COLUMNS, ...storedCols };
 
   // Arrow keys switch files, so the details pane takes focus with the commit.
   useEffect(() => {
@@ -208,6 +246,25 @@ export function LogDock({
   const commits = result?.commits ?? [];
   const graph = useMemo(() => computeGraph(commits), [commits]);
   const width = useMemo(() => graphWidth(graph), [graph]);
+
+  // Dragging a column edge resizes the column to its left; the columns to the
+  // right of the message are laid out from the end, so they grow leftwards.
+  const startColumn = (key: keyof LogColumns, direction: 1 | -1) => (e: React.MouseEvent) => {
+    e.preventDefault();
+    const startX = e.clientX;
+    const startWidth = cols[key];
+    const move = (ev: MouseEvent) => {
+      setStoredCols({ ...cols, [key]: clampColumn(key, startWidth + (ev.clientX - startX) * direction) });
+    };
+    const up = () => {
+      window.removeEventListener("mousemove", move);
+      window.removeEventListener("mouseup", up);
+      document.body.classList.remove("col-resizing");
+    };
+    window.addEventListener("mousemove", move);
+    window.addEventListener("mouseup", up);
+    document.body.classList.add("col-resizing");
+  };
 
   const startResize = (e: React.MouseEvent) => {
     drag.current = { y: e.clientY, h: height };
@@ -340,7 +397,47 @@ export function LogDock({
               disabled={!result?.hasMore || loading}
             />
           </div>
-          <div className="log-list" role="listbox">
+          <div
+            className="log-cols"
+            style={
+              {
+                "--col-hash": `${cols.hash}px`,
+                "--col-refs": `${cols.refs}px`,
+                "--col-author": `${cols.author}px`,
+                "--col-time": `${cols.time}px`,
+              } as React.CSSProperties
+            }
+          >
+            <span className="log-cols-graph" style={{ width }} />
+            <span className="log-col" style={{ width: cols.hash }}>
+              <span>{t("colHash")}</span>
+              <span className="col-grip" title={t("resizeColumn")} onMouseDown={startColumn("hash", 1)} />
+            </span>
+            <span className="log-col flexible">{t("colSubject")}</span>
+            <span className="log-col" style={{ width: cols.refs }}>
+              <span className="col-grip start" title={t("resizeColumn")} onMouseDown={startColumn("refs", -1)} />
+              <span>{t("colRefs")}</span>
+            </span>
+            <span className="log-col end" style={{ width: cols.author }}>
+              <span className="col-grip start" title={t("resizeColumn")} onMouseDown={startColumn("author", -1)} />
+              <span>{t("colAuthor")}</span>
+            </span>
+            <span className="log-col end" style={{ width: cols.time }}>
+              {t("colDate")}
+            </span>
+          </div>
+          <div
+            className="log-list"
+            role="listbox"
+            style={
+              {
+                "--col-hash": `${cols.hash}px`,
+                "--col-refs": `${cols.refs}px`,
+                "--col-author": `${cols.author}px`,
+                "--col-time": `${cols.time}px`,
+              } as React.CSSProperties
+            }
+          >
             {commits.length === 0 && !loading && (
               <div className="changes-empty">
                 <Icon name="log" size={20} />
@@ -412,9 +509,19 @@ export function LogDock({
                   </span>
                   {commit.refs.length > 0 && (
                     <span className="log-refs">
-                      {commit.refs.slice(0, 4).map((ref, ri) => (
+                      {commit.refs.slice(0, 2).map((ref, ri) => (
                         <RefChip key={ri} name={ref.name} type={ref.type} head={ref.head} />
                       ))}
+                      {commit.refs.length > 2 && (
+                        <span
+                          className="log-refs-more"
+                          title={t("moreRefs", {
+                            names: commit.refs.slice(2).map((ref) => ref.name).join(", "),
+                          })}
+                        >
+                          +{commit.refs.length - 2}
+                        </span>
+                      )}
                     </span>
                   )}
                   <span className="log-author" title={commit.author}>

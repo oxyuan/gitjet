@@ -34,6 +34,8 @@ const T = {
     rebase: "Rebase current onto this",
     deleteBranch: "Delete branch",
     copyName: "Copy branch name",
+    pullBranch: "Pull",
+    pushBranch: "Push",
   },
   zh: {
     searchBranches: "搜索分支",
@@ -56,6 +58,8 @@ const T = {
     rebase: "变基当前分支到此",
     deleteBranch: "删除分支",
     copyName: "复制分支名",
+    pullBranch: "拉取",
+    pushBranch: "推送",
   },
 } as const;
 
@@ -77,6 +81,8 @@ export function BranchList({
   onRebase,
   onDelete,
   onCopy,
+  onPull,
+  onPush,
 }: {
   refs: RefsSnapshot | null;
   current: string;
@@ -91,6 +97,9 @@ export function BranchList({
   onRebase: (name: string) => void;
   onDelete: (name: string) => void;
   onCopy: (text: string) => void;
+  /** Pull the checked out branch, then push the given local branch. */
+  onPull: (leaf: BranchLeaf) => void;
+  onPush: (leaf: BranchLeaf) => void;
 }) {
   const t = useT(T);
   const [query, setQuery] = useState("");
@@ -122,6 +131,16 @@ export function BranchList({
       { label: t("newBranch"), icon: "plus", onClick: () => onNewBranch(leaf.name) },
       { label: t("merge"), icon: "merge", onClick: () => onMerge(leaf.name) },
       { label: t("rebase"), icon: "rebase", onClick: () => onRebase(leaf.name) },
+      ...(leaf.remote === ""
+        ? ([
+            { separator: true } as ContextItem,
+            // A pull only makes sense for the branch that is checked out.
+            ...(leaf.current
+              ? [{ label: t("pullBranch"), icon: "pull", onClick: () => onPull(leaf) } as ContextItem]
+              : []),
+            { label: t("pushBranch"), icon: "push", onClick: () => onPush(leaf) } as ContextItem,
+          ])
+        : []),
       { separator: true },
       { label: t("copyName"), icon: "copy", onClick: () => onCopy(leaf.name) },
     ];
@@ -207,7 +226,11 @@ export function BranchList({
           return (
             <div className="bp-section" key={section.key}>
               <div className="bp-section-title">
-                {section.remote ? t("remoteBranches", { remote: section.remote }) : t("localBranches")}
+                <Icon name={section.remote ? "fetch" : "branch"} size={11} />
+                <span>
+                  {section.remote ? t("remoteBranches", { remote: section.remote }) : t("localBranches")}
+                </span>
+                <span className="bp-count">{all.length}</span>
               </div>
               {pinned.map((leaf) => leafRow(leaf, true))}
               {groups.map((group) => {
