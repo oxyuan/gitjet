@@ -227,7 +227,7 @@ export function BranchList({
             .map((group) => ({ ...group, branches: group.branches.filter((leaf) => !pinnedKeys.has(leaf.key)) }))
             .filter((group) => group.branches.length > 0);
           return (
-            <div className="bp-section" key={section.key}>
+            <div className={cx("bp-section", section.remote && "remote")} key={section.key}>
               <div className="bp-section-title">
                 <Icon name={section.remote ? "fetch" : "branch"} size={11} />
                 <span>
