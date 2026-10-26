@@ -1,94 +1,17 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { ConflictContent } from "./mygo";
-import { wordDiff, type WordSegment } from "./diff";
+import type { WordSegment } from "./diff";
 import { Icon } from "./icons";
+import {
+  alignLines,
+  assembleForFree as assembleFreeText,
+  assembleMerge,
+  parseConflicts,
+  type ConflictSegment,
+} from "./merge";
 import { Button, cx, IconButton, Spinner } from "./ui";
 
-type Segment =
-  | { kind: "text"; text: string }
-  | { kind: "conflict"; ours: string[]; theirs: string[]; base: string[]; label: string };
-
 type Choice = "ours" | "theirs" | "both" | "custom" | "none";
-
-interface MergeRow {
-  ours?: { no: number; text: string; segments?: WordSegment[] };
-  theirs?: { no: number; text: string; segments?: WordSegment[] };
-  same: boolean;
-}
-
-function parseConflicts(text: string): { segments: Segment[]; trailingNewline: boolean } {
-  const trailingNewline = text.endsWith("\n");
-  const lines = text.split("\n");
-  if (trailingNewline) lines.pop();
-  const segments: Segment[] = [];
-  let buffer: string[] = [];
-  let ours: string[] | null = null;
-  let theirs: string[] | null = null;
-  let base: string[] | null = null;
-  let mode: "none" | "ours" | "base" | "theirs" = "none";
-  let label = "";
-  const flush = () => {
-    if (buffer.length > 0) {
-      segments.push({ kind: "text", text: buffer.join("\n") });
-      buffer = [];
-    }
-  };
-  for (const line of lines) {
-    if (line.startsWith("<<<<<<<")) {
-      flush();
-      ours = [];
-      theirs = null;
-      base = null;
-      mode = "ours";
-      label = line.replace(/^<<<<<<<\s*/, "").trim();
-    } else if (line.startsWith("|||||||") && mode === "ours") {
-      base = [];
-      mode = "base";
-    } else if (line === "=======" && mode !== "none") {
-      theirs = [];
-      mode = "theirs";
-    } else if (line.startsWith(">>>>>>>") && mode === "theirs" && ours && theirs) {
-      segments.push({
-        kind: "conflict",
-        ours,
-        theirs,
-        base: base ?? [],
-        label: label || line.replace(/^>>>>>>>\s*/, "").trim(),
-      });
-      ours = null;
-      theirs = null;
-      base = null;
-      mode = "none";
-    } else if (mode === "ours" && ours) ours.push(line);
-    else if (mode === "base" && base) base.push(line);
-    else if (mode === "theirs" && theirs) theirs.push(line);
-    else buffer.push(line);
-  }
-  flush();
-  return { segments, trailingNewline };
-}
-
-/** alignLines pairs the two sides of a conflict line by line, so changed
- *  lines face each other and can be reviewed and inserted individually. */
-function alignLines(ours: string[], theirs: string[]): MergeRow[] {
-  const rows: MergeRow[] = [];
-  const n = Math.max(ours.length, theirs.length);
-  for (let i = 0; i < n; i++) {
-    const a = ours[i];
-    const b = theirs[i];
-    let left: MergeRow["ours"];
-    let right: MergeRow["theirs"];
-    if (a !== undefined) left = { no: i + 1, text: a };
-    if (b !== undefined) right = { no: i + 1, text: b };
-    if (a !== undefined && b !== undefined && a !== b) {
-      const [leftSegs, rightSegs] = wordDiff(a, b);
-      left = { ...left!, segments: leftSegs };
-      right = { ...right!, segments: rightSegs };
-    }
-    rows.push({ ours: left, theirs: right, same: a === b });
-  }
-  return rows;
-}
 
 function Lines({ text }: { text: string }) {
   if (text === "") return <span className="muted">(empty)</span>;
@@ -139,7 +62,7 @@ export function ConflictView({
 }) {
   const { segments, trailingNewline } = useMemo(() => parseConflicts(conflict.working), [conflict.working]);
   const conflicts = useMemo(
-    () => segments.filter((s): s is Extract<Segment, { kind: "conflict" }> => s.kind === "conflict"),
+    () => segments.filter((s): s is ConflictSegment => s.kind === "conflict"),
     [segments],
   );
   const [contents, setContents] = useState<string[]>(() => conflicts.map(() => ""));
@@ -159,25 +82,6 @@ export function ConflictView({
     setFreeText(conflict.working);
     setFree(false);
   }, [conflict.working, conflicts]);
-
-  const assemble = (values: string[]) => {
-    let index = 0;
-    const parts = segments.map((seg) => (seg.kind === "text" ? seg.text : (values[index++] ?? "")));
-    return parts.join("\n") + (trailingNewline ? "\n" : "");
-  };
-
-  // Keep resolved blocks and leave unresolved ones as markers, so switching
-  // to whole-file editing never throws away work or hides a conflict.
-  const assembleForFree = () => {
-    let index = 0;
-    const parts = segments.map((seg) => {
-      if (seg.kind === "text") return seg.text;
-      const i = index++;
-      if (resolved[i]) return contents[i] ?? "";
-      return `<<<<<<< ${seg.label}\n${seg.ours.join("\n")}\n=======\n${seg.theirs.join("\n")}\n>>>>>>> ${seg.label}`;
-    });
-    return parts.join("\n") + (trailingNewline ? "\n" : "");
-  };
 
   const setConflictText = (i: number, text: string, choice: Choice) => {
     setContents((prev) => prev.map((v, k) => (k === i ? text : v)));
@@ -225,7 +129,7 @@ export function ConflictView({
   };
 
   const unresolved = resolved.filter((r) => !r).length;
-  const result = free ? freeText : assemble(contents);
+  const result = free ? freeText : assembleMerge(segments, contents, trailingNewline);
   const hasMarkers = result.includes("<<<<<<<") || result.includes("=======") || result.includes(">>>>>>>");
   const canSave = !busy && !conflict.binary && (free ? !hasMarkers : unresolved === 0 && !hasMarkers);
 
@@ -296,7 +200,7 @@ export function ConflictView({
             <button
               className={cx("segmented-btn text", free && "active")}
               onClick={() => {
-                setFreeText(assembleForFree());
+                setFreeText(assembleFreeText(segments, contents, resolved, trailingNewline));
                 setFree(true);
               }}
               title="Edit the complete result as one file"
