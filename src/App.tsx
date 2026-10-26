@@ -11,6 +11,7 @@ import {
   type CommitFile,
   type ConflictContent,
   type DiffOptions,
+  type FetchOptions,
   type FileDiff,
   type LogResult,
   type PushOptions,
@@ -27,10 +28,8 @@ import { ConsolePanel } from "./ConsolePanel";
 import { DiffView, BlameView } from "./DiffView";
 import {
   ChangelistDialog,
-  FetchDialog,
   MergeDialog,
   NewBranchDialog,
-  OperationDialog,
   PullDialog,
   PushDialog,
   ResetDialog,
@@ -40,11 +39,13 @@ import {
 } from "./Dialogs";
 import { Icon } from "./icons";
 import { LogPanel, type LogBranchFilter } from "./LogPanel";
+import { OperationDock, type OperationState } from "./OperationDock";
 import { QuickOpen } from "./QuickOpen";
 import { SourceView } from "./SourceView";
 import {
   Button,
   ConfirmDialog,
+  ContextMenu,
   cx,
   formatWhen,
   IconButton,
@@ -72,22 +73,11 @@ type Dialog =
   | { kind: "renameBranch"; name: string }
   | { kind: "push"; setUpstream: boolean }
   | { kind: "pull" }
-  | { kind: "fetch" }
   | { kind: "reset"; hash: string; subject: string }
   | { kind: "tag"; start: string }
   | { kind: "stash" }
   | { kind: "changelist"; mode: "new" | "rename"; id?: string; name?: string; comment?: string }
-  | { kind: "merge"; refs: string[] }
-  | { kind: "operation"; op: OperationState };
-
-interface OperationState {
-  title: string;
-  icon: "fetch" | "pull" | "push" | "commit" | "stash" | "reset" | "merge";
-  lines: string[];
-  running: boolean;
-  error?: string;
-  success?: string;
-}
+  | { kind: "merge"; refs: string[] };
 
 interface ConfirmState {
   title: string;
@@ -121,6 +111,10 @@ export default function App() {
   const [busy, setBusy] = useState(0);
   const [toast, setToast] = useState<{ kind: "info" | "success" | "error"; title: string; message?: string } | null>(null);
   const [dialog, setDialog] = useState<Dialog | null>(null);
+  const [op, setOp] = useState<OperationState | null>(null);
+  const [opOpen, setOpOpen] = useState(false);
+  const [fetchMenu, setFetchMenu] = useState<{ x: number; y: number } | null>(null);
+  const [fetchOptions, setFetchOptions] = useStoredState("gitjet.fetchOptions", { prune: true, tags: true });
   const [confirm, setConfirm] = useState<ConfirmState | null>(null);
   const [branchPopup, setBranchPopup] = useState<{ x: number; y: number } | null>(null);
   const [splitWidth, setSplitWidth] = useStoredState<number>("gitjet.split", 430);
@@ -733,24 +727,18 @@ export default function App() {
     fn: (channel: Channel<string>) => Promise<string>,
   ) => {
     opLines.current = [];
+    setOp({ title, icon, lines: [], running: true });
+    setOpOpen(false);
     const update = (patch: Partial<OperationState>) => {
-      setDialog((d) =>
-        d && d.kind === "operation"
-          ? { kind: "operation", op: { ...d.op, ...patch, lines: [...opLines.current] } }
-          : d,
-      );
+      setOp((prev) => (prev ? { ...prev, ...patch, lines: [...opLines.current] } : prev));
     };
-    setDialog({
-      kind: "operation",
-      op: { title, icon, lines: [], running: true },
-    });
     const channel = new Channel<string>();
     try {
       const promise = fn(channel);
       for await (const line of channel) {
         opLines.current.push(line);
         if (opLines.current.length > 2000) opLines.current.splice(0, opLines.current.length - 2000);
-        update({ lines: opLines.current });
+        update({});
       }
       const out = await promise;
       const first = out
@@ -786,9 +774,16 @@ export default function App() {
     void runOperation("Update Project", "pull", (ch) => Git.pull(opts, ch)).then(openNextConflict);
   };
 
-  const fetch = (opts: Parameters<typeof Git.fetch>[0]) => {
-    setDialog(null);
-    void runOperation("Fetch", "fetch", (ch) => Git.fetch(opts, ch));
+  // Fetch has no dialog: the toolbar fetches at once and keeps the options,
+  // which a right click cycles through, in the background.
+  const fetch = (opts?: FetchOptions) => {
+    setFetchMenu(null);
+    void runOperation("Fetch", "fetch", (ch) =>
+      Git.fetch(
+        opts ?? { all: true, remote: "", prune: fetchOptions.prune, tags: fetchOptions.tags },
+        ch,
+      ),
+    );
   };
 
   const checkout = async (ref: string) => {
@@ -1021,7 +1016,7 @@ export default function App() {
           if (repoOpen) setDialog({ kind: "pull" });
           break;
         case "fetch":
-          if (repoOpen) setDialog({ kind: "fetch" });
+          if (repoOpen) fetch();
           break;
         case "stash":
           if (repoOpen) setDialog({ kind: "stash" });
@@ -1159,10 +1154,6 @@ export default function App() {
     }
   };
 
-  const operationDone = () => {
-    setDialog((d) => (d && d.kind === "operation" && !d.op.running ? null : d));
-  };
-
   if (!boot || !settings) {
     return (
       <div className="boot-screen">
@@ -1213,8 +1204,26 @@ export default function App() {
           <IconButton icon="open" title="Open Repository (⌘/Ctrl+O)" onClick={() => void openRepo()} />
           <span className="toolbar-sep" />
           <IconButton icon="refresh" title="Refresh (⌘/Ctrl+R)" onClick={() => void reload(true)} spinner={busy > 0} />
-          <IconButton icon="fetch" title="Fetch" onClick={() => setDialog({ kind: "fetch" })} disabled={!repoOpen} />
-          <IconButton icon="pull" title="Update Project (⌘/Ctrl+T)" onClick={() => setDialog({ kind: "pull" })} disabled={!repoOpen} />
+          <span
+            className="icon-slot"
+            onContextMenu={(e) => {
+              if (!repoOpen) return;
+              e.preventDefault();
+              setFetchMenu({ x: e.clientX, y: e.clientY });
+            }}
+          >
+            <IconButton
+              icon="fetch"
+              title="Fetch (right-click for options)"
+              onClick={() => fetch()}
+              spinner={!!op?.running && op.icon === "fetch"}
+              disabled={!repoOpen}
+            />
+          </span>
+          <span className="icon-slot">
+            <IconButton icon="pull" title="Update Project (⌘/Ctrl+T)" onClick={() => setDialog({ kind: "pull" })} disabled={!repoOpen} />
+            {state && state.behind > 0 && <span className="icon-dot" />}
+          </span>
           <IconButton icon="push" title="Push (⌘/Ctrl+Shift+K)" onClick={() => setDialog({ kind: "push", setUpstream: !snapshot?.state.upstream })} disabled={!repoOpen} />
           <button
             className="branch-button"
@@ -1279,7 +1288,7 @@ export default function App() {
                   onSearch={setSearchInput}
                   onSelect={selectCommit}
                   onRefresh={() => void loadLog(true)}
-                  onFetch={() => setDialog({ kind: "fetch" })}
+                  onFetch={() => fetch()}
                   onLoadMore={() => void loadLog(false, true)}
                   onCheckout={(ref) => void checkout(ref)}
                   onNewBranch={(start) => setDialog({ kind: "newBranch", start })}
@@ -1390,8 +1399,24 @@ export default function App() {
         </button>
         {state && (state.ahead > 0 || state.behind > 0) && (
           <span className="status-sync">
-            {state.ahead > 0 && <span className="ahead">↑ {state.ahead}</span>}
-            {state.behind > 0 && <span className="behind">↓ {state.behind}</span>}
+            {state.ahead > 0 && (
+              <button
+                className="status-sync-btn ahead"
+                title={`Push ${state.ahead} commit${state.ahead === 1 ? "" : "s"}`}
+                onClick={() => setDialog({ kind: "push", setUpstream: !state.upstream })}
+              >
+                ↑ {state.ahead}
+              </button>
+            )}
+            {state.behind > 0 && (
+              <button
+                className="status-sync-btn behind"
+                title={`Pull ${state.behind} commit${state.behind === 1 ? "" : "s"} from the remote`}
+                onClick={() => setDialog({ kind: "pull" })}
+              >
+                ↓ {state.behind}
+              </button>
+            )}
           </span>
         )}
         {state?.operation && (
@@ -1440,7 +1465,7 @@ export default function App() {
           onMerge={(name) => setDialog({ kind: "merge", refs: [name] })}
           onRebase={(name) => void rebase(name)}
           onDelete={(name) => void deleteBranch(name)}
-          onFetch={() => setDialog({ kind: "fetch" })}
+          onFetch={() => fetch()}
           onPull={() => setDialog({ kind: "pull" })}
           onPush={() => setDialog({ kind: "push", setUpstream: !snapshot?.state.upstream })}
           onFilterLog={(name) => {
@@ -1502,9 +1527,6 @@ export default function App() {
           onSubmit={pull}
         />
       )}
-      {dialog?.kind === "fetch" && (
-        <FetchDialog remotes={remotes} onClose={() => setDialog(null)} onSubmit={fetch} />
-      )}
       {dialog?.kind === "reset" && (
         <ResetDialog
           hash={dialog.hash}
@@ -1540,17 +1562,6 @@ export default function App() {
           onSubmit={(ref, opts) => void merge(ref, opts)}
         />
       )}
-      {dialog?.kind === "operation" && (
-        <OperationDialog
-          title={dialog.op.title}
-          icon={dialog.op.icon}
-          lines={dialog.op.lines}
-          running={dialog.op.running}
-          error={dialog.op.error}
-          success={dialog.op.success}
-          onClose={operationDone}
-        />
-      )}
       {confirm && (
         <ConfirmDialog
           title={confirm.title}
@@ -1560,6 +1571,44 @@ export default function App() {
           danger={confirm.danger}
           onConfirm={confirm.onConfirm}
           onCancel={confirm.onCancel}
+        />
+      )}
+      {op && (
+        <OperationDock op={op} open={opOpen} onToggle={() => setOpOpen((v) => !v)} onClose={() => setOp(null)} />
+      )}
+      {fetchMenu && (
+        <ContextMenu
+          x={fetchMenu.x}
+          y={fetchMenu.y}
+          onClose={() => setFetchMenu(null)}
+          items={[
+            {
+              label: "Fetch all remotes",
+              icon: "fetch",
+              onClick: () => fetch({ all: true, remote: "", prune: fetchOptions.prune, tags: fetchOptions.tags }),
+            },
+            ...(remotes.some((r) => r.name === "origin")
+              ? [
+                  {
+                    label: "Fetch origin",
+                    icon: "download" as const,
+                    onClick: () =>
+                      fetch({ all: false, remote: "origin", prune: fetchOptions.prune, tags: fetchOptions.tags }),
+                  },
+                ]
+              : []),
+            { separator: true as const },
+            {
+              label: "Prune deleted branches",
+              checked: fetchOptions.prune,
+              onClick: () => setFetchOptions({ ...fetchOptions, prune: !fetchOptions.prune }),
+            },
+            {
+              label: "Fetch tags",
+              checked: fetchOptions.tags,
+              onClick: () => setFetchOptions({ ...fetchOptions, tags: !fetchOptions.tags }),
+            },
+          ]}
         />
       )}
       {toast && <Toast kind={toast.kind} title={toast.title} message={toast.message} onClose={() => setToast(null)} />}

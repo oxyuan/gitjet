@@ -1,6 +1,5 @@
-import { useEffect, useRef, useState } from "react";
+import { useState } from "react";
 import type {
-  FetchOptions,
   MergeOptions,
   PullOptions,
   PushOptions,
@@ -344,56 +343,6 @@ export function PullDialog({
   );
 }
 
-export function FetchDialog({
-  remotes,
-  onClose,
-  onSubmit,
-}: {
-  remotes: Remote[];
-  onClose: () => void;
-  onSubmit: (opts: FetchOptions) => void;
-}) {
-  const [all, setAll] = useState(true);
-  const [remote, setRemote] = useState(remotes[0]?.name ?? "origin");
-  const [prune, setPrune] = useState(true);
-  const [tags, setTags] = useState(true);
-  return (
-    <Modal
-      title="Fetch"
-      icon="fetch"
-      width={440}
-      onClose={onClose}
-      footer={
-        <>
-          <Button onClick={onClose}>Cancel</Button>
-          <Button variant="primary" onClick={() => onSubmit({ all, remote, prune, tags })}>
-            Fetch
-          </Button>
-        </>
-      }
-    >
-      <div className="dialog-form">
-        <Checkbox checked={all} onChange={setAll} label="Fetch all remotes" />
-        {!all && (
-          <Field label="Remote">
-            <Select value={remote} onChange={setRemote}>
-              {remotes.map((r) => (
-                <option key={r.name} value={r.name}>
-                  {r.name}
-                </option>
-              ))}
-            </Select>
-          </Field>
-        )}
-        <div className="dialog-checks">
-          <Checkbox checked={prune} onChange={setPrune} label="Prune deleted remote branches" />
-          <Checkbox checked={tags} onChange={setTags} label="Fetch tags" />
-        </div>
-      </div>
-    </Modal>
-  );
-}
-
 export function ResetDialog({
   hash,
   subject,
@@ -570,67 +519,6 @@ export function ChangelistDialog({
           <TextInput value={comment} onChange={setComment} placeholder="Optional" />
         </Field>
       </div>
-    </Modal>
-  );
-}
-
-export function OperationDialog({
-  title,
-  icon,
-  lines,
-  running,
-  error,
-  success,
-  onClose,
-  width = 720,
-}: {
-  title: string;
-  icon: "fetch" | "pull" | "push" | "commit" | "stash" | "reset" | "merge";
-  lines: string[];
-  running: boolean;
-  error?: string;
-  success?: string;
-  onClose: () => void;
-  width?: number;
-}) {
-  const ref = useRef<HTMLPreElement>(null);
-  useEffect(() => {
-    const el = ref.current;
-    if (el) el.scrollTop = el.scrollHeight;
-  }, [lines, running]);
-  return (
-    <Modal
-      title={title}
-      icon={icon}
-      width={width}
-      onClose={running ? () => {} : onClose}
-      footer={
-        <>
-          {running && (
-            <span className="op-running">
-              <Spinner /> Running…
-            </span>
-          )}
-          <span className="spacer" />
-          <Button onClick={onClose} disabled={running} variant={error ? "danger" : "primary"}>
-            {running ? "Please wait" : "Close"}
-          </Button>
-        </>
-      }
-    >
-      {error && (
-        <div className="op-error">
-          <Icon name="error" /> {error}
-        </div>
-      )}
-      {!error && success && !running && (
-        <div className="op-success">
-          <Icon name="check" /> {success}
-        </div>
-      )}
-      <pre className="op-output" ref={ref}>
-        {lines.length === 0 ? (running ? "Starting…" : "No output.") : lines.join("\n")}
-      </pre>
     </Modal>
   );
 }

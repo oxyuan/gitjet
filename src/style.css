@@ -5770,3 +5770,173 @@ kbd {
 .commit-panel .changes-empty .muted {
   color: var(--muted-2);
 }
+
+/* ---------- Operation dock ----------
+   Fetch and pull report through a single quiet line above the status bar
+   instead of taking the window with a modal. */
+.op-dock {
+  position: fixed;
+  left: 16px;
+  bottom: 40px;
+  z-index: 118;
+  width: min(420px, calc(100vw - 32px));
+  background: var(--panel-raised);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  box-shadow: var(--shadow-md);
+  overflow: hidden;
+  font-size: 11.5px;
+  animation: op-dock-in 0.16s ease-out;
+}
+
+@keyframes op-dock-in {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+}
+
+.op-dock.running::after {
+  content: "";
+  position: absolute;
+  inset: 0 0 auto;
+  height: 2px;
+  background: linear-gradient(90deg, transparent, var(--accent), transparent);
+  background-size: 45% 100%;
+  background-repeat: no-repeat;
+  animation: op-dock-sweep 1.15s ease-in-out infinite;
+}
+
+@keyframes op-dock-sweep {
+  from {
+    background-position: -45% 0;
+  }
+  to {
+    background-position: 145% 0;
+  }
+}
+
+.op-dock-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  padding: 8px 10px;
+  border: 0;
+  background: none;
+  color: var(--fg-soft);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.op-dock-head:hover {
+  background: var(--hover);
+}
+
+.op-dock-title {
+  flex: none;
+  font-weight: 600;
+  color: var(--fg);
+}
+
+.op-dock-status {
+  flex: 1;
+  min-width: 0;
+  color: var(--muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.op-dock.failed .op-dock-status {
+  color: var(--danger);
+}
+
+.op-dock-chevron {
+  flex: none;
+  color: var(--muted-2);
+}
+
+.op-dock-body {
+  border-top: 1px solid var(--border);
+}
+
+.op-dock-log {
+  margin: 0;
+  padding: 8px 10px;
+  max-height: 180px;
+  overflow: auto;
+  background: var(--code-bg);
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+  line-height: 1.55;
+  white-space: pre-wrap;
+  word-break: break-word;
+  user-select: text;
+}
+
+.op-dock-foot {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 6px 10px;
+  border-top: 1px solid var(--border);
+}
+
+.op-dock-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--muted);
+  font: inherit;
+  cursor: pointer;
+}
+
+.op-dock-link:hover {
+  color: var(--fg);
+}
+
+/* Toolbar slots carry the "remote moved" dot without shifting the icons. */
+.icon-slot {
+  position: relative;
+  display: inline-flex;
+}
+
+.icon-dot {
+  position: absolute;
+  top: 6px;
+  right: 6px;
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: var(--st-deleted);
+  box-shadow: 0 0 0 2px var(--bg);
+  pointer-events: none;
+}
+
+.status-sync-btn {
+  padding: 0 3px;
+  border: 0;
+  border-radius: 3px;
+  background: none;
+  font: inherit;
+  font-size: 10.5px;
+  cursor: pointer;
+}
+
+.status-sync-btn:hover {
+  background: var(--hover);
+}
+
+.status-sync-btn.ahead {
+  color: var(--st-added);
+}
+
+.status-sync-btn.behind {
+  color: var(--st-deleted);
+}
+
