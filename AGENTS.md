@@ -17,7 +17,8 @@ Three layers, one direction of control:
    services (`Workspace`, `Git`), two events, on-disk settings/metadata, and a
    poll loop.
 3. **`src`** — React UI. Calls `src/mygo.ts` (generated) and never composes git
-   commands.
+   commands. Source files render in CodeMirror 6 (`src/editor.ts`), which loads
+   its grammar lazily from `@codemirror/language-data`.
 
 Request path: React → `call("Git.Stage", paths)` → bound method → `git.Repo` →
 `exec.CommandContext(git, "-C", dir, "--no-pager", …)` → parsed struct → JSON →
@@ -41,7 +42,7 @@ There is no router, no state library, no ORM: dock/tab/dialog state lives in
 |Path|Purpose|
 |---|---|
 |`internal/git/`|Git execution and parsing: `git.go` (spawn/env/paths), `status.go`, `diff.go`, `log.go`, `actions.go`, `blame.go`, `console.go`, `files.go`, `repoinfo.go`, `rewrite.go` (commit plan replay), `repo_extra.go` (worktrees, cleanup, submodules, LFS, shallow), `trace.go` (command echo), `exec_windows.go`|
-|`internal/app/`|Host: `run.go` (window/menu/events), `service.go` (bound services, poll), `settings.go` (`core`, persistence), `i18n.go`|
+|`internal/app/`|Host: `run.go` (window/menu/events), `service.go` (bound services, poll), `settings.go` (`core`, persistence), `i18n.go`, `lsp.go` (language server bridge)|
 |`src/`|React UI; `*.test.ts` next to the module under test. `EditHistoryDialog.tsx` (rewrite plan) and `RepoExtrasDialog.tsx` (worktrees/submodules/LFS) are the only standalone dialogs; the rest live in `Dialogs.tsx`|
 |`src/mygo.ts`|**Generated** bindings — never hand-edit|
 |`resources/`|`icon.png` only, copied into the bundle by MyGo|
@@ -155,6 +156,27 @@ use it only for layout work. Vite's port is pinned to 5173 in **both**
 - Shortcuts are native menu accelerators in `internal/app/run.go` (`CmdOrCtrl`),
   not `keydown` handlers. To add one: menu item + `send("cmd")` + `case` in
   `App.handleCommand` + Go i18n label + README table.
+
+### Editing and language servers
+
+- The source pane is read-only CodeMirror: `EditorState.readOnly`,
+  never `EditorView.editable(false)` — the latter makes the DOM unfocusable and
+  kills the arrow keys, `⌘B` and copy.
+- Change bars come from `Git.diff({target:"worktree"})` hunks, mapped to lines by
+  `src/annotate.ts`; clicking a bar calls `Git.applyHunk(..., "rollback")` with
+  the same hunk index. Blame comes from `Git.blame`, rendered on the cursor line.
+- The editor's state fields must exist from construction (they start empty and
+  are filled by effects). Dispatching an effect whose field is absent throws.
+- `SourceView` is keyed by document id: without the key, React reuses the pane
+  and the old CodeMirror instance keeps the previous file.
+- Language servers are optional. `internal/lsp.Detect` maps repo markers to a
+  server; `Git.lspStart/lspWrite/lspStop` move bytes between the page and the
+  process over `events.gitLsp` (no sockets, no workers). Without a server,
+  `Git.searchSymbol` (git grep) backs the same jumps, classified by
+  `src/symbols.ts`.
+- Attach the LSP plugin only when the server speaks the file's language
+  (`lspServes`): a Go module with a `package.json` gets gopls, which must not
+  receive TypeScript documents.
 
 ### TypeScript
 

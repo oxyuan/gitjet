@@ -21,7 +21,9 @@ GitJet 是一个面向 Windows 与 macOS 的桌面 Git 客户端。界面由 Go 
 - 操作保护：检出、合并、变基、摘取、还原、拉取前自动贮藏本地改动，完成后自动恢复；恢复失败时保留在 stash 中并提示
 - 合并冲突逐行解决：并排对比 Ours / Theirs（含词级差异），点击任意一行插入结果，或整段选择 Ours / Theirs / Both；可查看共同祖先、编辑最终文件、查看最终结果预览；支持继续/中止 merge、rebase、cherry-pick、revert
 - 冲突汇总对话框：一次列出全部冲突文件，全部采用我方/对方、批量标记已解决、继续或中止操作
-- 源码查看：直接打开工作区、索引或任意提交中的文件，带语法高亮、行号、自动换行与文件内变更跳转；可在源码与差异之间一键切换
+- 源码查看：直接打开工作区、索引或任意提交中的文件，用 CodeMirror 6 渲染（按需加载 30+ 语言语法、只读、行号、自动换行）；可在源码与差异之间一键切换
+- 编辑器标注：左侧变更条对应 git 的 hunk，点击即可回滚该段修改（带确认）；当前行尾部显示 blame（作者、提交、摘要、时间），未提交的行单独标记
+- 跳转：`⌘/Ctrl+B`（或 `F12`）跳到定义、`⌘/Ctrl+Shift+B`（或 `Shift+F12`）列出引用、`⌘/Ctrl+点击`/`⌘/Ctrl+Alt+点击` 同效，悬停显示文档；仓库里有 `gopls`、`clangd`、`typescript-language-server`、`rust-analyzer`、`jdtls`、`pyright-langserver` 时用语言服务器（含诊断波浪线），否则退回工作区全文搜索，按语言规则区分声明与引用
 - 快速打开：`⌘/Ctrl+P` 按文件名或路径片段搜索工作区文件（包含未跟踪文件）；输入两个字以上时同时搜索提交信息与作者
 - 编辑器标签页：差异、源码、冲突、Blame 与提交详情同时打开，支持关闭与中键关闭
 
@@ -115,9 +117,14 @@ internal/git/           Git 命令层：状态、差异、日志、分支、提�
 src/                    React 前端
   App.tsx               应用状态、编辑器标签页与操作编排
   CommitPanel.tsx       变更列表与提交面板
-  SourceView.tsx        源码查看（语法高亮、行号、换行）
+  SourceView.tsx        源码查看的外壳：标题、工具栏、二进制/空文件状态
+  SourceEditor.tsx      源码编辑器的挂载、变更条、blame 与跳转接线
+  editor.ts             CodeMirror 6 配置：主题、按需语法、变更条、blame 装饰
+  lsp.ts                语言服务器客户端：IPC 传输、工作区、跨文件跳转
+  symbols.ts            标识符取词与声明/引用分类（纯函数，带测试）
+  annotate.ts           由文件差异推导变更条区间（纯函数，带测试）
+  SymbolPanel.tsx       引用列表对话框
   QuickOpen.tsx         快速打开文件与提交
-  highlight.ts          Prism 语法高亮
   LogDock.tsx           提交图与提交详情（含多选）
   DiffView.tsx          并排/统一差异查看器、Blame 视图
   ConflictView.tsx      逐行冲突解决与三路对比
@@ -143,11 +150,15 @@ src/                    React 前端
 | `⌘/Ctrl+Shift+K` | 推送 |
 | `⌘/Ctrl+T` | 更新项目（拉取） |
 | `⌘/Ctrl+,` | 设置 |
+| `⌘/Ctrl+B` | 跳到定义（源码视图中） |
+| `⌘/Ctrl+Shift+B` | 列出引用（源码视图中） |
+| `⌘/Ctrl+点击` | 跳到定义；`⌘/Ctrl+Alt+点击` 列出引用 |
 | `⌘/Ctrl+9` / `⌘/Ctrl+0` | Commit / Log 工具窗口 |
 
 ## 说明
 
 - GitJet 调用本机 Git，不内置 Git 实现；认证沿用系统 SSH agent 或 Git credential helper。
+- 语言服务器不随应用打包：装在哪里都行，只要能通过 `PATH` 找到。没有服务器时跳转仍然可用，只是按文本匹配，准确率不如类型解析。
 - 编辑历史的计划按时间顺序执行，暂不支持在列表内拖动重排或 `edit`（停下来修改内容）动作。
 - 子模块与 LFS 是只读状态加更新动作，没有子模块新增/删除与 LFS 跟踪规则编辑。
 - 所有 Git 写操作串行执行，避免并发操作争用 `index.lock`。
