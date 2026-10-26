@@ -1,5 +1,7 @@
 # GitJet
 
+![CI](https://github.com/oxyuan/gitjet/actions/workflows/ci.yml/badge.svg)
+
 GitJet 是一个面向 Windows 与 macOS 的桌面 Git 客户端。界面由 Go 编写的后端服务与 React 前端组成，运行在系统 WebView 中：macOS 使用 WKWebView，Windows 使用 WebView2。
 
 核心工作流围绕「本地变更 → 变更集 → 提交 → 日志 → 分支同步」展开，提供 Git 命令行的完整能力，同时把常用操作放进图形界面。代码审查场景可以同时打开差异、源码文件与冲突解决视图，在多个标签页之间切换。
@@ -76,6 +78,7 @@ bun run dev        # 启动开发版，Vite 热更新
 
 ```sh
 bun run typecheck  # TypeScript 类型检查
+bun run test:web   # 前端纯逻辑单元测试（Bun test）
 bun run generate   # 重新生成 src/mygo.ts
 go test ./...      # Go 单元测试
 go vet ./...
@@ -93,9 +96,8 @@ bun run build -- -platform darwin/universal,windows/amd64
 ## 目录结构
 
 ```
-main.go                 应用入口、窗口、菜单、事件
-service.go              绑定给前端的服务：Workspace / Git
-settings.go             设置、最近仓库、变更集与提交信息历史的持久化
+main.go                 应用入口
+internal/app/           窗口、菜单、事件、绑定服务（Workspace / Git）、设置与仓库元数据
 internal/git/           Git 命令层：状态、差异、日志、分支、提交、贮藏、冲突、Blame、控制台
 src/                    React 前端
   App.tsx               应用状态、编辑器标签页与操作编排
@@ -106,6 +108,7 @@ src/                    React 前端
   LogPanel.tsx          提交图与提交详情
   DiffView.tsx          并排/统一差异查看器、Blame 视图
   ConflictView.tsx      逐行冲突解决与三路对比
+  merge.ts              冲突解析、行对齐与结果组装（纯函数，带测试）
   ConsolePanel.tsx      Git 控制台
   Dialogs.tsx           推送、拉取、重置、标签、设置等对话框
   BranchPopup.tsx       分支弹窗
