@@ -31,16 +31,17 @@ func Run() error {
 
 func openWindow() {
 	mygo.NewWindow(mygo.WindowOptions{
-		Title:           "GitJet",
-		Width:           1440,
-		Height:          900,
-		MinWidth:        900,
-		MinHeight:       560,
-		TitleBarStyle:   mygo.TitleBarHidden,
-		TitleBarHeight:  44,
-		BackgroundColor: "light-dark(#f4f5f7, #18191e)",
-		StateKey:        "main",
-		URL:             "/",
+		Title:                mygo.App.Name(),
+		Width:                1440,
+		Height:               900,
+		MinWidth:             900,
+		MinHeight:            560,
+		TitleBarStyle:        mygo.TitleBarHidden,
+		TitleBarHeight:       52,
+		TrafficLightPosition: &mygo.Point{X: 20, Y: 19},
+		BackgroundColor:      "light-dark(#f5f5f7, #141416)",
+		StateKey:             "main",
+		URL:                  "/",
 	})
 }
 

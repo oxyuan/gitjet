@@ -103,8 +103,22 @@ export function Checkbox({
         disabled={disabled}
         onChange={(e) => onChange(e.target.checked)}
       />
-      <span className="checkbox-box" aria-hidden="true">
-        {indeterminate && !checked ? <span className="checkbox-dash" /> : checked ? <Icon name="check" size={11} /> : null}
+      <span
+        className="checkbox-box"
+        aria-hidden="true"
+        style={{
+          background: checked || indeterminate ? "color-mix(in srgb, var(--accent) 8%, var(--input-bg))" : "var(--input-bg)",
+          borderColor: checked || indeterminate ? "var(--accent)" : "var(--border-strong)",
+          color: checked || indeterminate ? "var(--accent)" : "transparent",
+        }}
+      >
+        {indeterminate && !checked ? (
+          <span className="checkbox-dash" />
+        ) : checked ? (
+          <svg className="checkbox-check" viewBox="0 0 16 16">
+            <path d="M3.4 8.5 6.3 11.4 12.6 4.9" />
+          </svg>
+        ) : null}
       </span>
       {label !== undefined && <span className="checkbox-label">{label}</span>}
     </label>

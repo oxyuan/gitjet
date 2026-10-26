@@ -134,6 +134,15 @@ export function LogPanel({
             </option>
           ))}
         </select>
+        <span className="spacer" />
+        <IconButton
+          icon="download"
+          title="Load more commits"
+          onClick={onLoadMore}
+          disabled={!result?.hasMore || loading}
+        />
+      </div>
+      <div className="log-search-row">
         <div className="search-field">
           <Icon name="search" size={13} />
           <input
@@ -148,13 +157,6 @@ export function LogPanel({
             </button>
           )}
         </div>
-        <span className="spacer" />
-        <IconButton
-          icon="download"
-          title="Load more commits"
-          onClick={onLoadMore}
-          disabled={!result?.hasMore || loading}
-        />
       </div>
       <div className="log-list" role="listbox">
         {commits.length === 0 && !loading && (
@@ -191,7 +193,7 @@ export function LogPanel({
                     />
                   ) : null,
                 )}
-                {row.lane && row.before[row.lane] && (
+                {row.before[row.lane] && (
                   <line
                     x1={10 + row.lane * 14}
                     y1={0}

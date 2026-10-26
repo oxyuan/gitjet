@@ -1232,6 +1232,7 @@ export default function App() {
             )}
             <Icon name="chevronDown" size={12} />
           </button>
+          <span className="spacer" />
           <button className="quick-trigger" onClick={() => setQuickOpen(true)} title="Quick Open (⌘/Ctrl+P)" disabled={!repoOpen}>
             <Icon name="search" />
             <span>Search files</span>
@@ -1699,46 +1700,54 @@ function RightPane({
     <div className="welcome">
       <div className="welcome-inner">
         <div className="welcome-logo">
-          <Icon name="git" size={34} />
+          <Icon name="git" size={36} />
         </div>
-        <h1>GitJet</h1>
+        <h1>Git, with a clearer view.</h1>
         <p className="welcome-tagline">
-          Review what the AI wrote. Compare changes, read the source, and settle every conflict
-          line by line — then commit and push without leaving the window.
+          Review changes, follow every branch, and resolve conflicts line by line — then land a
+          clean commit without leaving the window.
         </p>
         <div className="welcome-actions">
           <Button variant="primary" onClick={() => onOpenRecent("")}>
-            <Icon name="open" /> Open Repository…
+            <Icon name="open" /> Open repository
           </Button>
         </div>
         {recent.length > 0 && (
           <div className="recent-list">
-            <div className="recent-title">Recent repositories</div>
-            {recent.map((r) => (
-              <div className="recent-row" key={r.path} onClick={() => onOpenRecent(r.path)} title={r.path}>
-                <Icon name="folder" />
-                <span className="recent-name">{r.name || r.path}</span>
-                <span className="recent-path">{r.path}</span>
-                <button
-                  className="mini-icon"
-                  title="Remove from recent"
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    void onRemoveRecent(r.path);
-                  }}
-                >
-                  <Icon name="close" size={12} />
-                </button>
-              </div>
-            ))}
+            <div className="recent-head">
+              <span className="recent-title">Recent repositories</span>
+              <span className="recent-count">{recent.length}</span>
+            </div>
+            <div className="recent-grid">
+              {recent.map((r) => (
+                <div className="recent-card" key={r.path} onClick={() => onOpenRecent(r.path)} title={r.path}>
+                  <span className="recent-icon"><Icon name="folder" size={17} /></span>
+                  <span className="recent-text">
+                    <span className="recent-name">{r.name || r.path}</span>
+                    <span className="recent-path">{r.path}</span>
+                  </span>
+                  <Icon name="chevronRight" size={14} className="recent-arrow" />
+                  <button
+                    className="recent-remove"
+                    title="Remove from recent"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      void onRemoveRecent(r.path);
+                    }}
+                  >
+                    <Icon name="close" size={12} />
+                  </button>
+                </div>
+              ))}
+            </div>
           </div>
         )}
         <div className="welcome-hints">
-          <span><kbd>⌘/Ctrl</kbd> <kbd>O</kbd> Open</span>
-          <span><kbd>⌘/Ctrl</kbd> <kbd>P</kbd> Quick Open</span>
-          <span><kbd>⌘/Ctrl</kbd> <kbd>K</kbd> Commit</span>
-          <span><kbd>⌘/Ctrl</kbd> <kbd>Shift</kbd> <kbd>K</kbd> Push</span>
-          <span><kbd>⌘/Ctrl</kbd> <kbd>T</kbd> Update</span>
+          <span><kbd>⌘/Ctrl</kbd><kbd>O</kbd>Open</span>
+          <span><kbd>⌘/Ctrl</kbd><kbd>P</kbd>Quick open</span>
+          <span><kbd>⌘/Ctrl</kbd><kbd>K</kbd>Commit</span>
+          <span><kbd>⌘/Ctrl</kbd><kbd>Shift</kbd><kbd>K</kbd>Push</span>
+          <span><kbd>⌘/Ctrl</kbd><kbd>T</kbd>Update</span>
         </div>
       </div>
     </div>

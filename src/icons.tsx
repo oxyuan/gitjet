@@ -1,7 +1,7 @@
 import type { ReactNode } from "react";
 
 /**
- * The app's icon set, drawn on a 16px grid with 1.4px strokes, round caps,
+ * The app's icon set, drawn on a 16px grid with 1.5px strokes, round caps,
  * and no fills except status dots.
  */
 const PATHS: Record<string, ReactNode> = {
@@ -318,7 +318,7 @@ export function Icon({ name, size = 16, className }: { name: IconName; size?: nu
       viewBox="0 0 16 16"
       fill="none"
       stroke="currentColor"
-      strokeWidth={1.4}
+      strokeWidth={1.5}
       strokeLinecap="round"
       strokeLinejoin="round"
       aria-hidden="true"
