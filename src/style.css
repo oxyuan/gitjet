@@ -2755,40 +2755,6 @@ kbd {
   margin-top: 8px;
 }
 
-.settings-body {
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-}
-
-.settings-section-title {
-  font-size: 11px;
-  font-weight: 600;
-  text-transform: uppercase;
-  letter-spacing: 0.05em;
-  color: var(--muted-2);
-  border-bottom: 1px solid var(--border);
-  padding-bottom: 4px;
-  margin: 12px 0 8px;
-}
-
-.settings-section-title:first-child {
-  margin-top: 0;
-}
-
-.settings-ok {
-  color: var(--success);
-  font-size: 11.5px;
-  margin: -4px 0 8px 84px;
-}
-
-.settings-error {
-  color: var(--danger);
-  font-size: 11.5px;
-  margin: -4px 0 8px;
-  white-space: pre-wrap;
-}
-
 .confirm-message {
   font-size: 12.5px;
   line-height: 1.5;
@@ -5089,23 +5055,6 @@ kbd {
   background-repeat: no-repeat;
 }
 
-.settings-body {
-  gap: 0;
-}
-
-.settings-section-title {
-  margin: 18px 0 10px;
-  padding-bottom: 6px;
-  color: var(--muted-2);
-  font-size: 10px;
-  font-weight: 650;
-  letter-spacing: 0.08em;
-}
-
-.settings-section-title:first-child {
-  margin-top: 0;
-}
-
 .field {
   gap: 6px;
   margin-bottom: 12px;
@@ -5731,69 +5680,162 @@ kbd {
 
 
 /* ---------- Settings sheet ----------
-   Two aligned columns: a muted label rail and a control column, so every
-   row starts on the same x whether it holds a select, an input or a
-   checkbox. */
+   A tab strip over cards. Each card is one group of settings: a head you can
+   collapse and a body of rows. Rows share a label rail, so every control
+   starts on the same x whether it is a select, an input or a checkbox. */
+.settings-modal {
+  --settings-field: 300px;
+}
+
 .settings-modal .modal-body {
-  padding: 0 22px 8px;
+  padding: 0;
+  min-height: 0;
+  overflow-y: auto;
 }
 
 .settings-modal .modal-footer {
-  padding: 12px 22px;
+  padding: 12px 18px;
+}
+
+.settings-modal .modal-footer .settings-reset {
+  margin-right: auto;
+}
+
+/* Unsaved edits make Save the obvious next step; untouched, it stays quiet. */
+.settings-modal .modal-footer .btn-primary:not(:disabled) {
+  box-shadow: 0 0 0 3px var(--accent-soft);
 }
 
 .settings {
   display: flex;
   flex-direction: column;
+  min-height: 0;
 }
 
-.settings-group {
-  padding: 16px 0 14px;
+/* The tab strip stays put while the sheet scrolls. */
+.settings-head {
+  position: sticky;
+  top: 0;
+  z-index: 2;
+  flex: none;
+  background: var(--panel-raised);
+  border-bottom: 1px solid var(--border);
+}
+
+.settings-tabs {
+  display: flex;
+  gap: 2px;
+  padding: 0 14px;
+}
+
+.settings-tab {
+  height: 40px;
+  padding: 0 11px;
+  border: 0;
+  border-bottom: 2px solid transparent;
+  background: none;
+  color: var(--muted);
+  font-size: 12.5px;
+  cursor: pointer;
+  transition: color 120ms ease, border-color 120ms ease;
+}
+
+.settings-tab:hover {
+  color: var(--fg);
+}
+
+.settings-tab[aria-selected="true"] {
+  color: var(--fg);
+  font-weight: 600;
+  border-bottom-color: var(--accent);
+}
+
+.settings-panels {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 14px 18px 18px;
+}
+
+.settings-panel {
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--panel);
+  overflow: hidden;
+}
+
+/* Destructive settings are marked, not shouted: a warmer card, same layout. */
+.settings-panel.warn {
+  border-color: color-mix(in srgb, var(--warning) 30%, var(--border));
+  background: color-mix(in srgb, var(--warning) 6%, var(--panel));
+}
+
+.settings-panel-head {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  width: 100%;
+  height: 36px;
+  padding: 0 11px;
+  border: 0;
+  background: none;
+  color: var(--fg-soft);
+  font-size: 12px;
+  font-weight: 600;
+  text-align: left;
+  cursor: pointer;
+}
+
+.settings-panel-head:hover {
+  background: var(--hover);
+}
+
+.settings-panel-head > .icon:first-child {
+  color: var(--muted-2);
+  flex: none;
+}
+
+.settings-panel-title {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+}
+
+.settings-panel.warn .settings-panel-title {
+  color: color-mix(in srgb, var(--warning) 72%, var(--fg));
+}
+
+.settings-panel-warn {
+  flex: none;
+  color: var(--warning);
+}
+
+.settings-panel-body {
+  padding: 12px 12px 13px;
   border-top: 1px solid var(--border);
 }
 
-.settings-group:first-child {
-  border-top: 0;
-  padding-top: 14px;
-}
-
-.settings-group-title {
-  margin: 0 0 10px;
-  font-size: 10px;
-  font-weight: 650;
-  letter-spacing: 0.06em;
-  text-transform: uppercase;
-  color: var(--muted-2);
-}
-
-/* CJK does not need the tracking Latin small caps want. */
-:lang(zh) .settings-group-title {
-  letter-spacing: 0.03em;
-  font-size: 10.5px;
-}
-
+/* ---- rows: one label rail, one control column ---- */
 .setting-row {
   display: grid;
-  grid-template-columns: 148px minmax(0, 1fr);
-  column-gap: 18px;
-  align-items: center;
-  min-height: 28px;
-  margin-bottom: 9px;
+  grid-template-columns: 118px minmax(0, 1fr);
+  column-gap: 14px;
+  align-items: start;
+  margin-bottom: 12px;
 }
 
 .setting-row:last-child {
   margin-bottom: 0;
 }
 
-/* A row that carries its own label in the control column. */
-.setting-row.check {
-  grid-template-columns: minmax(0, 1fr);
-  margin-bottom: 7px;
-}
-
 .setting-label {
+  padding-top: 7px;
   font-size: 12px;
-  line-height: 1.3;
+  line-height: 1.35;
   color: var(--muted);
 }
 
@@ -5807,7 +5849,41 @@ kbd {
 
 .setting-control > .select {
   width: 100%;
-  max-width: 260px;
+  max-width: var(--settings-field);
+}
+
+/* A checkbox carries its own label, so it takes the whole row. */
+.setting-row.check {
+  grid-template-columns: minmax(0, 1fr);
+}
+
+.setting-row.check .setting-label {
+  padding-top: 0;
+}
+
+.setting-hint {
+  font-size: 10.5px;
+  line-height: 1.5;
+  color: var(--muted-2);
+}
+
+/* Hints under a checkbox line up with its text, not with the box. */
+.setting-row.check .setting-hint {
+  padding-left: 20px;
+}
+
+.setting-hint-value {
+  color: var(--fg-soft);
+}
+
+.setting-note {
+  font-size: 11px;
+  line-height: 1.45;
+}
+
+.setting-note.error {
+  color: var(--danger);
+  white-space: pre-wrap;
 }
 
 .setting-inline {
@@ -5817,34 +5893,91 @@ kbd {
   width: 100%;
 }
 
-.setting-inline .text-input {
-  flex: 1;
-  max-width: 260px;
-}
-
-.setting-hint {
-  font-size: 10.5px;
-  line-height: 1.45;
-  color: var(--muted-2);
-}
-
-.setting-note {
-  font-size: 11px;
-  line-height: 1.45;
-}
-
-.setting-note.ok {
-  color: var(--success);
-}
-
-.setting-note.error {
-  color: var(--danger);
-  white-space: pre-wrap;
+/* A field that only applies while its switch is on says so by looking off. */
+.settings .text-input:disabled,
+.settings .select:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
 }
 
 .setting-unit {
   font-size: 11.5px;
   color: var(--muted);
+}
+
+/* An input and the button that tests it read as one control. */
+.setting-field-group {
+  display: flex;
+  align-items: center;
+  width: 100%;
+  max-width: calc(var(--settings-field) + 64px);
+}
+
+.setting-field-group .text-input {
+  flex: 1;
+  min-width: 0;
+  height: 32px;
+  border-top-right-radius: 0;
+  border-bottom-right-radius: 0;
+}
+
+.setting-field-group .btn {
+  flex: none;
+  height: 32px;
+  margin-left: -1px;
+  border-top-left-radius: 0;
+  border-bottom-left-radius: 0;
+}
+
+.setting-field-group:focus-within .btn {
+  border-color: var(--accent);
+}
+
+/* ---- keyboard shortcut reference ---- */
+.settings-keys-note {
+  margin: 0 0 10px;
+  font-size: 11px;
+  line-height: 1.5;
+  color: var(--muted-2);
+}
+
+.settings-keys {
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--panel);
+  overflow: hidden;
+}
+
+.settings-key-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 8px 12px;
+  font-size: 12px;
+  color: var(--fg-soft);
+}
+
+.settings-key-row + .settings-key-row {
+  border-top: 1px solid var(--border);
+}
+
+.settings-key-combo {
+  display: inline-flex;
+  gap: 4px;
+  flex: none;
+}
+
+.settings-key-combo kbd {
+  min-width: 20px;
+  padding: 2px 6px;
+  border: 1px solid var(--border-strong);
+  border-radius: 4px;
+  background: var(--input-bg);
+  color: var(--fg-soft);
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+  text-align: center;
 }
 
 .text-input.number {

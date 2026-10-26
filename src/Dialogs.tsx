@@ -1,5 +1,5 @@
-import { useEffect, useState } from "react";
-import { Git } from "./mygo";
+import { useEffect, useRef, useState } from "react";
+import { Git, Workspace } from "./mygo";
 import type {
   CommitDetail,
   MergeOptions,
@@ -40,7 +40,14 @@ const T = {
     "common.reset": "Reset",
     "common.stash": "Stash",
     "settings.title": "Settings",
-    "settings.general": "General",
+    "settings.tabGeneral": "General",
+    "settings.tabGit": "Git",
+    "settings.tabKeys": "Shortcuts",
+    "settings.panelGeneral": "General settings",
+    "settings.panelGitPath": "Git executable",
+    "settings.panelDiff": "Diff settings",
+    "settings.panelSync": "Sync and update",
+    "settings.panelDanger": "Confirmations",
     "settings.language": "Language",
     "settings.languageSystem": "Use system language",
     "settings.theme": "Theme",
@@ -55,26 +62,42 @@ const T = {
     "settings.openRepo": "Open Repository",
     "settings.openRepoSame": "Replace this window",
     "settings.openRepoNew": "Open a new window",
-    "settings.git": "Git",
+    "settings.openRepoHint": "Where a repository opens when you pick it from the recent list.",
     "settings.gitPath": "Git executable",
-    "settings.gitPathHint": "Leave empty to use the git on PATH.",
-    "settings.gitAuto": "Auto-detect",
+    "settings.gitPathHint": "Leave empty to use the git on PATH",
+    "settings.gitAuto": "Detected automatically",
     "settings.test": "Test",
-    "settings.gitVersion": "git {version}",
-    "settings.diff": "Diff",
+    "settings.gitVersion": "in use: git {version}",
     "settings.contextLines": "Context lines",
+    "settings.contextLinesHint": "Lines of unchanged code kept around each change.",
     "settings.ignoreWhitespace": "Ignore whitespace in diffs by default",
+    "settings.ignoreWhitespaceHint": "Changes that only add, remove or reindent spaces are left out of the comparison.",
     "settings.showIgnored": "Show ignored files in the commit panel",
-    "settings.sync": "Synchronization",
+    "settings.showIgnoredHint": "Files matched by .gitignore stay in the change list instead of disappearing from it.",
     "settings.updateMethod": "Update method",
+    "settings.updateMethodHint": "Merge keeps the branches' histories and adds a merge commit; rebase replays your local commits on top of the incoming ones, leaving a straight line.",
     "settings.merge": "Merge",
     "settings.rebase": "Rebase",
     "settings.autoFetch": "Fetch remotes automatically",
-    "settings.every": "Every",
+    "settings.autoFetchHint": "Only fetches: the remote-tracking branches are updated and nothing in your working tree or history changes. Merging is still up to you.",
     "settings.minutes": "minutes",
-    "settings.confirmations": "Confirmations",
+    "settings.autoFetchInterval": "Interval",
     "settings.confirmRollback": "Confirm before rolling back changes",
+    "settings.confirmRollbackHint": "Rolling back discards local work that git cannot recover.",
     "settings.confirmForcePush": "Confirm force push",
+    "settings.confirmForcePushHint": "A force push rewrites the remote branch and can drop commits other people already based work on.",
+    "settings.resetTab": "Restore defaults",
+    "settings.unsavedTitle": "Unsaved changes",
+    "settings.unsaved": "This tab has edits that are not saved yet. Switching tabs loses them.",
+    "settings.discard": "Discard",
+    "settings.saveAndClose": "Save and close",
+    "settings.keysHint": "These come from the menu and cannot be rebound here.",
+    "settings.keyOpen": "Open repository",
+    "settings.keyQuickOpen": "Quick open a file",
+    "settings.keyCommit": "Commit",
+    "settings.keyPush": "Push",
+    "settings.keyUpdate": "Update project",
+    "settings.keySettings": "Settings",
     "branch.new": "New Branch",
     "branch.rename": "Rename Branch",
     "branch.name": "Name",
@@ -161,7 +184,14 @@ const T = {
     "common.reset": "重置",
     "common.stash": "贮藏",
     "settings.title": "设置",
-    "settings.general": "通用",
+    "settings.tabGeneral": "通用",
+    "settings.tabGit": "Git",
+    "settings.tabKeys": "快捷键",
+    "settings.panelGeneral": "通用设置",
+    "settings.panelGitPath": "Git 基础配置",
+    "settings.panelDiff": "差异对比设置",
+    "settings.panelSync": "同步拉取设置",
+    "settings.panelDanger": "危险操作确认",
     "settings.language": "界面语言",
     "settings.languageSystem": "跟随系统",
     "settings.theme": "主题",
@@ -176,26 +206,42 @@ const T = {
     "settings.openRepo": "打开仓库时",
     "settings.openRepoSame": "替换当前窗口",
     "settings.openRepoNew": "在新窗口中打开",
-    "settings.git": "Git",
+    "settings.openRepoHint": "从最近列表里选择仓库时，在哪个窗口打开。",
     "settings.gitPath": "Git 可执行文件",
-    "settings.gitPathHint": "留空则使用 PATH 中的 git。",
+    "settings.gitPathHint": "留空则自动读取系统 PATH 中的 Git",
     "settings.gitAuto": "自动检测",
     "settings.test": "测试",
-    "settings.gitVersion": "git {version}",
-    "settings.diff": "差异",
+    "settings.gitVersion": "当前检测版本 git {version}",
     "settings.contextLines": "上下文行数",
+    "settings.contextLinesHint": "每一处改动周围保留的未改动行数。",
     "settings.ignoreWhitespace": "默认忽略空白差异",
+    "settings.ignoreWhitespaceHint": "对比代码时，忽略仅空格、缩进或换行上的变动。",
     "settings.showIgnored": "在提交面板中显示被忽略的文件",
-    "settings.sync": "同步",
+    "settings.showIgnoredHint": "被 .gitignore 忽略的文件依然列在更改列表里，而不是直接消失。",
     "settings.updateMethod": "更新方式",
+    "settings.updateMethodHint": "合并（merge）保留两条历史并产生一个合并提交；变基（rebase）把你的本地提交重放到远端提交之上，历史是一条直线。",
     "settings.merge": "合并",
     "settings.rebase": "变基",
     "settings.autoFetch": "自动获取远程更新",
-    "settings.every": "间隔",
+    "settings.autoFetchHint": "只执行 fetch：刷新远端分支的状态，不会合并、不会改动你的工作区或历史——要拉取仍然由你手动触发。",
     "settings.minutes": "分钟",
-    "settings.confirmations": "确认",
+    "settings.autoFetchInterval": "获取间隔",
     "settings.confirmRollback": "回滚更改前确认",
+    "settings.confirmRollbackHint": "回滚会丢弃 git 无法找回的本地改动。",
     "settings.confirmForcePush": "强制推送前确认",
+    "settings.confirmForcePushHint": "强制推送会覆盖远端分支，可能丢掉他人已经基于其开发的提交。",
+    "settings.resetTab": "恢复默认",
+    "settings.unsavedTitle": "未保存的修改",
+    "settings.unsaved": "当前页有尚未保存的修改，切换后将会丢失。",
+    "settings.discard": "放弃修改",
+    "settings.saveAndClose": "保存并关闭",
+    "settings.keysHint": "这些来自菜单，暂不支持在这里修改。",
+    "settings.keyOpen": "打开仓库",
+    "settings.keyQuickOpen": "快速打开文件",
+    "settings.keyCommit": "提交",
+    "settings.keyPush": "推送",
+    "settings.keyUpdate": "更新项目",
+    "settings.keySettings": "设置",
     "branch.new": "新建分支",
     "branch.rename": "重命名分支",
     "branch.name": "名称",
@@ -273,7 +319,7 @@ const T = {
   },
 } as const;
 
-/** SettingRow is the sheet's grid: a label rail, then the control. A row
+/** SettingRow is a panel's grid: a label rail, then the control. A row
  *  without a label is a checkbox whose own text carries the meaning, so it
  *  keeps the rail out of the way instead of leaving a hole in it. */
 function SettingRow({ label, hint, children }: { label?: string; hint?: React.ReactNode; children: React.ReactNode }) {
@@ -288,6 +334,62 @@ function SettingRow({ label, hint, children }: { label?: string; hint?: React.Re
   );
 }
 
+/** TKey is a key of the dialog dictionary, for the places that pick a label
+ *  at runtime. */
+type TKey = keyof (typeof T)["en"] & string;
+
+/** The panels a tab shows, in order, and whether they start open. Only the
+ *  settings most people change are open; the rest wait behind a click, and
+ *  the last state is remembered. */
+const PANELS: { id: string; title: TKey; open: boolean; tone?: "warning" }[] = [
+  { id: "general", title: "settings.panelGeneral", open: true },
+  { id: "gitPath", title: "settings.panelGitPath", open: true },
+  { id: "diff", title: "settings.panelDiff", open: false },
+  { id: "sync", title: "settings.panelSync", open: true },
+  { id: "danger", title: "settings.panelDanger", open: true, tone: "warning" },
+];
+
+type SettingsTab = "general" | "git" | "keys";
+
+/** Which fields each tab owns: the save button, the reset button and the
+ *  unsaved-changes prompt all work on this mapping, so a tab can never
+ *  silently discard a field it does not show. */
+const TAB_FIELDS: Record<SettingsTab, (keyof Settings)[]> = {
+  general: ["language", "theme", "uiScale", "openInNewWindow"],
+  git: [
+    "gitPath",
+    "diffContext",
+    "ignoreWhitespace",
+    "showIgnored",
+    "updateMethod",
+    "autoFetch",
+    "autoFetchMinutes",
+    "confirmRollback",
+    "confirmForcePush",
+  ],
+  keys: [],
+};
+
+const PANEL_STATE_KEY = "gitjet.settings.panels";
+
+function readPanelState(): Record<string, boolean> {
+  const start = Object.fromEntries(PANELS.map((p) => [p.id, p.open]));
+  try {
+    const saved = JSON.parse(localStorage.getItem(PANEL_STATE_KEY) ?? "{}");
+    if (saved && typeof saved === "object") {
+      for (const id of Object.keys(start)) {
+        if (typeof saved[id] === "boolean") start[id] = saved[id];
+      }
+    }
+  } catch {
+    // A corrupt entry is not worth a dialog: fall back to the defaults.
+  }
+  return start;
+}
+
+function field<T>(s: Settings, key: keyof Settings): T {
+  return s[key] as T;
+}
 
 export function SettingsDialog({
   settings,
@@ -301,18 +403,83 @@ export function SettingsDialog({
   onValidate: (path: string) => Promise<string>;
 }) {
   const t = useT(T);
+  const [tab, setTab] = useState<SettingsTab>("general");
   const [draft, setDraft] = useState<Settings>(settings);
+  const [open, setOpen] = useState<Record<string, boolean>>(readPanelState);
+  const [pending, setPending] = useState<SettingsTab | null>(null);
+  const [defaults, setDefaults] = useState<Settings | null>(null);
+  const panelsRef = useRef<HTMLDivElement>(null);
   const [gitVersion, setGitVersion] = useState("");
   const [checking, setChecking] = useState(false);
   const [error, setError] = useState("");
+
+  // The defaults power the reset button; the detected version tells the user
+  // which git the field is about before anything is typed. Both are fetched
+  // once: the parent re-renders often and must not re-spawn git each time.
+  const boot = useRef({ defaults: false, version: false });
+  useEffect(() => {
+    if (!boot.current.defaults) {
+      boot.current.defaults = true;
+      void Workspace.defaultSettings()
+        .then(setDefaults)
+        .catch(() => {
+          // Without the defaults the reset button stays disabled.
+        });
+    }
+    if (!boot.current.version) {
+      boot.current.version = true;
+      void onValidate("")
+        .then(setGitVersion)
+        .catch(() => {
+          // No git found: the field's own hint already covers that.
+        });
+    }
+  }, [onValidate]);
+
+  // A tab opens at its first panel, not wherever the previous one was scrolled.
+  useEffect(() => {
+    const body = panelsRef.current?.closest(".modal-body");
+    if (body) body.scrollTop = 0;
+  }, [tab]);
+
   const set = <K extends keyof Settings>(key: K, value: Settings[K]) => setDraft({ ...draft, [key]: value });
+
+  const anyDirty = (Object.keys(TAB_FIELDS) as SettingsTab[]).some((name) =>
+    TAB_FIELDS[name].some((k) => draft[k] !== settings[k]),
+  );
+  const canReset =
+    !!defaults && TAB_FIELDS[tab].some((k) => draft[k] !== field(defaults, k));
+
+  const togglePanel = (id: string) => {
+    const next = { ...open, [id]: !open[id] };
+    setOpen(next);
+    try {
+      localStorage.setItem(PANEL_STATE_KEY, JSON.stringify(next));
+    } catch {
+      // Private storage: the panels simply go back to their defaults.
+    }
+  };
+
+  const pickTab = (next: SettingsTab) => {
+    if (next === tab) return;
+    if (TAB_FIELDS[tab].some((k) => draft[k] !== settings[k])) {
+      setPending(next);
+      return;
+    }
+    setTab(next);
+  };
+
+  const discardThen = (next: SettingsTab) => {
+    setDraft(settings);
+    setPending(null);
+    setTab(next);
+  };
 
   const validate = async () => {
     setChecking(true);
     setError("");
     try {
-      const version = await onValidate(draft.gitPath);
-      setGitVersion(version);
+      setGitVersion(await onValidate(draft.gitPath));
     } catch (err) {
       setGitVersion("");
       setError(err instanceof Error ? err.message : String(err));
@@ -321,144 +488,285 @@ export function SettingsDialog({
     }
   };
 
+  const panel = (id: string, body: React.ReactNode) => {
+    const spec = PANELS.find((p) => p.id === id)!;
+    const isOpen = open[id];
+    return (
+      <section key={id} className={cx("settings-panel", spec.tone === "warning" && "warn", isOpen && "open")}>
+        <button
+          type="button"
+          className="settings-panel-head"
+          aria-expanded={isOpen}
+          onClick={() => togglePanel(id)}
+        >
+          <Icon name={isOpen ? "chevronDown" : "chevronRight"} size={12} />
+          <span className="settings-panel-title">
+            {t(spec.title)}
+            {spec.tone === "warning" && <Icon name="warning" size={12} className="settings-panel-warn" />}
+          </span>
+        </button>
+        {isOpen && <div className="settings-panel-body">{body}</div>}
+      </section>
+    );
+  };
+
+  const gitVersionNote = gitVersion ? t("settings.gitVersion", { version: gitVersion }) : "";
+
   return (
     <Modal
       title={t("settings.title")}
       icon="settings"
-      width={580}
+      width={640}
       className="settings-modal"
-      onClose={onClose}
+      onClose={pending ? () => setPending(null) : onClose}
       footer={
         <>
+          <Button
+            className="settings-reset"
+            disabled={!canReset}
+            onClick={() => {
+              if (!defaults) return;
+              const next = { ...draft };
+              for (const k of TAB_FIELDS[tab]) (next[k] as unknown) = field(defaults, k);
+              setDraft(next);
+            }}
+          >
+            {t("settings.resetTab")}
+          </Button>
           <Button onClick={onClose}>{t("common.cancel")}</Button>
-          <Button variant="primary" onClick={() => onSave(draft)}>
+          <Button variant="primary" disabled={!anyDirty} onClick={() => onSave(draft)}>
             {t("common.save")}
           </Button>
         </>
       }
     >
       <div className="settings">
-        <section className="settings-group">
-          <h2 className="settings-group-title">{t("settings.general")}</h2>
-          <SettingRow label={t("settings.language")}>
-            <Select value={draft.language} onChange={(v) => set("language", v)}>
-              <option value="system">{t("settings.languageSystem")}</option>
-              <option value="en">English</option>
-              <option value="zh">简体中文</option>
-            </Select>
-          </SettingRow>
-          <SettingRow label={t("settings.theme")}>
-            <Select value={draft.theme} onChange={(v) => set("theme", v)}>
-              <option value="system">{t("settings.themeSystem")}</option>
-              <option value="light">{t("settings.themeLight")}</option>
-              <option value="dark">{t("settings.themeDark")}</option>
-            </Select>
-          </SettingRow>
-          <SettingRow label={t("settings.uiScale")}>
-            <Select value={String(draft.uiScale)} onChange={(v) => set("uiScale", Number(v))}>
-              <option value="90">{t("settings.uiScaleSmall")}</option>
-              <option value="100">{t("settings.uiScaleNormal")}</option>
-              <option value="112">{t("settings.uiScaleLarge")}</option>
-              <option value="125">{t("settings.uiScaleLargest")}</option>
-            </Select>
-          </SettingRow>
-          <SettingRow label={t("settings.openRepo")}>
-            <Select
-              value={draft.openInNewWindow ? "new" : "same"}
-              onChange={(v) => set("openInNewWindow", v === "new")}
-            >
-              <option value="same">{t("settings.openRepoSame")}</option>
-              <option value="new">{t("settings.openRepoNew")}</option>
-            </Select>
-          </SettingRow>
-        </section>
+        <div className="settings-head">
+          <div className="settings-tabs" role="tablist">
+            {(
+              [
+                ["general", "settings.tabGeneral"],
+                ["git", "settings.tabGit"],
+                ["keys", "settings.tabKeys"],
+              ] as [SettingsTab, string][]
+            ).map(([id, label]) => (
+              <button
+                key={id}
+                type="button"
+                role="tab"
+                className="settings-tab"
+                aria-selected={tab === id}
+                onClick={() => pickTab(id)}
+              >
+                {t(label as TKey)}
+              </button>
+            ))}
+          </div>
+        </div>
 
-        <section className="settings-group">
-          <h2 className="settings-group-title">{t("settings.git")}</h2>
-          <SettingRow label={t("settings.gitPath")} hint={t("settings.gitPathHint")}>
-            <div className="setting-inline">
-              <TextInput value={draft.gitPath} onChange={(v) => set("gitPath", v)} placeholder={t("settings.gitAuto")} />
-              <Button onClick={validate} disabled={checking}>
-                {checking ? <Spinner /> : t("settings.test")}
-              </Button>
-            </div>
-            {gitVersion && <div className="setting-note ok">{t("settings.gitVersion", { version: gitVersion })}</div>}
-            {error && <div className="setting-note error">{error}</div>}
-          </SettingRow>
-        </section>
+        <div className="settings-panels" role="tabpanel" ref={panelsRef}>
+          {tab === "general" &&
+            panel(
+              "general",
+              <>
+                <SettingRow label={t("settings.language")}>
+                  <Select value={draft.language} onChange={(v) => set("language", v)}>
+                    <option value="system">{t("settings.languageSystem")}</option>
+                    <option value="en">English</option>
+                    <option value="zh">简体中文</option>
+                  </Select>
+                </SettingRow>
+                <SettingRow label={t("settings.theme")}>
+                  <Select value={draft.theme} onChange={(v) => set("theme", v)}>
+                    <option value="system">{t("settings.themeSystem")}</option>
+                    <option value="light">{t("settings.themeLight")}</option>
+                    <option value="dark">{t("settings.themeDark")}</option>
+                  </Select>
+                </SettingRow>
+                <SettingRow label={t("settings.uiScale")}>
+                  <Select value={String(draft.uiScale)} onChange={(v) => set("uiScale", Number(v))}>
+                    <option value="90">{t("settings.uiScaleSmall")}</option>
+                    <option value="100">{t("settings.uiScaleNormal")}</option>
+                    <option value="112">{t("settings.uiScaleLarge")}</option>
+                    <option value="125">{t("settings.uiScaleLargest")}</option>
+                  </Select>
+                </SettingRow>
+                <SettingRow label={t("settings.openRepo")} hint={t("settings.openRepoHint")}>
+                  <Select
+                    value={draft.openInNewWindow ? "new" : "same"}
+                    onChange={(v) => set("openInNewWindow", v === "new")}
+                  >
+                    <option value="same">{t("settings.openRepoSame")}</option>
+                    <option value="new">{t("settings.openRepoNew")}</option>
+                  </Select>
+                </SettingRow>
+              </>,
+            )}
 
-        <section className="settings-group">
-          <h2 className="settings-group-title">{t("settings.diff")}</h2>
-          <SettingRow label={t("settings.contextLines")}>
-            <input
-              className="text-input number"
-              type="number"
-              min={1}
-              max={100}
-              value={draft.diffContext}
-              onChange={(e) => set("diffContext", Number(e.target.value) || 3)}
-            />
-          </SettingRow>
-          <SettingRow>
-            <Checkbox
-              checked={draft.ignoreWhitespace}
-              onChange={(v) => set("ignoreWhitespace", v)}
-              label={t("settings.ignoreWhitespace")}
-            />
-          </SettingRow>
-          <SettingRow>
-            <Checkbox
-              checked={draft.showIgnored}
-              onChange={(v) => set("showIgnored", v)}
-              label={t("settings.showIgnored")}
-            />
-          </SettingRow>
-        </section>
+          {tab === "git" && (
+            <>
+              {panel(
+                "gitPath",
+                <SettingRow
+                  label={t("settings.gitPath")}
+                  hint={
+                    <>
+                      {t("settings.gitPathHint")}
+                      {gitVersionNote && <span className="setting-hint-value"> · {gitVersionNote}</span>}
+                    </>
+                  }
+                >
+                  <div className="setting-field-group">
+                    <TextInput
+                      value={draft.gitPath}
+                      onChange={(v) => {
+                        set("gitPath", v);
+                        setGitVersion("");
+                        setError("");
+                      }}
+                      placeholder={t("settings.gitAuto")}
+                      monospace
+                    />
+                    <Button onClick={validate} disabled={checking}>
+                      {checking ? <Spinner /> : t("settings.test")}
+                    </Button>
+                  </div>
+                  {error && <div className="setting-note error">{error}</div>}
+                </SettingRow>,
+              )}
 
-        <section className="settings-group">
-          <h2 className="settings-group-title">{t("settings.sync")}</h2>
-          <SettingRow label={t("settings.updateMethod")}>
-            <Select value={draft.updateMethod} onChange={(v) => set("updateMethod", v)}>
-              <option value="merge">{t("settings.merge")}</option>
-              <option value="rebase">{t("settings.rebase")}</option>
-            </Select>
-          </SettingRow>
-          <SettingRow>
-            <Checkbox checked={draft.autoFetch} onChange={(v) => set("autoFetch", v)} label={t("settings.autoFetch")} />
-          </SettingRow>
-          <SettingRow label={t("settings.every")}>
-            <div className="setting-inline">
-              <input
-                className="text-input number"
-                type="number"
-                min={1}
-                max={240}
-                value={draft.autoFetchMinutes}
-                onChange={(e) => set("autoFetchMinutes", Number(e.target.value) || 15)}
-              />
-              <span className="setting-unit">{t("settings.minutes")}</span>
-            </div>
-          </SettingRow>
-        </section>
+              {panel(
+                "diff",
+                <>
+                  <SettingRow label={t("settings.contextLines")} hint={t("settings.contextLinesHint")}>
+                    <input
+                      className="text-input number"
+                      type="number"
+                      min={1}
+                      max={100}
+                      value={draft.diffContext}
+                      onChange={(e) => set("diffContext", Number(e.target.value) || 3)}
+                    />
+                  </SettingRow>
+                  <SettingRow hint={t("settings.ignoreWhitespaceHint")}>
+                    <Checkbox
+                      checked={draft.ignoreWhitespace}
+                      onChange={(v) => set("ignoreWhitespace", v)}
+                      label={t("settings.ignoreWhitespace")}
+                    />
+                  </SettingRow>
+                  <SettingRow hint={t("settings.showIgnoredHint")}>
+                    <Checkbox
+                      checked={draft.showIgnored}
+                      onChange={(v) => set("showIgnored", v)}
+                      label={t("settings.showIgnored")}
+                    />
+                  </SettingRow>
+                </>,
+              )}
 
-        <section className="settings-group">
-          <h2 className="settings-group-title">{t("settings.confirmations")}</h2>
-          <SettingRow>
-            <Checkbox
-              checked={draft.confirmRollback}
-              onChange={(v) => set("confirmRollback", v)}
-              label={t("settings.confirmRollback")}
-            />
-          </SettingRow>
-          <SettingRow>
-            <Checkbox
-              checked={draft.confirmForcePush}
-              onChange={(v) => set("confirmForcePush", v)}
-              label={t("settings.confirmForcePush")}
-            />
-          </SettingRow>
-        </section>
+              {panel(
+                "sync",
+                <>
+                  <SettingRow label={t("settings.updateMethod")} hint={t("settings.updateMethodHint")}>
+                    <Select value={draft.updateMethod} onChange={(v) => set("updateMethod", v)}>
+                      <option value="merge">{t("settings.merge")}</option>
+                      <option value="rebase">{t("settings.rebase")}</option>
+                    </Select>
+                  </SettingRow>
+                  <SettingRow hint={t("settings.autoFetchHint")}>
+                    <Checkbox
+                      checked={draft.autoFetch}
+                      onChange={(v) => set("autoFetch", v)}
+                      label={t("settings.autoFetch")}
+                    />
+                  </SettingRow>
+                  <SettingRow label={t("settings.autoFetchInterval")}>
+                    <div className="setting-inline">
+                      <input
+                        className="text-input number"
+                        type="number"
+                        min={1}
+                        max={240}
+                        disabled={!draft.autoFetch}
+                        value={draft.autoFetchMinutes}
+                        onChange={(e) => set("autoFetchMinutes", Number(e.target.value) || 15)}
+                      />
+                      <span className="setting-unit">{t("settings.minutes")}</span>
+                    </div>
+                  </SettingRow>
+                </>,
+              )}
+
+              {panel(
+                "danger",
+                <>
+                  <SettingRow hint={t("settings.confirmRollbackHint")}>
+                    <Checkbox
+                      checked={draft.confirmRollback}
+                      onChange={(v) => set("confirmRollback", v)}
+                      label={t("settings.confirmRollback")}
+                    />
+                  </SettingRow>
+                  <SettingRow hint={t("settings.confirmForcePushHint")}>
+                    <Checkbox
+                      checked={draft.confirmForcePush}
+                      onChange={(v) => set("confirmForcePush", v)}
+                      label={t("settings.confirmForcePush")}
+                    />
+                  </SettingRow>
+                </>,
+              )}
+            </>
+          )}
+
+          {tab === "keys" && (
+            <>
+              <p className="settings-keys-note">{t("settings.keysHint")}</p>
+              <div className="settings-keys">
+                {(
+                  [
+                    ["settings.keyOpen", ["⌘/Ctrl", "O"]],
+                    ["settings.keyQuickOpen", ["⌘/Ctrl", "P"]],
+                    ["settings.keyCommit", ["⌘/Ctrl", "K"]],
+                    ["settings.keyPush", ["⌘/Ctrl", "Shift", "K"]],
+                    ["settings.keyUpdate", ["⌘/Ctrl", "T"]],
+                    ["settings.keySettings", ["⌘/Ctrl", ","]],
+                  ] as [TKey, string[]][]
+                ).map(([label, keys]) => (
+                  <div key={label} className="settings-key-row">
+                    <span>{t(label)}</span>
+                    <span className="settings-key-combo">
+                      {keys.map((k) => (
+                        <kbd key={k}>{k}</kbd>
+                      ))}
+                    </span>
+                  </div>
+                ))}
+              </div>
+            </>
+          )}
+        </div>
       </div>
+      {pending && (
+        <Modal
+          title={t("settings.unsavedTitle")}
+          icon="warning"
+          width={440}
+          onClose={() => setPending(null)}
+          footer={
+            <>
+              <Button onClick={() => setPending(null)}>{t("common.cancel")}</Button>
+              <Button onClick={() => discardThen(pending)}>{t("settings.discard")}</Button>
+              <Button variant="primary" onClick={() => onSave(draft)}>
+                {t("settings.saveAndClose")}
+              </Button>
+            </>
+          }
+        >
+          <div className="confirm-message">{t("settings.unsaved")}</div>
+        </Modal>
+      )}
     </Modal>
   );
 }

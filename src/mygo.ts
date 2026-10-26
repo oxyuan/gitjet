@@ -444,6 +444,13 @@ export const Workspace = {
   copy(text: string): Promise<void> {
     return call("Workspace.Copy", text);
   },
+  /**
+   * DefaultSettings returns what a fresh install starts from, so the page can
+   * reset a group of settings without spelling those values out a second time.
+   */
+  defaultSettings(): Promise<Settings> {
+    return call("Workspace.DefaultSettings");
+  },
   /** Open opens a repository and returns its local changes. */
   open(path: string): Promise<ChangesSnapshot> {
     return call("Workspace.Open", path);

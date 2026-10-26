@@ -158,6 +158,10 @@ func (w *Workspace) Close() {
 // Settings returns the current settings.
 func (w *Workspace) Settings() Settings { return w.c.settings }
 
+// DefaultSettings returns what a fresh install starts from, so the page can
+// reset a group of settings without spelling those values out a second time.
+func (w *Workspace) DefaultSettings() Settings { return defaultSettings() }
+
 // SaveSettings persists settings, reopening the repository when the git
 // executable changed.
 func (w *Workspace) SaveSettings(s Settings) (Settings, error) {
