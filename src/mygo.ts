@@ -272,6 +272,21 @@ export interface PushOptions {
   dryRun: boolean;
 }
 
+export interface PushPreview {
+  branch: string;
+  remote: string;
+  remoteBranch: string;
+  upstream: string;
+  creates: boolean;
+  ahead: number;
+  behind: number;
+  base: string;
+  head: string;
+  commits: Commit[];
+  files: CommitFile[];
+  truncated: boolean;
+}
+
 /** RecentRepo is a repository the user opened before. */
 export interface RecentRepo {
   path: string;
@@ -612,6 +627,13 @@ export const Git = {
   /** Push pushes and streams git's output. */
   push(opts: PushOptions, out: Channel<string>): Promise<string> {
     return call("Git.Push", opts, out);
+  },
+  /**
+   * PushPreview reports what a push would publish, for the confirmation
+   * dialog: the commits, the files, and whether the remote branch is new.
+   */
+  pushPreview(remote: string, branch: string): Promise<PushPreview> {
+    return call("Git.PushPreview", remote, branch);
   },
   /** Rebase rebases onto a ref. */
   rebase(onto: string, autostash: boolean): Promise<string> {

@@ -118,7 +118,7 @@ func (r *Repo) Log(ctx context.Context, opts LogOptions) (LogResult, error) {
 	if opts.Skip > 0 {
 		args = append(args, "--skip="+strconv.Itoa(opts.Skip))
 	}
-	args = append(args, "--format=%H%x1f%P%x1f%an%x1f%ae%x1f%at%x1f%cn%x1f%ce%x1f%ct%x1f%D%x1f%s%x1f%b%x1e")
+	args = append(args, logFormat)
 	if len(opts.Refs) > 0 && !opts.All {
 		args = append(args, opts.Refs...)
 	}
@@ -133,7 +133,32 @@ func (r *Repo) Log(ctx context.Context, opts LogOptions) (LogResult, error) {
 	if err != nil {
 		return LogResult{}, err
 	}
-	result := LogResult{}
+	result := LogResult{Commits: parseLogCommits(out)}
+	if len(result.Commits) > opts.Limit {
+		result.HasMore = true
+		result.Commits = result.Commits[:opts.Limit]
+	}
+	refs, err := r.Refs(ctx)
+	if err == nil {
+		result.Refs = append(append(append([]RepoRef{}, refs.Local...), refs.Remote...), refs.Tags...)
+		result.Head = refs.Current
+		result.Detached = refs.Detached
+	}
+	return result, nil
+}
+
+func parseInt64(s string) int64 {
+	n, _ := strconv.ParseInt(strings.TrimSpace(s), 10, 64)
+	return n
+}
+
+// logFormat is the record format every log query uses: unit separators
+// between fields and a record separator, so a message may hold anything.
+const logFormat = "--format=%H%x1f%P%x1f%an%x1f%ae%x1f%at%x1f%cn%x1f%ce%x1f%ct%x1f%D%x1f%s%x1f%b%x1e"
+
+// parseLogCommits reads the output of a query built with logFormat.
+func parseLogCommits(out string) []Commit {
+	commits := []Commit{}
 	for _, rec := range strings.Split(out, "\x1e") {
 		rec = strings.TrimLeft(rec, "\n")
 		if strings.TrimSpace(rec) == "" {
@@ -166,24 +191,9 @@ func (r *Repo) Log(ctx context.Context, opts LogOptions) (LogResult, error) {
 			c.Message += "\n\n" + c.Body
 		}
 		c.Refs = parseRefDecorations(fields[8])
-		result.Commits = append(result.Commits, c)
+		commits = append(commits, c)
 	}
-	if len(result.Commits) > opts.Limit {
-		result.HasMore = true
-		result.Commits = result.Commits[:opts.Limit]
-	}
-	refs, err := r.Refs(ctx)
-	if err == nil {
-		result.Refs = append(append(append([]RepoRef{}, refs.Local...), refs.Remote...), refs.Tags...)
-		result.Head = refs.Current
-		result.Detached = refs.Detached
-	}
-	return result, nil
-}
-
-func parseInt64(s string) int64 {
-	n, _ := strconv.ParseInt(strings.TrimSpace(s), 10, 64)
-	return n
+	return commits
 }
 
 func parseRefDecorations(s string) []CommitRef {
@@ -497,12 +507,17 @@ func (r *Repo) branchesContaining(ctx context.Context, hash string) []string {
 // commitFiles lists the files a commit changed against its first parent
 // and counts their lines with numstat.
 func (r *Repo) commitFiles(ctx context.Context, c Commit) ([]CommitFile, error) {
-	args := []string{"diff", "--name-status", "-z", "-M", "--no-color"}
-	if len(c.Parents) == 0 {
-		args = append(args, "4b825dc642cb6eb9a060e54bf8d69288fbee4904", c.Hash)
-	} else {
-		args = append(args, c.Parents[0], c.Hash)
+	from := emptyTree
+	if len(c.Parents) > 0 {
+		from = c.Parents[0]
 	}
+	return r.diffFiles(ctx, from, c.Hash)
+}
+
+// diffFiles lists the files that differ between two revisions, with the
+// line counts the commit rows show.
+func (r *Repo) diffFiles(ctx context.Context, from, to string) ([]CommitFile, error) {
+	args := []string{"diff", "--name-status", "-z", "-M", "--no-color", from, to}
 	out, err := r.run(ctx, args...)
 	if err != nil {
 		return nil, err
@@ -531,12 +546,7 @@ func (r *Repo) commitFiles(ctx context.Context, c Commit) ([]CommitFile, error) 
 			i++
 		}
 	}
-	numArgs := []string{"diff", "--numstat", "-z", "--no-color"}
-	if len(c.Parents) == 0 {
-		numArgs = append(numArgs, "4b825dc642cb6eb9a060e54bf8d69288fbee4904", c.Hash)
-	} else {
-		numArgs = append(numArgs, c.Parents[0], c.Hash)
-	}
+	numArgs := []string{"diff", "--numstat", "-z", "--no-color", from, to}
 	if statOut, err := r.run(ctx, numArgs...); err == nil {
 		stats := parseNumstat(statOut)
 		for i := range files {

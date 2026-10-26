@@ -17,7 +17,8 @@ type ConsoleResult struct {
 }
 
 // RunConsole runs a command line from the Git console and streams its
-// output. The line may start with "git" or omit it; both forms are accepted.
+// output. The line is run as typed: it has to start with "git", because a
+// console that silently prefixes one teaches the wrong command.
 func (r *Repo) RunConsole(ctx context.Context, command string, emit func(string)) (ConsoleResult, error) {
 	res := ConsoleResult{Command: command, ExitCode: 0}
 	start := time.Now()
@@ -26,10 +27,14 @@ func (r *Repo) RunConsole(ctx context.Context, command string, emit func(string)
 		return res, err
 	}
 	if len(args) == 0 {
-		return res, errors.New("type a git command")
+		return res, errors.New("type a git command, for example: git status")
 	}
-	if args[0] == "git" {
-		args = args[1:]
+	if args[0] != "git" {
+		return res, fmt.Errorf("%s is not a git command: start the line with git, for example: git %s", args[0], command)
+	}
+	args = args[1:]
+	if len(args) == 0 {
+		return res, errors.New("type a git command, for example: git status")
 	}
 	switch args[0] {
 	case "cd", "exit", "clear", "history":
@@ -197,6 +202,11 @@ func (r *Repo) ConsoleCompletions(ctx context.Context, prefix string) []Completi
 	}
 	var out []Completion
 	matches := func(s string) bool { return strings.HasPrefix(s, word) }
+	// The first word is the program, not a subcommand: complete it too, so
+	// "gi" turns into "git " rather than into a bare subcommand.
+	if !strings.ContainsAny(prefix, " \t") && matches("git") {
+		out = append(out, Completion{Text: "git", Kind: "command", Description: "Git command"})
+	}
 	for _, c := range gitCommands {
 		if matches(c.Text) {
 			out = append(out, c)

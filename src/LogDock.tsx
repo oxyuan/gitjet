@@ -79,11 +79,6 @@ const T = {
     expandPanel: "Show the history panel",
     viewTree: "Group by folder",
     viewFlat: "Plain file list",
-    colHash: "Hash",
-    colSubject: "Message",
-    colRefs: "Refs",
-    colAuthor: "Author",
-    colDate: "Date",
     moreRefs: "Also: {names}",
     resizeColumn: "Drag to resize this column",
   },
@@ -126,11 +121,6 @@ const T = {
     expandPanel: "展开历史面板",
     viewTree: "按目录分组",
     viewFlat: "平铺文件列表",
-    colHash: "哈希",
-    colSubject: "提交信息",
-    colRefs: "引用",
-    colAuthor: "作者",
-    colDate: "时间",
     moreRefs: "另有：{names}",
     resizeColumn: "拖动调整列宽",
   },
@@ -410,21 +400,16 @@ export function LogDock({
           >
             <span className="log-cols-graph" style={{ width }} />
             <span className="log-col" style={{ width: cols.hash }}>
-              <span>{t("colHash")}</span>
               <span className="col-grip" title={t("resizeColumn")} onMouseDown={startColumn("hash", 1)} />
             </span>
-            <span className="log-col flexible">{t("colSubject")}</span>
-            <span className="log-col" style={{ width: cols.refs }}>
+            <span className="log-col flexible" />
+            <span className="log-col end" style={{ width: cols.refs }}>
               <span className="col-grip start" title={t("resizeColumn")} onMouseDown={startColumn("refs", -1)} />
-              <span>{t("colRefs")}</span>
             </span>
             <span className="log-col end" style={{ width: cols.author }}>
               <span className="col-grip start" title={t("resizeColumn")} onMouseDown={startColumn("author", -1)} />
-              <span>{t("colAuthor")}</span>
             </span>
-            <span className="log-col end" style={{ width: cols.time }}>
-              {t("colDate")}
-            </span>
+            <span className="log-col end" style={{ width: cols.time }} />
           </div>
           <div
             className="log-list"

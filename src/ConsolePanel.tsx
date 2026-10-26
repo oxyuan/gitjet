@@ -7,14 +7,14 @@ import { useT } from "./i18n";
 
 const T = {
   en: {
-    intro: "Git console — type a git command, Tab completes, ↑/↓ recalls history.",
+    intro: "Git console — the line runs as typed, so start it with git (git status). Tab completes, ↑/↓ recalls history.",
     copyOutput: "Copy console output",
     clearConsole: "Clear console",
     openRepositoryFirst: "Open a repository first",
     exitCode: "exit code {code} · {ms} ms",
   },
   zh: {
-    intro: "Git 控制台 — 输入 git 命令，Tab 补全，↑/↓ 调出历史记录。",
+    intro: "Git 控制台 — 命令按原样执行，请以 git 开头（如 git status）。Tab 补全，↑/↓ 调出历史。",
     copyOutput: "复制控制台输出",
     clearConsole: "清空控制台",
     openRepositoryFirst: "请先打开仓库",
@@ -145,7 +145,7 @@ export function ConsolePanel({ onCommandDone, repoOpen }: { onCommandDone: () =>
       <div className="console-output" ref={outputRef} onClick={() => inputRef.current?.focus()}>
         {lines.map((line) => (
           <div className={cx("console-line", line.kind)} key={line.id}>
-            {line.kind === "command" ? <span className="console-prompt-inline">git&gt;</span> : null}
+            {line.kind === "command" ? <span className="console-prompt-inline">$</span> : null}
             <span className="console-text">{line.id === GREETING_ID ? t("intro") : line.text || "\u00a0"}</span>
           </div>
         ))}
@@ -156,13 +156,13 @@ export function ConsolePanel({ onCommandDone, repoOpen }: { onCommandDone: () =>
         )}
       </div>
       <div className="console-input-row">
-        <span className="console-prompt">git&gt;</span>
+        <span className="console-prompt">$</span>
         <input
           ref={inputRef}
           className="console-input"
           value={input}
           disabled={!repoOpen || running}
-          placeholder={repoOpen ? "status" : t("openRepositoryFirst")}
+          placeholder={repoOpen ? "git status" : t("openRepositoryFirst")}
           onChange={(e) => setInput(e.target.value)}
           onKeyDown={(e) => {
             if (e.key === "Enter") {

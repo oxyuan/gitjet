@@ -1,17 +1,32 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
+import { Git } from "./mygo";
 import type {
+  CommitDetail,
   MergeOptions,
   PullOptions,
   PushOptions,
+  PushPreview,
   Remote,
   Settings,
   StashOptions,
   TagOptions,
 } from "./mygo";
 import { Icon } from "./icons";
-import { Button, Checkbox, Field, IconButton, Modal, Select, Spinner, TextInput } from "./ui";
+import {
+  Button,
+  Checkbox,
+  cx,
+  Field,
+  IconButton,
+  Modal,
+  Select,
+  Spinner,
+  StatusMark,
+  TextInput,
+  formatWhen,
+} from "./ui";
 
-import { useT } from "./i18n";
+import { count, useT } from "./i18n";
 
 const T = {
   en: {
@@ -76,6 +91,25 @@ const T = {
     "push.dryRun": "Dry run",
     "push.force": "Force with lease (--force-with-lease)",
     "push.warning": "Force push rewrites history on the remote. It only succeeds when the remote branch is where you last saw it.",
+    "push.footerCreate": "Creates {ref} on the remote",
+    "push.footerUpdate": "Updates {ref}",
+    "push.detached": "detached HEAD",
+    "push.newBranch": "new branch",
+    "push.checking": "Reading what would be pushed…",
+    "push.summary": "{commits} · {files} files changed",
+    "push.commitOne": "1 commit",
+    "push.commitOther": "{n} commits",
+    "push.behind": "{n} behind the remote",
+    "push.truncated": "showing the first {n}",
+    "push.commitsHead": "Commits · {n}",
+    "push.everything": "All changes",
+    "push.noCommits": "Nothing to push",
+    "push.filesHead": "Changed files · {n}",
+    "push.allFilesHead": "All changed files · {n}",
+    "push.noFiles": "No files changed",
+    "push.nothingToPush": "Everything here is already on the remote.",
+    "push.createsOnly": "The branch has no new commits; pushing creates it at {hash}.",
+    "push.dryRunAction": "Dry run",
     "pull.title": "Update Project",
     "pull.note": "Pull fetches the remote and integrates the upstream into the current branch.",
     "pull.integrate": "Integrate with",
@@ -178,6 +212,25 @@ const T = {
     "push.dryRun": "试运行",
     "push.force": "强制推送（--force-with-lease）",
     "push.warning": "强制推送会重写远程历史。仅当远程分支仍停在你上次看到的位置时才会成功。",
+    "push.footerCreate": "将在远程新建 {ref}",
+    "push.footerUpdate": "更新 {ref}",
+    "push.detached": "游离 HEAD",
+    "push.newBranch": "新建分支",
+    "push.checking": "正在读取将要推送的内容…",
+    "push.summary": "{commits} · {files} 个文件变更",
+    "push.commitOne": "1 个提交",
+    "push.commitOther": "{n} 个提交",
+    "push.behind": "落后远程 {n} 个提交",
+    "push.truncated": "仅显示前 {n} 个",
+    "push.commitsHead": "提交 · {n}",
+    "push.everything": "全部变更",
+    "push.noCommits": "没有要推送的提交",
+    "push.filesHead": "变更文件 · {n}",
+    "push.allFilesHead": "全部变更文件 · {n}",
+    "push.noFiles": "没有文件变更",
+    "push.nothingToPush": "本地内容都已经在远程上了。",
+    "push.createsOnly": "该分支没有新提交，推送会在远程创建它（{hash}）。",
+    "push.dryRunAction": "试运行",
     "pull.title": "更新项目",
     "pull.note": "拉取会获取远程内容，并把上游合入当前分支。",
     "pull.integrate": "整合方式",
@@ -220,10 +273,13 @@ const T = {
   },
 } as const;
 
+/** SettingRow is the sheet's grid: a label rail, then the control. A row
+ *  without a label is a checkbox whose own text carries the meaning, so it
+ *  keeps the rail out of the way instead of leaving a hole in it. */
 function SettingRow({ label, hint, children }: { label?: string; hint?: React.ReactNode; children: React.ReactNode }) {
   return (
-    <div className="setting-row">
-      <div className="setting-label">{label ?? ""}</div>
+    <div className={label ? "setting-row" : "setting-row check"}>
+      {label && <div className="setting-label">{label}</div>}
       <div className="setting-control">
         {children}
         {hint && <div className="setting-hint">{hint}</div>}
@@ -269,7 +325,7 @@ export function SettingsDialog({
     <Modal
       title={t("settings.title")}
       icon="settings"
-      width={640}
+      width={580}
       className="settings-modal"
       onClose={onClose}
       footer={
@@ -477,73 +533,227 @@ export function NewBranchDialog({
 export function PushDialog({
   remotes,
   current,
+  branch: initialBranch,
   setUpstream,
   onClose,
   onSubmit,
 }: {
   remotes: Remote[];
   current: string;
+  branch?: string;
   setUpstream: boolean;
   onClose: () => void;
   onSubmit: (opts: PushOptions) => void;
 }) {
   const t = useT(T);
+  const branch = initialBranch || current;
   const [remote, setRemote] = useState(remotes.find((r) => r.name === "origin")?.name ?? remotes[0]?.name ?? "origin");
-  const [branch, setBranch] = useState(current);
+  const [preview, setPreview] = useState<PushPreview | null>(null);
+  const [error, setError] = useState("");
+  const [loading, setLoading] = useState(true);
+  const [selected, setSelected] = useState<string | null>(null);
+  const [detail, setDetail] = useState<CommitDetail | null>(null);
   const [force, setForce] = useState(false);
   const [tags, setTags] = useState(false);
   const [dryRun, setDryRun] = useState(false);
   const [upstream, setUpstreamState] = useState(setUpstream);
+
+  // The dialog is a confirmation: it shows what git would send before the
+  // button sends it. Changing the remote changes the answer.
+  useEffect(() => {
+    let alive = true;
+    setLoading(true);
+    setError("");
+    setSelected(null);
+    setDetail(null);
+    Git.pushPreview(remote, branch)
+      .then((p) => {
+        if (!alive) return;
+        setPreview(p);
+        if (p.creates) setUpstreamState(true);
+      })
+      .catch((err) => {
+        if (!alive) return;
+        setPreview(null);
+        setError(err instanceof Error ? err.message : String(err));
+      })
+      .finally(() => {
+        if (alive) setLoading(false);
+      });
+    return () => {
+      alive = false;
+    };
+  }, [remote, branch]);
+
+  // One commit's files are read on demand; the whole range comes with the
+  // preview, so nothing is fetched twice.
+  useEffect(() => {
+    if (!selected) {
+      setDetail(null);
+      return;
+    }
+    let alive = true;
+    Git.showCommit(selected)
+      .then((d) => {
+        if (alive) setDetail(d);
+      })
+      .catch(() => {
+        if (alive) setDetail(null);
+      });
+    return () => {
+      alive = false;
+    };
+  }, [selected]);
+
+  const commits = preview?.commits ?? [];
+  const files = selected ? (detail?.files ?? []) : (preview?.files ?? []);
+  const ahead = preview?.ahead ?? 0;
+  // A branch with no new commits can still be worth pushing: creating it
+  // on the remote is the point.
+  const createsOnly = !loading && !error && ahead === 0 && !!preview?.creates;
+  const nothing = !loading && !error && ahead === 0 && !preview?.creates;
+
   return (
     <Modal
       title={t("push.title")}
       icon="push"
-      width={500}
+      width={760}
+      className="push-modal"
       onClose={onClose}
       footer={
         <>
+          <span className="push-footer-note">
+            {preview?.creates
+              ? t("push.footerCreate", { ref: preview.remoteBranch })
+              : preview
+                ? t("push.footerUpdate", { ref: preview.remoteBranch })
+                : ""}
+          </span>
           <Button onClick={onClose}>{t("common.cancel")}</Button>
           <Button
             variant="primary"
+            disabled={loading || (nothing && !tags)}
             onClick={() => onSubmit({ remote, branch, setUpstream: upstream, forceWithLease: force, tags, dryRun })}
           >
-            {t("common.push")}
+            {dryRun ? t("push.dryRunAction") : t("common.push")}
           </Button>
         </>
       }
     >
-      <div className="dialog-form">
-        {remotes.length === 0 ? (
-          <div className="dialog-note">
-            {t("push.noRemotes")}
-            <code>git remote add origin &lt;url&gt;</code>
-          </div>
-        ) : (
-          <Field label={t("push.remote")}>
-            <Select value={remote} onChange={setRemote}>
-              {remotes.map((r) => (
-                <option key={r.name} value={r.name}>
-                  {r.name} — {r.url}
-                </option>
-              ))}
-            </Select>
-          </Field>
-        )}
-        <Field label={t("push.branch")}>
-          <TextInput value={branch} onChange={setBranch} placeholder={current || "branch"} />
-        </Field>
-        <div className="dialog-checks">
-          <Checkbox checked={upstream} onChange={setUpstreamState} label={t("push.setUpstream")} />
-          <Checkbox checked={tags} onChange={setTags} label={t("push.allTags")} />
-          <Checkbox checked={dryRun} onChange={setDryRun} label={t("push.dryRun")} />
-          <Checkbox checked={force} onChange={setForce} label={t("push.force")} />
+      {remotes.length === 0 ? (
+        <div className="dialog-note">
+          {t("push.noRemotes")}
+          <code>git remote add origin &lt;url&gt;</code>
         </div>
-        {force && (
-          <div className="dialog-warning">
-            <Icon name="warning" /> {t("push.warning")}
+      ) : (
+        <div className="push">
+          <div className="push-route">
+            <span className="push-ref" title={t("push.branch")}>
+              <Icon name="branch" size={13} />
+              {branch || t("push.detached")}
+            </span>
+            <Icon name="chevronRight" size={13} />
+            <span className="push-ref remote">
+              <Icon name="push" size={12} />
+              {preview?.remoteBranch ?? `${remote}/${branch}`}
+              {preview?.creates && <span className="push-badge">{t("push.newBranch")}</span>}
+            </span>
+            <span className="spacer" />
+            {remotes.length > 1 && (
+              <Select value={remote} onChange={setRemote}>
+                {remotes.map((r) => (
+                  <option key={r.name} value={r.name}>
+                    {r.name}
+                  </option>
+                ))}
+              </Select>
+            )}
           </div>
-        )}
-      </div>
+
+          <div className="push-summary">
+            {loading ? (
+              <Spinner label={t("push.checking")} />
+            ) : error ? (
+              <span className="push-error">{error}</span>
+            ) : nothing ? (
+              <span>{t("push.nothingToPush")}</span>
+            ) : createsOnly ? (
+              <span>{t("push.createsOnly", { hash: preview?.head ?? "" })}</span>
+            ) : (
+              <>
+                <span>
+                  {t("push.summary", {
+                    commits: count(ahead, t("push.commitOne"), t("push.commitOther", { n: ahead })),
+                    files: preview?.files.length ?? 0,
+                  })}
+                </span>
+                {preview?.behind ? <span className="push-behind">{t("push.behind", { n: preview.behind })}</span> : null}
+                {preview?.truncated ? <span className="push-behind">{t("push.truncated", { n: 200 })}</span> : null}
+              </>
+            )}
+          </div>
+
+          <div className="push-panes">
+            <div className="push-pane">
+              <div className="push-pane-head">
+                <Icon name="commit" size={12} />
+                <span>{t("push.commitsHead", { n: ahead })}</span>
+              </div>
+              <div className="push-list">
+                <button className={cx("push-row", "all", !selected && "active")} onClick={() => setSelected(null)}>
+                  <span className="push-row-main">{t("push.everything")}</span>
+                  <span className="push-row-meta">{preview?.files.length ?? 0}</span>
+                </button>
+                {commits.map((c) => (
+                  <button
+                    key={c.hash}
+                    className={cx("push-row", selected === c.hash && "active")}
+                    onClick={() => setSelected(c.hash)}
+                    title={c.message}
+                  >
+                    <span className="push-row-main">{c.subject || c.short}</span>
+                    <span className="push-row-meta">
+                      <code>{c.short}</code> {c.author} · {formatWhen(c.commitTime)}
+                    </span>
+                  </button>
+                ))}
+                {!loading && !error && commits.length === 0 && <div className="push-empty">{t("push.noCommits")}</div>}
+              </div>
+            </div>
+
+            <div className="push-pane">
+              <div className="push-pane-head">
+                <Icon name="file" size={12} />
+                <span>{selected ? t("push.filesHead", { n: files.length }) : t("push.allFilesHead", { n: files.length })}</span>
+              </div>
+              <div className="push-list">
+                {files.map((f) => (
+                  <div className="push-file" key={f.path} title={f.oldPath ? `${f.oldPath} → ${f.path}` : f.path}>
+                    <StatusMark kind={f.status} />
+                    <span className="push-file-path">{f.oldPath ? `${f.oldPath} → ${f.path}` : f.path}</span>
+                    <span className="push-file-stat">
+                      {f.binary ? "binary" : `+${f.additions} −${f.deletions}`}
+                    </span>
+                  </div>
+                ))}
+                {files.length === 0 && !loading && <div className="push-empty">{t("push.noFiles")}</div>}
+              </div>
+            </div>
+          </div>
+
+          <div className="push-options">
+            <Checkbox checked={upstream} onChange={setUpstreamState} label={t("push.setUpstream")} />
+            <Checkbox checked={tags} onChange={setTags} label={t("push.allTags")} />
+            <Checkbox checked={dryRun} onChange={setDryRun} label={t("push.dryRun")} />
+            <Checkbox checked={force} onChange={setForce} label={t("push.force")} />
+          </div>
+          {force && (
+            <div className="dialog-warning">
+              <Icon name="warning" /> {t("push.warning")}
+            </div>
+          )}
+        </div>
+      )}
     </Modal>
   );
 }

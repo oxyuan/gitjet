@@ -415,7 +415,7 @@ type Dialog =
   | { kind: "settings" }
   | { kind: "newBranch"; start: string }
   | { kind: "renameBranch"; name: string }
-  | { kind: "push"; setUpstream: boolean }
+  | { kind: "push"; setUpstream: boolean; branch?: string }
   | { kind: "pull" }
   | { kind: "reset"; hash: string; subject: string }
   | { kind: "tag"; start: string }
@@ -853,6 +853,15 @@ function AppShell({ onLangChange }: { onLangChange: (lang: Lang) => void }) {
     document.title = t("title", { name: snapshot.state.name || t("repoFallback") });
   }, [snapshot?.state.name, t]);
 
+  // Dialogs are sized against the window, and a viewport unit is not the
+  // window when the root is zoomed; publish the real height instead.
+  useEffect(() => {
+    const sync = () => document.documentElement.style.setProperty("--window-h", `${window.innerHeight}px`);
+    sync();
+    window.addEventListener("resize", sync);
+    return () => window.removeEventListener("resize", sync);
+  }, []);
+
   function applyTheme(s: Settings) {
     document.documentElement.dataset.theme = s.theme;
     // One scale for the whole window, so code, tables and labels keep their
@@ -1275,7 +1284,7 @@ function AppShell({ onLangChange }: { onLangChange: (lang: Lang) => void }) {
   };
 
   // Both act on the branch the user pointed at: a pull takes the checked out
-  // branch and its upstream, a push names the branch explicitly.
+  // branch and its upstream.
   const branchRemote = (upstream: string) => (upstream.includes("/") ? upstream.slice(0, upstream.indexOf("/")) : "origin");
 
   const pullBranch = (leaf: { name: string; upstream: string }) => {
@@ -1291,15 +1300,10 @@ function AppShell({ onLangChange }: { onLangChange: (lang: Lang) => void }) {
     });
   };
 
+  // Pushing is confirmed like any other push: the dialog shows what the
+  // branch would send before anything leaves the machine.
   const pushBranch = (leaf: { name: string; upstream: string }) => {
-    push({
-      remote: branchRemote(leaf.upstream),
-      branch: leaf.name,
-      setUpstream: leaf.upstream === "",
-      forceWithLease: false,
-      tags: false,
-      dryRun: false,
-    });
+    setDialog({ kind: "push", setUpstream: leaf.upstream === "", branch: leaf.name });
   };
 
   const deleteBranch = async (name: string) => {
@@ -2029,6 +2033,7 @@ function AppShell({ onLangChange }: { onLangChange: (lang: Lang) => void }) {
         <PushDialog
           remotes={remotes}
           current={state?.branch ?? ""}
+          branch={dialog.branch}
           setUpstream={dialog.setUpstream}
           onClose={() => setDialog(null)}
           onSubmit={(opts) => void push(opts)}

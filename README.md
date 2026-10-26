@@ -43,13 +43,14 @@ GitJet 是一个面向 Windows 与 macOS 的桌面 Git 客户端。界面由 Go 
 
 - 分支弹窗：本地/远程分支、标签、上游跟踪、领先/落后计数、搜索
 - 检出、新建、重命名、删除（含强制删除二次确认）、合并、变基、设置上游
-- Fetch / Pull（merge 或 rebase、autostash、prune、tags）/ Push（set-upstream、`--force-with-lease`、tags、dry run）
+- Fetch / Pull（merge 或 rebase、autostash、prune、tags）
+- Push 前二次确认：当前分支 → 远程分支的走向、本次提交列表（选中单个提交可看它的文件）、全部变更文件；远程分支不存在时标出「新建分支」，并支持 set-upstream、`--force-with-lease`、tags、dry run
 - 操作输出实时流式显示，失败时保留完整错误信息
 
 ### 其他
 
-- Git 控制台：执行任意 git 子命令，Tab 补全命令/选项/引用，命令历史
-- 设置：Git 可执行文件路径与检测、主题、diff 上下文行数、空白处理、显示忽略文件、自动 fetch、更新策略、危险操作确认
+- Git 控制台：命令按原样执行（需以 `git` 开头），Tab 补全命令/选项/引用，命令历史
+- 设置：界面语言、主题、字号（整窗缩放）、Git 可执行文件路径与检测、diff 上下文行数、空白处理、显示忽略文件、自动 fetch、更新策略、危险操作确认
 - 最近仓库列表；启动时自动恢复上次打开的仓库
 - 原生文件夹选择、系统剪贴板、在文件管理器中显示文件
 
