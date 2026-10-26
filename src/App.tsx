@@ -6,6 +6,7 @@ import {
   events,
   type Bootstrap,
   type ChangesSnapshot,
+  type CommitFile,
   type Commit,
   type CommitDetail,
   type ConflictContent,
@@ -38,8 +39,9 @@ import {
 } from "./Dialogs";
 import { Icon } from "./icons";
 import { LangProvider, count, resolveLang, useT, type Lang } from "./i18n";
-import { LogPanel, type LogBranchFilter } from "./LogPanel";
-import type { AuthorOption } from "./BranchPicker";
+import { LogDock } from "./LogDock";
+import { BranchList } from "./BranchList";
+import type { AuthorOption } from "./AuthorPicker";
 import { OperationDock, type OperationState } from "./OperationDock";
 import { QuickOpen } from "./QuickOpen";
 import { SourceView } from "./SourceView";
@@ -209,6 +211,9 @@ const T = {
     hintCommit: "Commit",
     hintPush: "Push",
     hintUpdate: "Update",
+    noFileOpen: "No file open",
+    emptyOpen: "Pick a change on the left to see its diff, or a commit below to see its details and first changed file.",
+    emptyQuickOpen: "Search every file with",
     kindDiff: "Diff",
     kindSource: "Source",
     kindMerge: "Merge",
@@ -372,6 +377,9 @@ const T = {
     hintCommit: "提交",
     hintPush: "推送",
     hintUpdate: "更新",
+    noFileOpen: "没有打开的文件",
+    emptyOpen: "在左侧选择一项变更查看差异，或在下方选择提交查看详情与第一个变更文件。",
+    emptyQuickOpen: "搜索任意文件",
     kindDiff: "差异",
     kindSource: "源码",
     kindMerge: "合并",
@@ -392,6 +400,9 @@ type TKey = keyof typeof T["en"];
 type Translate = (key: TKey, vars?: Record<string, string | number>) => string;
 
 type Tab = "commit" | "log" | "console";
+
+/** "all", "current", or the name of a branch. */
+type LogBranchFilter = string;
 
 type Doc = { id: string; title: string } & (
   | { kind: "diff"; diff: FileDiff; opts: DiffOptions }
@@ -474,6 +485,9 @@ function AppShell({ onLangChange }: { onLangChange: (lang: Lang) => void }) {
   const [logAuthor, setLogAuthor] = useState("");
   const [authors, setAuthors] = useState<AuthorOption[]>([]);
   const [favorites, setFavorites] = useState<string[]>([]);
+  const [logDetail, setLogDetail] = useState<CommitDetail | null>(null);
+  const [logFile, setLogFile] = useState<string | null>(null);
+  const [logDockHeight, setLogDockHeight] = useStoredState<number>("gitjet.logDock", 300);
   const [logPath, setLogPath] = useState("");
   const [logResult, setLogResult] = useState<LogResult | null>(null);
   const [logLoading, setLogLoading] = useState(false);
@@ -626,17 +640,42 @@ function AppShell({ onLangChange }: { onLangChange: (lang: Lang) => void }) {
     });
   }, []);
 
-  const openCommit = useCallback(
-    async (hash: string) => {
+  /** One editor tab per commit: arrow keys switch the file inside it. */
+  const openCommitFile = useCallback(
+    async (hash: string, file: CommitFile) => {
+      const opts: DiffOptions = {
+        path: file.path,
+        oldPath: file.oldPath ?? "",
+        target: "commit",
+        revision: hash,
+        from: "",
+        context: settingsRef.current?.diffContext ?? 3,
+        ignoreWhitespace: false,
+        ignoreWhitespaceEol: false,
+        noText: false,
+      };
+      setLogFile(file.path);
+      setDiffBusy(true);
       try {
-        const detail = await Git.showCommit(hash);
-        openDoc({ id: `commit:${detail.hash}`, title: detail.subject, kind: "commit", detail });
+        const diff = await Git.diff(opts);
+        openDoc({ id: `commitfile:${hash}`, title: file.path, kind: "diff", diff, opts });
       } catch (err) {
-        fail(t("readCommit"), err);
+        fail(t("showDiffFailed"), err);
+      } finally {
+        setDiffBusy(false);
       }
     },
     [fail, openDoc, t],
   );
+
+  const stepCommitFile = (delta: number) => {
+    const files = logDetail?.files ?? [];
+    if (!logDetail || files.length === 0) return;
+    const index = files.findIndex((f) => f.path === logFile);
+    const at = (index < 0 ? 0 : index) + delta;
+    const next = files[Math.min(files.length - 1, Math.max(0, at))];
+    if (next && next.path !== logFile) void openCommitFile(logDetail.hash, next);
+  };
 
   const reload = useCallback(
     async (spinner = true) => {
@@ -764,6 +803,24 @@ function AppShell({ onLangChange }: { onLangChange: (lang: Lang) => void }) {
     });
   };
 
+  // Up and down walk the changed files of the selected commit while the log
+  // page has focus; inside the editor they keep scrolling.
+  useEffect(() => {
+    if (tab !== "log" || !logDetail) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key !== "ArrowDown" && e.key !== "ArrowUp") return;
+      if (e.metaKey || e.ctrlKey || e.altKey || e.shiftKey) return;
+      const active = document.activeElement;
+      if (active && active !== document.body && !active.closest(".log-dock")) return;
+      const target = e.target as HTMLElement | null;
+      if (target && (target.tagName === "INPUT" || target.tagName === "TEXTAREA" || target.isContentEditable)) return;
+      e.preventDefault();
+      stepCommitFile(e.key === "ArrowDown" ? 1 : -1);
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [tab, logDetail, logFile, stepCommitFile]);
+
   // Debounce the log's search box.
   useEffect(() => {
     const timer = window.setTimeout(() => setLogSearch(searchInput), 250);
@@ -815,6 +872,8 @@ function AppShell({ onLangChange }: { onLangChange: (lang: Lang) => void }) {
       setForm(emptyForm);
       setLogResult(null);
       setSelectedCommit(null);
+      setLogDetail(null);
+      setLogFile(null);
       setLogPath("");
       setSearchInput("");
       setLogSearch("");
@@ -1452,13 +1511,23 @@ function AppShell({ onLangChange }: { onLangChange: (lang: Lang) => void }) {
 
   const selectCommit = (commit: Commit) => {
     setSelectedCommit(commit.hash);
-    void openCommit(commit.hash);
+    setLogDetail(null);
+    setLogFile(null);
+    Git.showCommit(commit.hash)
+      .then((detail) => {
+        setLogDetail(detail);
+        const first = detail.files[0];
+        if (first) void openCommitFile(commit.hash, first);
+      })
+      .catch((err) => fail(t("readCommit"), err));
   };
 
   const showFileHistory = (path: string) => {
     setLogPath(path);
     setTab("log");
     setSelectedCommit(null);
+    setLogDetail(null);
+    setLogFile(null);
   };
 
   const actions: CommitActions = {
@@ -1632,6 +1701,7 @@ function AppShell({ onLangChange }: { onLangChange: (lang: Lang) => void }) {
         </div>
       </header>
       <div className="workspace">
+        <div className="workspace-main">
         <aside className="toolwindow" style={{ width: splitWidth }}>
           {tabHeader}
           <div className="toolwindow-content">
@@ -1652,41 +1722,18 @@ function AppShell({ onLangChange }: { onLangChange: (lang: Lang) => void }) {
               ))}
             {tab === "log" &&
               (snapshot ? (
-                <LogPanel
-                  result={logResult}
+                <BranchList
                   refs={refs}
-                  currentBranch={state?.branch ?? ""}
-                  loading={logLoading}
-                  selected={selectedCommit}
-                  filter={logFilter}
-                  search={searchInput}
-                  author={logAuthor}
-                  authors={authors}
+                  current={state?.branch ?? ""}
+                  value={logFilter}
                   favorites={favorites}
-                  onAuthor={(name) => {
-                    setLogAuthor(name);
+                  onPick={(name) => {
+                    setLogFilter(name);
                     setSelectedCommit(null);
+                    setLogDetail(null);
+                    setLogFile(null);
                   }}
                   onToggleFavorite={toggleFavorite}
-                  onFilter={(f) => {
-                    setLogFilter(f);
-                    setSelectedCommit(null);
-                  }}
-                  onSearch={setSearchInput}
-                  onSelect={selectCommit}
-                  onRefresh={() => void loadLog(true)}
-                  onFetch={() => fetch()}
-                  onLoadMore={() => void loadLog(false, true)}
-                  onCheckout={(ref) => void checkout(ref)}
-                  onNewBranch={(start) => setDialog({ kind: "newBranch", start })}
-                  onNewTag={(start) => setDialog({ kind: "tag", start })}
-                  onCherryPick={(hash) => void cherryPick(hash)}
-                  onRevert={(hash) => void revert(hash)}
-                  onReset={(hash) => {
-                    const commit = logResult?.commits.find((c) => c.hash === hash);
-                    setDialog({ kind: "reset", hash, subject: commit?.subject ?? "" });
-                  }}
-                  onCopy={copyText}
                 />
               ) : (
                 <NoRepo onOpen={() => void openRepo()} />
@@ -1772,7 +1819,50 @@ function AppShell({ onLangChange }: { onLangChange: (lang: Lang) => void }) {
               setBoot({ ...boot, settings: next });
             }}
             recent={settings.recent}
+            repoOpen={repoOpen}
           />
+        </div>
+        {tab === "log" && snapshot && (
+          <LogDock
+            result={logResult}
+            detail={logDetail}
+            loading={logLoading}
+            selected={selectedCommit}
+            selectedFile={logFile}
+            search={searchInput}
+            author={logAuthor}
+            authors={authors}
+            height={logDockHeight}
+            onResize={setLogDockHeight}
+            onSelect={selectCommit}
+            onSelectFile={(file) => {
+              if (logDetail) void openCommitFile(logDetail.hash, file);
+            }}
+            onStepFile={stepCommitFile}
+            onSearch={setSearchInput}
+            onAuthor={(name) => {
+              setLogAuthor(name);
+              setSelectedCommit(null);
+              setLogDetail(null);
+              setLogFile(null);
+            }}
+            onRefresh={() => void loadLog(true)}
+            onFetch={() => fetch()}
+            onLoadMore={() => void loadLog(false, true)}
+            onCopy={copyText}
+            onOpenSource={(path, revision) => void showFile(path, revision)}
+            onShowHistory={showFileHistory}
+            onCheckout={(ref) => void checkout(ref)}
+            onNewBranch={(start) => setDialog({ kind: "newBranch", start })}
+            onNewTag={(start) => setDialog({ kind: "tag", start })}
+            onCherryPick={(hash) => void cherryPick(hash)}
+            onRevert={(hash) => void revert(hash)}
+            onReset={(hash) => {
+              const commit = logResult?.commits.find((c) => c.hash === hash);
+              setDialog({ kind: "reset", hash, subject: commit?.subject ?? "" });
+            }}
+          />
+        )}
       </div>
       <footer className="statusbar">
         <button className="status-branch" id="branch-widget" onClick={openBranchPopupFromStatus} disabled={!repoOpen}>
@@ -2069,6 +2159,7 @@ function tabTitle(doc: Doc, t: Translate): string {
 }
 
 function RightPane({
+  repoOpen,
   docs,
   activeId,
   onActivate,
@@ -2096,6 +2187,7 @@ function RightPane({
   onRemoveRecent,
   recent,
 }: {
+  repoOpen: boolean;
   docs: Doc[];
   activeId: string | null;
   onActivate: (id: string) => void;
@@ -2181,7 +2273,26 @@ function RightPane({
   );
 
   if (!active) {
-    return <main className="editor-area">{welcome}</main>;
+    return (
+      <main className="editor-area">
+        {repoOpen ? (
+          <div className="editor-empty">
+            <span className="editor-empty-icon">
+              <Icon name="file" size={20} />
+            </span>
+            <div className="editor-empty-title">{t("noFileOpen")}</div>
+            <p className="editor-empty-hint">{t("emptyOpen")}</p>
+            <span className="editor-empty-key">
+              {t("emptyQuickOpen")}
+              <kbd>⌘/Ctrl</kbd>
+              <kbd>P</kbd>
+            </span>
+          </div>
+        ) : (
+          welcome
+        )}
+      </main>
+    );
   }
 
   return (

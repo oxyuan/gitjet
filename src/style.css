@@ -412,7 +412,15 @@ button {
 .workspace {
   flex: 1;
   display: flex;
+  flex-direction: column;
   min-height: 0;
+}
+
+.workspace-main {
+  flex: 1;
+  display: flex;
+  min-height: 0;
+  min-width: 0;
 }
 
 .toolwindow {
@@ -1359,10 +1367,19 @@ body.resizing-row * {
 
 /* ---------- Log ---------- */
 
-.log-panel {
+.branch-list {
   display: flex;
   flex-direction: column;
   height: 100%;
+  min-height: 0;
+}
+
+.branch-list-search {
+  border-bottom: 1px solid var(--border);
+}
+
+.branch-scroll {
+  flex: 1;
   min-height: 0;
 }
 
@@ -1376,8 +1393,8 @@ body.resizing-row * {
   display: flex;
   align-items: stretch;
   gap: 6px;
-  height: 38px;
-  padding-right: 8px;
+  height: 26px;
+  padding-right: 10px;
   font-size: 12px;
   white-space: nowrap;
   cursor: default;
@@ -1463,47 +1480,40 @@ body.resizing-row * {
   flex: none;
 }
 
-.log-main {
-  flex: 1;
-  min-width: 0;
-  display: flex;
-  flex-direction: column;
-  justify-content: center;
-  gap: 1px;
-}
-
-.log-line {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  min-width: 0;
-  height: 16px;
-}
-
 .log-subject {
   overflow: hidden;
   text-overflow: ellipsis;
   min-width: 0;
+  flex: 1;
 }
 
-.log-sub {
+.log-meta {
+  margin-left: auto;
   display: flex;
   align-items: center;
-  gap: 4px;
+  gap: 5px;
+  flex: none;
   font-size: 10.5px;
   color: var(--muted-2);
-  min-width: 0;
 }
 
 .log-author {
+  max-width: 160px;
   overflow: hidden;
   text-overflow: ellipsis;
-  max-width: 45%;
+  white-space: nowrap;
+}
+
+.log-sep {
+  color: var(--muted-2);
+  opacity: 0.7;
+  font-size: 10px;
 }
 
 .log-time {
   font-family: var(--font-mono);
-  font-size: 10px;
+  font-size: 10.5px;
+  color: var(--muted);
   letter-spacing: -0.1px;
 }
 
@@ -5134,19 +5144,10 @@ kbd {
   font-variant-numeric: tabular-nums;
 }
 
-.log-search-row {
-  flex: none;
-  padding: 8px 10px;
-  border-bottom: 1px solid var(--border);
-}
-
-.log-search-row .search-field {
-  max-width: none;
+.log-search {
   flex: 1;
-}
-
-.log-search-row .search-field input {
-  user-select: text;
+  max-width: 320px;
+  margin-left: 4px;
 }
 
 /* The log's details area should not look like a dead end. */
@@ -6289,4 +6290,222 @@ html[lang="zh"] .bp-section-title {
 .bp-leaf.author-row {
   gap: 8px;
   height: 28px;
+}
+
+/* ---- Log page: branch tree above, history and commit detail below ---- */
+
+.log-dock {
+  flex: none;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  background: var(--panel);
+}
+
+.log-dock-resizer {
+  flex: none;
+  height: 5px;
+  position: relative;
+  cursor: row-resize;
+}
+
+.log-dock-resizer::after {
+  content: "";
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: 2px;
+  height: 1px;
+  background: var(--border);
+}
+
+.log-dock-resizer:hover::after,
+body.resizing-row .log-dock-resizer::after {
+  background: var(--accent);
+}
+
+.log-dock-body {
+  flex: 1;
+  display: flex;
+  min-height: 0;
+  border-top: 0;
+}
+
+.log-history {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  border-right: 1px solid var(--border);
+}
+
+.log-detail {
+  flex: none;
+  width: 40%;
+  min-width: 320px;
+  max-width: 640px;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  outline: none;
+  background: var(--panel-raised);
+}
+
+.log-detail:focus-visible {
+  box-shadow: inset 0 0 0 1px var(--accent-soft);
+}
+
+.log-detail-empty {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  color: var(--muted-2);
+  font-size: 11.5px;
+}
+
+.log-detail-head {
+  flex: none;
+  padding: 9px 12px 8px;
+  border-bottom: 1px solid var(--border);
+}
+
+.log-detail-title {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px;
+}
+
+.log-detail-subject {
+  display: block;
+  margin-top: 4px;
+  font-size: 13px;
+  font-weight: 600;
+  line-height: 1.4;
+  color: var(--fg);
+  overflow-wrap: anywhere;
+}
+
+.log-detail-meta {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 7px;
+  font-size: 11px;
+  color: var(--muted);
+  white-space: nowrap;
+}
+
+.log-detail-meta .spacer {
+  flex: 1;
+}
+
+.log-detail-author {
+  font-weight: 550;
+  color: var(--fg-soft);
+  max-width: 45%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.log-detail-meta .bp-avatar {
+  width: 17px;
+  height: 17px;
+  font-size: 9px;
+}
+
+.log-detail-meta .muted {
+  color: var(--muted-2);
+}
+
+.hash-copy {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  height: 21px;
+  padding: 0 6px;
+  border: 1px solid var(--border);
+  border-radius: 5px;
+  background: transparent;
+  color: var(--muted);
+  flex: none;
+}
+
+.hash-copy code {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  color: var(--fg-soft);
+}
+
+.hash-copy:hover {
+  background: var(--hover);
+  color: var(--fg-soft);
+}
+
+.log-detail-scroll {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  padding: 8px 12px 10px;
+}
+
+.log-detail-scroll .details-body {
+  margin-top: 0;
+}
+
+.log-detail-scroll .details-file {
+  border-radius: 5px;
+}
+
+.log-detail-scroll .details-file.selected {
+  background: var(--selection);
+}
+
+.log-detail-scroll .details-file.selected .details-file-path {
+  color: var(--fg);
+}
+
+.log-detail-foot {
+  flex: none;
+  padding: 3px 12px;
+  border-top: 1px solid var(--border);
+  color: var(--muted-2);
+  font-size: 10px;
+}
+
+.bp-leaf.selected {
+  background: var(--selection);
+}
+
+.bp-leaf.current.selected {
+  background: var(--selection-strong);
+}
+
+/* File rows in the commit detail: the base name first, the folder dimmed. */
+.log-detail .details-file-path {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  min-width: 0;
+  overflow: hidden;
+}
+
+.log-detail .file-base {
+  flex: none;
+  color: var(--fg-soft);
+  font-family: var(--font-mono);
+  font-size: 11px;
+}
+
+.log-detail .file-dir {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--muted-2);
+  font-family: var(--font-mono);
+  font-size: 10px;
 }
