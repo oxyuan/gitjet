@@ -23,12 +23,12 @@ import {
   type ViewUpdate,
 } from "@codemirror/view";
 import { defaultKeymap, history, historyKeymap } from "@codemirror/commands";
-import { HighlightStyle, bracketMatching, indentOnInput, syntaxHighlighting, type LanguageSupport } from "@codemirror/language";
+import { bracketMatching, indentOnInput, syntaxHighlighting, type LanguageSupport } from "@codemirror/language";
 import { highlightSelectionMatches, search, searchKeymap } from "@codemirror/search";
 import { closeBrackets } from "@codemirror/autocomplete";
 import { languages } from "@codemirror/language-data";
 import { findReferences, jumpToDefinition } from "@codemirror/lsp-client";
-import { tags as t } from "@lezer/highlight";
+import { editorHighlightStyle } from "./highlight";
 import type { BlameLine } from "./mygo";
 import type { ChangeRange } from "./annotate";
 
@@ -64,22 +64,6 @@ const theme = EditorView.theme({
   ".cm-searchMatch": { backgroundColor: "color-mix(in srgb, var(--warning) 30%, transparent)" },
   ".cm-searchMatch-selected": { backgroundColor: "color-mix(in srgb, var(--warning) 55%, transparent)" },
 });
-
-/** Syntax colours, as CSS variables so both themes work from one style. */
-const highlight = HighlightStyle.define([
-  { tag: [t.keyword, t.modifier, t.operatorKeyword], color: "var(--syntax-keyword)" },
-  { tag: [t.string, t.special(t.string)], color: "var(--syntax-string)" },
-  { tag: [t.number, t.bool, t.null], color: "var(--syntax-number)" },
-  { tag: [t.comment, t.lineComment, t.blockComment], color: "var(--syntax-comment)", fontStyle: "italic" },
-  { tag: [t.function(t.variableName), t.function(t.propertyName)], color: "var(--syntax-function)" },
-  { tag: [t.typeName, t.className, t.namespace], color: "var(--syntax-tag)" },
-  { tag: [t.propertyName, t.attributeName], color: "var(--syntax-variable)" },
-  { tag: [t.variableName, t.labelName], color: "var(--syntax-punct)" },
-  { tag: [t.tagName], color: "var(--syntax-keyword)" },
-  { tag: [t.meta, t.annotation], color: "var(--syntax-comment)" },
-  { tag: [t.heading], color: "var(--syntax-tag)", fontWeight: "600" },
-  { tag: [t.link, t.url], color: "var(--syntax-function)", textDecoration: "underline" },
-]);
 
 /** Aliases for the language names the Go side reports. */
 const languageAliases: Record<string, string> = {
@@ -365,7 +349,7 @@ export class SourceEditor {
               return true;
             },
           }),
-          syntaxHighlighting(highlight),
+          syntaxHighlighting(editorHighlightStyle),
           theme,
           this.languageConf.of([]),
           this.wrapConf.of(opts.wrap ? EditorView.lineWrapping : []),

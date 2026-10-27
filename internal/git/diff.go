@@ -86,6 +86,9 @@ type FileDiff struct {
 	// WholeFile reports that the diff covers every line of the file, so a
 	// viewer can show it in full instead of folding the unchanged parts.
 	WholeFile bool `json:"wholeFile"`
+	// Language is the grammar the viewer colours both sides with; the diff
+	// itself is text, so this is derived from the path, not read from git.
+	Language string `json:"language"`
 }
 
 // fullContext is the -U value that turns a diff into the whole file: every
@@ -124,6 +127,7 @@ func (r *Repo) FileDiff(ctx context.Context, opts DiffOptions) (FileDiff, error)
 	d := parsePatch(patch, path)
 	d.Path = path
 	d.WholeFile = whole
+	d.Language = languageOf(path)
 	if opts.OldPath != "" {
 		d.OldPath = opts.OldPath
 	}

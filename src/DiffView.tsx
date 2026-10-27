@@ -3,6 +3,7 @@ import type { DiffOptions, FileDiff } from "./mygo";
 import { buildDiffRows, isCollapsed, type AlignedRow, type DiffRows, type WordSegment } from "./diff";
 import { Icon } from "./icons";
 import { useT } from "./i18n";
+import { paintLine, tokenize, type LineTokens } from "./syntax";
 import { cx, formatWhen, IconButton, Spinner } from "./ui";
 
 type Mode = "split" | "unified";
@@ -126,6 +127,7 @@ export function DiffView({
   const sideLabel = (raw: string) =>
     raw === "Working Tree" ? t("workingTree") : raw === "Index" ? t("index") : raw;
   const rows = useMemo(() => buildDiffRows(diff), [diff]);
+  const tokens = useDiffTokens(diff);
   const [expanded, setExpanded] = useState<Set<number>>(new Set());
   const [current, setCurrent] = useState(-1);
   const bodyRef = useRef<HTMLDivElement>(null);
@@ -268,6 +270,7 @@ export function DiffView({
             <SplitRows
               rows={rows}
               diff={diff}
+              tokens={tokens}
               expanded={expanded}
               setExpanded={setExpanded}
               firstRowOfHunk={firstRowOfHunk}
@@ -280,6 +283,7 @@ export function DiffView({
             <UnifiedRows
               rows={rows}
               diff={diff}
+              tokens={tokens}
               expanded={expanded}
               setExpanded={setExpanded}
               firstRowOfHunk={firstRowOfHunk}
@@ -294,6 +298,31 @@ export function DiffView({
       )}
     </div>
   );
+}
+
+/** Syntax colours for both sides of the diff, or nulls while they load. The
+ *  viewer paints plain text meanwhile: colours arriving a frame later is
+ *  better than a blank pane. */
+function useDiffTokens(diff: FileDiff): { left: LineTokens | null; right: LineTokens | null } {
+  const [tokens, setTokens] = useState<{ left: LineTokens | null; right: LineTokens | null }>({
+    left: null,
+    right: null,
+  });
+  const language = diff.language;
+  const left = diff.oldText;
+  const right = diff.newText;
+  useEffect(() => {
+    setTokens({ left: null, right: null });
+    if (diff.binary || language === "" || language === "plain") return;
+    let alive = true;
+    void Promise.all([tokenize(left, language), tokenize(right, language)]).then(([l, r]) => {
+      if (alive) setTokens({ left: l, right: r });
+    });
+    return () => {
+      alive = false;
+    };
+  }, [left, right, language, diff.binary]);
+  return tokens;
 }
 
 function statusLetter(status: string): string {
@@ -363,18 +392,27 @@ function ApplyChevrons({
   );
 }
 
-function Segments({ segs, text }: { segs?: WordSegment[]; text: string }) {
-  if (!segs) return <>{text || "\u00a0"}</>;
+/** One side of one row, painted with its syntax colours and, for a changed
+ *  word, the change mark on top of them. */
+function LineText({
+  text,
+  no,
+  segs,
+  tokens,
+}: {
+  text: string;
+  /** Line number in the side's own text, which is how tokens are keyed. */
+  no?: number;
+  segs?: WordSegment[];
+  tokens?: LineTokens | null;
+}) {
+  const spans = no === undefined ? undefined : tokens?.get(no);
+  const pieces = useMemo(() => paintLine(text, spans, segs), [text, spans, segs]);
+  if (text === "") return <>{"\u00a0"}</>;
   return (
     <>
-      {segs.map((s, i) =>
-        s.changed ? (
-          <span className="word-changed" key={i}>
-            {s.text}
-          </span>
-        ) : (
-          <span key={i}>{s.text}</span>
-        ),
+      {pieces.map((piece, i) =>
+        piece.cls === "" ? <span key={i}>{piece.text}</span> : <span className={piece.cls} key={i}>{piece.text}</span>,
       )}
     </>
   );
@@ -383,6 +421,7 @@ function Segments({ segs, text }: { segs?: WordSegment[]; text: string }) {
 function SplitRows({
   rows,
   diff,
+  tokens,
   expanded,
   setExpanded,
   firstRowOfHunk,
@@ -393,6 +432,7 @@ function SplitRows({
 }: {
   rows: DiffRows;
   diff: FileDiff;
+  tokens: { left: LineTokens | null; right: LineTokens | null };
   expanded: Set<number>;
   setExpanded: (s: Set<number>) => void;
   firstRowOfHunk: Map<number, number>;
@@ -434,7 +474,11 @@ function SplitRows({
       >
         <div className={cx("line-no", aligned.left?.kind === "del" && "del")}>{aligned.left?.no ?? ""}</div>
         <div className={cx("line-text", aligned.left?.kind)}>
-          {aligned.left ? <Segments segs={aligned.left.segments} text={aligned.left.text} /> : "\u00a0"}
+          {aligned.left ? (
+            <LineText text={aligned.left.text} no={aligned.left.no} segs={aligned.left.segments} tokens={tokens.left} />
+          ) : (
+            "\u00a0"
+          )}
         </div>
         {isFirst ? (
           <ApplyChevrons hunk={aligned.hunk} action={hunkAction} canApply={canApply} onApply={onApply} />
@@ -443,7 +487,11 @@ function SplitRows({
         )}
         <div className={cx("line-no", aligned.right?.kind === "add" && "add")}>{aligned.right?.no ?? ""}</div>
         <div className={cx("line-text", aligned.right?.kind)}>
-          {aligned.right ? <Segments segs={aligned.right.segments} text={aligned.right.text} /> : "\u00a0"}
+          {aligned.right ? (
+            <LineText text={aligned.right.text} no={aligned.right.no} segs={aligned.right.segments} tokens={tokens.right} />
+          ) : (
+            "\u00a0"
+          )}
         </div>
       </div>,
     );
@@ -455,6 +503,7 @@ function SplitRows({
 function UnifiedRows({
   rows,
   diff,
+  tokens,
   expanded,
   setExpanded,
   firstRowOfHunk,
@@ -465,6 +514,7 @@ function UnifiedRows({
 }: {
   rows: DiffRows;
   diff: FileDiff;
+  tokens: { left: LineTokens | null; right: LineTokens | null };
   expanded: Set<number>;
   setExpanded: (s: Set<number>) => void;
   firstRowOfHunk: Map<number, number>;
@@ -509,7 +559,7 @@ function UnifiedRows({
           <div className={cx("line-no", line.kind === "del" && "del")}>{line.no || ""}</div>
           <div className="line-prefix">{line.kind === "del" ? "−" : line.kind === "add" ? "+" : " "}</div>
           <div className={cx("line-text", line.kind)}>
-            <Segments segs={line.segments} text={line.text} />
+            <LineText text={line.text} no={line.no} segs={line.segments} tokens={side === "left" ? tokens.left : tokens.right} />
           </div>
           {isFirst && side === (aligned.left ? "left" : "right") ? (
             <ApplyChevrons hunk={aligned.hunk} action={hunkAction} canApply={canApply} onApply={onApply} />
