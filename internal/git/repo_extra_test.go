@@ -130,7 +130,7 @@ func TestPushPreviewDetectsDivergedRemote(t *testing.T) {
 	commitFile(t, dir, "local.txt", "local\n", "local work")
 	runGit(t, dir, "fetch", "-q", "origin")
 
-	preview, err := repo.PushPreview(ctx, "origin", "main")
+	preview, err := repo.PushPreview(ctx, "origin", "main", "")
 	if err != nil {
 		t.Fatalf("PushPreview: %v", err)
 	}

@@ -2,6 +2,7 @@ package git
 
 import (
 	"context"
+	"strings"
 	"testing"
 )
 
@@ -24,7 +25,7 @@ func TestPushPreviewListsCommitsAndFiles(t *testing.T) {
 	runGit(t, dir, "add", "b.txt")
 	runGit(t, dir, "commit", "-q", "-m", "third")
 
-	p, err := repo.PushPreview(context.Background(), "origin", "main")
+	p, err := repo.PushPreview(context.Background(), "origin", "main", "")
 	if err != nil {
 		t.Fatalf("PushPreview: %v", err)
 	}
@@ -62,7 +63,7 @@ func TestPushPreviewOfANewBranchComparesWithTheRemoteBranchItCameFrom(t *testing
 	runGit(t, dir, "add", "feature.txt")
 	runGit(t, dir, "commit", "-q", "-m", "feature work")
 
-	p, err := repo.PushPreview(context.Background(), "origin", "feature")
+	p, err := repo.PushPreview(context.Background(), "origin", "feature", "")
 	if err != nil {
 		t.Fatalf("PushPreview: %v", err)
 	}
@@ -86,10 +87,54 @@ func TestPushPreviewOfANewBranchComparesWithTheRemoteBranchItCameFrom(t *testing
 func TestPushPreviewRejectsAnUnknownBranch(t *testing.T) {
 	repo, dir := newTestRepo(t)
 	withRemote(t, dir)
-	if _, err := repo.PushPreview(context.Background(), "origin", "nope"); err == nil {
+	if _, err := repo.PushPreview(context.Background(), "origin", "nope", ""); err == nil {
 		t.Fatal("PushPreview accepted a branch that does not exist")
 	}
-	if _, err := repo.PushPreview(context.Background(), "origin", "-x"); err == nil {
+	if _, err := repo.PushPreview(context.Background(), "origin", "-x", ""); err == nil {
 		t.Fatal("PushPreview accepted a branch name that looks like an option")
+	}
+}
+
+func TestPushPreviewTargetsAnotherRemoteBranch(t *testing.T) {
+	repo, dir := newTestRepo(t)
+	withRemote(t, dir)
+	writeFile(t, dir, "a.txt", "a\n")
+	runGit(t, dir, "commit", "-q", "-am", "one")
+
+	p, err := repo.PushPreview(context.Background(), "origin", "main", "release")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if p.RemoteBranch != "origin/release" {
+		t.Fatalf("remote branch = %q, want origin/release", p.RemoteBranch)
+	}
+	if !p.Creates {
+		t.Fatal("a remote branch that does not exist yet should be reported as created")
+	}
+	if p.Branch != "main" {
+		t.Fatalf("local branch = %q, want main", p.Branch)
+	}
+	if _, err := repo.PushPreview(context.Background(), "origin", "main", "bad..name"); err == nil {
+		t.Fatal("an invalid target branch should be refused")
+	}
+}
+
+func TestPushToAnotherRemoteBranchPublishesThatRef(t *testing.T) {
+	repo, dir := newTestRepo(t)
+	withRemote(t, dir)
+	writeFile(t, dir, "a.txt", "changed\n")
+	runGit(t, dir, "commit", "-q", "-am", "work")
+	head := runGit(t, dir, "rev-parse", "HEAD")
+
+	if _, err := repo.Push(context.Background(), PushOptions{Remote: "origin", Branch: "main", RemoteBranch: "release"}, func(string) {}); err != nil {
+		t.Fatalf("Push: %v", err)
+	}
+	bare := strings.TrimSpace(runGit(t, dir, "remote", "get-url", "origin"))
+	got := strings.TrimSpace(runGit(t, dir, "--git-dir="+bare, "rev-parse", "refs/heads/release"))
+	if got != head {
+		t.Fatalf("origin release = %s, want %s", got, head)
+	}
+	if strings.TrimSpace(runGit(t, dir, "--git-dir="+bare, "rev-parse", "refs/heads/main")) == head {
+		t.Fatal("main on the remote moved too; the refspec did not name the branch")
 	}
 }

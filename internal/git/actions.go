@@ -31,8 +31,11 @@ type CommitResult struct {
 
 // PushOptions selects a remote, branch and how to push.
 type PushOptions struct {
-	Remote         string `json:"remote"`
-	Branch         string `json:"branch"`
+	Remote string `json:"remote"`
+	Branch string `json:"branch"`
+	// RemoteBranch is the branch on the other side, when it is not the same
+	// name as the local branch. Empty means "same name".
+	RemoteBranch   string `json:"remoteBranch"`
 	SetUpstream    bool   `json:"setUpstream"`
 	ForceWithLease bool   `json:"forceWithLease"`
 	// ForceIfIncludes adds --force-if-includes, which refuses the forced
@@ -577,7 +580,16 @@ func (r *Repo) Push(ctx context.Context, opts PushOptions, emit func(string)) (s
 			branch = st.State.Branch
 		}
 	}
-	if branch != "" {
+	target := strings.TrimSpace(opts.RemoteBranch)
+	if target != "" && target != branch {
+		// A fully qualified refspec pushes this branch to a different name
+		// on the remote, which is how a local branch takes over one that is
+		// already there under another name.
+		if _, err := r.run(ctx, "check-ref-format", "--branch", target); err != nil {
+			return "", errors.New("that is not a branch name")
+		}
+		args = append(args, "refs/heads/"+branch+":refs/heads/"+target)
+	} else if branch != "" {
 		args = append(args, branch)
 	}
 	return r.stream(ctx, emit, args...)

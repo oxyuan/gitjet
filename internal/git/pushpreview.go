@@ -40,9 +40,10 @@ const pushPreviewLimit = 200
 // exists. A branch the remote does not know yet has no such ref, so the
 // closest ref of the same remote stands in: pushing a fresh branch should
 // list the branch's own work, not the history it was cut from.
-func (r *Repo) PushPreview(ctx context.Context, remote, branch string) (PushPreview, error) {
+func (r *Repo) PushPreview(ctx context.Context, remote, branch, remoteBranch string) (PushPreview, error) {
 	remote = strings.TrimSpace(remote)
 	branch = strings.TrimSpace(branch)
+	remoteBranch = strings.TrimSpace(remoteBranch)
 	if remote == "" {
 		remote = "origin"
 	}
@@ -50,6 +51,15 @@ func (r *Repo) PushPreview(ctx context.Context, remote, branch string) (PushPrev
 		return PushPreview{}, errors.New("choose a branch to push")
 	}
 	if strings.HasPrefix(branch, "-") || strings.ContainsAny(branch, " \t\n") {
+		return PushPreview{}, errors.New("that is not a branch name")
+	}
+	if remoteBranch == "" {
+		remoteBranch = branch
+	}
+	if strings.HasPrefix(remoteBranch, "-") || strings.ContainsAny(remoteBranch, " \t\n") {
+		return PushPreview{}, errors.New("that is not a branch name")
+	}
+	if _, err := r.run(ctx, "check-ref-format", "--branch", remoteBranch); err != nil {
 		return PushPreview{}, errors.New("that is not a branch name")
 	}
 	local := "refs/heads/" + branch
@@ -60,7 +70,7 @@ func (r *Repo) PushPreview(ctx context.Context, remote, branch string) (PushPrev
 	p := PushPreview{
 		Branch:       branch,
 		Remote:       remote,
-		RemoteBranch: remote + "/" + branch,
+		RemoteBranch: remote + "/" + remoteBranch,
 		Commits:      []Commit{},
 		Files:        []CommitFile{},
 	}
@@ -69,8 +79,8 @@ func (r *Repo) PushPreview(ctx context.Context, remote, branch string) (PushPrev
 	}
 
 	other := ""
-	if _, err := r.run(ctx, "rev-parse", "--verify", "--quiet", "refs/remotes/"+remote+"/"+branch); err == nil {
-		other = "refs/remotes/" + remote + "/" + branch
+	if _, err := r.run(ctx, "rev-parse", "--verify", "--quiet", "refs/remotes/"+remote+"/"+remoteBranch); err == nil {
+		other = "refs/remotes/" + remote + "/" + remoteBranch
 	} else {
 		p.Creates = true
 		other = r.closestRemoteRef(ctx, remote, p.Upstream)

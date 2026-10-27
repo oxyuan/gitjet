@@ -128,6 +128,9 @@ const T = {
     "push.chooseRemote": "Choose the remote to push to",
     "push.detached": "detached HEAD",
     "push.newBranch": "new branch",
+    "push.targetBranch": "Remote branch",
+    "push.targetHint": "The branch this pushes onto. Edit it to publish under another name.",
+    "push.badBranch": "That is not a valid branch name.",
     "push.checking": "Reading what would be pushed…",
     "push.summary": "{commits} · {files} changed",
     "push.commitOne": "1 commit",
@@ -312,6 +315,9 @@ const T = {
     "push.chooseRemote": "选择要推送到哪个远程",
     "push.detached": "游离 HEAD",
     "push.newBranch": "新建分支",
+    "push.targetBranch": "远程分支",
+    "push.targetHint": "推送到的远程分支。改成另一个名字即可用不同名称发布。",
+    "push.badBranch": "这不是合法的分支名。",
     "push.checking": "正在读取将要推送的内容…",
     "push.summary": "{commits} · {files} 项变更",
     "push.commitOne": "1 个提交",
@@ -945,6 +951,10 @@ export function PushDialog({
 }) {
   const t = useT(T);
   const [branch, setBranch] = useState(initialBranch || current);
+  // The branch on the other side. It starts as the local name and stays
+  // editable: pushing local `main` onto `release` is a refspec, not a rename.
+  const [target, setTarget] = useState(initialBranch || current);
+  const [targetEdited, setTargetEdited] = useState(false);
   const [recent, setRecent] = useState<string[]>([]);
   const [forceIfIncludes, setForceIfIncludes] = useState(false);
   const [remote, setRemote] = useState(remotes.find((r) => r.name === "origin")?.name ?? remotes[0]?.name ?? "origin");
@@ -960,32 +970,51 @@ export function PushDialog({
   const [expanded, setExpanded] = useState<ReadonlySet<string>>(new Set());
   const [menu, setMenu] = useState<{ x: number; y: number; items: ContextItem[] } | null>(null);
 
-  // The dialog is a confirmation: it shows what git would send before the
-  // button sends it. Changing the remote changes the answer.
+  // Typing a target branch re-reads the preview; the pause keeps git from
+  // being spawned once per keystroke.
   useEffect(() => {
     let alive = true;
-    setLoading(true);
-    setError("");
-    setSelected(null);
-    setDetail(null);
-    Git.pushPreview(remote, branch)
-      .then((p) => {
-        if (!alive) return;
-        setPreview(p);
-        if (p.creates) setUpstreamState(true);
-      })
-      .catch((err) => {
-        if (!alive) return;
-        setPreview(null);
-        setError(err instanceof Error ? err.message : String(err));
-      })
-      .finally(() => {
-        if (alive) setLoading(false);
-      });
+    const timer = setTimeout(
+      () => {
+        const wanted = target.trim();
+        if (wanted === "" || wanted.startsWith("-") || /[\s~^:?*[\\]/.test(wanted)) {
+          setLoading(false);
+          setPreview(null);
+          setError(t("push.badBranch"));
+          return;
+        }
+        setLoading(true);
+        setError("");
+        setSelected(null);
+        setDetail(null);
+        Git.pushPreview(remote, branch, wanted)
+          .then((p) => {
+            if (!alive) return;
+            setPreview(p);
+            if (p.creates) setUpstreamState(true);
+          })
+          .catch((err) => {
+            if (!alive) return;
+            setPreview(null);
+            setError(err instanceof Error ? err.message : String(err));
+          })
+          .finally(() => {
+            if (alive) setLoading(false);
+          });
+      },
+      targetEdited ? 220 : 0,
+    );
     return () => {
       alive = false;
+      clearTimeout(timer);
     };
-  }, [remote, branch]);
+  }, [remote, branch, target, targetEdited, t]);
+
+  // Picking a different local branch renames the target with it, unless the
+  // name was typed on purpose.
+  useEffect(() => {
+    if (!targetEdited) setTarget(branch);
+  }, [branch, targetEdited]);
 
   useEffect(() => {
     Git.pushTargets()
@@ -1031,7 +1060,6 @@ export function PushDialog({
   // on the remote is the point.
   const createsOnly = !loading && !error && ahead === 0 && !!preview?.creates;
   const nothing = !loading && !error && ahead === 0 && !preview?.creates;
-  const targetBranch = preview ? preview.remoteBranch.slice(remote.length + 1) || branch : branch;
 
   const openRemoteMenu = (e: ReactMouseEvent<HTMLButtonElement>) => {
     e.stopPropagation();
@@ -1057,7 +1085,11 @@ export function PushDialog({
                   icon: "clock" as const,
                   onClick: () => {
                     setRemote(targetRemote);
-                    if (targetBranch) setBranch(targetBranch);
+                    setTargetEdited(false);
+                    if (targetBranch) {
+                      setBranch(targetBranch);
+                      setTarget(targetBranch);
+                    }
                   },
                 };
               }),
@@ -1109,6 +1141,7 @@ export function PushDialog({
                 onSubmit({
                   remote,
                   branch,
+                  remoteBranch: target.trim(),
                   setUpstream: upstream,
                   forceWithLease: force,
                   forceIfIncludes,
@@ -1159,7 +1192,19 @@ export function PushDialog({
                 {remote}
               </button>
               <span className="pushd-colon">:</span>
-              <span className="pushd-target">{targetBranch}</span>
+              <input
+                className="pushd-target-input"
+                value={target}
+                spellCheck={false}
+                autoComplete="off"
+                aria-label={t("push.targetBranch")}
+                title={t("push.targetHint")}
+                size={Math.max(6, Math.min(40, target.length + 1))}
+                onChange={(e) => {
+                  setTargetEdited(true);
+                  setTarget(e.target.value);
+                }}
+              />
               {preview?.creates && <span className="pushd-badge">{t("push.newBranch")}</span>}
             </div>
             <div className="pushd-commits">

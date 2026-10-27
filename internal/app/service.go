@@ -781,12 +781,12 @@ func (g *Git) DeleteTag(name, remote string) error {
 
 // PushPreview reports what a push would publish, for the confirmation
 // dialog: the commits, the files, and whether the remote branch is new.
-func (g *Git) PushPreview(remote, branch string) (git.PushPreview, error) {
+func (g *Git) PushPreview(remote, branch, remoteBranch string) (git.PushPreview, error) {
 	repo, err := g.c.currentRepo()
 	if err != nil {
 		return git.PushPreview{}, err
 	}
-	return repo.PushPreview(context.Background(), remote, branch)
+	return repo.PushPreview(context.Background(), remote, branch, remoteBranch)
 }
 
 // Push pushes and streams git's output.

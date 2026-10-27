@@ -239,6 +239,7 @@ export interface FileDiff {
   truncated: boolean;
   patch: string;
   hasChanges: boolean;
+  wholeFile: boolean;
 }
 
 export interface LFSFile {
@@ -313,6 +314,7 @@ export interface PullOptions {
 export interface PushOptions {
   remote: string;
   branch: string;
+  remoteBranch: string;
   setUpstream: boolean;
   forceWithLease: boolean;
   forceIfIncludes: boolean;
@@ -420,6 +422,11 @@ export interface Server {
  * RepoMeta instead.
  */
 export interface Settings {
+  /**
+   * Version is the schema of this file, so a default that later changes
+   * can be migrated once instead of guessed at forever.
+   */
+  version: number;
   gitPath: string;
   /** system, en, zh */
   language: string;
@@ -795,8 +802,8 @@ export const Git = {
    * PushPreview reports what a push would publish, for the confirmation
    * dialog: the commits, the files, and whether the remote branch is new.
    */
-  pushPreview(remote: string, branch: string): Promise<PushPreview> {
-    return call("Git.PushPreview", remote, branch);
+  pushPreview(remote: string, branch: string, remoteBranch: string): Promise<PushPreview> {
+    return call("Git.PushPreview", remote, branch, remoteBranch);
   },
   /**
    * PushTargets lists the remote branches this repository pushed to, newest
