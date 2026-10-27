@@ -9,7 +9,8 @@ const T = {
   en: {
     title: "Console",
     intro:
-      "Console — runs the line as typed, in the repository root: git status, ls, pwd. Tab completes, ↑/↓ recalls history.",
+      "Git console — every line runs as a git subcommand in the repository root, so `status` is `git status`. Start a line with `!` to run another program as typed (`!ls -la`). Tab completes, ↑/↓ recalls history.",
+    hint: "status, log --oneline -5, diff HEAD~1 · ! for a shell program",
     copyOutput: "Copy console output",
     clearConsole: "Clear console",
     openRepositoryFirst: "Open a repository first",
@@ -17,7 +18,9 @@ const T = {
   },
   zh: {
     title: "控制台",
-    intro: "控制台 — 命令按原样在仓库根目录执行：git status、ls、pwd 都可以。Tab 补全，↑/↓ 调出历史。",
+    intro:
+      "Git 控制台 — 每一行都作为 git 子命令在仓库根目录执行，输入 status 就是 git status；以 ! 开头则按原样运行其他程序（如 !ls -la）。Tab 补全，↑/↓ 调出历史。",
+    hint: "status、log --oneline -5、diff HEAD~1，用 ! 开头运行其他程序",
     copyOutput: "复制控制台输出",
     clearConsole: "清空控制台",
     openRepositoryFirst: "请先打开仓库",
@@ -69,10 +72,15 @@ export function ConsolePanel({ onCommandDone, repoOpen }: { onCommandDone: () =>
     if (nearBottom) el.scrollTop = el.scrollHeight;
   }, [lines]);
 
+  // The typed line is a git command line: the program is implied, and the
+  // console adds it so the back end (and its completion rules) see exactly
+  // what runs. "!" opts out for the odd non-git program.
+  const lineFor = (typed: string) => (typed.startsWith("!") ? typed.slice(1).trim() : typed);
+
   const complete = async () => {
     if (!repoOpen) return;
     try {
-      const list = await Git.completions(input);
+      const list = await Git.completions(input.startsWith("!") ? lineFor(input) : `git ${input}`);
       if (list.length === 0) return;
       setCompletions(list);
       setCompletionIndex(0);
@@ -90,12 +98,13 @@ export function ConsolePanel({ onCommandDone, repoOpen }: { onCommandDone: () =>
   };
 
   const run = async (raw?: string) => {
-    const command = (raw ?? input).trim();
-    if (command === "" || running) return;
+    const typed = (raw ?? input).trim();
+    if (typed === "" || running) return;
+    const command = typed.startsWith("!") || /^git(\s|$)/.test(typed) ? typed.replace(/^!/, "").trim() : `git ${typed}`;
     append("command", command);
     setInput("");
     setCompletions([]);
-    setHistory([command, ...history.filter((h) => h !== command)].slice(0, 100));
+    setHistory([typed, ...history.filter((h) => h !== typed)].slice(0, 100));
     setHistoryIndex(-1);
     setRunning(true);
     const channel = new Channel<string>();
@@ -159,13 +168,21 @@ export function ConsolePanel({ onCommandDone, repoOpen }: { onCommandDone: () =>
         )}
       </div>
       <div className="console-input-row">
-        <span className="console-prompt">$</span>
+        <span className={cx("console-prompt", input.startsWith("!") && "shell")} title={t("intro")}>
+          {input.startsWith("!") ? "$" : "git"}
+        </span>
         <input
           ref={inputRef}
           className="console-input"
           value={input}
+          // A console must keep what was typed: WebKit's sentence
+          // capitalisation would turn "status" into "Status".
+          autoCapitalize="off"
+          autoCorrect="off"
+          autoComplete="off"
+          spellCheck={false}
           disabled={!repoOpen || running}
-          placeholder={repoOpen ? "git status" : t("openRepositoryFirst")}
+          placeholder={repoOpen ? t("hint") : t("openRepositoryFirst")}
           onChange={(e) => setInput(e.target.value)}
           onKeyDown={(e) => {
             if (e.key === "Enter") {

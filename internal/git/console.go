@@ -88,12 +88,15 @@ func (r *Repo) runTyped(ctx context.Context, args []string, emit func(string)) (
 	if args[0] == "git" {
 		return r.streamCmd(ctx, r.command(ctx, args[1:]...), args[1:], emit)
 	}
+	// Every command already runs in the repository root, so a directory change
+	// cannot work. Saying so is the answer, even where the system ships a
+	// "cd" that would quietly succeed and change nothing.
+	switch args[0] {
+	case "cd", "exit":
+		return "", fmt.Errorf("%s needs a shell: every command already runs in %s", args[0], r.dir)
+	}
 	exe, err := lookTyped(args[0], r.git)
 	if err != nil {
-		switch args[0] {
-		case "cd", "exit":
-			return "", fmt.Errorf("%s needs a shell: every command already runs in %s", args[0], r.dir)
-		}
 		return "", fmt.Errorf("%s: command not found", args[0])
 	}
 	cmd := exec.CommandContext(ctx, exe, args[1:]...)

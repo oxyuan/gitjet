@@ -80,7 +80,13 @@ func TestRunConsoleRunsAProgramOtherThanGit(t *testing.T) {
 	if !strings.Contains(out, "on stderr") {
 		t.Errorf("stderr was not streamed with stdout: %q", out)
 	}
-	if !strings.Contains(out, "cwd="+strings.TrimSpace(dir)) {
+	// The child reports the kernel's view of the directory, which on macOS
+	// resolves /var to /private/var; compare the resolved paths.
+	wantDir := strings.TrimSpace(dir)
+	if resolved, err := filepath.EvalSymlinks(wantDir); err == nil {
+		wantDir = resolved
+	}
+	if !strings.Contains(out, "cwd="+wantDir) {
 		t.Errorf("cwd is not the repository root (%s): %q", dir, out)
 	}
 	if !strings.Contains(out, "-test.run=TestConsoleHelperProcess") {
