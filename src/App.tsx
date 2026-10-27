@@ -2505,6 +2505,23 @@ function NoRepo({ onOpen }: { onOpen: () => void }) {
   );
 }
 
+/** The kind of document, as the word the icon stands for: the icon is what
+ *  the tab shows, this is its tooltip. */
+function kindLabel(doc: Doc, t: Translate): string {
+  switch (doc.kind) {
+    case "diff":
+      return t("kindDiff");
+    case "file":
+      return t("kindSource");
+    case "conflict":
+      return t("kindMerge");
+    case "blame":
+      return t("kindBlame");
+    case "commit":
+      return t("kindCommit");
+  }
+}
+
 function docIcon(doc: Doc): "diff" | "file" | "merge" | "user" | "commit" {
   switch (doc.kind) {
     case "diff":
@@ -2681,11 +2698,10 @@ function RightPane({
             }}
             title={doc.kind === "diff" ? doc.opts.path : doc.kind === "file" ? doc.file.path : doc.title}
           >
-            <Icon name={docIcon(doc)} size={14} />
-            <span className="editor-tab-title">{tabTitle(doc, t)}</span>
-            <span className="editor-tab-kind">
-              {doc.kind === "diff" ? t("kindDiff") : doc.kind === "file" ? t("kindSource") : doc.kind === "conflict" ? t("kindMerge") : doc.kind === "blame" ? t("kindBlame") : t("kindCommit")}
+            <span className={cx("editor-tab-kind", `kind-${doc.kind}`)} title={kindLabel(doc, t)}>
+              <Icon name={docIcon(doc)} size={11} />
             </span>
+            <span className="editor-tab-title">{tabTitle(doc, t)}</span>
             {doc.kind === "diff" && (
               <span className={cx("tab-status", `st-${doc.diff.status === "modified" ? "modified" : doc.diff.status === "added" ? "added" : "deleted"}`)}>
                 {doc.diff.status === "added" ? "A" : doc.diff.status === "deleted" ? "D" : doc.diff.status === "renamed" ? "R" : "M"}
