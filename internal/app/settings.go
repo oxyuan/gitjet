@@ -20,6 +20,9 @@ import (
 // directory. Repository-specific grouping and message history live in
 // RepoMeta instead.
 type Settings struct {
+	// Version is the schema of this file, so a default that later changes
+	// can be migrated once instead of guessed at forever.
+	Version          int          `json:"version"`
 	GitPath          string       `json:"gitPath"`
 	Language         string       `json:"language"` // system, en, zh
 	Theme            string       `json:"theme"`    // system, light, dark
@@ -55,11 +58,16 @@ type RepoMeta struct {
 	PushTargets []string `json:"pushTargets"`
 }
 
+// settingsVersion is bumped whenever a stored default has to be rewritten;
+// see the migration in loadSettings.
+const settingsVersion = 2
+
 func defaultSettings() Settings {
 	return Settings{
+		Version:          settingsVersion,
 		Language:         "system",
 		Theme:            "system",
-		DiffContext:      3,
+		DiffContext:      -1,
 		UpdateMethod:     "merge",
 		ConfirmRollback:  true,
 		ConfirmForcePush: true,
@@ -84,8 +92,25 @@ func loadSettings() Settings {
 	if err == nil {
 		_ = json.Unmarshal(b, &s)
 	}
-	if s.DiffContext <= 0 || s.DiffContext > 100 {
-		s.DiffContext = 3
+	// The diff used to keep three lines; 2 makes the whole file the default.
+	// Only a file older than that is rewritten, so choosing three by hand
+	// afterwards sticks.
+	if s.Version < 2 && s.DiffContext == 3 {
+		s.DiffContext = -1
+	}
+	s.Version = settingsVersion
+	s.clamp()
+	return s
+}
+
+// clamp forces the values the app can render into their range. It runs on
+// load and on every save, so a page cannot store something the diff engine
+// would have to guess at.
+func (s *Settings) clamp() {
+	// -1 is the whole file, 1..100 is a window around each change; anything
+	// else (a stale 0, a hand-edited number) goes back to the whole file.
+	if s.DiffContext < -1 || s.DiffContext > 100 || s.DiffContext == 0 {
+		s.DiffContext = -1
 	}
 	if s.Theme != "light" && s.Theme != "dark" {
 		s.Theme = "system"
@@ -99,7 +124,6 @@ func loadSettings() Settings {
 	if s.UIScale < 70 || s.UIScale > 160 {
 		s.UIScale = 100
 	}
-	return s
 }
 
 func saveSettings(s Settings) error {

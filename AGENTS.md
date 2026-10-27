@@ -98,6 +98,10 @@ use it only for layout work. Vite's port is pinned to 5173 in **both**
 - Every operation opens a command trace (`git.WithCommandTrace`), and its
   output ends with the `$ git …` lines the UI displays, so no command string
   is ever duplicated in TypeScript.
+- Pushing to a differently named remote branch is a refspec
+  (`refs/heads/a:refs/heads/b`), never a rename: `PushOptions.RemoteBranch`
+  carries the target, `PushPreview` reports against that ref, and the dialog's
+  editable target re-reads the preview (debounced).
 - Mutations are serialized by `Repo.write`. Use `writeRun` (locks) or lock
   manually like `Rollback`/`Commit`; **never** call `writeRun` while already
   holding the lock — `sync.Mutex` is not reentrant. Read methods stay lock-free
@@ -142,7 +146,14 @@ use it only for layout work. Vite's port is pinned to 5173 in **both**
   localStorage — they live in Go (`<config dir>/GitJet/settings.json`).
 - Adding a `Settings` field means: `internal/app/settings.go` (default +
   validation), regenerate bindings, and the inline fallback object in
-  `App.tsx` (bootstrap failure path).
+  `App.tsx` (bootstrap failure path). Validation lives once, in
+  `Settings.clamp()`, and runs on load *and* on save — the push of a page-sent
+  object must not be able to store a value the diff engine would reject.
+- `diffContext`: `-1` means the whole file (git gets `-U1000000`), `1..100`
+  is a window. `FileDiff.wholeFile` tells the viewer which one it got, and
+  `buildDiffRows` only folds long unchanged stretches when the diff is a
+  window. A stored default that changes needs a `settingsVersion` bump and a
+  migration in `loadSettings`, not a "if the value is X, change it" until.
 - i18n has no key files: each component declares `const T = { en, zh }` and
   uses `useT(T)`. Add strings to both languages in the same dictionary;
   placeholders are `{name}`; plurals use `count(n, one, other)`.

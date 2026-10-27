@@ -33,7 +33,9 @@ type DiffOptions struct {
 	Revision string `json:"revision"`
 	// From is the old revision of DiffRange.
 	From string `json:"from"`
-	// Context is the number of context lines, 3 when zero.
+	// Context is the number of unchanged lines kept around each change.
+	// Zero means three; a negative value means the whole file, so the view
+	// is the file itself with the changes marked.
 	Context int `json:"context"`
 	// IgnoreWhitespace ignores all whitespace changes.
 	IgnoreWhitespace bool `json:"ignoreWhitespace"`
@@ -81,6 +83,28 @@ type FileDiff struct {
 	Truncated  bool       `json:"truncated"`
 	Patch      string     `json:"patch"`
 	HasChanges bool       `json:"hasChanges"`
+	// WholeFile reports that the diff covers every line of the file, so a
+	// viewer can show it in full instead of folding the unchanged parts.
+	WholeFile bool `json:"wholeFile"`
+}
+
+// fullContext is the -U value that turns a diff into the whole file: every
+// unchanged line becomes context, so nothing is elided between hunks.
+const fullContext = 1000000
+
+// contextLines resolves the caller's Context: 0 keeps the git default of
+// three lines, a negative value asks for the whole file, and anything wild
+// is capped so one file view cannot blow up the patch.
+func contextLines(n int) int {
+	switch {
+	case n < 0:
+		return fullContext
+	case n == 0:
+		return 3
+	case n > 100:
+		return 100
+	}
+	return n
 }
 
 var hunkHeader = regexp.MustCompile(`^@@ -(\d+)(?:,(\d+))? \+(\d+)(?:,(\d+))? @@(.*)$`)
@@ -91,18 +115,15 @@ func (r *Repo) FileDiff(ctx context.Context, opts DiffOptions) (FileDiff, error)
 	if err != nil {
 		return FileDiff{}, err
 	}
-	if opts.Context <= 0 {
-		opts.Context = 3
-	}
-	if opts.Context > 100 {
-		opts.Context = 100
-	}
+	whole := opts.Context < 0
+	opts.Context = contextLines(opts.Context)
 	patch, err := r.patchFor(ctx, opts, path)
 	if err != nil {
 		return FileDiff{}, err
 	}
 	d := parsePatch(patch, path)
 	d.Path = path
+	d.WholeFile = whole
 	if opts.OldPath != "" {
 		d.OldPath = opts.OldPath
 	}
@@ -439,9 +460,7 @@ func (r *Repo) ApplyDiffHunk(ctx context.Context, opts DiffOptions, hunkIndex in
 	if err != nil {
 		return err
 	}
-	if opts.Context <= 0 {
-		opts.Context = 3
-	}
+	opts.Context = contextLines(opts.Context)
 	patch, err := r.patchFor(ctx, opts, path)
 	if err != nil {
 		return err

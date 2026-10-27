@@ -98,18 +98,18 @@ export function wordDiff(a: string, b: string): [WordSegment[], WordSegment[]] {
 }
 
 /**
- * buildDiffRows aligns the old and new files into rows, pairs deleted and
- * added lines so word differences can be highlighted, and collapses long
- * unchanged stretches.
+ * buildDiffRows aligns the old and new files into rows and pairs deleted and
+ * added lines so word differences can be highlighted. Unchanged stretches are
+ * folded unless the caller asked for the whole file.
  */
-export function buildDiffRows(diff: FileDiff): DiffRows {
+export function buildDiffRows(diff: FileDiff, fold = !diff.wholeFile): DiffRows {
   const hasText = diff.oldText !== "" || diff.newText !== "";
   const oldLines = textLines(diff.oldText);
   const newLines = textLines(diff.newText);
   const rows: AlignedRow[] = [];
   if (!hasText || diff.hunks.length === 0) {
     if (diff.hunks.length === 0) return rows;
-    return rowsFromHunks(diff.hunks);
+    return rowsFromHunks(diff.hunks, fold);
   }
   let oi = 0;
   let ni = 0;
@@ -194,10 +194,10 @@ export function buildDiffRows(diff: FileDiff): DiffRows {
     });
     ni++;
   }
-  return collapseUnchanged(rows);
+  return fold ? collapseUnchanged(rows) : rows;
 }
 
-function rowsFromHunks(hunks: DiffHunk[]): DiffRow[] {
+function rowsFromHunks(hunks: DiffHunk[], fold: boolean): DiffRow[] {
   const rows: AlignedRow[] = [];
   for (let h = 0; h < hunks.length; h++) {
     const hunk = hunks[h]!;
@@ -235,7 +235,7 @@ function rowsFromHunks(hunks: DiffHunk[]): DiffRow[] {
     }
     flush();
   }
-  return collapseUnchanged(rows);
+  return fold ? collapseUnchanged(rows) : rows;
 }
 
 /** collapseUnchanged replaces runs of unchanged rows with one marker row. */

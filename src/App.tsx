@@ -702,7 +702,7 @@ function AppShell({ onLangChange }: { onLangChange: (lang: Lang) => void }) {
         target: "commit",
         revision: hash,
         from: "",
-        context: settingsRef.current?.diffContext ?? 3,
+        context: settingsRef.current?.diffContext ?? -1,
         ignoreWhitespace: false,
         ignoreWhitespaceEol: false,
         noText: false,
@@ -802,7 +802,7 @@ function AppShell({ onLangChange }: { onLangChange: (lang: Lang) => void }) {
         if (b.error) notify("error", tRef.current("reopenRepo"), b.error);
       })
       .catch((err) => {
-        setBoot({ settings: { gitPath: "", language: "system", theme: "system", diffContext: 3, ignoreWhitespace: false, showIgnored: false, autoFetch: false, autoFetchMinutes: 15, updateMethod: "merge", confirmForcePush: true, confirmRollback: true, openInNewWindow: false, uiScale: 100, recent: [] }, repo: null, error: String(err), version: "", platform: "" });
+        setBoot({ settings: { version: 2, gitPath: "", language: "system", theme: "system", diffContext: -1, ignoreWhitespace: false, showIgnored: false, autoFetch: false, autoFetchMinutes: 15, updateMethod: "merge", confirmForcePush: true, confirmRollback: true, openInNewWindow: false, uiScale: 100, recent: [] }, repo: null, error: String(err), version: "", platform: "" });
         notify("error", tRef.current("startFailed"), err instanceof Error ? err.message : String(err));
       });
   }, [applyCheckedDefaults, notify, reload]);
@@ -1034,7 +1034,7 @@ function AppShell({ onLangChange }: { onLangChange: (lang: Lang) => void }) {
     target: entry.staged ? "staged" : "worktree",
     revision: "",
     from: "",
-    context: settings?.diffContext ?? 3,
+    context: settings?.diffContext ?? -1,
     ignoreWhitespace,
     ignoreWhitespaceEol: false,
     noText: false,
@@ -1049,7 +1049,7 @@ function AppShell({ onLangChange }: { onLangChange: (lang: Lang) => void }) {
   };
 
   const showFileDiff = async (path: string, revision: string) => {
-    const context = settingsRef.current?.diffContext ?? 3;
+    const context = settingsRef.current?.diffContext ?? -1;
     const base: DiffOptions = {
       path,
       target: "worktree",
@@ -1196,7 +1196,7 @@ function AppShell({ onLangChange }: { onLangChange: (lang: Lang) => void }) {
       target: "worktree",
       revision: "",
       from: "",
-      context: settingsRef.current?.diffContext ?? 3,
+      context: settingsRef.current?.diffContext ?? -1,
       ignoreWhitespace: settingsRef.current?.ignoreWhitespace ?? false,
       ignoreWhitespaceEol: false,
       noText: true,
@@ -1563,7 +1563,7 @@ function AppShell({ onLangChange }: { onLangChange: (lang: Lang) => void }) {
         target: "range",
         from: ref,
         revision: "HEAD",
-        context: settingsRef.current?.diffContext ?? 3,
+        context: settingsRef.current?.diffContext ?? -1,
         ignoreWhitespace: false,
         ignoreWhitespaceEol: false,
         noText: false,
@@ -1592,7 +1592,7 @@ function AppShell({ onLangChange }: { onLangChange: (lang: Lang) => void }) {
         target: "range",
         from: `stash@{${index}}^`,
         revision: `stash@{${index}}`,
-        context: settingsRef.current?.diffContext ?? 3,
+        context: settingsRef.current?.diffContext ?? -1,
         ignoreWhitespace: false,
         ignoreWhitespaceEol: false,
         noText: false,

@@ -79,7 +79,7 @@ const T = {
     "settings.test": "Test",
     "settings.gitVersion": "in use: git {version}",
     "settings.contextLines": "Context lines",
-    "settings.contextLinesHint": "Lines of unchanged code kept around each change.",
+    "settings.contextLinesHint": "Lines of unchanged code kept around each change. -1 shows the whole file and only marks what changed.",
     "settings.ignoreWhitespace": "Ignore whitespace in diffs by default",
     "settings.ignoreWhitespaceHint": "Changes that only add, remove or reindent spaces are left out of the comparison.",
     "settings.showIgnored": "Show ignored files in the commit panel",
@@ -266,7 +266,7 @@ const T = {
     "settings.test": "测试",
     "settings.gitVersion": "当前检测版本 git {version}",
     "settings.contextLines": "上下文行数",
-    "settings.contextLinesHint": "每一处改动周围保留的未改动行数。",
+    "settings.contextLinesHint": "每一处改动周围保留的未改动行数。-1 表示显示整个文件，只高亮改动部分。",
     "settings.ignoreWhitespace": "默认忽略空白差异",
     "settings.ignoreWhitespaceHint": "对比代码时，忽略仅空格、缩进或换行上的变动。",
     "settings.showIgnored": "在提交面板中显示被忽略的文件",
@@ -738,10 +738,13 @@ export function SettingsDialog({
                     <input
                       className="text-input number"
                       type="number"
-                      min={1}
+                      min={-1}
                       max={100}
                       value={draft.diffContext}
-                      onChange={(e) => set("diffContext", Number(e.target.value) || 3)}
+                      onChange={(e) => {
+                        const n = Number.parseInt(e.target.value, 10);
+                        set("diffContext", Number.isNaN(n) ? -1 : n);
+                      }}
                     />
                   </SettingRow>
                   <SettingRow hint={t("settings.ignoreWhitespaceHint")}>

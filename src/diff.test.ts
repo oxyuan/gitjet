@@ -49,6 +49,7 @@ describe("buildDiffRows", () => {
     truncated: false,
     patch: "",
     hasChanges: true,
+    wholeFile: false,
   };
 
   it("pairs a removed and an added line into one change row", () => {
@@ -68,4 +69,26 @@ describe("buildDiffRows", () => {
     const contexts = rows.filter((r) => !isCollapsed(r) && r.kind === "context");
     expect(contexts).toHaveLength(2);
   });
+
+  it("folds long unchanged stretches out of a windowed diff", () => {
+    const long = { ...file, oldText: longText(30), newText: longText(30).replace("line 15", "LINE 15") };
+    const folded = buildDiffRows(long, true);
+    expect(folded.some(isCollapsed)).toBe(true);
+  });
+
+  it("shows every line when the diff covers the whole file", () => {
+    const long = {
+      ...file,
+      wholeFile: true,
+      oldText: longText(30),
+      newText: longText(30).replace("line 15", "LINE 15"),
+    };
+    const rows = buildDiffRows(long);
+    expect(rows.some(isCollapsed)).toBe(false);
+    expect(rows.filter((r) => !isCollapsed(r) && r.kind === "context")).toHaveLength(29);
+  });
 });
+
+function longText(n: number): string {
+  return Array.from({ length: n }, (_, i) => `line ${i + 1}`).join("\n") + "\n";
+}

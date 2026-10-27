@@ -168,23 +168,9 @@ func (w *Workspace) DefaultSettings() Settings { return defaultSettings() }
 // SaveSettings persists settings, reopening the repository when the git
 // executable changed.
 func (w *Workspace) SaveSettings(s Settings) (Settings, error) {
-	if s.DiffContext <= 0 || s.DiffContext > 100 {
-		s.DiffContext = 3
-	}
-	if s.Theme != "light" && s.Theme != "dark" {
-		s.Theme = "system"
-	}
+	s.clamp()
 	if s.Language != "en" && s.Language != "zh" {
 		s.Language = "system"
-	}
-	if s.UpdateMethod != "rebase" {
-		s.UpdateMethod = "merge"
-	}
-	if s.AutoFetchMinutes <= 0 {
-		s.AutoFetchMinutes = 15
-	}
-	if s.UIScale < 70 || s.UIScale > 160 {
-		s.UIScale = 100
 	}
 	if s.GitPath != "" {
 		if _, err := git.GitVersion(context.Background(), s.GitPath); err != nil {
