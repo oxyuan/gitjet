@@ -117,30 +117,11 @@ func (r *Repo) Files(ctx context.Context, query string, limit int) ([]RepoFile, 
 	if limit <= 0 || limit > 1000 {
 		limit = 200
 	}
-	tracked, err := r.run(ctx, "ls-files", "-z", "-c")
-	if err != nil {
-		return nil, err
-	}
-	untracked, err := r.run(ctx, "ls-files", "-z", "-o", "--exclude-standard")
+	all, err := r.listFiles(ctx)
 	if err != nil {
 		return nil, err
 	}
 	query = strings.ToLower(strings.TrimSpace(query))
-	var all []RepoFile
-	seen := map[string]bool{}
-	for _, group := range []struct {
-		out     string
-		tracked bool
-	}{{tracked, true}, {untracked, false}} {
-		for _, rec := range strings.Split(group.out, "\x00") {
-			if rec == "" || seen[rec] {
-				continue
-			}
-			seen[rec] = true
-			all = append(all, RepoFile{Path: rec, Tracked: group.tracked})
-		}
-	}
-	sort.Slice(all, func(i, j int) bool { return all[i].Path < all[j].Path })
 	type ranked struct {
 		file  RepoFile
 		score int
@@ -267,4 +248,48 @@ func languageOf(path string) string {
 		return "makefile"
 	}
 	return "plain"
+}
+
+// Tree lists every file in the working tree, tracked and untracked, for the
+// source explorer. Unlike Files there is no query to rank, only a cap that
+// keeps a runaway directory of generated output from being sent to the page.
+func (r *Repo) Tree(ctx context.Context) ([]RepoFile, error) {
+	files, err := r.listFiles(ctx)
+	if err != nil {
+		return nil, err
+	}
+	const limit = 20000
+	if len(files) > limit {
+		files = files[:limit]
+	}
+	return files, nil
+}
+
+// listFiles reads the working tree once: tracked files from the index and
+// untracked ones that are not ignored, deduped and sorted by path.
+func (r *Repo) listFiles(ctx context.Context) ([]RepoFile, error) {
+	tracked, err := r.run(ctx, "ls-files", "-z", "-c")
+	if err != nil {
+		return nil, err
+	}
+	untracked, err := r.run(ctx, "ls-files", "-z", "-o", "--exclude-standard")
+	if err != nil {
+		return nil, err
+	}
+	var all []RepoFile
+	seen := map[string]bool{}
+	for _, group := range []struct {
+		out     string
+		tracked bool
+	}{{tracked, true}, {untracked, false}} {
+		for _, rec := range strings.Split(group.out, "\x00") {
+			if rec == "" || seen[rec] {
+				continue
+			}
+			seen[rec] = true
+			all = append(all, RepoFile{Path: rec, Tracked: group.tracked})
+		}
+	}
+	sort.Slice(all, func(i, j int) bool { return all[i].Path < all[j].Path })
+	return all, nil
 }

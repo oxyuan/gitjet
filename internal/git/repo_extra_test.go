@@ -168,3 +168,40 @@ func TestUnshallowFetchesFullHistory(t *testing.T) {
 		t.Errorf("commits = %s, want 3", n)
 	}
 }
+
+func TestTreeListsEveryFileIncludingUntracked(t *testing.T) {
+	repo, dir := newTestRepo(t)
+	ctx := context.Background()
+	writeFile(t, dir, "a.txt", "one\n")
+	writeFile(t, dir, "src/main.go", "package main\n")
+	writeFile(t, dir, "notes/pending.md", "todo\n")
+	if out, err := repo.run(ctx, "add", "a.txt", "src/main.go"); err != nil {
+		t.Fatalf("add: %v (%s)", err, out)
+	}
+	writeFile(t, dir, ".gitignore", "ignored/\n")
+	writeFile(t, dir, "ignored/hidden.txt", "no\n")
+	runGit(t, dir, "add", ".gitignore")
+
+	files, err := repo.Tree(ctx)
+	if err != nil {
+		t.Fatalf("Tree: %v", err)
+	}
+	got := map[string]bool{}
+	for _, f := range files {
+		got[f.Path] = f.Tracked
+	}
+	if !got["a.txt"] || !got["src/main.go"] || !got[".gitignore"] {
+		t.Errorf("tracked files missing from %+v", files)
+	}
+	if tracked, ok := got["notes/pending.md"]; !ok || tracked {
+		t.Errorf("untracked file = %+v", files)
+	}
+	if _, ok := got["ignored/hidden.txt"]; ok {
+		t.Errorf("ignored file listed: %+v", files)
+	}
+	for i := 1; i < len(files); i++ {
+		if files[i-1].Path > files[i].Path {
+			t.Fatalf("not sorted: %q before %q", files[i-1].Path, files[i].Path)
+		}
+	}
+}

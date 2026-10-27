@@ -981,6 +981,22 @@ func (g *Git) Files(query string) ([]git.RepoFile, error) {
 	return files, nil
 }
 
+// Tree lists every file in the working tree, for the source explorer.
+func (g *Git) Tree() ([]git.RepoFile, error) {
+	repo, err := g.c.currentRepo()
+	if err != nil {
+		return nil, err
+	}
+	files, err := repo.Tree(context.Background())
+	if err != nil {
+		return nil, err
+	}
+	if files == nil {
+		files = []git.RepoFile{}
+	}
+	return files, nil
+}
+
 // Blame annotates a file.
 func (g *Git) Blame(path string) (git.BlameResult, error) {
 	repo, err := g.c.currentRepo()

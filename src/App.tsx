@@ -26,6 +26,7 @@ import {
 import { CommitPanel, type CommitActions, type CommitForm, type FileEntry } from "./CommitPanel";
 import { ConflictView } from "./ConflictView";
 import { ConsolePanel } from "./ConsolePanel";
+import { SourceTree } from "./SourceTree";
 import { DiffView, BlameView } from "./DiffView";
 import {
   ChangelistDialog,
@@ -86,6 +87,7 @@ const T = {
     searchFiles: "Search files",
     settingsTip: "Settings (⌘/Ctrl+,)",
     commitTab: "Commit",
+    filesTab: "Files",
     branchTab: "Branch",
     consoleTab: "Console",
     detachedHead: "Detached HEAD",
@@ -264,6 +266,7 @@ const T = {
     searchFiles: "搜索文件",
     settingsTip: "设置 (⌘/Ctrl+,)",
     commitTab: "提交",
+    filesTab: "文件",
     branchTab: "分支",
     consoleTab: "控制台",
     detachedHead: "分离的 HEAD",
@@ -431,7 +434,7 @@ const T = {
 type TKey = keyof typeof T["en"];
 type Translate = (key: TKey, vars?: Record<string, string | number>) => string;
 
-type Tab = "commit" | "branch" | "console";
+type Tab = "commit" | "branch" | "files" | "console";
 
 /** "all", "current", or the name of a branch. */
 
@@ -1768,6 +1771,9 @@ function AppShell({ onLangChange }: { onLangChange: (lang: Lang) => void }) {
         case "tab:branch":
           setTab("branch");
           break;
+        case "tab:files":
+          setTab("files");
+          break;
         case "tab:console":
           setTab("console");
           break;
@@ -1904,6 +1910,17 @@ function AppShell({ onLangChange }: { onLangChange: (lang: Lang) => void }) {
     );
   }
 
+  // The document on screen, as a path, so the project tree can mark the row
+  // the editor is showing.
+  const activeDocPath =
+    activeDoc?.kind === "file"
+      ? activeDoc.file.path
+      : activeDoc?.kind === "diff"
+        ? activeDoc.opts.path
+        : activeDoc?.kind === "conflict"
+          ? activeDoc.path
+          : undefined;
+
   const tabHeader = (
     <div className="toolwindow-tabs">
       <button className={cx("toolwindow-tab", tab === "commit" && "active")} onClick={() => setTab("commit")}>
@@ -1916,6 +1933,10 @@ function AppShell({ onLangChange }: { onLangChange: (lang: Lang) => void }) {
       <button className={cx("toolwindow-tab", tab === "branch" && "active")} onClick={() => setTab("branch")}>
         <Icon name="branch" />
         {t("branchTab")}
+      </button>
+      <button className={cx("toolwindow-tab", tab === "files" && "active")} onClick={() => setTab("files")} title={t("filesTab")}>
+        <Icon name="folder" />
+        {t("filesTab")}
       </button>
       <button className={cx("toolwindow-tab", tab === "console" && "active")} onClick={() => setTab("console")}>
         <Icon name="console" />
@@ -2024,6 +2045,18 @@ function AppShell({ onLangChange }: { onLangChange: (lang: Lang) => void }) {
                   onPull={(leaf) => pullBranch(leaf)}
                   onPush={(leaf) => pushBranch(leaf)}
                   onCompare={(ref) => setDialog({ kind: "compare", ref })}
+                />
+              ) : (
+                <NoRepo onOpen={() => void openRepo()} />
+              ))}
+            {tab === "files" &&
+              (repoOpen ? (
+                <SourceTree
+                  repoOpen={repoOpen}
+                  reloadKey={`${state?.branch ?? ""}:${snapshot?.state.changed ?? 0}:${snapshot?.state.untracked ?? 0}`}
+                  activePath={activeDocPath}
+                  onOpen={(path) => void showFile(path)}
+                  onError={(err) => fail(t("openFileFailed"), err)}
                 />
               ) : (
                 <NoRepo onOpen={() => void openRepo()} />

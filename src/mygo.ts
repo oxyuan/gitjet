@@ -240,6 +240,7 @@ export interface FileDiff {
   patch: string;
   hasChanges: boolean;
   wholeFile: boolean;
+  language: string;
 }
 
 export interface LFSFile {
@@ -934,6 +935,10 @@ export const Git = {
   /** TakeSideAll takes ours or theirs for several conflicted paths. */
   takeSideAll(paths: string[], side: string): Promise<void> {
     return call("Git.TakeSideAll", paths, side);
+  },
+  /** Tree lists every file in the working tree, for the source explorer. */
+  tree(): Promise<RepoFile[]> {
+    return call("Git.Tree");
   },
   /** Unshallow fetches the full history of a shallow clone. */
   unshallow(out: Channel<string>): Promise<string> {
