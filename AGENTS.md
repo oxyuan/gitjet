@@ -138,6 +138,13 @@ use it only for layout work. Vite's port is pinned to 5173 in **both**
 
 ### UI patterns
 
+- Syntax colour has one source: `src/highlight.ts` exports the tag rules;
+  `editor.ts` builds its `HighlightStyle` from them and `syntax.ts` builds the
+  diff's class highlighter. Adding a token means one entry there plus a
+  `.tok-*` class in `style.css` — never a second tag list.
+- The diff paints itself with `paintLine` (tokens × word-diff), so a keyword
+  that is also part of a changed word keeps its colour under the change mark.
+  `FileDiff.language` is what selects the grammar; it is derived from the path.
 - Pure logic lives in React-free modules with a colocated test: `diff.ts`,
   `graph.ts`, `changes.ts`, `branches.ts`, `merge.ts`. Keep them free of
   `react`/`dom` imports.
@@ -273,11 +280,13 @@ rebase/am/cherry-pick, diff of renames and binary files, and the console's
 
 ## Known Rough Edges
 
-- The Cmd/Ctrl+0 accelerator sends `"tab:log"` but `App.tsx` only handles
-  `"tab:branch"`, so it does nothing.
 - The README's directory listing is stale (`BranchPopup.tsx`, `LogPanel.tsx`
   do not exist; real names are `BranchList.tsx`, `LogDock.tsx`). Trust the
   filesystem.
 - `Repo.prefix` is assigned in `Open` and never read.
+- The Git console implies `git`: the page prepends it unless the line starts
+  with `!` or already names `git`. Keep the input's `autoCapitalize="off"` —
+  WebKit capitalises the first letter otherwise, and `Status` is not a
+  builtin.
 - Several errors are deliberately swallowed (stash listing, meta saves,
   corrupt `settings.json` → defaults); don't "fix" them blindly.

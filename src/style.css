@@ -7447,3 +7447,222 @@ body.resizing-row .log-detail-split::after {
   max-height: 220px;
   overflow: auto;
 }
+
+/* ---------- Source explorer ---------- */
+
+.source-tree-panel {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  min-height: 0;
+}
+
+.explorer-toolbar {
+  gap: 4px;
+  padding: 0 6px 6px 8px;
+}
+
+.explorer-search {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex: 1;
+  min-width: 0;
+  height: 24px;
+  padding: 0 5px 0 8px;
+  border: 1px solid var(--border);
+  border-radius: 7px;
+  background: var(--input-bg);
+  color: var(--muted);
+  transition: border-color 120ms ease, box-shadow 120ms ease;
+}
+
+.explorer-search:focus-within {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px var(--accent-soft);
+}
+
+.explorer-input {
+  flex: 1;
+  min-width: 0;
+  border: 0;
+  outline: 0;
+  background: transparent;
+  font-size: 12px;
+  color: var(--fg);
+  user-select: text;
+}
+
+.explorer-input::placeholder {
+  color: var(--muted-2);
+}
+
+.explorer-clear {
+  display: grid;
+  place-items: center;
+  width: 16px;
+  height: 16px;
+  border: 0;
+  border-radius: 4px;
+  background: transparent;
+  color: var(--muted);
+  padding: 0;
+}
+
+.explorer-clear:hover {
+  background: var(--hover-strong);
+  color: var(--fg);
+}
+
+.explorer-body {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  padding-bottom: 8px;
+}
+
+.explorer-empty {
+  padding: 18px 12px;
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+/* A file git does not know yet: readable, but visibly different from the
+   ones it does track. */
+.tree-row.file.untracked .file-base {
+  color: var(--fg-soft);
+}
+
+.untracked-dot {
+  width: 5px;
+  height: 5px;
+  margin-left: auto;
+  border-radius: 50%;
+  background: var(--success);
+  flex: none;
+}
+
+/* The kind of a document is an icon, not a word: same pill, one glyph, and a
+   colour that says diff-versus-source at a glance. */
+.editor-tab-kind {
+  display: grid;
+  place-items: center;
+  width: 18px;
+  height: 16px;
+  padding: 0;
+  border-radius: 4px;
+  font-size: 0;
+}
+
+.editor-tab-kind .icon {
+  width: 11px;
+  height: 11px;
+}
+
+.editor-tab-kind.kind-diff {
+  color: var(--muted);
+}
+
+.editor-tab.active .editor-tab-kind.kind-diff {
+  background: var(--accent-soft);
+  color: var(--accent);
+}
+
+.editor-tab-kind.kind-file {
+  color: var(--muted-2);
+}
+
+.editor-tab-kind.kind-conflict {
+  color: var(--warning);
+}
+
+.editor-tab-kind.kind-commit {
+  color: var(--success);
+}
+
+.editor-tab-kind.kind-blame {
+  color: var(--syntax-tag);
+}
+
+/* ---------- Diff syntax colours ----------
+   The same tags and the same variables the editor uses; the double renderer
+   keeps one palette (src/highlight.ts is the list). */
+.tok-keyword {
+  color: var(--syntax-keyword);
+}
+
+.tok-string {
+  color: var(--syntax-string);
+}
+
+.tok-number {
+  color: var(--syntax-number);
+}
+
+.tok-comment {
+  color: var(--syntax-comment);
+  font-style: italic;
+}
+
+.tok-function {
+  color: var(--syntax-function);
+}
+
+.tok-type {
+  color: var(--syntax-tag);
+}
+
+.tok-property {
+  color: var(--syntax-variable);
+}
+
+.tok-variable {
+  color: var(--syntax-punct);
+}
+
+.tok-tag {
+  color: var(--syntax-keyword);
+}
+
+.tok-meta {
+  color: var(--syntax-comment);
+}
+
+.tok-heading {
+  color: var(--syntax-tag);
+  font-weight: 600;
+}
+
+.tok-link {
+  color: var(--syntax-function);
+  text-decoration: underline;
+}
+
+.tok-operator {
+  color: var(--syntax-operator);
+}
+
+/* The console's program is implied, so the chip that shows it is part of the
+   prompt: "git" while a git line is being typed, "$" once "!" opts out. */
+.console-prompt {
+  display: inline-flex;
+  align-items: center;
+  height: 20px;
+  padding: 0 6px;
+  border-radius: 5px;
+  background: var(--accent-soft);
+  color: var(--accent);
+  font-size: 10.5px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+}
+
+.console-prompt.shell {
+  background: var(--hover-strong);
+  color: var(--muted);
+  font-weight: 500;
+}
+
+.console-line.command .console-prompt-inline {
+  margin-right: 6px;
+}
