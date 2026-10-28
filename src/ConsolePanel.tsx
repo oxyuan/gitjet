@@ -10,7 +10,6 @@ const T = {
     title: "Console",
     intro:
       "Git console — every line runs as a git subcommand in the repository root, so `status` is `git status`. Start a line with `!` to run another program as typed (`!ls -la`). Tab completes, ↑/↓ recalls history.",
-    hint: "status, log --oneline -5, diff HEAD~1 · ! for a shell program",
     copyOutput: "Copy console output",
     clearConsole: "Clear console",
     openRepositoryFirst: "Open a repository first",
@@ -20,7 +19,6 @@ const T = {
     title: "控制台",
     intro:
       "Git 控制台 — 每一行都作为 git 子命令在仓库根目录执行，输入 status 就是 git status；以 ! 开头则按原样运行其他程序（如 !ls -la）。Tab 补全，↑/↓ 调出历史。",
-    hint: "status、log --oneline -5、diff HEAD~1，用 ! 开头运行其他程序",
     copyOutput: "复制控制台输出",
     clearConsole: "清空控制台",
     openRepositoryFirst: "请先打开仓库",
@@ -182,7 +180,7 @@ export function ConsolePanel({ onCommandDone, repoOpen }: { onCommandDone: () =>
           autoComplete="off"
           spellCheck={false}
           disabled={!repoOpen || running}
-          placeholder={repoOpen ? t("hint") : t("openRepositoryFirst")}
+          placeholder={repoOpen ? undefined : t("openRepositoryFirst")}
           onChange={(e) => setInput(e.target.value)}
           onKeyDown={(e) => {
             if (e.key === "Enter") {
