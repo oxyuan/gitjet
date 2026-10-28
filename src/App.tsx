@@ -124,6 +124,7 @@ const T = {
     openConflictFailed: "Could not open the conflict",
     annotateFailed: "Could not annotate the file",
     copyFailed: "Could not copy",
+    copied: "Copied to the clipboard",
     gitFailed: "Git command failed",
     deleteBranchFailed: "Could not delete the branch",
     revealFailed: "Could not reveal the file",
@@ -303,6 +304,7 @@ const T = {
     openConflictFailed: "无法打开冲突文件",
     annotateFailed: "无法查看文件注解",
     copyFailed: "无法复制",
+    copied: "已复制到剪贴板",
     gitFailed: "Git 命令失败",
     deleteBranchFailed: "无法删除分支",
     revealFailed: "无法在文件管理器中显示该文件",
@@ -1105,7 +1107,10 @@ function AppShell({ onLangChange }: { onLangChange: (lang: Lang) => void }) {
   };
 
   const copyText = (text: string) => {
-    void Workspace.copy(text).catch((err) => fail(t("copyFailed"), err));
+    void Workspace.copy(text).then(
+      () => notify("info", t("copied")),
+      (err) => fail(t("copyFailed"), err),
+    );
   };
 
   const withBusy = async <T,>(fn: () => Promise<T>, label = t("gitFailed")): Promise<T | undefined> => {
@@ -2067,6 +2072,7 @@ function AppShell({ onLangChange }: { onLangChange: (lang: Lang) => void }) {
         <Splitter width={splitWidth} setWidth={setSplitWidth} />
         <div className="workspace-right">
         <RightPane
+            root={snapshot?.state.root ?? ""}
             commitView={detailView}
             diffMode={diffMode}
             setDiffMode={setDiffMode}
@@ -2558,6 +2564,7 @@ function tabTitle(doc: Doc, t: Translate): string {
 }
 
 function RightPane({
+  root,
   repoOpen,
   docs,
   activeId,
@@ -2590,6 +2597,8 @@ function RightPane({
   commitView,
 }: {
   commitView: ChangeView;
+  /** Absolute path of the repository, for the copy-path menu. */
+  root: string;
   repoOpen: boolean;
   docs: Doc[];
   activeId: string | null;
@@ -2746,6 +2755,7 @@ function RightPane({
             key={active.id}
             file={active.file}
             line={active.line}
+            root={root}
             onShowDiff={() => onOpenDiff(active.file.path, active.revision)}
             onBlame={() => onBlame(active.file.path)}
             onOpenWorkingTree={() => onOpenFile(active.file.path, "")}
@@ -2754,7 +2764,7 @@ function RightPane({
                 ? () => onOpenFile(active.file.path, "HEAD")
                 : undefined
             }
-            onCopyPath={() => onCopyPath(active.file.path)}
+            onCopyPath={(text) => onCopyPath(text)}
             onReveal={() => onReveal(active.file.path)}
             onRollbackHunk={(hunk) => onRollbackHunk(active.file.path, hunk)}
             onSymbol={(word) => onSymbol(word, active.file.language)}
@@ -2861,7 +2871,8 @@ function RightPane({
                 active.opts.target === "commit" ? active.opts.revision : active.opts.target === "staged" ? "INDEX" : "",
               )
             }
-            onCopyPath={() => onCopyPath(active.opts.path)}
+            root={root}
+            onCopyPath={(text) => onCopyPath(text)}
             busy={busy}
             reloadKey={reloadKey}
             wrap={diffWrap}

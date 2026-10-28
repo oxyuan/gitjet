@@ -5,6 +5,7 @@ import { Icon } from "./icons";
 import { useT } from "./i18n";
 import { paintLine, tokenize, type LineTokens } from "./syntax";
 import { cx, formatWhen, IconButton, Spinner } from "./ui";
+import { PathCopyButton } from "./PathCopy";
 
 type Mode = "split" | "unified";
 
@@ -100,6 +101,7 @@ export function DiffView({
   onApplyFile,
   onBlame,
   onOpenFile,
+  root,
   onCopyPath,
   busy,
   reloadKey,
@@ -116,7 +118,8 @@ export function DiffView({
   onApplyFile: (action: "stage" | "unstage" | "rollback") => void;
   onBlame?: () => void;
   onOpenFile: () => void;
-  onCopyPath: () => void;
+  root: string;
+  onCopyPath: (text: string) => void;
   busy?: boolean;
   reloadKey: number;
   wrap: boolean;
@@ -182,7 +185,7 @@ export function DiffView({
           <button className="toolbar-text-btn" onClick={onOpenFile} title={t("openSourceFile")}>
             <Icon name="file" /> {t("openFile")}
           </button>
-          <IconButton icon="copy" title={t("copyPath")} small onClick={onCopyPath} />
+          <PathCopyButton path={diff.path} root={root} onCopy={onCopyPath} />
         </div>
         <div className="diff-toolbar">
           <div className="segmented" role="group" aria-label={t("diffLayout")}>

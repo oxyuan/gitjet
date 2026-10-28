@@ -254,6 +254,9 @@ export type EditorOptions = {
   onSymbol?: (word: string) => void;
   onJump?: (word: string) => void;
   onReferences?: (word: string) => void;
+  /** Fires with the 1-based line under the caret, for things like copying a
+   *  path with its line number. */
+  onCaret?: (line: number) => void;
 };
 
 /** Everything the source pane needs, with the doc replaced in place. */
@@ -264,6 +267,7 @@ export class SourceEditor {
   private currentLanguage = "";
 
   constructor(parent: HTMLElement, opts: EditorOptions) {
+    let lastLine = 1;
     this.view = new EditorView({
       parent,
       state: EditorState.create({
@@ -360,6 +364,15 @@ export class SourceEditor {
             { add: opts.labels?.addedHere ?? "Changed here", del: opts.labels?.deletedHere ?? "Deleted here" },
           ),
           blameLine(opts.blameFormat),
+          // The line the caret sits on is what "copy path with line" means;
+          // report it when it moves rather than on every transaction.
+          EditorView.updateListener.of((u) => {
+            if (!u.selectionSet && !u.docChanged) return;
+            const n = u.state.doc.lineAt(u.state.selection.main.head).number;
+            if (n === lastLine) return;
+            lastLine = n;
+            opts.onCaret?.(n);
+          }),
         ],
       }),
     });

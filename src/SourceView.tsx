@@ -3,6 +3,7 @@ import type { SourceFile } from "./mygo";
 import { SourceEditor } from "./SourceEditor";
 import { Icon } from "./icons";
 import { cx, formatWhen, IconButton } from "./ui";
+import { PathCopyButton } from "./PathCopy";
 import { useT } from "./i18n";
 
 const T = {
@@ -19,7 +20,7 @@ const T = {
     diff: "Diff",
     annotateFile: "Annotate this file",
     annotate: "Annotate",
-    copyPath: "Copy path",
+
     revealInManager: "Reveal in file manager",
     wrap: "Wrap",
     truncated: "File truncated at 8 MB",
@@ -43,7 +44,7 @@ const T = {
     diff: "差异",
     annotateFile: "标注此文件",
     annotate: "标注",
-    copyPath: "复制路径",
+
     revealInManager: "在文件管理器中显示",
     wrap: "折行",
     truncated: "文件已截断至 8 MB",
@@ -76,6 +77,7 @@ function formatSize(bytes: number): string {
 export function SourceView({
   file,
   line,
+  root,
   onShowDiff,
   onBlame,
   onOpenWorkingTree,
@@ -90,11 +92,13 @@ export function SourceView({
   file: SourceFile;
   /** 1-based line to put the cursor on, for a jump from another file. */
   line?: number;
+  /** Absolute path of the repository, for the copy menu's absolute entries. */
+  root: string;
   onShowDiff?: () => void;
   onBlame?: () => void;
   onOpenWorkingTree?: () => void;
   onOpenRevision?: () => void;
-  onCopyPath: () => void;
+  onCopyPath: (text: string) => void;
   onReveal?: () => void;
   onRollbackHunk?: (hunk: number) => void;
   onSymbol?: (word: string) => void;
@@ -103,6 +107,8 @@ export function SourceView({
 }) {
   const t = useT(T);
   const [wrap, setWrap] = useState(false);
+  // The line the menu offers alongside the path: where the caret is.
+  const [caret, setCaret] = useState<number | undefined>(undefined);
   const lines = useMemo(() => {
     if (file.text === "") return [];
     const normalized = file.text.replace(/\r\n/g, "\n");
@@ -156,7 +162,7 @@ export function SourceView({
               <Icon name="user" /> {t("annotate")}
             </button>
           )}
-          <IconButton icon="copy" title={t("copyPath")} small onClick={onCopyPath} />
+          <PathCopyButton path={file.path} root={root} line={caret} onCopy={onCopyPath} />
           {onReveal && <IconButton icon="external" title={t("revealInManager")} small onClick={onReveal} />}
         </div>
         <div className="diff-toolbar source-toolbar">
@@ -195,6 +201,7 @@ export function SourceView({
           onSymbol={onSymbol}
           onJump={onJump}
           onReferences={onReferences}
+          onCaret={setCaret}
         />
       )}
     </div>

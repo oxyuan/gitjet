@@ -18,6 +18,7 @@ export function SourceEditor({
   onSymbol,
   onJump,
   onReferences,
+  onCaret,
 }: {
   file: SourceFile;
   line?: number;
@@ -28,11 +29,12 @@ export function SourceEditor({
   onSymbol?: (word: string) => void;
   onJump?: (word: string) => void;
   onReferences?: (word: string) => void;
+  onCaret?: (line: number) => void;
 }) {
   const host = useRef<HTMLDivElement | null>(null);
   const editor = useRef<Editor | null>(null);
-  const actions = useRef({ onRollbackHunk, onSymbol, onJump, onReferences });
-  actions.current = { onRollbackHunk, onSymbol, onJump, onReferences };
+  const actions = useRef({ onRollbackHunk, onSymbol, onJump, onReferences, onCaret });
+  actions.current = { onRollbackHunk, onSymbol, onJump, onReferences, onCaret };
   const [changes, setChanges] = useState<ChangeRange[]>([]);
   const [blame, setBlame] = useState<BlameLine[] | null>(null);
 
@@ -50,6 +52,7 @@ export function SourceEditor({
       onSymbol: (word) => (actions.current.onSymbol ?? actions.current.onJump)?.(word),
       onJump: (word) => actions.current.onJump?.(word),
       onReferences: (word) => actions.current.onReferences?.(word),
+      onCaret: (n) => actions.current.onCaret?.(n),
     });
     editor.current = created;
     const uri = toUri(file.path);
