@@ -1595,8 +1595,10 @@ body.col-resizing {
   display: flex;
   align-items: center;
   gap: 4px;
-  flex: none;
-  width: var(--col-refs, 210px);
+  flex: 0 1 auto;
+  /* A commit can carry several long branch names; they give way to the
+     subject instead of pushing it out of the row. */
+  max-width: 45%;
   min-width: 0;
   overflow: hidden;
 }
@@ -7665,4 +7667,24 @@ body.resizing-row .log-detail-split::after {
 
 .console-line.command .console-prompt-inline {
   margin-right: 6px;
+}
+
+/* ---------- Dock tabs ----------
+   The strip is a user-ordered list: a tab follows the pointer while it is
+   dragged, so the only feedback needed is the grabbing cursor and a strip
+   that does not select text on the way. */
+.toolwindow-tab {
+  cursor: default;
+  touch-action: none;
+  user-select: none;
+}
+
+.toolwindow-tab:active {
+  cursor: grabbing;
+}
+
+body.tab-dragging,
+body.tab-dragging * {
+  cursor: grabbing !important;
+  user-select: none !important;
 }

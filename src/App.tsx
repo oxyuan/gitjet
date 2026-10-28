@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Channel } from "mygo-runtime";
 import {
   Git,
@@ -27,6 +27,7 @@ import { CommitPanel, type CommitActions, type CommitForm, type FileEntry } from
 import { ConflictView } from "./ConflictView";
 import { ConsolePanel } from "./ConsolePanel";
 import { SourceTree } from "./SourceTree";
+import { moveItem, normalizeTabOrder, type ToolTab, TOOL_TABS } from "./tabs";
 import { DiffView, BlameView } from "./DiffView";
 import {
   ChangelistDialog,
@@ -438,6 +439,107 @@ type Translate = (key: TKey, vars?: Record<string, string | number>) => string;
 
 type Tab = "commit" | "branch" | "files" | "console";
 
+const TAB_ICONS: Record<ToolTab, "commit" | "branch" | "folder" | "console"> = {
+  commit: "commit",
+  branch: "branch",
+  files: "folder",
+  console: "console",
+};
+
+/** The dock's four pages, in the order the user dragged them into. Dragging a
+ *  tab past the middle of its neighbour swaps them while the pointer moves,
+ *  which is what an IDE does and what needs no drop indicator. The order is
+ *  written on release (every move writes it, so a crash mid-drag keeps it). */
+function ToolTabs({
+  tab,
+  onSelect,
+  order,
+  onOrder,
+  changed,
+  labels,
+}: {
+  tab: Tab;
+  onSelect: (tab: Tab) => void;
+  order: ToolTab[];
+  onOrder: (order: ToolTab[]) => void;
+  changed: number;
+  labels: Record<ToolTab, string>;
+}) {
+  const strip = useRef<HTMLDivElement | null>(null);
+  const latest = useRef({ order, onOrder });
+  latest.current = { order, onOrder };
+  // A drag ends with a click on the tab it started on; that click must not
+  // also switch pages.
+  const dragged = useRef(false);
+
+  const startDrag = (id: ToolTab) => (e: React.PointerEvent<HTMLButtonElement>) => {
+    if (e.button !== 0) return;
+    const startX = e.clientX;
+    dragged.current = false;
+
+    const move = (ev: PointerEvent) => {
+      if (!dragged.current && Math.abs(ev.clientX - startX) < 5) return;
+      dragged.current = true;
+      document.body.classList.add("tab-dragging");
+      const buttons = [...(strip.current?.querySelectorAll<HTMLElement>(".toolwindow-tab") ?? [])];
+      // Index the item would take if dropped now: how many tabs the pointer
+      // has passed, minus its own slot when it started to their left.
+      const passed = buttons.filter((b) => {
+        const r = b.getBoundingClientRect();
+        return ev.clientX > r.left + r.width / 2;
+      }).length;
+      const from = latest.current.order.indexOf(id);
+      if (from === -1) return;
+      const to = Math.max(0, Math.min(buttons.length - 1, passed > from ? passed - 1 : passed));
+      if (to === from) return;
+      latest.current.onOrder(moveItem(latest.current.order, from, to));
+    };
+
+    const end = () => {
+      document.body.classList.remove("tab-dragging");
+      window.removeEventListener("pointermove", move);
+      window.removeEventListener("pointerup", end);
+      window.removeEventListener("pointercancel", end);
+      // The click that closes a drag arrives right after the release and is
+      // swallowed above; one released over empty space has no click at all, so
+      // the flag is cleared again unless that click got there first.
+      window.setTimeout(() => {
+        dragged.current = false;
+      }, 250);
+    };
+    // On the window, not the button: the drag re-renders the strip, and a
+    // listener bound to the tab would stop seeing the pointer the moment the
+    // tab moves to another slot.
+    window.addEventListener("pointermove", move);
+    window.addEventListener("pointerup", end);
+    window.addEventListener("pointercancel", end);
+  };
+
+  return (
+    <div className="toolwindow-tabs" ref={strip}>
+      {order.map((id) => (
+        <button
+          key={id}
+          className={cx("toolwindow-tab", tab === id && "active")}
+          title={labels[id]}
+          onPointerDown={startDrag(id)}
+          onClick={() => {
+            if (dragged.current) {
+              dragged.current = false;
+              return;
+            }
+            onSelect(id);
+          }}
+        >
+          <Icon name={TAB_ICONS[id]} />
+          {labels[id]}
+          {id === "commit" && changed > 0 && <span className="tab-count">{changed}</span>}
+        </button>
+      ))}
+    </div>
+  );
+}
+
 /** "all", "current", or the name of a branch. */
 
 type Doc = { id: string; title: string } & (
@@ -505,6 +607,11 @@ function AppShell({ onLangChange }: { onLangChange: (lang: Lang) => void }) {
   const [storedTab, setStoredTab] = useStoredState<Tab | "log">("gitjet.tab", "commit");
   const tab: Tab = storedTab === "log" ? "branch" : storedTab;
   const setTab = (next: Tab) => setStoredTab(next);
+  // The strip's order, dragged by the user; repaired when the stored value is
+  // older or broken.
+  const [storedOrder, setStoredOrder] = useStoredState<unknown>("gitjet.toolTabs", TOOL_TABS);
+  const tabOrder = useMemo(() => normalizeTabOrder(storedOrder), [storedOrder]);
+  const setTabOrder = (next: ToolTab[]) => setStoredOrder(next);
   const [docs, setDocs] = useState<Doc[]>([]);
   const [activeId, setActiveId] = useState<string | null>(null);
   // The word a Cmd-click asked about, and where it turns up.
@@ -1927,27 +2034,21 @@ function AppShell({ onLangChange }: { onLangChange: (lang: Lang) => void }) {
           : undefined;
 
   const tabHeader = (
-    <div className="toolwindow-tabs">
-      <button className={cx("toolwindow-tab", tab === "commit" && "active")} onClick={() => setTab("commit")}>
-        <Icon name="commit" />
-        {t("commitTab")}
-        {snapshot && snapshot.state.changed + snapshot.state.untracked + snapshot.state.conflicts > 0 && (
-          <span className="tab-count">{snapshot.state.changed + snapshot.state.untracked + snapshot.state.conflicts}</span>
-        )}
-      </button>
-      <button className={cx("toolwindow-tab", tab === "branch" && "active")} onClick={() => setTab("branch")}>
-        <Icon name="branch" />
-        {t("branchTab")}
-      </button>
-      <button className={cx("toolwindow-tab", tab === "files" && "active")} onClick={() => setTab("files")} title={t("filesTab")}>
-        <Icon name="folder" />
-        {t("filesTab")}
-      </button>
-      <button className={cx("toolwindow-tab", tab === "console" && "active")} onClick={() => setTab("console")}>
-        <Icon name="console" />
-        {t("consoleTab")}
-      </button>
-    </div>
+    <ToolTabs
+      tab={tab}
+      onSelect={setTab}
+      order={tabOrder}
+      onOrder={setTabOrder}
+      changed={
+        snapshot ? snapshot.state.changed + snapshot.state.untracked + snapshot.state.conflicts : 0
+      }
+      labels={{
+        commit: t("commitTab"),
+        branch: t("branchTab"),
+        files: t("filesTab"),
+        console: t("consoleTab"),
+      }}
+    />
   );
 
   return (

@@ -146,8 +146,12 @@ use it only for layout work. Vite's port is pinned to 5173 in **both**
   that is also part of a changed word keeps its colour under the change mark.
   `FileDiff.language` is what selects the grammar; it is derived from the path.
 - Pure logic lives in React-free modules with a colocated test: `diff.ts`,
-  `graph.ts`, `changes.ts`, `branches.ts`, `merge.ts`. Keep them free of
-  `react`/`dom` imports.
+  `graph.ts`, `changes.ts`, `branches.ts`, `merge.ts`, `explorer.ts`,
+  `syntax.ts`, `paths.ts`, `tabs.ts`. Keep them free of `react`/`dom` imports.
+- The dock's tab order is `gitjet.toolTabs`, a stored permutation repaired by
+  `normalizeTabOrder` (unknown names dropped, missing ones appended). Drag
+  listeners go on `window`, not on the tab: the strip re-renders while the
+  pointer moves, and a listener bound to the old node stops seeing it.
 - `useStoredState` (`src/ui.tsx`) persists view preferences under `gitjet.*`
   keys. Its setter takes a **value**, not an updater function. Settings are not
   localStorage — they live in Go (`<config dir>/GitJet/settings.json`).
