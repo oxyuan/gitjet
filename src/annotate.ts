@@ -1,4 +1,4 @@
-import type { FileDiff } from "./mygo";
+import type { BlameLine, FileDiff } from "./mygo";
 
 /** One run of changed lines in the new side of a file. */
 export type ChangeRange = {
@@ -56,4 +56,35 @@ export function changeRanges(diff: FileDiff | null): ChangeRange[] {
     flushDel();
   });
   return ranges.sort((a, b) => a.start - b.start);
+}
+
+/** The colour band of every annotated line: one band per commit, assigned in
+ *  line order, so neighbouring commits always differ and one commit keeps the
+ *  same band wherever it reappears. Uncommitted lines get -1. */
+export function commitBands(lines: BlameLine[]): Map<number, number> {
+  const bands = new Map<number, number>();
+  const byCommit = new Map<string, number>();
+  let next = 0;
+  for (const line of [...lines].sort((a, b) => a.line - b.line)) {
+    if (line.uncommitted) {
+      bands.set(line.line, -1);
+      continue;
+    }
+    let band = byCommit.get(line.commit);
+    if (band === undefined) {
+      band = next++ % 6;
+      byCommit.set(line.commit, band);
+    }
+    bands.set(line.line, band);
+  }
+  return bands;
+}
+
+/** The annotation column's local calendar day: fixed-width and sortable. */
+export function annotateDate(unix: number): string {
+  if (!unix) return "";
+  const date = new Date(unix * 1000);
+  const month = String(date.getMonth() + 1).padStart(2, "0");
+  const day = String(date.getDate()).padStart(2, "0");
+  return `${date.getFullYear()}-${month}-${day}`;
 }

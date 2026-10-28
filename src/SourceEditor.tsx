@@ -1,23 +1,29 @@
 import { useEffect, useRef, useState } from "react";
 import { Git, type BlameLine, type DiffOptions, type SourceFile } from "./mygo";
 import { SourceEditor as Editor } from "./editor";
-import { changeRanges, type ChangeRange } from "./annotate";
+import { annotateDate, changeRanges, type ChangeRange } from "./annotate";
 import { connectLSP, lspServes, registerView, unregisterView, toUri } from "./lsp";
-import { ContextMenu, formatWhen, type ContextItem } from "./ui";
+import { ContextMenu, formatWhen, useStoredState, type ContextItem } from "./ui";
 import { useT } from "./i18n";
 
 const T = {
   en: {
     lineHistory: "Show history of this line",
-    lineCommitDiff: "Show the diff of this line's commit",
+    commitFileDiff: "Show all changes of this commit in this file",
     copyHash: "Copy commit hash",
     uncommitted: "Uncommitted changes",
+    annotateWithBlame: "Annotate with Git Blame",
+    closeAnnotations: "Close Annotations",
+    annotateLocal: "local",
   },
   zh: {
     lineHistory: "查看该行的历史",
-    lineCommitDiff: "查看该行提交的差异",
+    commitFileDiff: "查看该提交在此文件中的全部差异",
     copyHash: "复制提交哈希",
     uncommitted: "未提交的更改",
+    annotateWithBlame: "使用 Git Blame 注解",
+    closeAnnotations: "关闭注解",
+    annotateLocal: "本地",
   },
 } as const;
 
@@ -64,6 +70,7 @@ export function SourceEditor({
   const [changes, setChanges] = useState<ChangeRange[]>([]);
   const [blame, setBlame] = useState<BlameLine[] | null>(null);
   const [menu, setMenu] = useState<{ x: number; y: number; line: number } | null>(null);
+  const [annotate, setAnnotate] = useStoredState<boolean>("gitjet.annotate", false);
   // The gutter's Git actions describe the working-tree file; line numbers of
   // an old revision are not the working tree's, so they stay off there.
   const workingTree = file.revision === "";
@@ -84,6 +91,11 @@ export function SourceEditor({
       onReferences: (word) => actions.current.onReferences?.(word),
       onCaret: (n) => actions.current.onCaret?.(n),
       onGutterContext: workingTree ? (n, x, y) => setMenu({ x, y, line: n }) : undefined,
+      annotate: workingTree && annotate,
+      annotateFormat: (blame) =>
+        blame.uncommitted
+          ? { date: "", author: t("annotateLocal") }
+          : { date: annotateDate(blame.time), author: blame.author },
     });
     editor.current = created;
     const uri = toUri(file.path);
@@ -154,6 +166,10 @@ export function SourceEditor({
     editor.current?.setBlame(blame);
   }, [blame]);
 
+  useEffect(() => {
+    editor.current?.setAnnotate(workingTree && annotate);
+  }, [annotate, workingTree]);
+
   // A language server, when the repository has one installed.
   useEffect(() => {
     let cancelled = false;
@@ -187,6 +203,14 @@ export function SourceEditor({
       if (blamed.summary) menuItems.push({ header: true, label: blamed.summary });
       menuItems.push({ separator: true });
     }
+    if (hash) {
+      menuItems.push({
+        label: t("commitFileDiff"),
+        icon: "diff",
+        disabled: !onCommitDiff,
+        onClick: () => onCommitDiff?.(hash),
+      });
+    }
     menuItems.push({
       label: t("lineHistory"),
       icon: "log",
@@ -195,18 +219,18 @@ export function SourceEditor({
     });
     if (hash) {
       menuItems.push({
-        label: t("lineCommitDiff"),
-        icon: "diff",
-        disabled: !onCommitDiff,
-        onClick: () => onCommitDiff?.(hash),
-      });
-      menuItems.push({
         label: t("copyHash"),
         icon: "copy",
         disabled: !onCopy,
         onClick: () => onCopy?.(hash),
       });
     }
+    menuItems.push({ separator: true });
+    menuItems.push({
+      label: annotate ? t("closeAnnotations") : t("annotateWithBlame"),
+      icon: "user",
+      onClick: () => setAnnotate(!annotate),
+    });
   }
 
   return (

@@ -19,6 +19,7 @@ import {
   highlightActiveLineGutter,
   keymap,
   lineNumbers,
+  type BlockInfo,
   type DecorationSet,
   type ViewUpdate,
 } from "@codemirror/view";
@@ -30,7 +31,7 @@ import { languages } from "@codemirror/language-data";
 import { findReferences, jumpToDefinition } from "@codemirror/lsp-client";
 import { editorHighlightStyle } from "./highlight";
 import type { BlameLine } from "./mygo";
-import type { ChangeRange } from "./annotate";
+import { commitBands, type ChangeRange } from "./annotate";
 
 /** The editor paints with the app's tokens, so there is one palette, not two. */
 const theme = EditorView.theme({
@@ -259,17 +260,118 @@ export type EditorOptions = {
   onCaret?: (line: number) => void;
   /** Right-click on a line number, with the menu's screen position. */
   onGutterContext?: (line: number, x: number, y: number) => void;
+  /** Whether the blame annotation column starts visible. */
+  annotate?: boolean;
+  /** Formats one annotation cell; the app owns date formatting and wording. */
+  annotateFormat?: (line: BlameLine) => { date: string; author: string };
 };
+
+/** One row of the blame column: the line's date and author, with a band per
+ *  commit so a run of one commit reads as one block. */
+class AnnotateMarker extends GutterMarker {
+  constructor(
+    readonly line: number,
+    readonly date: string,
+    readonly author: string,
+    readonly band: number,
+    readonly uncommitted: boolean,
+    readonly title: string,
+  ) {
+    super();
+  }
+  eq(other: AnnotateMarker) {
+    return (
+      other.line === this.line &&
+      other.date === this.date &&
+      other.author === this.author &&
+      other.band === this.band &&
+      other.uncommitted === this.uncommitted &&
+      other.title === this.title
+    );
+  }
+  toDOM() {
+    const el = document.createElement("div");
+    el.className =
+      "cm-annotate" +
+      (this.band >= 0 ? ` cm-annotate-band-${this.band}` : "") +
+      (this.uncommitted ? " cm-annotate-uncommitted" : "");
+    el.title = this.title;
+    const date = document.createElement("span");
+    date.className = "cm-annotate-date";
+    date.textContent = this.date;
+    const author = document.createElement("span");
+    author.className = "cm-annotate-author";
+    author.textContent = this.author;
+    el.append(date, author);
+    return el;
+  }
+}
+
+/** The annotation column left of the line numbers, IDEA-style: every line
+ *  carries the date and author of the commit that last changed it. */
+function annotateGutter(opts: EditorOptions): Extension {
+  return gutter({
+    class: "cm-annotate-gutter",
+    lineMarkerChange: (update) =>
+      update.transactions.some((tr) => tr.effects.some((effect) => effect.is(setBlame))),
+    markers: (view) => {
+      const blame = view.state.field(blameField, false);
+      if (!blame || blame.size === 0) return RangeSet.empty as RangeSet<GutterMarker>;
+      const entries = [...blame.values()].sort((a, b) => a.line - b.line);
+      const bands = commitBands(entries);
+      const builder = new RangeSetBuilder<GutterMarker>();
+      for (const entry of entries) {
+        const band = bands.get(entry.line) ?? -1;
+        const text = opts.annotateFormat?.(entry) ?? { date: "", author: entry.author };
+        const line = view.state.doc.line(Math.min(Math.max(entry.line, 1), view.state.doc.lines));
+        const title = entry.uncommitted
+          ? entry.summary
+          : [entry.short, entry.author, entry.summary].filter(Boolean).join(" · ");
+        builder.add(
+          line.from,
+          line.from,
+          new AnnotateMarker(entry.line, text.date, text.author, band, entry.uncommitted, title),
+        );
+      }
+      return builder.finish();
+    },
+    domEventHandlers: {
+      click: (view, block, event) => openGutterMenu(view, block, event as MouseEvent, opts, false),
+      contextmenu: (view, block, event) => openGutterMenu(view, block, event as MouseEvent, opts, true),
+    },
+  });
+}
+
+/** Opens the app's Git menu for the line under the gutter pointer. */
+function openGutterMenu(
+  view: EditorView,
+  block: BlockInfo,
+  event: MouseEvent,
+  opts: EditorOptions,
+  context: boolean,
+): boolean {
+  if (!opts.onGutterContext) return false;
+  if (!context && event.button !== 0) return false;
+  event.preventDefault();
+  const line = view.state.doc.lineAt(block.from).number;
+  // The line the menu is about is also where the caret goes.
+  view.dispatch({ selection: { anchor: block.from } });
+  opts.onGutterContext(line, event.clientX, event.clientY);
+  return true;
+}
 
 /** Everything the source pane needs, with the doc replaced in place. */
 export class SourceEditor {
   readonly view: EditorView;
   private languageConf = new Compartment();
   private wrapConf = new Compartment();
+  private annotateConf = new Compartment();
+  private annotateExtension: Extension;
   private currentLanguage = "";
 
   constructor(parent: HTMLElement, opts: EditorOptions) {
     let lastLine = 1;
+    this.annotateExtension = annotateGutter(opts);
     this.view = new EditorView({
       parent,
       state: EditorState.create({
@@ -278,18 +380,12 @@ export class SourceEditor {
           // Read-only keeps the document untouchable; the DOM stays editable
           // so the pane can take focus and answer to the arrow keys.
           EditorState.readOnly.of(true),
+          // The blame column sits left of the line numbers, like an IDE.
+          this.annotateConf.of(opts.annotate ? this.annotateExtension : []),
           lineNumbers({
             domEventHandlers: {
-              contextmenu: (view, block, event) => {
-                if (!opts.onGutterContext) return false;
-                event.preventDefault();
-                const line = view.state.doc.lineAt(block.from).number;
-                // The line the menu is about is also where the caret goes.
-                view.dispatch({ selection: { anchor: block.from } });
-                const mouse = event as MouseEvent;
-                opts.onGutterContext(line, mouse.clientX, mouse.clientY);
-                return true;
-              },
+              contextmenu: (view, block, event) =>
+                openGutterMenu(view, block, event as MouseEvent, opts, true),
             },
           }),
           highlightActiveLineGutter(),
@@ -428,6 +524,13 @@ export class SourceEditor {
     const map = new Map<number, BlameLine>();
     for (const line of lines ?? []) map.set(line.line, line);
     this.view.dispatch({ effects: setBlame.of(map) });
+  }
+
+  /** Shows or hides the blame annotation column. */
+  setAnnotate(enabled: boolean) {
+    this.view.dispatch({
+      effects: this.annotateConf.reconfigure(enabled ? this.annotateExtension : []),
+    });
   }
 
   revealLine(line: number, attempt = 0) {

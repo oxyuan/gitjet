@@ -7703,3 +7703,58 @@ body.tab-dragging * {
 .menu-header + .menu-header {
   padding-top: 0;
 }
+
+/* ---------- Blame annotation column ----------
+   Left of the line numbers: each row is the date and author of the commit that
+   last touched that line, with a low-alpha band per commit so consecutive
+   commits read as separate blocks. */
+.cm-annotate-gutter {
+  width: 156px;
+  border-right: 1px solid color-mix(in srgb, var(--border) 75%, transparent);
+}
+
+.cm-annotate-gutter .cm-gutterElement {
+  width: 100%;
+  box-sizing: border-box;
+  overflow: hidden;
+}
+
+.cm-annotate {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  height: 100%;
+  padding: 0 8px 0 7px;
+  font-size: 10.5px;
+  color: var(--fg-soft);
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.cm-annotate-date {
+  flex: none;
+  color: var(--muted-2);
+  font-variant-numeric: tabular-nums;
+}
+
+.cm-annotate-author {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.cm-annotate-band-0 { background: color-mix(in srgb, var(--accent) 22%, transparent); }
+.cm-annotate-band-1 { background: color-mix(in srgb, var(--accent-alt) 22%, transparent); }
+.cm-annotate-band-2 { background: color-mix(in srgb, var(--success) 15%, transparent); }
+.cm-annotate-band-3 { background: color-mix(in srgb, var(--warning) 15%, transparent); }
+.cm-annotate-band-4 { background: color-mix(in srgb, var(--danger) 13%, transparent); }
+.cm-annotate-band-5 { background: color-mix(in srgb, var(--muted) 14%, transparent); }
+
+.cm-annotate-uncommitted {
+  background: color-mix(in srgb, var(--accent) 10%, transparent);
+  color: var(--accent);
+  font-weight: 600;
+}
+
+.cm-annotate-uncommitted .cm-annotate-date {
+  display: none;
+}
