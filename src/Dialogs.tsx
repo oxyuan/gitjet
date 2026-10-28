@@ -30,9 +30,11 @@ import {
   Modal,
   Select,
   Spinner,
+  Splitter,
   StatusMark,
   TextInput,
   formatWhen,
+  useStoredState,
   type ContextItem,
 } from "./ui";
 
@@ -972,6 +974,9 @@ export function PushDialog({
   const [upstream, setUpstreamState] = useState(setUpstream);
   const [expanded, setExpanded] = useState<ReadonlySet<string>>(new Set());
   const [menu, setMenu] = useState<{ x: number; y: number; items: ContextItem[] } | null>(null);
+  // Capped below the modal's 900px so the file pane cannot be squeezed out.
+  const [splitWidth, setSplitWidth] = useStoredState<number>("gitjet.pushSplit", 320);
+  const split = Math.min(560, Math.max(220, splitWidth));
 
   // Typing a target branch re-reads the preview; the pause keeps git from
   // being spawned once per keystroke.
@@ -1174,7 +1179,7 @@ export function PushDialog({
           <code>git remote add origin &lt;url&gt;</code>
         </div>
       ) : (
-        <div className="pushd">
+        <div className="pushd" style={{ gridTemplateColumns: `${split}px 5px minmax(0, 1fr)` }}>
           <div className="pushd-left">
             <div
               className={cx("pushd-repo", !selected && "active")}
@@ -1227,6 +1232,8 @@ export function PushDialog({
               ))}
             </div>
           </div>
+
+          <Splitter width={split} setWidth={setSplitWidth} min={220} max={560} reset={320} />
 
           <div className="pushd-right">
             <div className="pushd-toolbar">

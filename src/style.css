@@ -6684,8 +6684,32 @@ body.resizing-row .log-detail-split::after {
   flex-direction: column;
   min-width: 0;
   min-height: 0;
-  border-right: 1px solid var(--border);
   background: var(--panel);
+}
+
+/* The splitter between the commit list and the files. Its hairline is
+   centred in the grab strip, so the divider follows the pointer. */
+.pushd > .splitter {
+  width: 5px;
+  background: transparent;
+}
+
+.pushd > .splitter::after {
+  content: "";
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: calc(50% - 0.5px);
+  width: 1px;
+  background: var(--border);
+}
+
+.pushd > .splitter:hover {
+  background: var(--accent-soft);
+}
+
+.pushd > .splitter:hover::after {
+  background: var(--accent);
 }
 
 /* One row per repository: the local branch, the remote it goes to and the

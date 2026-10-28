@@ -461,11 +461,13 @@ export function Splitter({
   setWidth,
   min = 280,
   max = 720,
+  reset = 430,
 }: {
   width: number;
   setWidth: (w: number) => void;
   min?: number;
   max?: number;
+  reset?: number;
 }) {
   const drag = useRef<{ startX: number; startW: number } | null>(null);
   useEffect(() => {
@@ -492,7 +494,7 @@ export function Splitter({
         drag.current = { startX: e.clientX, startW: width };
         document.body.classList.add("resizing");
       }}
-      onDoubleClick={() => setWidth(430)}
+      onDoubleClick={() => setWidth(reset)}
       role="separator"
       aria-orientation="vertical"
     />
