@@ -2421,6 +2421,14 @@ function AppShell({ onLangChange }: { onLangChange: (lang: Lang) => void }) {
           current={state?.branch ?? ""}
           branch={dialog.branch}
           setUpstream={dialog.setUpstream}
+          root={snapshot?.state.root ?? ""}
+          onCopyPath={copyText}
+          diffMode={diffMode}
+          setDiffMode={setDiffMode}
+          diffWrap={diffWrap}
+          onToggleWrap={() => setDiffWrap(!diffWrap)}
+          ignoreWhitespace={ignoreWhitespace}
+          onToggleWhitespace={toggleWhitespace}
           onClose={() => setDialog(null)}
           onSubmit={(opts) => void push(opts)}
         />

@@ -1,6 +1,8 @@
 import { useEffect, useMemo, useRef, useState, type MouseEvent as ReactMouseEvent } from "react";
 import { buildChangeTree, directoryKeys } from "./changes";
+import { DiffView } from "./DiffView";
 import { FileTree } from "./FileTree";
+import { SourceEditor } from "./SourceEditor";
 import { Git, Workspace } from "./mygo";
 import type {
   BranchCleanup,
@@ -8,6 +10,8 @@ import type {
   BranchInfo,
   CommitDetail,
   CommitFile,
+  DiffOptions,
+  FileDiff,
   MergeOptions,
   PullOptions,
   PushOptions,
@@ -15,6 +19,7 @@ import type {
   Conflict,
   Remote,
   Settings,
+  SourceFile,
   StashFile,
   StashOptions,
   TagOptions,
@@ -152,6 +157,12 @@ const T = {
     "push.nothingToPush": "Everything here is already on the remote.",
     "push.createsOnly": "The branch has no new commits; pushing creates it at {hash}.",
     "push.dryRunAction": "Dry run",
+    "push.diffTab": "Diff",
+    "push.fileTab": "File",
+    "push.fileView": "File view",
+    "push.fileMissing": "This file does not exist in this revision.",
+    "push.binaryFile": "Binary file — no text to show",
+    "push.fileTruncated": "File truncated at 8 MB",
     "pull.title": "Update Project",
     "pull.note": "Pull fetches the remote and integrates the upstream into the current branch.",
     "pull.integrate": "Integrate with",
@@ -339,6 +350,12 @@ const T = {
     "push.nothingToPush": "本地内容都已经在远程上了。",
     "push.createsOnly": "该分支没有新提交，推送会在远程创建它（{hash}）。",
     "push.dryRunAction": "试运行",
+    "push.diffTab": "差异",
+    "push.fileTab": "文件",
+    "push.fileView": "文件视图",
+    "push.fileMissing": "此版本中不存在该文件。",
+    "push.binaryFile": "二进制文件 — 无文本可显示",
+    "push.fileTruncated": "文件已截断至 8 MB",
     "pull.title": "更新项目",
     "pull.note": "拉取会获取远程内容，并把上游合入当前分支。",
     "pull.integrate": "整合方式",
@@ -939,11 +956,30 @@ export function NewBranchDialog({
   );
 }
 
+/** One file opened from the push preview: the comparison it belongs to. */
+type PushFileTarget = {
+  file: CommitFile;
+  target: "commit" | "range";
+  revision: string;
+  from: string;
+};
+
+/** git's empty tree, the old side of a range when the branch has no remote. */
+const EMPTY_TREE = "4b825dc642cb6eb9a060e54bf8d69288fbee4904";
+
 export function PushDialog({
   remotes,
   current,
   branch: initialBranch,
   setUpstream,
+  root,
+  onCopyPath,
+  diffMode,
+  setDiffMode,
+  diffWrap,
+  onToggleWrap,
+  ignoreWhitespace,
+  onToggleWhitespace,
   onClose,
   onSubmit,
 }: {
@@ -951,6 +987,15 @@ export function PushDialog({
   current: string;
   branch?: string;
   setUpstream: boolean;
+  /** Repository root, for copy-path and absolute paths in the diff. */
+  root: string;
+  onCopyPath: (text: string) => void;
+  diffMode: "split" | "unified";
+  setDiffMode: (mode: "split" | "unified") => void;
+  diffWrap: boolean;
+  onToggleWrap: () => void;
+  ignoreWhitespace: boolean;
+  onToggleWhitespace: () => void;
   onClose: () => void;
   onSubmit: (opts: PushOptions) => void;
 }) {
@@ -974,6 +1019,7 @@ export function PushDialog({
   const [upstream, setUpstreamState] = useState(setUpstream);
   const [expanded, setExpanded] = useState<ReadonlySet<string>>(new Set());
   const [menu, setMenu] = useState<{ x: number; y: number; items: ContextItem[] } | null>(null);
+  const [previewFile, setPreviewFile] = useState<PushFileTarget | null>(null);
   // Capped below the modal's 900px so the file pane cannot be squeezed out.
   const [splitWidth, setSplitWidth] = useStoredState<number>("gitjet.pushSplit", 320);
   const split = Math.min(560, Math.max(220, splitWidth));
@@ -1275,6 +1321,18 @@ export function PushDialog({
                         className="tree-row file"
                         style={{ paddingLeft: 8 + depth * 12 }}
                         title={file.oldPath ? `${file.oldPath} → ${file.path}` : file.path}
+                        onClick={() => {
+                          // The newest commit carries the full hash; the
+                          // preview's own head is only the short display form.
+                          const revision = selected ?? preview?.commits[0]?.hash ?? preview?.head ?? "";
+                          if (revision === "") return;
+                          setPreviewFile({
+                            file,
+                            target: selected ? "commit" : "range",
+                            revision,
+                            from: selected ? "" : preview?.base || EMPTY_TREE,
+                          });
+                        }}
                       >
                         <span className="tree-chevron-spacer" />
                         <StatusMark kind={file.status} />
@@ -1357,6 +1415,210 @@ export function PushDialog({
         </div>
       )}
       {menu && <ContextMenu x={menu.x} y={menu.y} items={menu.items} onClose={() => setMenu(null)} />}
+      {/* The portal puts the preview above this dialog; Escape closes the
+          preview first, then this one. */}
+      {previewFile && (
+        <PushFilePreviewDialog
+          {...previewFile}
+          root={root}
+          diffMode={diffMode}
+          setDiffMode={setDiffMode}
+          diffWrap={diffWrap}
+          onToggleWrap={onToggleWrap}
+          ignoreWhitespace={ignoreWhitespace}
+          onToggleWhitespace={onToggleWhitespace}
+          onCopyPath={onCopyPath}
+          onClose={() => setPreviewFile(null)}
+        />
+      )}
+    </Modal>
+  );
+}
+
+
+/** One changed file of a push, with the same diff surface as a log commit:
+ *  side-by-side or unified, wrapping, whitespace, and the file itself. */
+function PushFilePreviewDialog({
+  file,
+  target,
+  revision,
+  from,
+  root,
+  diffMode,
+  setDiffMode,
+  diffWrap,
+  onToggleWrap,
+  ignoreWhitespace,
+  onToggleWhitespace,
+  onCopyPath,
+  onClose,
+}: PushFileTarget & {
+  root: string;
+  diffMode: "split" | "unified";
+  setDiffMode: (mode: "split" | "unified") => void;
+  diffWrap: boolean;
+  onToggleWrap: () => void;
+  ignoreWhitespace: boolean;
+  onToggleWhitespace: () => void;
+  onCopyPath: (text: string) => void;
+  onClose: () => void;
+}) {
+  const t = useT(T);
+  const [mode, setMode] = useState<"diff" | "file">("diff");
+  const [diff, setDiff] = useState<FileDiff | null>(null);
+  const [diffLoading, setDiffLoading] = useState(true);
+  const [diffError, setDiffError] = useState("");
+  const [source, setSource] = useState<SourceFile | null>(null);
+  const [sourceLoading, setSourceLoading] = useState(false);
+  const [sourceError, setSourceError] = useState("");
+
+  // A zero context asks the service for the user's configured window, so the
+  // preview follows the same setting as every other diff in the app.
+  const opts = useMemo<DiffOptions>(
+    () => ({
+      path: file.path,
+      oldPath: file.oldPath ?? "",
+      target,
+      revision,
+      from,
+      context: 0,
+      ignoreWhitespace,
+      ignoreWhitespaceEol: false,
+      noText: false,
+    }),
+    [file.path, file.oldPath, target, revision, from, ignoreWhitespace],
+  );
+
+  useEffect(() => {
+    let alive = true;
+    setDiffLoading(true);
+    setDiffError("");
+    Git.diff(opts)
+      .then((d) => {
+        if (alive) setDiff(d);
+      })
+      .catch((err) => {
+        if (!alive) return;
+        setDiff(null);
+        setDiffError(err instanceof Error ? err.message : String(err));
+      })
+      .finally(() => {
+        if (alive) setDiffLoading(false);
+      });
+    return () => {
+      alive = false;
+    };
+  }, [opts]);
+
+  // The file itself is read only when its tab is opened; the new side of the
+  // comparison is the revision the diff shows on the right.
+  useEffect(() => {
+    if (mode !== "file") return;
+    let alive = true;
+    setSourceLoading(true);
+    setSourceError("");
+    Git.file(file.path, revision)
+      .then((f) => {
+        if (alive) setSource(f);
+      })
+      .catch((err) => {
+        if (!alive) return;
+        setSource(null);
+        setSourceError(err instanceof Error ? err.message : String(err));
+      })
+      .finally(() => {
+        if (alive) setSourceLoading(false);
+      });
+    return () => {
+      alive = false;
+    };
+  }, [mode, file.path, revision]);
+
+  return (
+    <Modal title={file.path} icon="file" width={1080} className="pushd-preview-modal" onClose={onClose}>
+      <div className="pushd-preview">
+        <div className="pushd-preview-bar">
+          <div className="segmented" role="tablist" aria-label={t("push.fileView")}>
+            <button
+              type="button"
+              role="tab"
+              aria-selected={mode === "diff"}
+              className={cx("segmented-btn", "text", mode === "diff" && "active")}
+              onClick={() => setMode("diff")}
+            >
+              {t("push.diffTab")}
+            </button>
+            <button
+              type="button"
+              role="tab"
+              aria-selected={mode === "file"}
+              className={cx("segmented-btn", "text", mode === "file" && "active")}
+              onClick={() => setMode("file")}
+            >
+              {t("push.fileTab")}
+            </button>
+          </div>
+          <span className="spacer" />
+          <span className="pushd-count">
+            {file.binary
+              ? t("push.binary")
+              : [file.additions > 0 ? `+${file.additions}` : "", file.deletions > 0 ? `−${file.deletions}` : ""]
+                  .filter(Boolean)
+                  .join(" ")}
+          </span>
+        </div>
+        <div className="pushd-preview-body">
+          {mode === "diff" ? (
+            diffLoading ? (
+              <div className="pushd-preview-state">
+                <Spinner label={t("push.checking")} />
+              </div>
+            ) : diffError ? (
+              <div className="pushd-preview-state">
+                <span className="push-error">{diffError}</span>
+              </div>
+            ) : diff ? (
+              <DiffView
+                diff={diff}
+                opts={opts}
+                mode={diffMode}
+                setMode={setDiffMode}
+                ignoreWhitespace={ignoreWhitespace}
+                onToggleWhitespace={onToggleWhitespace}
+                onApply={() => {}}
+                onApplyFile={() => {}}
+                onOpenFile={() => setMode("file")}
+                root={root}
+                onCopyPath={onCopyPath}
+                reloadKey={0}
+                wrap={diffWrap}
+                onToggleWrap={onToggleWrap}
+              />
+            ) : null
+          ) : sourceLoading ? (
+            <div className="pushd-preview-state">
+              <Spinner label={t("push.checking")} />
+            </div>
+          ) : sourceError ? (
+            <div className="pushd-preview-state">
+              <span className="push-error">{sourceError}</span>
+            </div>
+          ) : source && !source.exists ? (
+            <div className="pushd-preview-state">
+              <span className="pushd-note">{t("push.fileMissing")}</span>
+            </div>
+          ) : source && source.binary ? (
+            <div className="pushd-preview-state">
+              <span className="pushd-note">{t("push.binaryFile")}</span>
+            </div>
+          ) : source ? (
+            <div className="pushd-preview-file">
+              {source.truncated && <div className="diff-truncated">{t("push.fileTruncated")}</div>}
+              <SourceEditor file={source} wrap={diffWrap} />
+            </div>
+          ) : null}
+        </div>
+      </div>
     </Modal>
   );
 }

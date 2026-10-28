@@ -6996,6 +6996,65 @@ body.resizing-row .log-detail-split::after {
   background: var(--accent-hover);
 }
 
+/* A changed file opens its diff on its own surface, like a log commit's
+   detail pane: the same layout switch, wrapping and whitespace controls,
+   plus the file itself. */
+.pushd-files .tree-row.file {
+  cursor: pointer;
+}
+
+.pushd-preview-modal .modal-body {
+  padding: 0;
+  overflow: hidden;
+}
+
+.pushd-preview {
+  display: flex;
+  flex-direction: column;
+  height: min(620px, calc(var(--window-h, 100vh) - 140px));
+  min-height: 0;
+}
+
+.pushd-preview-bar {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  height: 38px;
+  padding: 0 10px;
+  border-bottom: 1px solid var(--border);
+  background: var(--panel);
+}
+
+.pushd-preview-body {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  overflow: hidden;
+}
+
+.pushd-preview-body > .diff-view {
+  flex: 1;
+  min-width: 0;
+}
+
+.pushd-preview-state {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 18px;
+  color: var(--muted);
+}
+
+.pushd-preview-file {
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+
 
 
 /* ---- history rewrite dialog ---- */

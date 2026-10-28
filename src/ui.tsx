@@ -247,6 +247,11 @@ export function Spinner({ label }: { label?: string }) {
   );
 }
 
+/** Open modals, oldest first. Escape closes only the last one, so a dialog
+ *  opened from another dialog does not take both down. */
+const modalStack: number[] = [];
+let modalSeq = 0;
+
 export function Modal({
   title,
   icon,
@@ -265,16 +270,25 @@ export function Modal({
   className?: string;
 }) {
   const t = useT(T);
+  const closeRef = useRef(onClose);
+  closeRef.current = onClose;
+  const idRef = useRef(0);
+  if (idRef.current === 0) idRef.current = ++modalSeq;
   useEffect(() => {
+    const id = idRef.current;
+    modalStack.push(id);
     const onKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape") {
-        e.stopPropagation();
-        onClose();
-      }
+      if (e.key !== "Escape" || modalStack[modalStack.length - 1] !== id) return;
+      e.stopPropagation();
+      closeRef.current();
     };
     window.addEventListener("keydown", onKey, true);
-    return () => window.removeEventListener("keydown", onKey, true);
-  }, [onClose]);
+    return () => {
+      window.removeEventListener("keydown", onKey, true);
+      const at = modalStack.indexOf(id);
+      if (at >= 0) modalStack.splice(at, 1);
+    };
+  }, []);
   return createPortal(
     <div className="modal-overlay" onMouseDown={(e) => e.target === e.currentTarget && onClose()}>
       <div className={`modal${className ? " " + className : ""}`} style={{ width }} role="dialog" aria-modal="true">
