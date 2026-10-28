@@ -561,12 +561,16 @@ export function formatWhen(unix: number): string {
   return d.toLocaleDateString([], { year: "numeric", month: "short", day: "numeric" });
 }
 
-/** YYYY-MM-DD HH:mm:ss in the machine's time zone. */
-export function formatStamp(unix: number): string {
+/** YYYY-MM-DD HH:mm:ss in the machine's time zone. A stamp from today loses
+ *  its date and keeps the clock, prefixed with the caller's word for "today":
+ *  the year is the least interesting part of a commit made ten minutes ago. */
+export function formatStamp(unix: number, today?: string): string {
   if (!unix) return "";
   const d = new Date(unix * 1000);
   const pad = (n: number) => String(n).padStart(2, "0");
-  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`;
+  const clock = `${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`;
+  if (today && d.toDateString() === new Date().toDateString()) return `${today} ${clock}`;
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${clock}`;
 }
 
 export function formatFullDate(unix: number): string {

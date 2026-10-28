@@ -21,15 +21,15 @@ import { FileTree, type ChangeView } from "./FileTree";
 /** Widths of the fixed columns of the history list, in pixels. */
 interface LogColumns {
   hash: number;
-  refs: number;
   author: number;
   time: number;
 }
 
-const DEFAULT_COLUMNS: LogColumns = { hash: 58, refs: 210, author: 92, time: 116 };
+const DEFAULT_COLUMNS: LogColumns = { hash: 58, author: 92, time: 116 };
+// Branch chips take the width their names need, up to a share of the row; a
+// resizable column of their own only ever squeezed the subject.
 const COLUMN_LIMITS: Record<keyof LogColumns, [number, number]> = {
   hash: [40, 140],
-  refs: [60, 460],
   author: [50, 220],
   time: [70, 220],
 };
@@ -51,6 +51,7 @@ const T = {
     noMatch: "No commit matches “{search}”.",
     loadingCommits: "Loading commits",
     selectCommit: "Select a commit to see its details",
+    today: "Today",
     authored: "authored {date}",
     committedBy: "committed by {name} {date}",
     copyHash: "Copy hash",
@@ -101,6 +102,7 @@ const T = {
     noMatch: "没有匹配“{search}”的提交。",
     loadingCommits: "正在加载提交",
     selectCommit: "选择一个提交以查看详情",
+    today: "今天",
     authored: "作者提交于 {date}",
     committedBy: "由 {name} 提交于 {date}",
     copyHash: "复制提交哈希",
@@ -242,7 +244,13 @@ export function LogDock({
   const fileRowRef = useRef<HTMLDivElement>(null);
   const [fileDirs, setFileDirs] = useState<Set<string>>(new Set());
   const [storedCols, setStoredCols] = useStoredState<LogColumns>("gitjet.logColumns", DEFAULT_COLUMNS);
-  const cols: LogColumns = { ...DEFAULT_COLUMNS, ...storedCols };
+  // Widths saved by an older build may sit outside today's limits.
+  const merged = { ...DEFAULT_COLUMNS, ...storedCols };
+  const cols: LogColumns = {
+    hash: clampColumn("hash", merged.hash),
+    author: clampColumn("author", merged.author),
+    time: clampColumn("time", merged.time),
+  };
 
   // Arrow keys switch files, so the details pane takes focus with the commit.
   useEffect(() => {
@@ -490,7 +498,6 @@ export function LogDock({
             style={
               {
                 "--col-hash": `${cols.hash}px`,
-                "--col-refs": `${cols.refs}px`,
                 "--col-author": `${cols.author}px`,
                 "--col-time": `${cols.time}px`,
               } as React.CSSProperties
@@ -501,9 +508,7 @@ export function LogDock({
               <span className="col-grip" title={t("resizeColumn")} onMouseDown={startColumn("hash", 1)} />
             </span>
             <span className="log-col flexible" />
-            <span className="log-col end" style={{ width: cols.refs }}>
-              <span className="col-grip start" title={t("resizeColumn")} onMouseDown={startColumn("refs", -1)} />
-            </span>
+            <span className="log-col flexible" />
             <span className="log-col end" style={{ width: cols.author }}>
               <span className="col-grip start" title={t("resizeColumn")} onMouseDown={startColumn("author", -1)} />
             </span>
@@ -515,7 +520,6 @@ export function LogDock({
             style={
               {
                 "--col-hash": `${cols.hash}px`,
-                "--col-refs": `${cols.refs}px`,
                 "--col-author": `${cols.author}px`,
                 "--col-time": `${cols.time}px`,
               } as React.CSSProperties
@@ -591,8 +595,11 @@ export function LogDock({
                   <span className="log-subject" title={commit.subject}>
                     {commit.subject}
                   </span>
+                  {/* Rendered even when empty: the column is reserved for every
+                      row so the subject starts on the same x and truncates
+                      instead of vanishing. */}
                   {commit.refs.length > 0 && (
-                    <span className="log-refs">
+                    <span className="log-refs" title={commit.refs.map((ref) => ref.name).join(", ")}>
                       {commit.refs.slice(0, 2).map((ref, ri) => (
                         <RefChip key={ri} name={ref.name} type={ref.type} head={ref.head} />
                       ))}
@@ -611,7 +618,7 @@ export function LogDock({
                   <span className="log-author" title={commit.author}>
                     {commit.author}
                   </span>
-                  <span className="log-time">{formatStamp(commit.authorTime)}</span>
+                  <span className="log-time">{formatStamp(commit.authorTime, t("today"))}</span>
                 </div>
               );
             })}
@@ -733,7 +740,7 @@ export function LogDock({
                   <span className="log-detail-author" title={detail.authorEmail}>
                     {detail.author}
                   </span>
-                  <span className="muted">{formatStamp(detail.authorTime)}</span>
+                  <span className="muted">{formatStamp(detail.authorTime, t("today"))}</span>
                 </div>
                 {detail.parents.length > 1 && (
                   <div className="log-detail-merge">
@@ -752,7 +759,7 @@ export function LogDock({
                 )}
                 {detail.committer !== detail.author && (
                   <div className="log-detail-meta muted">
-                    {t("committedBy", { name: detail.committer, date: formatStamp(detail.commitTime) })}
+                    {t("committedBy", { name: detail.committer, date: formatStamp(detail.commitTime, t("today")) })}
                   </div>
                 )}
                 {detail.refs.length > 0 && (
