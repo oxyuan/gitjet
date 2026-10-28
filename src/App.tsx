@@ -649,6 +649,8 @@ function AppShell({ onLangChange }: { onLangChange: (lang: Lang) => void }) {
   const [showStaged, setShowStaged] = useStoredState<boolean>("gitjet.showStaged", false);
   const [showStashes, setShowStashes] = useStoredState<boolean>("gitjet.showStashes", false);
   const [logPath, setLogPath] = useState("");
+  // A line of that file, when the history was asked for from the gutter.
+  const [logLine, setLogLine] = useState(0);
   // Branch whose history is listed; "" follows the checked out branch.
   const [logRef, setLogRef] = useState("");
   const [logResult, setLogResult] = useState<LogResult | null>(null);
@@ -737,9 +739,10 @@ function AppShell({ onLangChange }: { onLangChange: (lang: Lang) => void }) {
         const s = settingsRef.current;
         const opts = {
           // No filter means every local and remote branch, not just HEAD.
-          all: !logRef,
+          all: !logRef && !logLine,
           refs: logRef ? [logRef] : [],
           path: logPath,
+          line: logLine,
           search: logSearch,
           author: logAuthor,
           since: 0,
@@ -776,7 +779,7 @@ function AppShell({ onLangChange }: { onLangChange: (lang: Lang) => void }) {
         if (req === logReq.current) setLogLoading(false);
       }
     },
-    [fail, logAuthor, logPath, logRef, logSearch, logResult?.commits.length, t],
+    [fail, logAuthor, logPath, logLine, logRef, logSearch, logResult?.commits.length, t],
   );
 
   const showFileRef = useRef<(path: string, revision?: string, line?: number) => Promise<void>>(async () => {});
@@ -1009,7 +1012,7 @@ function AppShell({ onLangChange }: { onLangChange: (lang: Lang) => void }) {
     if (!snapshot) return;
     void loadLog(true);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [logAuthor, logSearch, logPath, logRef, snapshot?.state.head]);
+  }, [logAuthor, logSearch, logPath, logLine, logRef, snapshot?.state.head]);
 
   useEffect(() => {
     if (!snapshot) return;
@@ -1076,6 +1079,7 @@ function AppShell({ onLangChange }: { onLangChange: (lang: Lang) => void }) {
       setLogDetail(null);
       setLogFile(null);
       setLogPath("");
+      setLogLine(0);
       setLogRef("");
       setSearchInput("");
       setLogSearch("");
@@ -1928,9 +1932,12 @@ function AppShell({ onLangChange }: { onLangChange: (lang: Lang) => void }) {
       .catch((err) => fail(t("readCommit"), err));
   };
 
-  const showFileHistory = (path: string) => {
+  const showFileHistory = (path: string, line = 0) => {
     setLogPath(path);
+    setLogLine(line);
     setTab("branch");
+    // A folded dock would hide the answer the click asked for.
+    setLogDockFolded(false);
     setSelectedCommit(null);
     setLogDetail(null);
     setLogFile(null);
@@ -2251,10 +2258,11 @@ function AppShell({ onLangChange }: { onLangChange: (lang: Lang) => void }) {
             author={logAuthor}
             authors={authors}
             scope={logRef}
-            pathScope={logPath}
+            pathScope={logPath ? (logLine > 0 ? `${logPath}:${logLine}` : logPath) : ""}
             onClearScope={() => setLogRef("")}
             onClearPathScope={() => {
               setLogPath("");
+              setLogLine(0);
               setSelectedCommit(null);
             }}
             height={logDockHeight}
@@ -2722,7 +2730,7 @@ function RightPane({
   onSymbol: (word: string, language: string) => void;
   busy: boolean;
   reloadKey: number;
-  onShowFileHistory: (path: string) => void;
+  onShowFileHistory: (path: string, line?: number) => void;
   onSaveConflict: (path: string, content: string) => Promise<void>;
   onTakeSide: (path: string, side: "ours" | "theirs") => Promise<void>;
   onMarkResolved: (path: string) => Promise<void>;
@@ -2871,6 +2879,8 @@ function RightPane({
             onSymbol={(word) => onSymbol(word, active.file.language)}
             onJump={(word) => onSymbol(word, active.file.language)}
             onReferences={(word) => onSymbol(word, active.file.language)}
+            onLineHistory={(line) => onShowFileHistory(active.file.path, line)}
+            onCommitDiff={(hash) => onOpenDiff(active.file.path, hash)}
           />
         )}
         {active.kind === "commit" && (

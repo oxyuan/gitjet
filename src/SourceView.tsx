@@ -88,6 +88,8 @@ export function SourceView({
   onSymbol,
   onJump,
   onReferences,
+  onLineHistory,
+  onCommitDiff,
 }: {
   file: SourceFile;
   /** 1-based line to put the cursor on, for a jump from another file. */
@@ -104,6 +106,10 @@ export function SourceView({
   onSymbol?: (word: string) => void;
   onJump?: (word: string) => void;
   onReferences?: (word: string) => void;
+  /** The gutter menu's "history of this line". */
+  onLineHistory?: (line: number) => void;
+  /** The gutter menu's diff of the commit that last touched the line. */
+  onCommitDiff?: (hash: string) => void;
 }) {
   const t = useT(T);
   const [wrap, setWrap] = useState(false);
@@ -202,6 +208,9 @@ export function SourceView({
           onJump={onJump}
           onReferences={onReferences}
           onCaret={setCaret}
+          onLineHistory={onLineHistory}
+          onCommitDiff={onCommitDiff}
+          onCopy={onCopyPath}
         />
       )}
     </div>

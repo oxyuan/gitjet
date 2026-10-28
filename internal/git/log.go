@@ -3,6 +3,7 @@ package git
 import (
 	"context"
 	"errors"
+	"fmt"
 	"sort"
 	"strconv"
 	"strings"
@@ -35,15 +36,18 @@ type CommitRef struct {
 
 // LogOptions selects commits.
 type LogOptions struct {
-	All         bool     `json:"all"`
-	Refs        []string `json:"refs"`
-	Path        string   `json:"path"`
-	Search      string   `json:"search"`
-	Author      string   `json:"author"`
-	Since       int64    `json:"since"`
-	Limit       int      `json:"limit"`
-	Skip        int      `json:"skip"`
-	FirstParent bool     `json:"firstParent"`
+	All  bool     `json:"all"`
+	Refs []string `json:"refs"`
+	Path string   `json:"path"`
+	// Line, with Path, lists only the commits that changed that line of the
+	// file (git log -L), so each line has its own history.
+	Line        int    `json:"line"`
+	Search      string `json:"search"`
+	Author      string `json:"author"`
+	Since       int64  `json:"since"`
+	Limit       int    `json:"limit"`
+	Skip        int    `json:"skip"`
+	FirstParent bool   `json:"firstParent"`
 }
 
 // LogResult is a page of commits.
@@ -96,6 +100,19 @@ func (r *Repo) Log(ctx context.Context, opts LogOptions) (LogResult, error) {
 	if opts.Limit <= 0 || opts.Limit > 2000 {
 		opts.Limit = 300
 	}
+	path := ""
+	if opts.Path != "" {
+		clean, err := cleanPath(opts.Path)
+		if err != nil {
+			return LogResult{}, err
+		}
+		path = clean
+		// -L digs from exactly one commit, so it cannot be combined with
+		// --branches/--remotes; a line's history follows the given refs.
+		if opts.Line > 0 {
+			opts.All = false
+		}
+	}
 	args := []string{"log", "--topo-order", "--no-color", "--no-show-signature"}
 	if opts.FirstParent {
 		args = append(args, "--first-parent")
@@ -122,12 +139,14 @@ func (r *Repo) Log(ctx context.Context, opts LogOptions) (LogResult, error) {
 	if len(opts.Refs) > 0 && !opts.All {
 		args = append(args, opts.Refs...)
 	}
-	if opts.Path != "" {
-		path, err := cleanPath(opts.Path)
-		if err != nil {
-			return LogResult{}, err
+	if path != "" {
+		if opts.Line > 0 {
+			// -L traces the line back through the commits that changed it;
+			// --no-patch leaves one formatted record per commit.
+			args = append(args, fmt.Sprintf("-L%d,%d:%s", opts.Line, opts.Line, path), "--no-patch")
+		} else {
+			args = append(args, "--", path)
 		}
-		args = append(args, "--", path)
 	}
 	out, err := r.run(ctx, args...)
 	if err != nil {

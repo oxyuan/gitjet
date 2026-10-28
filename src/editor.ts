@@ -257,6 +257,8 @@ export type EditorOptions = {
   /** Fires with the 1-based line under the caret, for things like copying a
    *  path with its line number. */
   onCaret?: (line: number) => void;
+  /** Right-click on a line number, with the menu's screen position. */
+  onGutterContext?: (line: number, x: number, y: number) => void;
 };
 
 /** Everything the source pane needs, with the doc replaced in place. */
@@ -276,7 +278,20 @@ export class SourceEditor {
           // Read-only keeps the document untouchable; the DOM stays editable
           // so the pane can take focus and answer to the arrow keys.
           EditorState.readOnly.of(true),
-          lineNumbers(),
+          lineNumbers({
+            domEventHandlers: {
+              contextmenu: (view, block, event) => {
+                if (!opts.onGutterContext) return false;
+                event.preventDefault();
+                const line = view.state.doc.lineAt(block.from).number;
+                // The line the menu is about is also where the caret goes.
+                view.dispatch({ selection: { anchor: block.from } });
+                const mouse = event as MouseEvent;
+                opts.onGutterContext(line, mouse.clientX, mouse.clientY);
+                return true;
+              },
+            },
+          }),
           highlightActiveLineGutter(),
           highlightActiveLine(),
           drawSelection(),

@@ -91,6 +91,51 @@ func TestShowCommitReportsEveryParentOfAMerge(t *testing.T) {
 	}
 }
 
+func TestLogLineListsOnlyCommitsThatChangedThatLine(t *testing.T) {
+	repo, dir := newTestRepo(t)
+	writeFile(t, dir, "a.txt", "one\nTWO\n")
+	runGit(t, dir, "commit", "-qam", "change line two")
+	second := runGit(t, dir, "rev-parse", "HEAD")
+	writeFile(t, dir, "a.txt", "ONE\nTWO\n")
+	runGit(t, dir, "commit", "-qam", "change line one")
+	third := runGit(t, dir, "rev-parse", "HEAD")
+
+	two, err := repo.Log(context.Background(), LogOptions{Path: "a.txt", Line: 2, Limit: 10})
+	if err != nil {
+		t.Fatalf("Log line 2: %v", err)
+	}
+	if len(two.Commits) != 2 {
+		t.Fatalf("line 2 commits = %d, want 2", len(two.Commits))
+	}
+	if two.Commits[0].Hash != second || two.Commits[0].Subject != "change line two" {
+		t.Errorf("line 2 newest = %s %q, want %s", two.Commits[0].Hash[:8], two.Commits[0].Subject, second[:8])
+	}
+
+	one, err := repo.Log(context.Background(), LogOptions{Path: "a.txt", Line: 1, Limit: 10})
+	if err != nil {
+		t.Fatalf("Log line 1: %v", err)
+	}
+	if len(one.Commits) != 2 || one.Commits[0].Hash != third {
+		t.Fatalf("line 1 commits = %+v, want change line one newest", one.Commits)
+	}
+	if hasCommit(one, second) {
+		t.Errorf("line 1 history includes the commit that only changed line 2")
+	}
+	if hasCommit(two, third) {
+		t.Errorf("line 2 history includes the commit that only changed line 1")
+	}
+
+	// A caller asking for all branches still gets a single dig point, or git
+	// refuses the query ("More than one commit to dig from").
+	all, err := repo.Log(context.Background(), LogOptions{All: true, Path: "a.txt", Line: 2, Limit: 10})
+	if err != nil {
+		t.Fatalf("Log line 2 with All: %v", err)
+	}
+	if len(all.Commits) != 2 {
+		t.Errorf("line 2 commits with All = %d, want 2", len(all.Commits))
+	}
+}
+
 func hasCommit(result LogResult, hash string) bool {
 	for _, commit := range result.Commits {
 		if commit.Hash == hash {

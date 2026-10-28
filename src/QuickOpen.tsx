@@ -67,6 +67,7 @@ export function QuickOpen({
               all: true,
               refs: [],
               path: "",
+              line: 0,
               search: term,
               author: "",
               since: 0,

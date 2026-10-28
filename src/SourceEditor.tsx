@@ -3,6 +3,23 @@ import { Git, type BlameLine, type DiffOptions, type SourceFile } from "./mygo";
 import { SourceEditor as Editor } from "./editor";
 import { changeRanges, type ChangeRange } from "./annotate";
 import { connectLSP, lspServes, registerView, unregisterView, toUri } from "./lsp";
+import { ContextMenu, formatWhen, type ContextItem } from "./ui";
+import { useT } from "./i18n";
+
+const T = {
+  en: {
+    lineHistory: "Show history of this line",
+    lineCommitDiff: "Show the diff of this line's commit",
+    copyHash: "Copy commit hash",
+    uncommitted: "Uncommitted changes",
+  },
+  zh: {
+    lineHistory: "查看该行的历史",
+    lineCommitDiff: "查看该行提交的差异",
+    copyHash: "复制提交哈希",
+    uncommitted: "未提交的更改",
+  },
+} as const;
 
 
 /** The text itself, in a real editor: highlighting, a change gutter, the
@@ -19,6 +36,9 @@ export function SourceEditor({
   onJump,
   onReferences,
   onCaret,
+  onLineHistory,
+  onCommitDiff,
+  onCopy,
 }: {
   file: SourceFile;
   line?: number;
@@ -30,13 +50,23 @@ export function SourceEditor({
   onJump?: (word: string) => void;
   onReferences?: (word: string) => void;
   onCaret?: (line: number) => void;
+  /** Show the history of one line of this file. */
+  onLineHistory?: (line: number) => void;
+  /** Show the diff the blame commit made to this file. */
+  onCommitDiff?: (hash: string) => void;
+  onCopy?: (text: string) => void;
 }) {
+  const t = useT(T);
   const host = useRef<HTMLDivElement | null>(null);
   const editor = useRef<Editor | null>(null);
-  const actions = useRef({ onRollbackHunk, onSymbol, onJump, onReferences, onCaret });
-  actions.current = { onRollbackHunk, onSymbol, onJump, onReferences, onCaret };
+  const actions = useRef({ onRollbackHunk, onSymbol, onJump, onReferences, onCaret, onLineHistory, onCommitDiff, onCopy });
+  actions.current = { onRollbackHunk, onSymbol, onJump, onReferences, onCaret, onLineHistory, onCommitDiff, onCopy };
   const [changes, setChanges] = useState<ChangeRange[]>([]);
   const [blame, setBlame] = useState<BlameLine[] | null>(null);
+  const [menu, setMenu] = useState<{ x: number; y: number; line: number } | null>(null);
+  // The gutter's Git actions describe the working-tree file; line numbers of
+  // an old revision are not the working tree's, so they stay off there.
+  const workingTree = file.revision === "";
 
   // One editor per mounted document; the document itself is swapped in place
   // so scroll position and the gutter survive a reload.
@@ -53,6 +83,7 @@ export function SourceEditor({
       onJump: (word) => actions.current.onJump?.(word),
       onReferences: (word) => actions.current.onReferences?.(word),
       onCaret: (n) => actions.current.onCaret?.(n),
+      onGutterContext: workingTree ? (n, x, y) => setMenu({ x, y, line: n }) : undefined,
     });
     editor.current = created;
     const uri = toUri(file.path);
@@ -83,7 +114,6 @@ export function SourceEditor({
   }, [line, file.text]);
 
   // Change bars and blame only make sense against the working tree.
-  const workingTree = file.revision === "";
   useEffect(() => {
     let cancelled = false;
     if (!workingTree || file.binary || !file.exists) {
@@ -142,5 +172,46 @@ export function SourceEditor({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  return <div className="source-editor" ref={host} onContextMenu={(event) => event.stopPropagation()} />;
+  // The menu is about one line: its blame is the "Git information", and the
+  // commit or its history is where the diff lives.
+  const menuItems: ContextItem[] = [];
+  if (menu) {
+    const blamed = blame?.find((l) => l.line === menu.line);
+    const hash = blamed && !blamed.uncommitted ? blamed.commit : "";
+    if (blamed) {
+      menuItems.push(
+        blamed.uncommitted
+          ? { header: true, label: t("uncommitted") }
+          : { header: true, label: `${blamed.short} · ${blamed.author} · ${formatWhen(blamed.time)}` },
+      );
+      if (blamed.summary) menuItems.push({ header: true, label: blamed.summary });
+      menuItems.push({ separator: true });
+    }
+    menuItems.push({
+      label: t("lineHistory"),
+      icon: "log",
+      disabled: !onLineHistory,
+      onClick: () => onLineHistory?.(menu.line),
+    });
+    if (hash) {
+      menuItems.push({
+        label: t("lineCommitDiff"),
+        icon: "diff",
+        disabled: !onCommitDiff,
+        onClick: () => onCommitDiff?.(hash),
+      });
+      menuItems.push({
+        label: t("copyHash"),
+        icon: "copy",
+        disabled: !onCopy,
+        onClick: () => onCopy?.(hash),
+      });
+    }
+  }
+
+  return (
+    <div className="source-editor" ref={host} onContextMenu={(event) => event.stopPropagation()}>
+      {menu && <ContextMenu x={menu.x} y={menu.y} items={menuItems} onClose={() => setMenu(null)} />}
+    </div>
+  );
 }

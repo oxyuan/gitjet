@@ -338,6 +338,13 @@ export type ContextItem =
     }
   | {
       separator?: false;
+      /** Information, not an action: drawn as a muted caption. */
+      header: true;
+      label: string;
+    }
+  | {
+      separator?: false;
+      header?: false;
       label: string;
       icon?: IconName;
       shortcut?: string;
@@ -387,6 +394,10 @@ export function ContextMenu({
       {items.map((item, i) =>
         item.separator ? (
           <div className="menu-separator" key={i} />
+        ) : item.header ? (
+          <div className="menu-header" key={i}>
+            {item.label}
+          </div>
         ) : (
           <button
             key={i}

@@ -265,6 +265,7 @@ export interface LogOptions {
   all: boolean;
   refs: string[];
   path: string;
+  line: number;
   search: string;
   author: string;
   since: number;
