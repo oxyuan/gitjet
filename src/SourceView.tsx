@@ -42,8 +42,8 @@ const T = {
     workingTreeButton: "工作区",
     showDiff: "以差异方式显示此文件",
     diff: "差异",
-    annotateFile: "标注此文件",
-    annotate: "标注",
+    annotateFile: "Blame 此文件",
+    annotate: "Blame",
 
     revealInManager: "在文件管理器中显示",
     wrap: "折行",

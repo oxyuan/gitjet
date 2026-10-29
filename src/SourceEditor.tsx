@@ -21,8 +21,8 @@ const T = {
     commitFileDiff: "查看该提交在此文件中的全部差异",
     copyHash: "复制提交哈希",
     uncommitted: "未提交的更改",
-    annotateWithBlame: "使用 Git Blame 注解",
-    closeAnnotations: "关闭注解",
+    annotateWithBlame: "使用 Git Blame 标注",
+    closeAnnotations: "关闭 Blame",
     annotateLocal: "本地",
   },
 } as const;
