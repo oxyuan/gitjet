@@ -31,7 +31,7 @@ import { languages } from "@codemirror/language-data";
 import { findReferences, jumpToDefinition } from "@codemirror/lsp-client";
 import { editorHighlightStyle } from "./highlight";
 import type { BlameLine } from "./mygo";
-import { commitBands, type ChangeRange } from "./annotate";
+import { blameDepth, type ChangeRange } from "./annotate";
 
 /** The editor paints with the app's tokens, so there is one palette, not two. */
 const theme = EditorView.theme({
@@ -266,14 +266,14 @@ export type EditorOptions = {
   annotateFormat?: (line: BlameLine) => { date: string; author: string };
 };
 
-/** One row of the blame column: the line's date and author, with a band per
- *  commit so a run of one commit reads as one block. */
+/** One row of the blame column: the line's date and author, tinted by how old
+ *  the commit is so recent work stands out and old work recedes. */
 class AnnotateMarker extends GutterMarker {
   constructor(
     readonly line: number,
     readonly date: string,
     readonly author: string,
-    readonly band: number,
+    readonly depth: number,
     readonly uncommitted: boolean,
     readonly title: string,
   ) {
@@ -284,7 +284,7 @@ class AnnotateMarker extends GutterMarker {
       other.line === this.line &&
       other.date === this.date &&
       other.author === this.author &&
-      other.band === this.band &&
+      other.depth === this.depth &&
       other.uncommitted === this.uncommitted &&
       other.title === this.title
     );
@@ -293,7 +293,7 @@ class AnnotateMarker extends GutterMarker {
     const el = document.createElement("div");
     el.className =
       "cm-annotate" +
-      (this.band >= 0 ? ` cm-annotate-band-${this.band}` : "") +
+      (this.depth >= 0 ? ` cm-annotate-depth-${this.depth}` : "") +
       (this.uncommitted ? " cm-annotate-uncommitted" : "");
     el.title = this.title;
     const date = document.createElement("span");
@@ -318,10 +318,9 @@ function annotateGutter(opts: EditorOptions): Extension {
       const blame = view.state.field(blameField, false);
       if (!blame || blame.size === 0) return RangeSet.empty as RangeSet<GutterMarker>;
       const entries = [...blame.values()].sort((a, b) => a.line - b.line);
-      const bands = commitBands(entries);
       const builder = new RangeSetBuilder<GutterMarker>();
       for (const entry of entries) {
-        const band = bands.get(entry.line) ?? -1;
+        const depth = entry.uncommitted ? -1 : blameDepth(entry.time);
         const text = opts.annotateFormat?.(entry) ?? { date: "", author: entry.author };
         const line = view.state.doc.line(Math.min(Math.max(entry.line, 1), view.state.doc.lines));
         const title = entry.uncommitted
@@ -330,7 +329,7 @@ function annotateGutter(opts: EditorOptions): Extension {
         builder.add(
           line.from,
           line.from,
-          new AnnotateMarker(entry.line, text.date, text.author, band, entry.uncommitted, title),
+          new AnnotateMarker(entry.line, text.date, text.author, depth, entry.uncommitted, title),
         );
       }
       return builder.finish();

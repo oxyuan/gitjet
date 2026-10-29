@@ -1,6 +1,6 @@
 import { describe, expect, it } from "bun:test";
-import { annotateDate, changeRanges, commitBands } from "./annotate";
-import type { BlameLine, FileDiff } from "./mygo";
+import { annotateDate, blameDepth, changeRanges } from "./annotate";
+import type { FileDiff } from "./mygo";
 
 function diff(lines: [string, number, number][], newStart = 10): FileDiff {
   return {
@@ -86,38 +86,20 @@ describe("changeRanges", () => {
   });
 });
 
-function blameLine(line: number, commit: string, uncommitted = false): BlameLine {
-  return {
-    line,
-    origLine: line,
-    commit,
-    short: commit.slice(0, 7),
-    author: "Test",
-    email: "test@example.com",
-    time: 0,
-    summary: "",
-    text: "",
-    boundary: false,
-    uncommitted,
-  };
-}
+describe("blameDepth", () => {
+  const now = Date.UTC(2025, 0, 1) / 1000;
+  const day = 86400;
+  const at = (days: number) => blameDepth(now - days * day, now);
 
-describe("commitBands", () => {
-  it("gives one band per commit and keeps it across the file", () => {
-    const bands = commitBands([blameLine(3, "b"), blameLine(1, "a"), blameLine(2, "a"), blameLine(4, "b")]);
-    expect(bands.get(1)).toBe(0);
-    expect(bands.get(2)).toBe(0);
-    expect(bands.get(3)).toBe(1);
-    expect(bands.get(4)).toBe(1);
+  it("steps down as commits age, so newer work is darker", () => {
+    expect([at(0), at(7), at(8), at(30), at(31), at(90), at(91), at(180), at(181), at(365), at(366)]).toEqual([
+      0, 0, 1, 1, 2, 2, 3, 3, 4, 4, 5,
+    ]);
   });
 
-  it("keeps neighbouring commits on different bands and marks uncommitted lines", () => {
-    const lines = Array.from({ length: 8 }, (_, i) => blameLine(i + 1, `commit-${i}`));
-    const bands = commitBands(lines);
-    for (let line = 1; line < 8; line++) {
-      expect(bands.get(line)).not.toBe(bands.get(line + 1));
-    }
-    expect(commitBands([blameLine(9, "0".repeat(40), true)]).get(9)).toBe(-1);
+  it("treats a future timestamp as fresh and a missing one as oldest", () => {
+    expect(at(-1)).toBe(0);
+    expect(blameDepth(0, now)).toBe(5);
   });
 });
 

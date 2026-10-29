@@ -2109,6 +2109,14 @@ body.col-resizing {
   border-right: 1px solid var(--border);
 }
 
+/* Age tint: the freshest commit is the strongest, month-old work fades out. */
+.blame-gutter.blame-depth-0 { background: color-mix(in srgb, var(--accent) 32%, var(--gutter-bg)); }
+.blame-gutter.blame-depth-1 { background: color-mix(in srgb, var(--accent) 24%, var(--gutter-bg)); }
+.blame-gutter.blame-depth-2 { background: color-mix(in srgb, var(--accent) 17%, var(--gutter-bg)); }
+.blame-gutter.blame-depth-3 { background: color-mix(in srgb, var(--accent) 11%, var(--gutter-bg)); }
+.blame-gutter.blame-depth-4 { background: color-mix(in srgb, var(--accent) 6%, var(--gutter-bg)); }
+.blame-gutter.blame-depth-5 { background: var(--gutter-bg); }
+
 .blame-gutter:hover {
   background: var(--hover);
 }
@@ -7795,8 +7803,8 @@ body.tab-dragging * {
 
 /* ---------- Blame annotation column ----------
    Left of the line numbers: each row is the date and author of the commit that
-   last touched that line, with a low-alpha band per commit so consecutive
-   commits read as separate blocks. */
+   last touched that line, tinted by the commit's age — recent work darker,
+   old work nearly transparent — so recency reads at a glance. */
 .cm-annotate-gutter {
   width: 156px;
   border-right: 1px solid color-mix(in srgb, var(--border) 75%, transparent);
@@ -7831,12 +7839,12 @@ body.tab-dragging * {
   text-overflow: ellipsis;
 }
 
-.cm-annotate-band-0 { background: color-mix(in srgb, var(--accent) 22%, transparent); }
-.cm-annotate-band-1 { background: color-mix(in srgb, var(--accent-alt) 22%, transparent); }
-.cm-annotate-band-2 { background: color-mix(in srgb, var(--success) 15%, transparent); }
-.cm-annotate-band-3 { background: color-mix(in srgb, var(--warning) 15%, transparent); }
-.cm-annotate-band-4 { background: color-mix(in srgb, var(--danger) 13%, transparent); }
-.cm-annotate-band-5 { background: color-mix(in srgb, var(--muted) 14%, transparent); }
+.cm-annotate-depth-0 { background: color-mix(in srgb, var(--accent) 34%, transparent); }
+.cm-annotate-depth-1 { background: color-mix(in srgb, var(--accent) 26%, transparent); }
+.cm-annotate-depth-2 { background: color-mix(in srgb, var(--accent) 19%, transparent); }
+.cm-annotate-depth-3 { background: color-mix(in srgb, var(--accent) 13%, transparent); }
+.cm-annotate-depth-4 { background: color-mix(in srgb, var(--accent) 7%, transparent); }
+.cm-annotate-depth-5 { background: color-mix(in srgb, var(--accent) 2%, transparent); }
 
 .cm-annotate-uncommitted {
   background: color-mix(in srgb, var(--accent) 10%, transparent);

@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
+import { blameDepth } from "./annotate";
 import type { DiffOptions, FileDiff } from "./mygo";
 import { buildDiffRows, isCollapsed, type AlignedRow, type DiffRows, type WordSegment } from "./diff";
 import { Icon } from "./icons";
@@ -604,21 +605,24 @@ export function BlameView({
         </div>
       </div>
       <div className="blame-body">
-        {lines.map((l) => (
-          <div className="blame-row" key={l.line}>
-            <button
-              className={cx("blame-gutter", l.uncommitted && "uncommitted")}
-              title={`${l.short} ${l.summary}\n${formatWhen(l.time)}`}
-              onClick={() => onCopy(l.short)}
-            >
-              <span className="blame-hash">{l.uncommitted ? t("local") : l.short}</span>
-              <span className="blame-author">{l.author}</span>
-              <span className="blame-time">{formatWhen(l.time)}</span>
-            </button>
-            <span className="blame-no">{l.line}</span>
-            <span className="blame-text">{l.text || "\u00a0"}</span>
-          </div>
-        ))}
+        {lines.map((l) => {
+          const depth = l.uncommitted ? -1 : blameDepth(l.time);
+          return (
+            <div className="blame-row" key={l.line}>
+              <button
+                className={cx("blame-gutter", depth >= 0 && `blame-depth-${depth}`, l.uncommitted && "uncommitted")}
+                title={`${l.short} ${l.summary}\n${formatWhen(l.time)}`}
+                onClick={() => onCopy(l.short)}
+              >
+                <span className="blame-hash">{l.uncommitted ? t("local") : l.short}</span>
+                <span className="blame-author">{l.author}</span>
+                <span className="blame-time">{formatWhen(l.time)}</span>
+              </button>
+              <span className="blame-no">{l.line}</span>
+              <span className="blame-text">{l.text || "\u00a0"}</span>
+            </div>
+          );
+        })}
       </div>
     </div>
   );

@@ -1,4 +1,4 @@
-import type { BlameLine, FileDiff } from "./mygo";
+import type { FileDiff } from "./mygo";
 
 /** One run of changed lines in the new side of a file. */
 export type ChangeRange = {
@@ -58,26 +58,18 @@ export function changeRanges(diff: FileDiff | null): ChangeRange[] {
   return ranges.sort((a, b) => a.start - b.start);
 }
 
-/** The colour band of every annotated line: one band per commit, assigned in
- *  line order, so neighbouring commits always differ and one commit keeps the
- *  same band wherever it reappears. Uncommitted lines get -1. */
-export function commitBands(lines: BlameLine[]): Map<number, number> {
-  const bands = new Map<number, number>();
-  const byCommit = new Map<string, number>();
-  let next = 0;
-  for (const line of [...lines].sort((a, b) => a.line - b.line)) {
-    if (line.uncommitted) {
-      bands.set(line.line, -1);
-      continue;
-    }
-    let band = byCommit.get(line.commit);
-    if (band === undefined) {
-      band = next++ % 6;
-      byCommit.set(line.commit, band);
-    }
-    bands.set(line.line, band);
-  }
-  return bands;
+/** How strongly a blame row is tinted, 0 being the freshest and 5 the oldest,
+ *  so a file reads as a gradient of age. The depth comes from the commit's own
+ *  timestamp, so every line of one commit gets the same tint. Uncommitted
+ *  lines are marked separately by the caller (-1). */
+export function blameDepth(unix: number, now = Date.now() / 1000): number {
+  const days = unix > 0 ? Math.max(0, now - unix) / 86400 : Infinity;
+  if (days <= 7) return 0;
+  if (days <= 30) return 1;
+  if (days <= 90) return 2;
+  if (days <= 180) return 3;
+  if (days <= 365) return 4;
+  return 5;
 }
 
 /** The annotation column's local calendar day: fixed-width and sortable. */
