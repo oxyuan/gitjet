@@ -57,10 +57,15 @@ bun run generate             # regenerate src/mygo.ts after changing a bound typ
 bun run typecheck            # tsc --noEmit
 bun run test:web             # bun test
 bun run build:web            # tsc --noEmit && vite build
-bun run build                # mygo build: bindings → web build → Go → package
+bun run build                # prebuild guard → mygo build: bindings → web build → Go → package
 
 go test ./... && go vet ./...
 ```
+
+`bun run build` first runs `scripts/prebuild.ts`, which stops any process running
+from `build/` (Windows cannot rename a directory whose executable is mapped, and
+`mygo build` renames `build/<platform>` before recompiling). The guard probes
+with a write-capable open, so it costs nothing when nothing is running.
 
 Cross-compilation must keep working (no cgo, everywhere):
 
