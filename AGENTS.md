@@ -149,9 +149,10 @@ use it only for layout work. Vite's port is pinned to 5173 in **both**
   `graph.ts`, `changes.ts`, `branches.ts`, `merge.ts`, `explorer.ts`,
   `syntax.ts`, `paths.ts`, `tabs.ts`. Keep them free of `react`/`dom` imports.
 - The dock's tab order is `gitjet.toolTabs`, a stored permutation repaired by
-  `normalizeTabOrder` (unknown names dropped, missing ones appended). Drag
-  listeners go on `window`, not on the tab: the strip re-renders while the
-  pointer moves, and a listener bound to the old node stops seeing it.
+  `normalizeTabOrder` (unknown names dropped, missing ones appended). It is
+  edited only in Settings → General ("Dock tabs"), whose arrows call
+  `moveItem`; the strip is a plain list of buttons. The arrows write the order
+  immediately — it is a view preference, not part of the dialog's draft.
 - `useStoredState` (`src/ui.tsx`) persists view preferences under `gitjet.*`
   keys. Its setter takes a **value**, not an updater function. Settings are not
   localStorage — they live in Go (`<config dir>/GitJet/settings.json`).

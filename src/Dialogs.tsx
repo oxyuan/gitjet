@@ -25,6 +25,7 @@ import type {
   TagOptions,
 } from "./mygo";
 import { Icon } from "./icons";
+import { moveItem, TOOL_TAB_ICONS, type ToolTab } from "./tabs";
 import {
   Button,
   Checkbox,
@@ -61,6 +62,14 @@ const T = {
     "settings.tabGit": "Git",
     "settings.tabKeys": "Shortcuts",
     "settings.panelGeneral": "General settings",
+    "settings.panelTabs": "Dock tabs",
+    "settings.tabOrderHint": "The left dock follows this order at once, with no save needed.",
+    "settings.moveUp": "Move up",
+    "settings.moveDown": "Move down",
+    "settings.toolCommit": "Commit",
+    "settings.toolBranch": "Branch",
+    "settings.toolFiles": "Files",
+    "settings.toolConsole": "Console",
     "settings.panelGitPath": "Git executable",
     "settings.panelDiff": "Diff settings",
     "settings.panelSync": "Sync and update",
@@ -254,6 +263,14 @@ const T = {
     "settings.tabGit": "Git",
     "settings.tabKeys": "快捷键",
     "settings.panelGeneral": "通用设置",
+    "settings.panelTabs": "工具窗口顺序",
+    "settings.tabOrderHint": "左侧工具窗口立即按此顺序显示，无需保存。",
+    "settings.moveUp": "上移",
+    "settings.moveDown": "下移",
+    "settings.toolCommit": "提交",
+    "settings.toolBranch": "分支",
+    "settings.toolFiles": "文件",
+    "settings.toolConsole": "控制台",
     "settings.panelGitPath": "Git 基础配置",
     "settings.panelDiff": "差异对比设置",
     "settings.panelSync": "同步 Pull 设置",
@@ -458,6 +475,7 @@ type TKey = keyof (typeof T)["en"] & string;
  *  the last state is remembered. */
 const PANELS: { id: string; title: TKey; open: boolean; tone?: "warning" }[] = [
   { id: "general", title: "settings.panelGeneral", open: true },
+  { id: "tabs", title: "settings.panelTabs", open: true },
   { id: "gitPath", title: "settings.panelGitPath", open: true },
   { id: "diff", title: "settings.panelDiff", open: false },
   { id: "sync", title: "settings.panelSync", open: true },
@@ -506,13 +524,25 @@ function field<T>(s: Settings, key: keyof Settings): T {
   return s[key] as T;
 }
 
+/** The dock's pages, named the way the strip names them. */
+const TOOL_TAB_LABELS: Record<ToolTab, TKey> = {
+  commit: "settings.toolCommit",
+  branch: "settings.toolBranch",
+  files: "settings.toolFiles",
+  console: "settings.toolConsole",
+};
+
 export function SettingsDialog({
   settings,
+  tabOrder,
+  onTabOrder,
   onSave,
   onClose,
   onValidate,
 }: {
   settings: Settings;
+  tabOrder: ToolTab[];
+  onTabOrder: (order: ToolTab[]) => void;
   onSave: (next: Settings) => void;
   onClose: () => void;
   onValidate: (path: string) => Promise<string>;
@@ -680,43 +710,75 @@ export function SettingsDialog({
         </div>
 
         <div className="settings-panels" role="tabpanel" ref={panelsRef}>
-          {tab === "general" &&
-            panel(
-              "general",
-              <>
-                <SettingRow label={t("settings.language")}>
-                  <Select value={draft.language} onChange={(v) => set("language", v)}>
-                    <option value="system">{t("settings.languageSystem")}</option>
-                    <option value="en">English</option>
-                    <option value="zh">简体中文</option>
-                  </Select>
-                </SettingRow>
-                <SettingRow label={t("settings.theme")}>
-                  <Select value={draft.theme} onChange={(v) => set("theme", v)}>
-                    <option value="system">{t("settings.themeSystem")}</option>
-                    <option value="light">{t("settings.themeLight")}</option>
-                    <option value="dark">{t("settings.themeDark")}</option>
-                  </Select>
-                </SettingRow>
-                <SettingRow label={t("settings.uiScale")}>
-                  <Select value={String(draft.uiScale)} onChange={(v) => set("uiScale", Number(v))}>
-                    <option value="90">{t("settings.uiScaleSmall")}</option>
-                    <option value="100">{t("settings.uiScaleNormal")}</option>
-                    <option value="112">{t("settings.uiScaleLarge")}</option>
-                    <option value="125">{t("settings.uiScaleLargest")}</option>
-                  </Select>
-                </SettingRow>
-                <SettingRow label={t("settings.openRepo")} hint={t("settings.openRepoHint")}>
-                  <Select
-                    value={draft.openInNewWindow ? "new" : "same"}
-                    onChange={(v) => set("openInNewWindow", v === "new")}
-                  >
-                    <option value="same">{t("settings.openRepoSame")}</option>
-                    <option value="new">{t("settings.openRepoNew")}</option>
-                  </Select>
-                </SettingRow>
-              </>,
-            )}
+          {tab === "general" && (
+            <>
+              {panel(
+                "general",
+                <>
+                  <SettingRow label={t("settings.language")}>
+                    <Select value={draft.language} onChange={(v) => set("language", v)}>
+                      <option value="system">{t("settings.languageSystem")}</option>
+                      <option value="en">English</option>
+                      <option value="zh">简体中文</option>
+                    </Select>
+                  </SettingRow>
+                  <SettingRow label={t("settings.theme")}>
+                    <Select value={draft.theme} onChange={(v) => set("theme", v)}>
+                      <option value="system">{t("settings.themeSystem")}</option>
+                      <option value="light">{t("settings.themeLight")}</option>
+                      <option value="dark">{t("settings.themeDark")}</option>
+                    </Select>
+                  </SettingRow>
+                  <SettingRow label={t("settings.uiScale")}>
+                    <Select value={String(draft.uiScale)} onChange={(v) => set("uiScale", Number(v))}>
+                      <option value="90">{t("settings.uiScaleSmall")}</option>
+                      <option value="100">{t("settings.uiScaleNormal")}</option>
+                      <option value="112">{t("settings.uiScaleLarge")}</option>
+                      <option value="125">{t("settings.uiScaleLargest")}</option>
+                    </Select>
+                  </SettingRow>
+                  <SettingRow label={t("settings.openRepo")} hint={t("settings.openRepoHint")}>
+                    <Select
+                      value={draft.openInNewWindow ? "new" : "same"}
+                      onChange={(v) => set("openInNewWindow", v === "new")}
+                    >
+                      <option value="same">{t("settings.openRepoSame")}</option>
+                      <option value="new">{t("settings.openRepoNew")}</option>
+                    </Select>
+                  </SettingRow>
+                </>,
+              )}
+
+              {panel(
+                "tabs",
+                <>
+                  <div className="tool-order">
+                    {tabOrder.map((id, index) => (
+                      <div className="tool-order-row" key={id}>
+                        <Icon name={TOOL_TAB_ICONS[id]} size={14} />
+                        <span className="tool-order-name">{t(TOOL_TAB_LABELS[id])}</span>
+                        <IconButton
+                          icon="chevronUp"
+                          small
+                          title={t("settings.moveUp")}
+                          disabled={index === 0}
+                          onClick={() => onTabOrder(moveItem(tabOrder, index, index - 1))}
+                        />
+                        <IconButton
+                          icon="chevronDown"
+                          small
+                          title={t("settings.moveDown")}
+                          disabled={index === tabOrder.length - 1}
+                          onClick={() => onTabOrder(moveItem(tabOrder, index, index + 1))}
+                        />
+                      </div>
+                    ))}
+                  </div>
+                  <div className="setting-hint">{t("settings.tabOrderHint")}</div>
+                </>,
+              )}
+            </>
+          )}
 
           {tab === "git" && (
             <>

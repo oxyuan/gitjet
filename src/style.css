@@ -7782,24 +7782,43 @@ body.resizing-row .log-detail-split::after {
   filter: brightness(1.08);
 }
 
-/* ---------- Dock tabs ----------
-   The strip is a user-ordered list: a tab follows the pointer while it is
-   dragged, so the only feedback needed is the grabbing cursor and a strip
-   that does not select text on the way. */
-.toolwindow-tab {
-  cursor: default;
-  touch-action: none;
-  user-select: none;
+/* ---------- Dock tab order (Settings) ---------- */
+.tool-order {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  margin-bottom: 8px;
 }
 
-.toolwindow-tab:active {
-  cursor: grabbing;
+.tool-order-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  height: 32px;
+  padding: 0 4px 0 8px;
+  border: 1px solid transparent;
+  border-radius: 8px;
 }
 
-body.tab-dragging,
-body.tab-dragging * {
-  cursor: grabbing !important;
-  user-select: none !important;
+.tool-order-row:hover {
+  border-color: var(--border);
+  background: var(--hover);
+}
+
+.tool-order-row > .icon {
+  width: 14px;
+  height: 14px;
+  color: var(--muted);
+}
+
+.tool-order-name {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  font-size: 12px;
+  color: var(--fg-soft);
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 /* The Git blame caption of the source gutter's menu: read-only context, not
