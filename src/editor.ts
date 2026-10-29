@@ -1,6 +1,7 @@
 import {
   Compartment,
   EditorState,
+  Prec,
   RangeSet,
   RangeSetBuilder,
   StateEffect,
@@ -57,14 +58,26 @@ const theme = EditorView.theme({
   ".cm-lineNumbers .cm-gutterElement": { padding: "0 8px 0 10px", minWidth: "38px" },
   ".cm-activeLineGutter": { backgroundColor: "transparent", color: "var(--fg-soft)" },
   ".cm-activeLine": { backgroundColor: "color-mix(in srgb, var(--fg) 4%, transparent)" },
-  ".cm-selectionBackground, &.cm-focused .cm-selectionBackground, ::selection": {
-    backgroundColor: "color-mix(in srgb, var(--accent) 24%, transparent)",
-  },
   ".cm-cursor": { borderLeftColor: "var(--fg)" },
   ".cm-panels": { backgroundColor: "var(--panel)", color: "var(--fg)" },
   ".cm-searchMatch": { backgroundColor: "color-mix(in srgb, var(--warning) 30%, transparent)" },
   ".cm-searchMatch-selected": { backgroundColor: "color-mix(in srgb, var(--warning) 55%, transparent)" },
 });
+
+/** CodeMirror's base theme paints the selection itself: `&light
+ *  .cm-selectionBackground` (#d9d9d9), and while focused `&light.cm-focused >
+ *  .cm-scroller > .cm-selectionLayer .cm-selectionBackground` (#d7d4f0) —
+ *  five classes. A shorter selector loses on specificity, which is why a dark
+ *  pane showed a near-white block that swallowed the code. Same shape, same
+ *  class count, top precedence, so the token is the one that lands. */
+const selectionTheme = Prec.highest(
+  EditorView.theme({
+    ".cm-selectionBackground": { backgroundColor: "var(--selection-strong)" },
+    "&.cm-focused > .cm-scroller > .cm-selectionLayer .cm-selectionBackground": {
+      backgroundColor: "color-mix(in srgb, var(--accent) 34%, transparent)",
+    },
+  }),
+);
 
 /** Aliases for the language names the Go side reports. */
 const languageAliases: Record<string, string> = {
@@ -465,6 +478,7 @@ export class SourceEditor {
           }),
           syntaxHighlighting(editorHighlightStyle),
           theme,
+          selectionTheme,
           this.languageConf.of([]),
           this.wrapConf.of(opts.wrap ? EditorView.lineWrapping : []),
           // Both start empty and fill in when the data arrives, so the
