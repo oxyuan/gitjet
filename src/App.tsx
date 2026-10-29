@@ -1959,7 +1959,9 @@ function AppShell({ onLangChange }: { onLangChange: (lang: Lang) => void }) {
       settingsRef.current = saved;
       setSettings(saved);
       applyTheme(saved);
-      setDialog(null);
+      // Only the dialog this save came from: a slow write must not close one
+      // the user opened while it was in flight.
+      setDialog((d) => (d?.kind === "settings" ? null : d));
       notify("success", t("settingsSaved"));
       await reload(false);
     } catch (err) {

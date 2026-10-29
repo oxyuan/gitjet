@@ -290,7 +290,17 @@ export function Modal({
     };
   }, []);
   return createPortal(
-    <div className="modal-overlay" onMouseDown={(e) => e.target === e.currentTarget && onClose()}>
+    <div
+      className="modal-overlay"
+      // The control that opened the dialog sits under this backdrop, so the
+      // second press of a double click lands here and would close what the
+      // first one opened. detail > 1 is exactly that press: a click meant for
+      // the backdrop is always a fresh single one.
+      onMouseDown={(e) => {
+        if (e.detail > 1 || e.target !== e.currentTarget) return;
+        onClose();
+      }}
+    >
       <div className={`modal${className ? " " + className : ""}`} style={{ width }} role="dialog" aria-modal="true">
         <div className="modal-header">
           {icon && <Icon name={icon} />}
