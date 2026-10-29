@@ -7766,6 +7766,22 @@ body.resizing-row .log-detail-split::after {
   margin-right: 6px;
 }
 
+/* ---------- Danger buttons ----------
+   `.btn` is re-declared further down with a fresh background, so the danger
+   colours have to be stated after it: the shorthand above wins otherwise and
+   leaves a white label on a white button. */
+.btn-danger {
+  border-color: var(--danger);
+  background: var(--danger);
+  color: #fff;
+}
+
+.btn-danger:hover:not(:disabled) {
+  border-color: var(--danger);
+  background: var(--danger);
+  filter: brightness(1.08);
+}
+
 /* ---------- Dock tabs ----------
    The strip is a user-ordered list: a tab follows the pointer while it is
    dragged, so the only feedback needed is the grabbing cursor and a strip
