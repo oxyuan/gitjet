@@ -97,6 +97,9 @@ const T = {
     pushOther: "Push {n} commits",
     pullOne: "Pull {n} commit from the remote",
     pullOther: "Pull {n} commits from the remote",
+    fetchNewOne: "{n} new commit on the remote",
+    fetchNewOther: "{n} new commits on the remote",
+    pushUnpublished: "the branch has not been published",
     conflictOne: "{n} conflict",
     conflictOther: "{n} conflicts",
     changed: "{n} changed",
@@ -277,6 +280,9 @@ const T = {
     pushOther: "推送 {n} 个提交",
     pullOne: "从远程拉取 {n} 个提交",
     pullOther: "从远程拉取 {n} 个提交",
+    fetchNewOne: "远程有 {n} 个新提交",
+    fetchNewOther: "远程有 {n} 个新提交",
+    pushUnpublished: "分支尚未发布",
     conflictOne: "{n} 个冲突",
     conflictOther: "{n} 个冲突",
     changed: "{n} 项更改",
@@ -678,6 +684,16 @@ function AppShell({ onLangChange }: { onLangChange: (lang: Lang) => void }) {
   const repoOpen = !!snapshot;
   const branch = snapshot?.state.branch ?? "";
   const state = snapshot?.state;
+  // A branch that has never been pushed has no upstream; every commit on it
+  // is still local, so push has work to do exactly like an ahead branch.
+  const pushTodo =
+    !state || state.detached || state.unborn
+      ? ""
+      : state.ahead > 0
+        ? count(state.ahead, t("pushOne", { n: state.ahead }), t("pushOther", { n: state.ahead }))
+        : state.upstream === ""
+          ? t("pushUnpublished")
+          : "";
 
   settingsRef.current = settings;
   snapshotRef.current = snapshot;
@@ -2089,17 +2105,47 @@ function AppShell({ onLangChange }: { onLangChange: (lang: Lang) => void }) {
           >
             <IconButton
               icon="fetch"
-              title={t("fetchTooltip")}
+              title={
+                state && state.behind > 0
+                  ? `${t("fetchTooltip")} · ${count(
+                      state.behind,
+                      t("fetchNewOne", { n: state.behind }),
+                      t("fetchNewOther", { n: state.behind }),
+                    )}`
+                  : t("fetchTooltip")
+              }
               onClick={() => fetch()}
               spinner={!!op?.running && op.icon === "fetch"}
               disabled={!repoOpen}
             />
+            {state && state.behind > 0 && <span className="icon-dot todo" />}
           </span>
           <span className="icon-slot">
-            <IconButton icon="pull" title={t("updateProject")} onClick={() => setDialog({ kind: "pull" })} disabled={!repoOpen} />
-            {state && state.behind > 0 && <span className="icon-dot" />}
+            <IconButton
+              icon="pull"
+              title={
+                state && state.behind > 0
+                  ? `${t("updateProject")} · ${count(
+                      state.behind,
+                      t("pullOne", { n: state.behind }),
+                      t("pullOther", { n: state.behind }),
+                    )}`
+                  : t("updateProject")
+              }
+              onClick={() => setDialog({ kind: "pull" })}
+              disabled={!repoOpen}
+            />
+            {state && state.behind > 0 && <span className="icon-dot todo" />}
           </span>
-          <IconButton icon="push" title={t("pushTip")} onClick={() => setDialog({ kind: "push", setUpstream: !snapshot?.state.upstream })} disabled={!repoOpen} />
+          <span className="icon-slot">
+            <IconButton
+              icon="push"
+              title={pushTodo ? `${t("pushTip")} · ${pushTodo}` : t("pushTip")}
+              onClick={() => setDialog({ kind: "push", setUpstream: !snapshot?.state.upstream })}
+              disabled={!repoOpen}
+            />
+            {pushTodo !== "" && <span className="icon-dot todo" />}
+          </span>
           <span className="spacer" />
           <button className="quick-trigger" onClick={() => setQuickOpen(true)} title={t("quickOpenTip")} disabled={!repoOpen}>
             <Icon name="search" />

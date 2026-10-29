@@ -5525,6 +5525,12 @@ kbd {
   pointer-events: none;
 }
 
+/* A toolbar action with work waiting for it: outgoing commits for push,
+   incoming ones for fetch and pull. */
+.icon-dot.todo {
+  background: var(--st-added);
+}
+
 .status-sync-btn {
   padding: 0 3px;
   border: 0;
