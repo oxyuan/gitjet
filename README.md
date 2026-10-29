@@ -150,7 +150,7 @@ go test ./... && go vet ./... && bun run typecheck && bun run test:web && bun ru
 | `⌘/Ctrl+Shift+K` | Push |
 | `⌘/Ctrl+T` | Pull |
 | `⌘/Ctrl+Shift+S` | Stash |
-| `⌘/Ctrl+Shift+`` ` `` | 分支弹窗 |
+| ``⌘/Ctrl+Shift+` `` | 分支弹窗 |
 | `⌘/Ctrl+,` | 设置 |
 | `⌘/Ctrl+B` / `⌘/Ctrl+Shift+B` | 跳到定义 / 列出引用（源码视图） |
 | `⌘/Ctrl+点击` / `⌘/Ctrl+Alt+点击` | 跳到定义 / 列出引用 |
