@@ -627,9 +627,12 @@ export const Git = {
   applyHunk(opts: DiffOptions, hunkIndex: number, action: string): Promise<void> {
     return call("Git.ApplyHunk", opts, hunkIndex, action);
   },
-  /** Blame annotates a file. */
-  blame(path: string): Promise<BlameResult> {
-    return call("Git.Blame", path);
+  /**
+   * Blame annotates a file at a revision ("" for the working tree, "INDEX" for
+   * the staged copy).
+   */
+  blame(path: string, revision: string): Promise<BlameResult> {
+    return call("Git.Blame", path, revision);
   },
   /** Changes returns the local changes, stashes and changelists. */
   changes(includeIgnored: boolean): Promise<ChangesSnapshot> {

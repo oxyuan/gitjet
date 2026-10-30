@@ -1,11 +1,12 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { blameDepth } from "./annotate";
-import type { DiffOptions, FileDiff } from "./mygo";
+import { annotateDate, blameDepth } from "./annotate";
+import { blameMenuItems } from "./blameMenu";
+import { Git, type BlameLine, type DiffOptions, type FileDiff } from "./mygo";
 import { buildDiffRows, isCollapsed, type AlignedRow, type DiffRows, type WordSegment } from "./diff";
 import { Icon } from "./icons";
 import { useT } from "./i18n";
 import { paintLine, tokenize, type LineTokens } from "./syntax";
-import { cx, formatWhen, IconButton, Spinner } from "./ui";
+import { ContextMenu, cx, formatWhen, IconButton, Spinner, useStoredState } from "./ui";
 import { PathCopyButton } from "./PathCopy";
 
 type Mode = "split" | "unified";
@@ -33,8 +34,11 @@ const T = {
     unstageFile: "Unstage file",
     rollbackFile: "Roll back the file",
     rollback: "Rollback",
-    annotateBlame: "Annotate with Git blame",
-    annotate: "Annotate",
+    uncommitted: "Uncommitted changes",
+    lineHistory: "Show history of this line",
+    copyHash: "Copy commit hash",
+    annotateWithBlame: "Annotate with Git Blame",
+    closeAnnotations: "Close Annotations",
     binaryDiff: "Binary file — no textual diff to show",
     noDifferences: "No differences",
     before: "Before",
@@ -46,8 +50,6 @@ const T = {
     unstageHunk: "Unstage this hunk",
     rollbackHunk: "Roll back this hunk",
     unchangedLines: "{n} unchanged lines",
-    annotations: "Annotations · {path}",
-    close: "Close",
     local: "local",
   },
   zh: {
@@ -72,8 +74,11 @@ const T = {
     unstageFile: "Unstage 文件",
     rollbackFile: "还原文件",
     rollback: "还原",
-    annotateBlame: "使用 Git blame 标注",
-    annotate: "Blame",
+    uncommitted: "未提交的更改",
+    lineHistory: "查看该行的历史",
+    copyHash: "复制提交哈希",
+    annotateWithBlame: "使用 Git Blame 标注",
+    closeAnnotations: "关闭 Blame",
     binaryDiff: "二进制文件 — 无文本差异可显示",
     noDifferences: "无差异",
     before: "更改前",
@@ -85,8 +90,6 @@ const T = {
     unstageHunk: "Unstage 此代码块",
     rollbackHunk: "还原此代码块",
     unchangedLines: "{n} 行未更改",
-    annotations: "Blame · {path}",
-    close: "关闭",
     local: "本地",
   },
 } as const;
@@ -100,8 +103,8 @@ export function DiffView({
   onToggleWhitespace,
   onApply,
   onApplyFile,
-  onBlame,
   onOpenFile,
+  onShowFileHistory,
   root,
   onCopyPath,
   busy,
@@ -117,8 +120,9 @@ export function DiffView({
   onToggleWhitespace: () => void;
   onApply: (hunk: number, action: "stage" | "unstage" | "rollback") => void;
   onApplyFile: (action: "stage" | "unstage" | "rollback") => void;
-  onBlame?: () => void;
   onOpenFile: () => void;
+  /** Line history of one side of the diff, at that side's revision. */
+  onShowFileHistory?: (path: string, line: number, revision: string) => void;
   root: string;
   onCopyPath: (text: string) => void;
   busy?: boolean;
@@ -135,6 +139,44 @@ export function DiffView({
   const [expanded, setExpanded] = useState<Set<number>>(new Set());
   const [current, setCurrent] = useState(-1);
   const bodyRef = useRef<HTMLDivElement>(null);
+  // One annotation preference for every viewer: the source pane and the diff
+  // gutter answer the same way.
+  const [annotate, setAnnotate] = useStoredState<boolean>("gitjet.annotate", false);
+  const [menu, setMenu] = useState<{ x: number; y: number; side: Side; line: number } | null>(null);
+  const revisions = useMemo(() => blameRevisions(opts), [opts.target, opts.revision, opts.from]);
+  const beforePath = opts.oldPath || opts.path;
+  const before = useBlame(beforePath, revisions.before, !diff.binary && (annotate || menu?.side === "before"));
+  const after = useBlame(diff.path, revisions.after, !diff.binary && (annotate || menu?.side === "after"));
+  const beforeIndex = useMemo(() => indexBlame(before), [before]);
+  const afterIndex = useMemo(() => indexBlame(after), [after]);
+
+  const openGutter = (side: Side, line: number, x: number, y: number) => setMenu({ x, y, side, line });
+  const menuLine = menu?.side === "before" ? beforeIndex.get(menu.line) : menu ? afterIndex.get(menu.line) : undefined;
+  const menuItems = menu
+    ? blameMenuItems({
+        blame: menuLine,
+        line: menu.line,
+        labels: {
+          uncommitted: t("uncommitted"),
+          lineHistory: t("lineHistory"),
+          copyHash: t("copyHash"),
+          annotate: t("annotateWithBlame"),
+          closeAnnotations: t("closeAnnotations"),
+        },
+        annotate,
+        onToggleAnnotate: () => setAnnotate(!annotate),
+        onLineHistory:
+          onShowFileHistory && (menu.side === "before" ? revisions.before : revisions.after) !== "INDEX"
+            ? (line) =>
+                onShowFileHistory(
+                  menu.side === "before" ? beforePath : diff.path,
+                  line,
+                  menu.side === "before" ? revisions.before : revisions.after,
+                )
+            : undefined,
+        onCopy: onCopyPath,
+      })
+    : [];
 
   useEffect(() => {
     setExpanded(new Set());
@@ -246,12 +288,6 @@ export function DiffView({
               )}
             </>
           )}
-          {onBlame && (
-            <button className="toolbar-text-btn" onClick={onBlame} title={t("annotateBlame")}>
-              <Icon name="user" />
-              {t("annotate")}
-            </button>
-          )}
         </div>
       </div>
       {diff.binary ? (
@@ -282,6 +318,11 @@ export function DiffView({
               hunkAction={hunkAction}
               onApply={onApply}
               currentRow={current >= 0 ? (changeRows[current] ?? -1) : -1}
+              annotate={annotate}
+              left={beforeIndex}
+              right={afterIndex}
+              onGutter={openGutter}
+              local={t("local")}
             />
           ) : (
             <UnifiedRows
@@ -295,11 +336,17 @@ export function DiffView({
               hunkAction={hunkAction}
               onApply={onApply}
               currentRow={current >= 0 ? (changeRows[current] ?? -1) : -1}
+              annotate={annotate}
+              left={beforeIndex}
+              right={afterIndex}
+              onGutter={openGutter}
+              local={t("local")}
             />
           )}
           {diff.truncated && <div className="diff-truncated">{t("truncated")}</div>}
         </div>
       )}
+      {menu && <ContextMenu x={menu.x} y={menu.y} items={menuItems} onClose={() => setMenu(null)} />}
     </div>
   );
 }
@@ -327,6 +374,50 @@ function useDiffTokens(diff: FileDiff): { left: LineTokens | null; right: LineTo
     };
   }, [left, right, language, diff.binary]);
   return tokens;
+}
+
+/** Which revision each column of the diff belongs to, for blame. The left
+ *  side of a commit is its parent; the right side of the working tree is the
+ *  file on disk. */
+function blameRevisions(opts: DiffOptions): { before: string; after: string } {
+  switch (opts.target) {
+    case "commit":
+      return { before: opts.revision ? `${opts.revision}^` : "", after: opts.revision };
+    case "range":
+      return { before: opts.from, after: opts.revision };
+    case "staged":
+      return { before: "HEAD", after: "INDEX" };
+    default:
+      return { before: opts.revision || "HEAD", after: "" };
+  }
+}
+
+function indexBlame(lines: BlameLine[] | null): Map<number, BlameLine> {
+  const index = new Map<number, BlameLine>();
+  for (const line of lines ?? []) index.set(line.line, line);
+  return index;
+}
+
+/** Blame loads when a gutter asks for it or the column is on, and stays for
+ *  the life of this diff so a second click is instant. */
+function useBlame(path: string, revision: string, enabled: boolean): BlameLine[] | null {
+  const [lines, setLines] = useState<BlameLine[] | null>(null);
+  useEffect(() => {
+    if (!enabled) return;
+    let alive = true;
+    setLines(null);
+    Git.blame(path, revision)
+      .then((result) => {
+        if (alive) setLines(result.lines);
+      })
+      .catch(() => {
+        if (alive) setLines(null);
+      });
+    return () => {
+      alive = false;
+    };
+  }, [path, revision, enabled]);
+  return lines;
 }
 
 function statusLetter(status: string): string {
@@ -422,6 +513,59 @@ function LineText({
   );
 }
 
+/** The two versions a diff compares; the gutter menu names them the same
+ *  way the columns do. */
+type Side = "before" | "after";
+
+interface GutterProps {
+  /** Draw the blame column beside each side's line numbers. */
+  annotate: boolean;
+  left: Map<number, BlameLine>;
+  right: Map<number, BlameLine>;
+  onGutter: (side: Side, line: number, x: number, y: number) => void;
+  local: string;
+}
+
+/** The blame of one line, drawn where the source editor draws it: beside the
+ *  line number, tinted by the commit's age. */
+function AnnotateCell({
+  entry,
+  side,
+  line,
+  onGutter,
+  local,
+}: {
+  entry?: BlameLine;
+  side: Side;
+  line?: number;
+  onGutter: GutterProps["onGutter"];
+  local: string;
+}) {
+  const depth = entry ? (entry.uncommitted ? -1 : blameDepth(entry.time)) : -1;
+  return (
+    <div
+      className={cx("diff-annotate", entry && depth >= 0 && `depth-${depth}`, entry?.uncommitted && "uncommitted")}
+      title={entry ? `${entry.short} ${entry.summary}\n${formatWhen(entry.time)}` : undefined}
+      onClick={line === undefined ? undefined : (e) => onGutter(side, line, e.clientX, e.clientY)}
+      onContextMenu={
+        line === undefined
+          ? undefined
+          : (e) => {
+              e.preventDefault();
+              onGutter(side, line, e.clientX, e.clientY);
+            }
+      }
+    >
+      {entry && (
+        <>
+          <span className="diff-annotate-date">{entry.uncommitted ? "" : annotateDate(entry.time)}</span>
+          <span className="diff-annotate-author">{entry.uncommitted ? local : entry.author}</span>
+        </>
+      )}
+    </div>
+  );
+}
+
 function SplitRows({
   rows,
   diff,
@@ -433,6 +577,11 @@ function SplitRows({
   hunkAction,
   onApply,
   currentRow,
+  annotate,
+  left,
+  right,
+  onGutter,
+  local,
 }: {
   rows: DiffRows;
   diff: FileDiff;
@@ -444,7 +593,7 @@ function SplitRows({
   hunkAction: "stage" | "unstage";
   onApply: (hunk: number, action: "stage" | "unstage" | "rollback") => void;
   currentRow: number;
-}) {
+} & GutterProps) {
   const t = useT(T);
   const out: React.ReactNode[] = [];
   rows.forEach((row, i) => {
@@ -470,16 +619,40 @@ function SplitRows({
     }
     const aligned = row as AlignedRow;
     const isFirst = firstRowOfHunk.get(aligned.hunk) === i;
+    const oldLine = aligned.left;
+    const newLine = aligned.right;
     out.push(
       <div
         className={cx("diff-row", aligned.kind, currentRow === i && "current")}
         key={i}
         data-row={i}
       >
-        <div className={cx("line-no", aligned.left?.kind === "del" && "del")}>{aligned.left?.no ?? ""}</div>
-        <div className={cx("line-text", aligned.left?.kind)}>
-          {aligned.left ? (
-            <LineText text={aligned.left.text} no={aligned.left.no} segs={aligned.left.segments} tokens={tokens.left} />
+        {annotate && (
+          <AnnotateCell
+            entry={oldLine ? left.get(oldLine.no) : undefined}
+            side="before"
+            line={oldLine?.no}
+            onGutter={onGutter}
+            local={local}
+          />
+        )}
+        <div
+          className={cx("line-no", oldLine?.kind === "del" && "del")}
+          onClick={oldLine ? (e) => onGutter("before", oldLine.no, e.clientX, e.clientY) : undefined}
+          onContextMenu={
+            oldLine
+              ? (e) => {
+                  e.preventDefault();
+                  onGutter("before", oldLine.no, e.clientX, e.clientY);
+                }
+              : undefined
+          }
+        >
+          {oldLine?.no ?? ""}
+        </div>
+        <div className={cx("line-text", oldLine?.kind)}>
+          {oldLine ? (
+            <LineText text={oldLine.text} no={oldLine.no} segs={oldLine.segments} tokens={tokens.left} />
           ) : (
             "\u00a0"
           )}
@@ -489,10 +662,32 @@ function SplitRows({
         ) : (
           <div className="diff-action" />
         )}
-        <div className={cx("line-no", aligned.right?.kind === "add" && "add")}>{aligned.right?.no ?? ""}</div>
-        <div className={cx("line-text", aligned.right?.kind)}>
-          {aligned.right ? (
-            <LineText text={aligned.right.text} no={aligned.right.no} segs={aligned.right.segments} tokens={tokens.right} />
+        {annotate && (
+          <AnnotateCell
+            entry={newLine ? right.get(newLine.no) : undefined}
+            side="after"
+            line={newLine?.no}
+            onGutter={onGutter}
+            local={local}
+          />
+        )}
+        <div
+          className={cx("line-no", newLine?.kind === "add" && "add")}
+          onClick={newLine ? (e) => onGutter("after", newLine.no, e.clientX, e.clientY) : undefined}
+          onContextMenu={
+            newLine
+              ? (e) => {
+                  e.preventDefault();
+                  onGutter("after", newLine.no, e.clientX, e.clientY);
+                }
+              : undefined
+          }
+        >
+          {newLine?.no ?? ""}
+        </div>
+        <div className={cx("line-text", newLine?.kind)}>
+          {newLine ? (
+            <LineText text={newLine.text} no={newLine.no} segs={newLine.segments} tokens={tokens.right} />
           ) : (
             "\u00a0"
           )}
@@ -501,7 +696,7 @@ function SplitRows({
     );
   });
   void diff;
-  return <div className="diff-rows split">{out}</div>;
+  return <div className={cx("diff-rows split", annotate && "annotate")}>{out}</div>;
 }
 
 function UnifiedRows({
@@ -515,6 +710,11 @@ function UnifiedRows({
   hunkAction,
   onApply,
   currentRow,
+  annotate,
+  left,
+  right,
+  onGutter,
+  local,
 }: {
   rows: DiffRows;
   diff: FileDiff;
@@ -526,7 +726,7 @@ function UnifiedRows({
   hunkAction: "stage" | "unstage";
   onApply: (hunk: number, action: "stage" | "unstage" | "rollback") => void;
   currentRow: number;
-}) {
+} & GutterProps) {
   const t = useT(T);
   const out: React.ReactNode[] = [];
   rows.forEach((row, i) => {
@@ -551,8 +751,11 @@ function UnifiedRows({
     }
     const aligned = row as AlignedRow;
     const isFirst = firstRowOfHunk.get(aligned.hunk) === i;
-    const emit = (side: "left" | "right") => {
-      const line = side === "left" ? aligned.left : aligned.right;
+    // An unchanged line exists on both sides; a unified view shows it once,
+    // with the after side's blame, and only changed rows are drawn twice.
+    const firstSide: Side = aligned.kind !== "context" && aligned.left ? "before" : "after";
+    const emit = (side: Side) => {
+      const line = side === "before" ? aligned.left : aligned.right;
       if (!line) return;
       out.push(
         <div
@@ -560,12 +763,35 @@ function UnifiedRows({
           key={`${i}-${side}`}
           data-row={`${i}-${side}`}
         >
-          <div className={cx("line-no", line.kind === "del" && "del")}>{line.no || ""}</div>
+          {annotate && (
+            <AnnotateCell
+              entry={(side === "before" ? left : right).get(line.no)}
+              side={side}
+              line={line.no}
+              onGutter={onGutter}
+              local={local}
+            />
+          )}
+          <div
+            className={cx("line-no", line.kind === "del" && "del", line.kind === "add" && "add")}
+            onClick={(e) => onGutter(side, line.no, e.clientX, e.clientY)}
+            onContextMenu={(e) => {
+              e.preventDefault();
+              onGutter(side, line.no, e.clientX, e.clientY);
+            }}
+          >
+            {line.no || ""}
+          </div>
           <div className="line-prefix">{line.kind === "del" ? "−" : line.kind === "add" ? "+" : " "}</div>
           <div className={cx("line-text", line.kind)}>
-            <LineText text={line.text} no={line.no} segs={line.segments} tokens={side === "left" ? tokens.left : tokens.right} />
+            <LineText
+              text={line.text}
+              no={line.no}
+              segs={line.segments}
+              tokens={side === "before" ? tokens.left : tokens.right}
+            />
           </div>
-          {isFirst && side === (aligned.left ? "left" : "right") ? (
+          {isFirst && side === firstSide ? (
             <ApplyChevrons hunk={aligned.hunk} action={hunkAction} canApply={canApply} onApply={onApply} />
           ) : (
             <div className="diff-action" />
@@ -573,57 +799,13 @@ function UnifiedRows({
         </div>,
       );
     };
-    if (aligned.left) emit("left");
-    if (aligned.right) emit("right");
+    if (aligned.kind === "context") {
+      emit("after");
+      return;
+    }
+    if (aligned.left) emit("before");
+    if (aligned.right) emit("after");
   });
   void diff;
-  return <div className="diff-rows unified">{out}</div>;
-}
-
-export function BlameView({
-  path,
-  lines,
-  onClose,
-  onCopy,
-}: {
-  path: string;
-  lines: { line: number; short: string; author: string; time: number; summary: string; text: string; uncommitted: boolean }[];
-  onClose: () => void;
-  onCopy: (text: string) => void;
-}) {
-  const t = useT(T);
-  return (
-    <div className="blame-view">
-      <div className="diff-header">
-        <div className="diff-title-row">
-          <Icon name="user" />
-          <span className="diff-path">{t("annotations", { path })}</span>
-          <span className="spacer" />
-          <button className="toolbar-text-btn" onClick={onClose}>
-            <Icon name="close" /> {t("close")}
-          </button>
-        </div>
-      </div>
-      <div className="blame-body">
-        {lines.map((l) => {
-          const depth = l.uncommitted ? -1 : blameDepth(l.time);
-          return (
-            <div className="blame-row" key={l.line}>
-              <button
-                className={cx("blame-gutter", depth >= 0 && `blame-depth-${depth}`, l.uncommitted && "uncommitted")}
-                title={`${l.short} ${l.summary}\n${formatWhen(l.time)}`}
-                onClick={() => onCopy(l.short)}
-              >
-                <span className="blame-hash">{l.uncommitted ? t("local") : l.short}</span>
-                <span className="blame-author">{l.author}</span>
-                <span className="blame-time">{formatWhen(l.time)}</span>
-              </button>
-              <span className="blame-no">{l.line}</span>
-              <span className="blame-text">{l.text || "\u00a0"}</span>
-            </div>
-          );
-        })}
-      </div>
-    </div>
-  );
+  return <div className={cx("diff-rows unified", annotate && "annotate")}>{out}</div>;
 }

@@ -28,7 +28,7 @@ import { ConflictView } from "./ConflictView";
 import { ConsolePanel } from "./ConsolePanel";
 import { SourceTree } from "./SourceTree";
 import { normalizeTabOrder, type ToolTab, TOOL_TABS, TOOL_TAB_ICONS } from "./tabs";
-import { DiffView, BlameView } from "./DiffView";
+import { DiffView } from "./DiffView";
 import {
   ChangelistDialog,
   MergeDialog,
@@ -126,7 +126,6 @@ const T = {
     rollbackHunkTitle: "Roll back this change",
     rollbackHunkMessage: "Discard this block of changes in {path}?",
     openConflictFailed: "Could not open the conflict",
-    annotateFailed: "Could not annotate the file",
     copyFailed: "Could not copy",
     copied: "Copied to the clipboard",
     gitFailed: "Git command failed",
@@ -136,7 +135,6 @@ const T = {
     lastCommitMessage: "Could not read the last commit message",
     done: "Done",
     conflictDoc: "Conflict: {path}",
-    annotationsDoc: "Annotations: {path}",
     closeRepoTitle: "Close Repository",
     closeRepoMessage: "Close this repository and return to the welcome screen?",
     close: "Close",
@@ -233,10 +231,8 @@ const T = {
     kindDiff: "Diff",
     kindSource: "Source",
     kindMerge: "Merge",
-    kindBlame: "Blame",
     kindCommit: "Commit",
     mergeTab: "Merge: {name}",
-    blameTab: "Blame: {name}",
     copyHash: "Copy hash",
     filesChanged: "{n} files changed",
     openSourceAtCommit: "Open the source file at this commit",
@@ -309,7 +305,6 @@ const T = {
     rollbackHunkTitle: "回滚这段修改",
     rollbackHunkMessage: "要丢弃 {path} 里的这段修改吗?",
     openConflictFailed: "无法打开冲突文件",
-    annotateFailed: "无法查看 Blame",
     copyFailed: "无法复制",
     copied: "已复制到剪贴板",
     gitFailed: "Git 命令失败",
@@ -319,7 +314,6 @@ const T = {
     lastCommitMessage: "无法读取上一条提交信息",
     done: "完成",
     conflictDoc: "冲突：{path}",
-    annotationsDoc: "Blame：{path}",
     closeRepoTitle: "关闭仓库",
     closeRepoMessage: "关闭此仓库并返回欢迎界面？",
     close: "关闭",
@@ -415,10 +409,8 @@ const T = {
     kindDiff: "差异",
     kindSource: "源码",
     kindMerge: "Merge",
-    kindBlame: "Blame",
     kindCommit: "提交",
     mergeTab: "Merge：{name}",
-    blameTab: "Blame：{name}",
     copyHash: "复制哈希",
     filesChanged: "{n} 个文件已更改",
     openSourceAtCommit: "打开该提交下的源文件",
@@ -483,7 +475,6 @@ type Doc = { id: string; title: string } & (
   | { kind: "diff"; diff: FileDiff; opts: DiffOptions }
   | { kind: "file"; file: SourceFile; revision: string; line?: number }
   | { kind: "conflict"; path: string; content: ConflictContent }
-  | { kind: "blame"; path: string; data: BlameResult }
   | { kind: "commit"; detail: CommitDetail }
 );
 
@@ -1144,15 +1135,6 @@ function AppShell({ onLangChange }: { onLangChange: (lang: Lang) => void }) {
   const openNextConflict = () => {
     const remaining = snapshotRef.current?.conflicts ?? [];
     if (remaining[0]) void openConflict(remaining[0].path);
-  };
-
-  const openBlame = async (path: string) => {
-    try {
-      const data = await Git.blame(path);
-      openDoc({ id: `blame:${path}`, title: t("annotationsDoc", { path }), kind: "blame", path, data });
-    } catch (err) {
-      fail(t("annotateFailed"), err);
-    }
   };
 
   const toggleWhitespace = () => {
@@ -1879,9 +1861,12 @@ function AppShell({ onLangChange }: { onLangChange: (lang: Lang) => void }) {
       .catch((err) => fail(t("readCommit"), err));
   };
 
-  const showFileHistory = (path: string, line = 0) => {
+  const showFileHistory = (path: string, line = 0, revision = "") => {
     setLogPath(path);
     setLogLine(line);
+    // A line's history is asked of the revision that line belongs to; the
+    // index has no committed line numbers, so it keeps the branch in view.
+    if (revision && revision !== "INDEX") setLogRef(revision);
     setTab("branch");
     // A folded dock would hide the answer the click asked for.
     setLogDockFolded(false);
@@ -2178,7 +2163,6 @@ function AppShell({ onLangChange }: { onLangChange: (lang: Lang) => void }) {
               const active = docsRef.current.find((d) => d.id === activeIdRef.current);
               if (active?.kind === "diff") void applyFile(active.opts, action);
             }}
-            onBlame={(path) => void openBlame(path)}
             onOpenFile={(path, revision) => void showFile(path, revision)}
             onOpenDiff={(path, revision) => void showFileDiff(path, revision)}
             onCopyPath={copyText}
@@ -2618,8 +2602,6 @@ function kindLabel(doc: Doc, t: Translate): string {
       return t("kindSource");
     case "conflict":
       return t("kindMerge");
-    case "blame":
-      return t("kindBlame");
     case "commit":
       return t("kindCommit");
   }
@@ -2633,8 +2615,6 @@ function docIcon(doc: Doc): "diff" | "file" | "merge" | "user" | "commit" {
       return "file";
     case "conflict":
       return "merge";
-    case "blame":
-      return "user";
     case "commit":
       return "commit";
   }
@@ -2653,8 +2633,6 @@ function tabTitle(doc: Doc, t: Translate): string {
       return baseName(doc.file.path);
     case "conflict":
       return t("mergeTab", { name: baseName(doc.path) });
-    case "blame":
-      return t("blameTab", { name: baseName(doc.path) });
     case "commit":
       return doc.detail.short;
   }
@@ -2675,7 +2653,6 @@ function RightPane({
   onToggleWhitespace,
   onApplyHunk,
   onApplyFile,
-  onBlame,
   onOpenFile,
   onOpenDiff,
   onCopyPath,
@@ -2709,7 +2686,6 @@ function RightPane({
   onToggleWhitespace: () => void;
   onApplyHunk: (hunk: number, action: "stage" | "unstage" | "rollback") => void;
   onApplyFile: (action: "stage" | "unstage" | "rollback") => void;
-  onBlame: (path: string) => void;
   onOpenFile: (path: string, revision: string) => void;
   onOpenDiff: (path: string, revision: string) => void;
   onCopyPath: (text: string) => void;
@@ -2718,7 +2694,7 @@ function RightPane({
   onSymbol: (word: string, language: string) => void;
   busy: boolean;
   reloadKey: number;
-  onShowFileHistory: (path: string, line?: number) => void;
+  onShowFileHistory: (path: string, line?: number, revision?: string) => void;
   onSaveConflict: (path: string, content: string) => Promise<void>;
   onTakeSide: (path: string, side: "ours" | "theirs") => Promise<void>;
   onMarkResolved: (path: string) => Promise<void>;
@@ -2839,14 +2815,6 @@ function RightPane({
             onClose={() => onCloseDoc(active.id)}
           />
         )}
-        {active.kind === "blame" && (
-          <BlameView
-            path={active.path}
-            lines={active.data.lines}
-            onClose={() => onCloseDoc(active.id)}
-            onCopy={onCopyPath}
-          />
-        )}
         {active.kind === "file" && (
           <SourceView
             key={active.id}
@@ -2854,7 +2822,6 @@ function RightPane({
             line={active.line}
             root={root}
             onShowDiff={() => onOpenDiff(active.file.path, active.revision)}
-            onBlame={() => onBlame(active.file.path)}
             onOpenWorkingTree={() => onOpenFile(active.file.path, "")}
             onOpenRevision={
               active.revision === ""
@@ -2867,7 +2834,7 @@ function RightPane({
             onSymbol={(word) => onSymbol(word, active.file.language)}
             onJump={(word) => onSymbol(word, active.file.language)}
             onReferences={(word) => onSymbol(word, active.file.language)}
-            onLineHistory={(line) => onShowFileHistory(active.file.path, line)}
+            onLineHistory={(line) => onShowFileHistory(active.file.path, line, active.revision)}
             onCommitDiff={(hash) => onOpenDiff(active.file.path, hash)}
           />
         )}
@@ -2963,13 +2930,17 @@ function RightPane({
             onToggleWhitespace={onToggleWhitespace}
             onApply={onApplyHunk}
             onApplyFile={onApplyFile}
-            onBlame={active.opts.target === "worktree" ? () => onBlame(active.opts.path) : undefined}
             onOpenFile={() =>
               onOpenFile(
                 active.opts.path,
-                active.opts.target === "commit" ? active.opts.revision : active.opts.target === "staged" ? "INDEX" : "",
+                active.opts.target === "commit" || active.opts.target === "range"
+                  ? active.opts.revision
+                  : active.opts.target === "staged"
+                    ? "INDEX"
+                    : "",
               )
             }
+            onShowFileHistory={onShowFileHistory}
             root={root}
             onCopyPath={(text) => onCopyPath(text)}
             busy={busy}

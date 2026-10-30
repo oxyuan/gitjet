@@ -396,6 +396,7 @@ export class SourceEditor {
           this.annotateConf.of(opts.annotate ? this.annotateExtension : []),
           lineNumbers({
             domEventHandlers: {
+              click: (view, block, event) => openGutterMenu(view, block, event as MouseEvent, opts, false),
               contextmenu: (view, block, event) =>
                 openGutterMenu(view, block, event as MouseEvent, opts, true),
             },

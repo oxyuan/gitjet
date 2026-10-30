@@ -3,7 +3,8 @@ import { Git, type BlameLine, type DiffOptions, type SourceFile } from "./mygo";
 import { SourceEditor as Editor } from "./editor";
 import { annotateDate, changeRanges, type ChangeRange } from "./annotate";
 import { connectLSP, lspServes, registerView, unregisterView, toUri } from "./lsp";
-import { ContextMenu, formatWhen, useStoredState, type ContextItem } from "./ui";
+import { blameMenuItems } from "./blameMenu";
+import { ContextMenu, useStoredState, type ContextItem } from "./ui";
 import { useT } from "./i18n";
 
 const T = {
@@ -71,8 +72,8 @@ export function SourceEditor({
   const [blame, setBlame] = useState<BlameLine[] | null>(null);
   const [menu, setMenu] = useState<{ x: number; y: number; line: number } | null>(null);
   const [annotate, setAnnotate] = useStoredState<boolean>("gitjet.annotate", false);
-  // The gutter's Git actions describe the working-tree file; line numbers of
-  // an old revision are not the working tree's, so they stay off there.
+  // Change bars belong to the working tree; blame belongs to whichever
+  // version of the file this pane shows.
   const workingTree = file.revision === "";
 
   // One editor per mounted document; the document itself is swapped in place
@@ -90,8 +91,8 @@ export function SourceEditor({
       onJump: (word) => actions.current.onJump?.(word),
       onReferences: (word) => actions.current.onReferences?.(word),
       onCaret: (n) => actions.current.onCaret?.(n),
-      onGutterContext: workingTree ? (n, x, y) => setMenu({ x, y, line: n }) : undefined,
-      annotate: workingTree && annotate,
+      onGutterContext: (n, x, y) => setMenu({ x, y, line: n }),
+      annotate,
       annotateFormat: (blame) =>
         blame.uncommitted
           ? { date: "", author: t("annotateLocal") }
@@ -125,30 +126,35 @@ export function SourceEditor({
     return () => cancelAnimationFrame(frame);
   }, [line, file.text]);
 
-  // Change bars and blame only make sense against the working tree.
+  // Change bars describe uncommitted work; blame answers for the revision
+  // this pane shows, so both the working tree and an old commit have one.
   useEffect(() => {
     let cancelled = false;
-    if (!workingTree || file.binary || !file.exists) {
+    if (file.binary || !file.exists) {
       setChanges([]);
       setBlame(null);
       return;
     }
-    const opts: DiffOptions = {
-      path: file.path,
-      target: "worktree",
-      revision: "",
-      from: "",
-      context: 3,
-      ignoreWhitespace: false,
-      ignoreWhitespaceEol: false,
-      noText: true,
-    };
-    Git.diff(opts)
-      .then((diff) => {
-        if (!cancelled) setChanges(changeRanges(diff));
-      })
-      .catch(() => {});
-    Git.blame(file.path)
+    if (workingTree) {
+      const opts: DiffOptions = {
+        path: file.path,
+        target: "worktree",
+        revision: "",
+        from: "",
+        context: 3,
+        ignoreWhitespace: false,
+        ignoreWhitespaceEol: false,
+        noText: true,
+      };
+      Git.diff(opts)
+        .then((diff) => {
+          if (!cancelled) setChanges(changeRanges(diff));
+        })
+        .catch(() => {});
+    } else {
+      setChanges([]);
+    }
+    Git.blame(file.path, file.revision)
       .then((result) => {
         if (!cancelled) setBlame(result.lines);
       })
@@ -156,7 +162,7 @@ export function SourceEditor({
     return () => {
       cancelled = true;
     };
-  }, [workingTree, file.binary, file.exists, file.path, file.text]);
+  }, [workingTree, file.binary, file.exists, file.path, file.revision, file.text]);
 
   useEffect(() => {
     editor.current?.setChanges(changes);
@@ -167,8 +173,8 @@ export function SourceEditor({
   }, [blame]);
 
   useEffect(() => {
-    editor.current?.setAnnotate(workingTree && annotate);
-  }, [annotate, workingTree]);
+    editor.current?.setAnnotate(annotate);
+  }, [annotate]);
 
   // A language server, when the repository has one installed.
   useEffect(() => {
@@ -190,48 +196,25 @@ export function SourceEditor({
 
   // The menu is about one line: its blame is the "Git information", and the
   // commit or its history is where the diff lives.
-  const menuItems: ContextItem[] = [];
-  if (menu) {
-    const blamed = blame?.find((l) => l.line === menu.line);
-    const hash = blamed && !blamed.uncommitted ? blamed.commit : "";
-    if (blamed) {
-      menuItems.push(
-        blamed.uncommitted
-          ? { header: true, label: t("uncommitted") }
-          : { header: true, label: `${blamed.short} · ${blamed.author} · ${formatWhen(blamed.time)}` },
-      );
-      if (blamed.summary) menuItems.push({ header: true, label: blamed.summary });
-      menuItems.push({ separator: true });
-    }
-    if (hash) {
-      menuItems.push({
-        label: t("commitFileDiff"),
-        icon: "diff",
-        disabled: !onCommitDiff,
-        onClick: () => onCommitDiff?.(hash),
-      });
-    }
-    menuItems.push({
-      label: t("lineHistory"),
-      icon: "log",
-      disabled: !onLineHistory,
-      onClick: () => onLineHistory?.(menu.line),
-    });
-    if (hash) {
-      menuItems.push({
-        label: t("copyHash"),
-        icon: "copy",
-        disabled: !onCopy,
-        onClick: () => onCopy?.(hash),
-      });
-    }
-    menuItems.push({ separator: true });
-    menuItems.push({
-      label: annotate ? t("closeAnnotations") : t("annotateWithBlame"),
-      icon: "user",
-      onClick: () => setAnnotate(!annotate),
-    });
-  }
+  const menuItems: ContextItem[] = menu
+    ? blameMenuItems({
+        blame: blame?.find((l) => l.line === menu.line),
+        line: menu.line,
+        labels: {
+          uncommitted: t("uncommitted"),
+          lineHistory: t("lineHistory"),
+          commitFileDiff: t("commitFileDiff"),
+          copyHash: t("copyHash"),
+          annotate: t("annotateWithBlame"),
+          closeAnnotations: t("closeAnnotations"),
+        },
+        annotate,
+        onToggleAnnotate: () => setAnnotate(!annotate),
+        onLineHistory,
+        onCommitDiff,
+        onCopy,
+      })
+    : [];
 
   return (
     <div className="source-editor" ref={host} onContextMenu={(event) => event.stopPropagation()}>

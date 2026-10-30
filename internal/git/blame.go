@@ -2,6 +2,7 @@ package git
 
 import (
 	"context"
+	"errors"
 	"strings"
 )
 
@@ -29,15 +30,38 @@ type BlameResult struct {
 }
 
 // Blame annotates every line of a file with the commit that last changed
-// it, including uncommitted changes.
-func (r *Repo) Blame(ctx context.Context, path string) (BlameResult, error) {
+// it, including uncommitted changes. Revision "" blames the working tree,
+// "INDEX" the staged copy, and anything else the file as that revision left
+// it, so every source view — not only the working tree — can answer who
+// wrote a line.
+func (r *Repo) Blame(ctx context.Context, path, revision string) (BlameResult, error) {
 	clean, err := cleanPath(path)
 	if err != nil {
 		return BlameResult{}, err
 	}
+	rev := strings.TrimSpace(revision)
+	if rev != "" && rev != "WORKTREE" && rev != "INDEX" {
+		if strings.ContainsAny(rev, " \t\n") || strings.HasPrefix(rev, "-") {
+			return BlameResult{}, errors.New("invalid revision")
+		}
+	}
 	// --line-porcelain is already colourless; git 2.54 refuses --no-color
 	// here because it means either --no-color-lines or --no-color-by-age.
-	out, err := r.run(ctx, "blame", "--line-porcelain", "--", clean)
+	var out string
+	switch rev {
+	case "", "WORKTREE":
+		out, err = r.run(ctx, "blame", "--line-porcelain", "--", clean)
+	case "INDEX":
+		// Blame has no --cached: feed the index blob as the contents to
+		// annotate, so staged lines still come back uncommitted.
+		staged, serr := r.run(ctx, "show", ":"+clean)
+		if serr != nil {
+			return BlameResult{}, serr
+		}
+		out, err = r.runInput(ctx, staged, "blame", "--line-porcelain", "--contents", "-", "--", clean)
+	default:
+		out, err = r.run(ctx, "blame", "--line-porcelain", rev, "--", clean)
+	}
 	if err != nil {
 		return BlameResult{}, err
 	}

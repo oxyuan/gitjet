@@ -1807,8 +1807,7 @@ body.col-resizing {
 
 .diff-view,
 .commit-view,
-.conflict-view,
-.blame-view {
+.conflict-view {
   display: flex;
   flex-direction: column;
   height: 100%;
@@ -2072,85 +2071,6 @@ body.col-resizing {
   color: var(--muted);
   font-size: 11px;
   border-top: 1px solid var(--border);
-}
-
-/* ---------- Blame ---------- */
-
-.blame-body {
-  flex: 1;
-  overflow: auto;
-  font-family: var(--font-mono);
-  font-size: 11.5px;
-  line-height: 19px;
-  user-select: text;
-}
-
-.blame-row {
-  display: flex;
-  align-items: stretch;
-  min-height: 19px;
-  white-space: pre;
-}
-
-.blame-gutter {
-  flex: none;
-  width: 320px;
-  display: flex;
-  gap: 8px;
-  align-items: center;
-  padding: 0 8px;
-  border: 0;
-  background: var(--gutter-bg);
-  color: var(--muted);
-  font-family: var(--font-mono);
-  font-size: 10px;
-  text-align: left;
-  overflow: hidden;
-  border-right: 1px solid var(--border);
-}
-
-/* Age tint: the freshest commit is the strongest, month-old work fades out. */
-.blame-gutter.blame-depth-0 { background: color-mix(in srgb, var(--accent) 32%, var(--gutter-bg)); }
-.blame-gutter.blame-depth-1 { background: color-mix(in srgb, var(--accent) 24%, var(--gutter-bg)); }
-.blame-gutter.blame-depth-2 { background: color-mix(in srgb, var(--accent) 17%, var(--gutter-bg)); }
-.blame-gutter.blame-depth-3 { background: color-mix(in srgb, var(--accent) 11%, var(--gutter-bg)); }
-.blame-gutter.blame-depth-4 { background: color-mix(in srgb, var(--accent) 6%, var(--gutter-bg)); }
-.blame-gutter.blame-depth-5 { background: var(--gutter-bg); }
-
-.blame-gutter:hover {
-  background: var(--hover);
-}
-
-.blame-gutter.uncommitted {
-  color: var(--st-untracked);
-}
-
-.blame-hash {
-  color: var(--accent);
-  flex: none;
-}
-
-.blame-author {
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  flex: 1;
-}
-
-.blame-time {
-  flex: none;
-}
-
-.blame-no {
-  flex: none;
-  width: 44px;
-  text-align: right;
-  padding-right: 8px;
-  color: var(--muted-2);
-}
-
-.blame-text {
-  padding-left: 6px;
 }
 
 /* ---------- Conflict ---------- */
@@ -7679,10 +7599,6 @@ body.resizing-row .log-detail-split::after {
   color: var(--success);
 }
 
-.editor-tab-kind.kind-blame {
-  color: var(--syntax-tag);
-}
-
 /* ---------- Diff syntax colours ----------
    The same tags and the same variables the editor uses; the double renderer
    keeps one palette (src/highlight.ts is the list). */
@@ -7890,3 +7806,71 @@ body.resizing-row .log-detail-split::after {
 .cm-annotate-uncommitted .cm-annotate-date {
   display: none;
 }
+
+/* ---------- Diff blame ---------- */
+
+/* The diff gutter answers like the source editor's: the blame column sits
+   beside the line numbers, and the line number itself opens the Git menu. */
+.diff-rows.split.annotate .diff-row {
+  grid-template-columns: 156px 46px minmax(0, 1fr) 20px 156px 46px minmax(0, 1fr);
+}
+
+.diff-rows.unified.annotate .diff-row {
+  grid-template-columns: 156px 46px 16px minmax(0, 1fr) 20px;
+}
+
+.diff-rows.split.annotate .diff-row > div:nth-child(4) {
+  border-left: 0;
+}
+
+.diff-rows.split.annotate .diff-row > div:nth-child(5) {
+  border-left: 1px solid var(--border);
+}
+
+.diff-annotate {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  height: 100%;
+  padding: 0 8px 0 7px;
+  overflow: hidden;
+  background: var(--gutter-bg);
+  color: var(--fg-soft);
+  font-size: 10.5px;
+  white-space: nowrap;
+  user-select: none;
+  cursor: pointer;
+}
+
+.diff-annotate-date {
+  flex: none;
+  color: var(--muted-2);
+  font-variant-numeric: tabular-nums;
+}
+
+.diff-annotate-author {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.diff-annotate.depth-0 { background: color-mix(in srgb, var(--accent) 34%, transparent); }
+.diff-annotate.depth-1 { background: color-mix(in srgb, var(--accent) 26%, transparent); }
+.diff-annotate.depth-2 { background: color-mix(in srgb, var(--accent) 19%, transparent); }
+.diff-annotate.depth-3 { background: color-mix(in srgb, var(--accent) 13%, transparent); }
+.diff-annotate.depth-4 { background: color-mix(in srgb, var(--accent) 7%, transparent); }
+.diff-annotate.depth-5 { background: color-mix(in srgb, var(--accent) 2%, transparent); }
+
+.diff-annotate.uncommitted {
+  background: color-mix(in srgb, var(--accent) 10%, transparent);
+  color: var(--accent);
+  font-weight: 600;
+}
+
+.diff-annotate.uncommitted .diff-annotate-date {
+  display: none;
+}
+
+.diff-row .line-no {
+  cursor: pointer;
+}
+

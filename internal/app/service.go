@@ -997,13 +997,14 @@ func (g *Git) Tree() ([]git.RepoFile, error) {
 	return files, nil
 }
 
-// Blame annotates a file.
-func (g *Git) Blame(path string) (git.BlameResult, error) {
+// Blame annotates a file at a revision ("" for the working tree, "INDEX" for
+// the staged copy).
+func (g *Git) Blame(path, revision string) (git.BlameResult, error) {
 	repo, err := g.c.currentRepo()
 	if err != nil {
 		return git.BlameResult{}, err
 	}
-	return repo.Blame(context.Background(), path)
+	return repo.Blame(context.Background(), path, revision)
 }
 
 // Console runs a command from the Git console and streams its output.

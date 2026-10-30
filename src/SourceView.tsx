@@ -18,8 +18,6 @@ const T = {
     workingTreeButton: "Working Tree",
     showDiff: "Show this file as a diff",
     diff: "Diff",
-    annotateFile: "Annotate this file",
-    annotate: "Annotate",
 
     revealInManager: "Reveal in file manager",
     wrap: "Wrap",
@@ -42,8 +40,6 @@ const T = {
     workingTreeButton: "工作区",
     showDiff: "以差异方式显示此文件",
     diff: "差异",
-    annotateFile: "Blame 此文件",
-    annotate: "Blame",
 
     revealInManager: "在文件管理器中显示",
     wrap: "折行",
@@ -79,7 +75,6 @@ export function SourceView({
   line,
   root,
   onShowDiff,
-  onBlame,
   onOpenWorkingTree,
   onOpenRevision,
   onCopyPath,
@@ -97,7 +92,6 @@ export function SourceView({
   /** Absolute path of the repository, for the copy menu's absolute entries. */
   root: string;
   onShowDiff?: () => void;
-  onBlame?: () => void;
   onOpenWorkingTree?: () => void;
   onOpenRevision?: () => void;
   onCopyPath: (text: string) => void;
@@ -163,11 +157,6 @@ export function SourceView({
               <Icon name="diff" /> {t("diff")}
             </button>
           )}
-          {onBlame && file.revision === "" && (
-            <button className="toolbar-text-btn" onClick={onBlame} title={t("annotateFile")}>
-              <Icon name="user" /> {t("annotate")}
-            </button>
-          )}
           <PathCopyButton path={file.path} root={root} line={caret} onCopy={onCopyPath} />
           {onReveal && <IconButton icon="external" title={t("revealInManager")} small onClick={onReveal} />}
         </div>
@@ -208,7 +197,7 @@ export function SourceView({
           onJump={onJump}
           onReferences={onReferences}
           onCaret={setCaret}
-          onLineHistory={onLineHistory}
+          onLineHistory={file.revision === "INDEX" ? undefined : onLineHistory}
           onCommitDiff={onCommitDiff}
           onCopy={onCopyPath}
         />
