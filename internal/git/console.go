@@ -242,9 +242,9 @@ var gitOptions = []Completion{
 	{"-v", "option", "Verbose"},
 }
 
-// shellCommands are the programs worth suggesting after the console learned
-// to run more than git. They are all read-only, so a mis-click in the
-// completion popup cannot change the repository.
+// shellCommands are the programs worth suggesting as the first word after
+// the console learned to run more than git, plus the read-only helpers that
+// make it usable for looking around the tree.
 var shellCommands = []Completion{
 	{"ls", "command", "List the files in the repository"},
 	{"pwd", "command", "Print the directory commands run in"},
@@ -256,6 +256,160 @@ var shellCommands = []Completion{
 	{"find", "command", "Find files by name"},
 	{"du", "command", "Show the size of files and directories"},
 	{"git", "command", "Git command"},
+	{"mvn", "command", "Apache Maven"},
+	{"gradle", "command", "Gradle build tool"},
+	{"java", "command", "Java launcher"},
+	{"go", "command", "Go tool"},
+	{"npm", "command", "Node package manager"},
+	{"pnpm", "command", "pnpm package manager"},
+	{"bun", "command", "Bun runtime and package manager"},
+	{"node", "command", "Node.js runtime"},
+	{"python", "command", "Python interpreter"},
+	{"cargo", "command", "Rust package manager"},
+	{"dotnet", "command", "dotnet CLI"},
+	{"docker", "command", "Docker CLI"},
+	{"make", "command", "Build with make"},
+	{"kubectl", "command", "Kubernetes CLI"},
+	{"terraform", "command", "Terraform CLI"},
+}
+
+// programCommands are the subcommands and goals worth suggesting once a line
+// names a program other than git. Git keeps its own option and ref lists.
+var programCommands = map[string][]Completion{
+	"mvn": {
+		{"clean", "command", "Delete the build output"},
+		{"validate", "command", "Validate the project"},
+		{"compile", "command", "Compile the sources"},
+		{"test", "command", "Run the tests"},
+		{"package", "command", "Build the package"},
+		{"verify", "command", "Run the verification checks"},
+		{"install", "command", "Install into the local repository"},
+		{"deploy", "command", "Publish to the remote repository"},
+		{"site", "command", "Build the project site"},
+		{"dependency:tree", "command", "Show the dependency tree"},
+		{"spring-boot:run", "command", "Run the Spring Boot application"},
+		{"-B", "option", "Batch mode"},
+		{"-q", "option", "Quiet output"},
+		{"-DskipTests", "option", "Skip test execution"},
+		{"-P", "option", "Activate a profile"},
+	},
+	"gradle": {
+		{"build", "command", "Build the project"},
+		{"clean", "command", "Delete the build output"},
+		{"test", "command", "Run the tests"},
+		{"check", "command", "Run the verification tasks"},
+		{"assemble", "command", "Assemble the archives"},
+		{"run", "command", "Run the application"},
+		{"dependencies", "command", "Show the dependency report"},
+		{"tasks", "command", "List the available tasks"},
+		{"--info", "option", "Info-level logging"},
+		{"--stacktrace", "option", "Show the full stack trace"},
+	},
+	"java": {
+		{"-version", "option", "Print the runtime version"},
+		{"-jar", "option", "Run an executable jar"},
+		{"-cp", "option", "Set the class path"},
+		{"--list-modules", "option", "List the available modules"},
+		{"-Xmx", "option", "Set the maximum heap"},
+		{"-D", "option", "Set a system property"},
+	},
+	"go": {
+		{"build", "command", "Compile the packages"},
+		{"run", "command", "Run a package or file"},
+		{"test", "command", "Run the tests"},
+		{"vet", "command", "Report suspicious constructs"},
+		{"fmt", "command", "Format the source"},
+		{"mod", "command", "Manage module dependencies"},
+		{"get", "command", "Add or update dependencies"},
+		{"install", "command", "Install a package"},
+		{"list", "command", "List the packages"},
+		{"env", "command", "Print the Go environment"},
+		{"doc", "command", "Show package documentation"},
+		{"work", "command", "Manage the workspace"},
+		{"generate", "command", "Run the generators"},
+	},
+	"npm": {
+		{"install", "command", "Install the dependencies"},
+		{"ci", "command", "Clean install from the lockfile"},
+		{"run", "command", "Run a script"},
+		{"test", "command", "Run the tests"},
+		{"start", "command", "Start the package"},
+		{"build", "command", "Build the package"},
+		{"add", "command", "Add a dependency"},
+		{"remove", "command", "Remove a dependency"},
+		{"update", "command", "Update the dependencies"},
+		{"outdated", "command", "List outdated packages"},
+		{"exec", "command", "Run a command from a package"},
+		{"init", "command", "Create a package.json"},
+	},
+	"pnpm": {
+		{"install", "command", "Install the dependencies"},
+		{"add", "command", "Add a dependency"},
+		{"remove", "command", "Remove a dependency"},
+		{"run", "command", "Run a script"},
+		{"test", "command", "Run the tests"},
+		{"build", "command", "Build the project"},
+		{"exec", "command", "Run a command from a package"},
+		{"update", "command", "Update the dependencies"},
+		{"outdated", "command", "List outdated packages"},
+		{"dlx", "command", "Run a package without installing it"},
+	},
+	"bun": {
+		{"install", "command", "Install the dependencies"},
+		{"add", "command", "Add a dependency"},
+		{"remove", "command", "Remove a dependency"},
+		{"run", "command", "Run a script"},
+		{"test", "command", "Run the tests"},
+		{"build", "command", "Build the project"},
+		{"x", "command", "Run a package binary"},
+	},
+	"node": {
+		{"--version", "option", "Print the runtime version"},
+		{"--inspect", "option", "Start the debugger"},
+		{"-e", "option", "Evaluate a script"},
+		{"-p", "option", "Evaluate and print"},
+	},
+	"python": {
+		{"-V", "option", "Print the interpreter version"},
+		{"-m", "option", "Run a module"},
+		{"-c", "option", "Run a command"},
+		{"-i", "option", "Enter interactive mode"},
+	},
+	"cargo": {
+		{"build", "command", "Compile the package"},
+		{"run", "command", "Run the package"},
+		{"test", "command", "Run the tests"},
+		{"check", "command", "Check the package"},
+		{"fmt", "command", "Format the source"},
+		{"clippy", "command", "Run the linter"},
+		{"add", "command", "Add a dependency"},
+		{"update", "command", "Update the dependencies"},
+		{"doc", "command", "Build the documentation"},
+		{"bench", "command", "Run the benchmarks"},
+	},
+	"dotnet": {
+		{"build", "command", "Build the project"},
+		{"run", "command", "Run the project"},
+		{"test", "command", "Run the tests"},
+		{"restore", "command", "Restore the dependencies"},
+		{"publish", "command", "Publish the project"},
+		{"pack", "command", "Create a package"},
+		{"format", "command", "Format the source"},
+		{"new", "command", "Create a project"},
+		{"add", "command", "Add a reference or package"},
+	},
+	"docker": {
+		{"build", "command", "Build an image"},
+		{"run", "command", "Run a container"},
+		{"ps", "command", "List the containers"},
+		{"images", "command", "List the images"},
+		{"logs", "command", "Show container logs"},
+		{"exec", "command", "Run a command in a container"},
+		{"pull", "command", "Pull an image"},
+		{"push", "command", "Push an image"},
+		{"compose", "command", "Run Docker Compose"},
+		{"inspect", "command", "Inspect an object"},
+	},
 }
 
 // ConsoleCompletions suggests commands, options and refs for a prefix.
@@ -278,10 +432,23 @@ func (r *Repo) ConsoleCompletions(ctx context.Context, prefix string) []Completi
 		}
 		return out
 	}
-	// Options and refs belong to git. On any other program they would suggest
-	// flags it does not have.
-	if strings.Fields(prefix)[0] != "git" {
-		return nil
+	// Every other program gets its own goal list: suggesting git options to
+	// Maven (or Maven goals to Go) would only complete a line that cannot run.
+	fields := strings.Fields(prefix)
+	program := ""
+	if len(fields) > 0 {
+		program = fields[0]
+	}
+	if program != "git" {
+		for _, c := range programCommands[program] {
+			if matches(c.Text) {
+				out = append(out, c)
+			}
+		}
+		if len(out) > 40 {
+			out = out[:40]
+		}
+		return out
 	}
 	for _, c := range gitCommands {
 		if matches(c.Text) {

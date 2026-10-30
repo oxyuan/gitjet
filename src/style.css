@@ -2272,9 +2272,9 @@ body.col-resizing {
 
 .completions {
   position: absolute;
-  left: 6px;
-  right: 6px;
-  bottom: 38px;
+  left: 8px;
+  right: 8px;
+  bottom: 50px;
   max-height: 240px;
   overflow: auto;
   background: var(--panel-raised);
@@ -7874,3 +7874,380 @@ body.resizing-row .log-detail-split::after {
   cursor: pointer;
 }
 
+
+/* ---------- File badges ----------
+   A file's language is shown by a tiny monogram in a rounded chip. The chip
+   inherits the language colour from --lang, so one SVG draws all of them. */
+.file-icon {
+  --lang: var(--muted);
+  flex: none;
+  color: var(--lang);
+  vertical-align: -2px;
+}
+
+.file-icon.lang-ts { --lang: #4a90d9; }
+.file-icon.lang-js { --lang: #c9a227; }
+.file-icon.lang-go { --lang: #33a9cd; }
+.file-icon.lang-java { --lang: #d9803a; }
+.file-icon.lang-kotlin { --lang: #8b6fe8; }
+.file-icon.lang-scala { --lang: #c44a5a; }
+.file-icon.lang-rust { --lang: #c97a4a; }
+.file-icon.lang-python { --lang: #4b8bbe; }
+.file-icon.lang-ruby { --lang: #d04545; }
+.file-icon.lang-php { --lang: #8b7bd8; }
+.file-icon.lang-c { --lang: #5f7ed6; }
+.file-icon.lang-cpp { --lang: #3b82c4; }
+.file-icon.lang-csharp { --lang: #a855c9; }
+.file-icon.lang-fsharp { --lang: #378bba; }
+.file-icon.lang-vb { --lang: #945db7; }
+.file-icon.lang-swift { --lang: #e8663d; }
+.file-icon.lang-objc { --lang: #438eff; }
+.file-icon.lang-shell { --lang: #4fa83d; }
+.file-icon.lang-html { --lang: #e06138; }
+.file-icon.lang-xml { --lang: #e08a3a; }
+.file-icon.lang-css { --lang: #4f7de0; }
+.file-icon.lang-scss { --lang: #cf6aa0; }
+.file-icon.lang-less { --lang: #5a7fc4; }
+.file-icon.lang-stylus { --lang: #8aa84a; }
+.file-icon.lang-json { --lang: #b8a12a; }
+.file-icon.lang-yaml { --lang: #cc5252; }
+.file-icon.lang-toml { --lang: #b06b4c; }
+.file-icon.lang-markdown { --lang: #5a9fd4; }
+.file-icon.lang-sql { --lang: #d08a2a; }
+.file-icon.lang-graphql { --lang: #d84a9b; }
+.file-icon.lang-proto { --lang: #4a89d6; }
+.file-icon.lang-lua { --lang: #5b6ac9; }
+.file-icon.lang-dart { --lang: #2b9bd0; }
+.file-icon.lang-vue { --lang: #3fae83; }
+.file-icon.lang-svelte { --lang: #e85c2c; }
+.file-icon.lang-astro { --lang: #b06ad0; }
+.file-icon.lang-elm { --lang: #5a9fd4; }
+.file-icon.lang-elixir { --lang: #9a6a86; }
+.file-icon.lang-erlang { --lang: #b34a63; }
+.file-icon.lang-haskell { --lang: #7d6aa8; }
+.file-icon.lang-clojure { --lang: #d06a5a; }
+.file-icon.lang-r { --lang: #4b7fc4; }
+.file-icon.lang-julia { --lang: #9558b2; }
+.file-icon.lang-perl { --lang: #4b9fb8; }
+.file-icon.lang-nim { --lang: #b89a2a; }
+.file-icon.lang-zig { --lang: #e08a3a; }
+.file-icon.lang-verilog { --lang: #6a7fc4; }
+.file-icon.lang-asm { --lang: #8a8f98; }
+.file-icon.lang-terraform { --lang: #8b63c8; }
+.file-icon.lang-nix { --lang: #7e7eff; }
+.file-icon.lang-tex { --lang: #6a8a3a; }
+.file-icon.lang-docker { --lang: #2f9bdb; }
+.file-icon.lang-maven { --lang: #c96a4a; }
+.file-icon.lang-gradle { --lang: #4a9bb8; }
+.file-icon.lang-make { --lang: #8a8f98; }
+.file-icon.lang-cmake { --lang: #4a7ab8; }
+.file-icon.lang-npm { --lang: #cb3837; }
+.file-icon.lang-git { --lang: #dc6a4a; }
+.file-icon.lang-config { --lang: #8a8f98; }
+.file-icon.lang-lock { --lang: #8a8f98; }
+.file-icon.lang-key { --lang: #c9a227; }
+.file-icon.lang-text { --lang: #8a8f98; }
+.file-icon.lang-data { --lang: #6a9a5a; }
+.file-icon.lang-image { --lang: #5f9e4a; }
+.file-icon.lang-pdf { --lang: #d05a4a; }
+.file-icon.lang-archive { --lang: #b8863b; }
+.file-icon.lang-media { --lang: #b06a9a; }
+.file-icon.lang-font { --lang: #8a8f98; }
+.file-icon.lang-binary { --lang: #8a8f98; }
+.file-icon.lang-plain { --lang: var(--muted); }
+
+/* ---------- Console blocks ----------
+   A run is a plain log entry: prompt and command on one line, the streamed
+   output underneath, the exit status on the right. No boxes or quote bars —
+   the command line itself is the separator. */
+.console-output {
+  white-space: normal;
+}
+
+.console-intro {
+  margin: 2px 0 10px;
+  padding: 9px 10px;
+  border: 1px solid var(--border);
+  border-radius: 7px;
+  background: var(--panel);
+}
+
+.console-intro-title {
+  margin-bottom: 5px;
+  color: var(--fg);
+  font-size: 11px;
+  font-weight: 600;
+}
+
+.console-intro-list {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  margin: 0;
+  padding-left: 15px;
+  color: var(--muted);
+  font-size: 10.5px;
+  line-height: 1.5;
+}
+
+.console-intro-list li::marker {
+  color: var(--muted-2);
+}
+
+.console-block {
+  margin: 0 0 14px;
+}
+
+.console-block:last-child {
+  margin-bottom: 0;
+}
+
+.console-block-head {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  padding: 0 2px 2px;
+}
+
+.console-block-prompt {
+  display: inline-flex;
+  align-items: center;
+  flex: none;
+  color: var(--accent);
+  font-size: 10.5px;
+  font-weight: 700;
+}
+
+.console-block-prompt.shell {
+  color: var(--muted);
+}
+
+.console-block-cmd {
+  min-width: 0;
+  color: var(--fg);
+  font-size: 11px;
+  font-weight: 550;
+  overflow-wrap: anywhere;
+}
+
+.console-block-meta {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  flex: none;
+  margin-left: auto;
+  color: var(--muted-2);
+  font-size: 9.5px;
+  white-space: nowrap;
+}
+
+.console-block-meta.failed {
+  color: var(--danger);
+}
+
+.console-block-out {
+  margin: 0;
+  padding: 0 2px;
+  color: var(--fg-soft);
+  font: inherit;
+  line-height: 1.5;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.console-block-empty {
+  padding: 0 2px;
+  color: var(--muted-2);
+  font-size: 10.5px;
+  font-style: italic;
+}
+
+.console-block-error {
+  padding: 0 2px;
+  color: var(--danger);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+/* The prefix and the command share one field: the program is a quiet segment
+   on the left of the input, separated by a hairline, not a separate control. */
+.console-input-row {
+  flex: none;
+  display: flex;
+  align-items: stretch;
+  gap: 0;
+  height: 34px;
+  margin: 0 8px 8px;
+  padding: 0;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--input-bg);
+  overflow: hidden;
+  transition: border-color 0.12s ease, box-shadow 0.12s ease;
+}
+
+.console-input-row:focus-within {
+  border-color: color-mix(in srgb, var(--accent) 45%, var(--border));
+  box-shadow: 0 0 0 2px var(--accent-soft);
+}
+
+.console-program {
+  display: inline-flex;
+  align-items: center;
+  flex: none;
+  height: auto;
+  padding: 0 9px;
+  border: 0;
+  border-right: 1px solid var(--border);
+  border-radius: 0;
+  background: transparent;
+  color: var(--accent);
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+  font-weight: 600;
+  line-height: 1;
+  appearance: none;
+  -webkit-appearance: none;
+  cursor: pointer;
+  transition: background 0.12s ease;
+}
+
+.console-program:hover:not(:disabled),
+.console-program.open {
+  background: var(--hover);
+}
+
+.console-program:focus-visible {
+  outline: 2px solid color-mix(in srgb, var(--accent) 45%, transparent);
+  outline-offset: -2px;
+}
+
+.console-program:disabled {
+  cursor: default;
+  opacity: 0.55;
+}
+
+.console-prompt.shell {
+  display: inline-flex;
+  align-items: center;
+  flex: none;
+  height: auto;
+  padding: 0 9px;
+  border-right: 1px solid var(--border);
+  border-radius: 0;
+  background: transparent;
+  color: var(--muted);
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+  font-weight: 700;
+}
+
+.console-input {
+  align-self: stretch;
+  height: auto;
+  padding: 0 9px;
+  font-size: 11.5px;
+}
+
+/* The program picker: a compact three-column grid instead of a tall native
+   menu, so sixteen tools stay readable without a wall of rows. */
+.console-program-menu {
+  position: absolute;
+  left: 8px;
+  right: 8px;
+  bottom: 50px;
+  z-index: 30;
+  padding: 8px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--panel-raised);
+  box-shadow: var(--shadow);
+  animation: console-menu-in 0.12s ease-out;
+}
+
+@keyframes console-menu-in {
+  from {
+    opacity: 0;
+    transform: translateY(3px);
+  }
+}
+
+.console-program-menu-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 7px;
+  padding: 0 3px 7px;
+  border-bottom: 1px solid var(--border);
+  color: var(--muted);
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+}
+
+.console-program-menu-head kbd {
+  padding: 0 4px;
+  border-radius: 3px;
+  background: var(--hover);
+  color: var(--muted-2);
+  font-family: var(--font-mono);
+  font-size: 9px;
+  font-weight: 500;
+}
+
+.console-program-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 4px;
+}
+
+.console-program-option {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  appearance: none;
+  -webkit-appearance: none;
+  gap: 4px;
+  min-width: 0;
+  height: 28px;
+  padding: 0 8px;
+  border: 1px solid transparent;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--fg-soft);
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+  font-weight: 500;
+  text-align: left;
+  cursor: pointer;
+}
+
+.console-program-option:hover {
+  background: var(--hover);
+  color: var(--fg);
+}
+
+.console-program-option:focus {
+  outline: none;
+  background: var(--hover);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--accent) 30%, transparent);
+}
+
+.console-program-option.active {
+  border-color: color-mix(in srgb, var(--accent) 22%, transparent);
+  background: var(--accent-soft);
+  color: var(--accent);
+  font-weight: 700;
+}
+
+.console-program-option.active:focus {
+  background: var(--accent-soft);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--accent) 45%, transparent);
+}
+
+.console-program-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}

@@ -3,7 +3,7 @@ import { Git, type RepoFile } from "./mygo";
 import { buildChangeTree } from "./changes";
 import { expandedTo, filterFiles } from "./explorer";
 import { FileTree, type ListedFile } from "./FileTree";
-import { Icon } from "./icons";
+import { FileIcon, Icon } from "./icons";
 import { cx, IconButton, Spinner } from "./ui";
 import { useT } from "./i18n";
 
@@ -159,7 +159,7 @@ export function SourceTree({
                   onClick={() => onOpen(file.path)}
                 >
                   <span className="tree-chevron-spacer" />
-                  <Icon name="file" size={13} />
+                  <FileIcon path={file.path} size={14} />
                   <span className="tree-name">
                     <span className="file-base">{name}</span>
                     {flat && dir !== "" && <span className="file-dir">{dir}</span>}

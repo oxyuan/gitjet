@@ -46,7 +46,7 @@ import {
 } from "./Dialogs";
 import { EditHistoryDialog } from "./EditHistoryDialog";
 import { RepoExtrasDialog } from "./RepoExtrasDialog";
-import { Icon } from "./icons";
+import { FileIcon, Icon } from "./icons";
 import { LangProvider, count, resolveLang, useT, type Lang } from "./i18n";
 import { LogDock } from "./LogDock";
 import { FileTree, type ChangeView } from "./FileTree";
@@ -2884,6 +2884,7 @@ function RightPane({
                   title={file.path}
                 >
                   <StatusMark kind={file.status} />
+                  <FileIcon path={file.path} size={14} />
                   <span className="details-file-path">
                     <span className="file-base">{file.path.slice(file.path.lastIndexOf("/") + 1)}</span>
                     {flat && file.path.includes("/") && (

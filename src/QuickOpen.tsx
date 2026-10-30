@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { Git, type Commit, type RepoFile } from "./mygo";
-import { Icon } from "./icons";
+import { FileIcon, Icon } from "./icons";
 import { count, useT } from "./i18n";
 import { cx, Spinner } from "./ui";
 
@@ -178,7 +178,7 @@ export function QuickOpen({
                 onClick={() => choose(row)}
                 title={file.path}
               >
-                <Icon name="file" size={14} />
+                <FileIcon path={file.path} size={14} />
                 <span className="quick-dir">{dir}</span>
                 <span className="quick-name">{name}</span>
                 {!file.tracked && <span className="quick-badge">{t("untracked")}</span>}

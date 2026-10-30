@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { Commit, CommitDetail, CommitFile, LogResult } from "./mygo";
 import { computeGraph, graphWidth } from "./graph";
-import { Icon } from "./icons";
+import { FileIcon, Icon } from "./icons";
 import { useT } from "./i18n";
 import { count } from "./i18n";
 import {
@@ -688,6 +688,7 @@ export function LogDock({
                         title={file.oldPath ? `${file.oldPath} → ${file.path}` : file.path}
                       >
                       <StatusMark kind={file.status} />
+                      <FileIcon path={file.path} size={14} />
                       <span className="details-file-path">
                         <span className="file-base">{file.path.slice(file.path.lastIndexOf("/") + 1)}</span>
                         {flat && file.path.includes("/") && (

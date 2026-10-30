@@ -120,3 +120,41 @@ func TestRunConsoleExplainsCd(t *testing.T) {
 		t.Errorf("error = %q, want it to name the directory commands run in", err)
 	}
 }
+
+// A line that names another program completes against that program, not
+// against git: `mvn cl` offers Maven goals and `go te` offers Go commands.
+func TestConsoleCompletionsFollowTheProgram(t *testing.T) {
+	repo, _ := newTestRepo(t)
+	ctx := context.Background()
+
+	mvn := repo.ConsoleCompletions(ctx, "mvn cl")
+	if !hasCompletion(mvn, "clean") {
+		t.Errorf("mvn cl = %v, want the clean goal", mvn)
+	}
+	if hasCompletion(mvn, "--oneline") {
+		t.Errorf("mvn cl offered a git option: %v", mvn)
+	}
+
+	golang := repo.ConsoleCompletions(ctx, "go te")
+	if !hasCompletion(golang, "test") {
+		t.Errorf("go te = %v, want the test command", golang)
+	}
+	if hasCompletion(golang, "status") {
+		t.Errorf("go te offered a git subcommand: %v", golang)
+	}
+
+	// The first word lists the programs the console can prefix with.
+	programs := repo.ConsoleCompletions(ctx, "mv")
+	if !hasCompletion(programs, "mvn") {
+		t.Errorf("mv = %v, want mvn", programs)
+	}
+}
+
+func hasCompletion(list []Completion, text string) bool {
+	for _, c := range list {
+		if c.Text == text {
+			return true
+		}
+	}
+	return false
+}

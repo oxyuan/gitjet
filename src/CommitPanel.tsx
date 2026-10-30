@@ -3,7 +3,7 @@ import { buildChangeTree, directoryKeys, splitTracked, treeFiles } from "./chang
 import { FileTree, type ChangeView } from "./FileTree";
 import { count, useT } from "./i18n";
 import type { Changelist, ChangesSnapshot, Settings } from "./mygo";
-import { Icon } from "./icons";
+import { FileIcon, Icon } from "./icons";
 import {
   Checkbox,
   ContextMenu,
@@ -446,6 +446,7 @@ export function CommitPanel({
         )}
         {entry.staged && <span className="staged-dot" title={t("staged")} />}
         <StatusMark kind={entry.kind} staged={entry.staged} />
+        <FileIcon path={entry.path} size={14} />
         <span className="tree-name">
           <span className="file-base">{name}</span>
           {flat && dir !== "" && <span className="file-dir">{dir}</span>}

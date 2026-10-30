@@ -3,7 +3,7 @@ import { annotateDate, blameDepth } from "./annotate";
 import { blameMenuItems } from "./blameMenu";
 import { Git, type BlameLine, type DiffOptions, type FileDiff } from "./mygo";
 import { buildDiffRows, isCollapsed, type AlignedRow, type DiffRows, type WordSegment } from "./diff";
-import { Icon } from "./icons";
+import { FileIcon, Icon } from "./icons";
 import { useT } from "./i18n";
 import { paintLine, tokenize, type LineTokens } from "./syntax";
 import { ContextMenu, cx, formatWhen, IconButton, Spinner, useStoredState } from "./ui";
@@ -216,6 +216,7 @@ export function DiffView({
       <div className="diff-header">
         <div className="diff-title-row">
           <span className={`diff-status ${statusClass(diff.status)}`}>{statusLetter(diff.status)}</span>
+          <FileIcon path={diff.path} size={15} />
           <span className="diff-path" title={diff.path}>
             {diff.path}
           </span>

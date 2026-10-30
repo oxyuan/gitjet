@@ -1,4 +1,5 @@
 import type { ReactNode } from "react";
+import { fileBadge } from "./fileIcons";
 
 /**
  * The app's icon set, drawn on a 16px grid with 1.5px strokes, round caps,
@@ -327,6 +328,51 @@ export function Icon({ name, size = 16, className }: { name: IconName; size?: nu
       aria-hidden="true"
     >
       {PATHS[name]}
+    </svg>
+  );
+}
+
+/**
+ * FileIcon is the badge shown before a file name: a language-specific
+ * monogram in the language's colour, so a tree of TypeScript, Go and Markdown
+ * reads at a glance instead of showing the same sheet of paper everywhere.
+ */
+export function FileIcon({ path, size = 14, className }: { path: string; size?: number; className?: string }) {
+  const { label, lang } = fileBadge(path);
+  if (label === "") return <Icon name="file" size={size} className={className} />;
+  return (
+    <svg
+      className={`file-icon lang-${lang}${className ? " " + className : ""}`}
+      width={size}
+      height={size}
+      viewBox="0 0 16 16"
+      aria-hidden="true"
+    >
+      <rect
+        x="1"
+        y="1"
+        width="14"
+        height="14"
+        rx="3.4"
+        fill="currentColor"
+        fillOpacity="0.13"
+        stroke="currentColor"
+        strokeOpacity="0.38"
+        strokeWidth="1"
+      />
+      <text
+        x="8"
+        y="8.5"
+        textAnchor="middle"
+        dominantBaseline="middle"
+        fill="currentColor"
+        fontFamily="var(--font-mono)"
+        fontSize={label.length > 2 ? 6 : 8}
+        fontWeight="800"
+        letterSpacing="-0.25"
+      >
+        {label}
+      </text>
     </svg>
   );
 }

@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { Channel } from "mygo-runtime";
 import { Git, type Completion } from "./mygo";
+import { commandLine, completionPrefix, CONSOLE_PROGRAMS, rememberLine, splitCommand } from "./console";
 import { Icon } from "./icons";
 import { cx, IconButton, Spinner, useStoredState } from "./ui";
 import { useT } from "./i18n";
@@ -8,47 +9,95 @@ import { useT } from "./i18n";
 const T = {
   en: {
     title: "Console",
-    intro:
-      "Git console — every line runs as a git subcommand in the repository root, so `status` is `git status`. Start a line with `!` to run another program as typed (`!ls -la`). Tab completes, ↑/↓ recalls history.",
+    program: "Command program",
+    introTitle: "How it works",
+    hintPrefix: "The {program} chip is prepended: `status` runs `{program} status`.",
+    hintShell: "Start with `!` to run another program as typed: `!ls -la`.",
+    hintKeys: "Tab completes · ↑/↓ recalls history · click the chip to switch programs.",
     copyOutput: "Copy console output",
     clearConsole: "Clear console",
     openRepositoryFirst: "Open a repository first",
-    exitCode: "exit code {code} · {ms} ms",
+    exitCode: "exit {code} · {ms} ms",
+    noOutput: "No output",
+    running: "Running",
   },
   zh: {
     title: "控制台",
-    intro:
-      "Git 控制台 — 每一行都作为 git 子命令在仓库根目录执行，输入 status 就是 git status；以 ! 开头则按原样运行其他程序（如 !ls -la）。Tab 补全，↑/↓ 调出历史。",
+    program: "命令前缀",
+    introTitle: "使用提示",
+    hintPrefix: "输入会自动加上前缀 `{program}`，例如 `status` 实际执行 `{program} status`。",
+    hintShell: "以 `!` 开头按原样运行其他程序，例如 `!ls -la`。",
+    hintKeys: "Tab 补全 · ↑/↓ 翻历史 · 点击左侧标签切换前缀程序。",
     copyOutput: "复制控制台输出",
     clearConsole: "清空控制台",
     openRepositoryFirst: "请先打开仓库",
     exitCode: "退出码 {code} · {ms} 毫秒",
+    noOutput: "没有输出",
+    running: "运行中",
   },
 } as const;
 
-/** GREETING_ID marks the opening hint line, which is re-rendered in the
- *  current language instead of being stored as literal text. */
-const GREETING_ID = 0;
+/** INTRO_ID marks the opening hint block, which is re-rendered in the current
+ *  language instead of being stored as literal text. */
+const INTRO_ID = 0;
 
-interface ConsoleLine {
+/** Output is capped per block: a runaway build keeps the newest lines. */
+const MAX_LINES = 4000;
+/** Blocks older than this fall off the top, so a long session stays light. */
+const MAX_BLOCKS = 200;
+
+interface IntroBlock {
   id: number;
-  kind: "command" | "output" | "error" | "info";
-  text: string;
+  kind: "intro";
 }
 
-let nextId = 1;
+interface RunBlock {
+  id: number;
+  kind: "run";
+  /** The complete line that ran, program included. */
+  command: string;
+  /** A bang line, whose prompt is "$" rather than the program name. */
+  shell: boolean;
+  lines: string[];
+  running: boolean;
+  exitCode?: number;
+  duration?: number;
+  error?: string;
+}
+
+type ConsoleBlock = IntroBlock | RunBlock;
 
 export function ConsolePanel({ onCommandDone, repoOpen }: { onCommandDone: () => void; repoOpen: boolean }) {
   const t = useT(T);
-  const [lines, setLines] = useState<ConsoleLine[]>([{ id: GREETING_ID, kind: "info", text: "" }]);
+  const [blocks, setBlocks] = useState<ConsoleBlock[]>([{ id: INTRO_ID, kind: "intro" }]);
   const [input, setInput] = useState("");
-  const [history, setHistory] = useStoredState<string[]>("gitjet.console.history", []);
+  const [program, setProgram] = useStoredState<string>("gitjet.console.program", "git");
+  // History is per program: a line recalled while mvn is selected must not
+  // become `git ...` because the console used to only know git.
+  const [storedHistory, setStoredHistory] = useStoredState<Record<string, string[]> | string[]>(
+    "gitjet.console.history",
+    {},
+  );
+  const historyByProgram = Array.isArray(storedHistory) ? { git: storedHistory } : storedHistory;
   const [historyIndex, setHistoryIndex] = useState(-1);
   const [running, setRunning] = useState(false);
   const [completions, setCompletions] = useState<Completion[]>([]);
   const [completionIndex, setCompletionIndex] = useState(0);
+  const [programMenu, setProgramMenu] = useState(false);
   const outputRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
+  const chipRef = useRef<HTMLButtonElement>(null);
+  const menuRef = useRef<HTMLDivElement>(null);
+  // Block ids belong to this mount, so a fast refresh cannot collide with a
+  // preserved block list.
+  const nextId = useRef(1);
+
+  const activeProgram = CONSOLE_PROGRAMS.find((p) => p === program) ?? "git";
+  const history = historyByProgram[activeProgram] ?? [];
+
+  const remember = (line: string) => {
+    setStoredHistory(rememberLine(historyByProgram, activeProgram, line));
+  };
 
   useEffect(() => {
     if (completions.length === 0) return;
@@ -56,29 +105,81 @@ export function ConsolePanel({ onCommandDone, repoOpen }: { onCommandDone: () =>
     return () => clearTimeout(timer);
   }, [completions]);
 
-  const append = (kind: ConsoleLine["kind"], text: string) => {
-    setLines((prev) => {
-      const next = [...prev, { id: nextId++, kind, text }];
-      return next.length > 4000 ? next.slice(next.length - 4000) : next;
-    });
-  };
+  // The selected program owns the keyboard while the picker is open.
+  useEffect(() => {
+    if (!programMenu) return;
+    menuRef.current?.querySelector<HTMLButtonElement>(".console-program-option.active")?.focus();
+  }, [programMenu]);
+
+  useEffect(() => {
+    if (!programMenu) return;
+    const onDown = (e: MouseEvent) => {
+      const target = e.target as Node;
+      if (menuRef.current?.contains(target) || chipRef.current?.contains(target)) return;
+      setProgramMenu(false);
+    };
+    document.addEventListener("mousedown", onDown);
+    return () => document.removeEventListener("mousedown", onDown);
+  }, [programMenu]);
 
   useEffect(() => {
     const el = outputRef.current;
     if (!el) return;
     const nearBottom = el.scrollHeight - el.scrollTop - el.clientHeight < 80;
     if (nearBottom) el.scrollTop = el.scrollHeight;
-  }, [lines]);
+  }, [blocks]);
 
-  // The typed line is a git command line: the program is implied, and the
-  // console adds it so the back end (and its completion rules) see exactly
-  // what runs. "!" opts out for the odd non-git program.
-  const lineFor = (typed: string) => (typed.startsWith("!") ? typed.slice(1).trim() : typed);
+  const appendLine = (id: number, text: string) => {
+    setBlocks((prev) =>
+      prev.map((block) => {
+        if (block.id !== id || block.kind !== "run") return block;
+        const lines = [...block.lines, text];
+        return { ...block, lines: lines.length > MAX_LINES ? lines.slice(lines.length - MAX_LINES) : lines };
+      }),
+    );
+  };
+
+  const finish = (id: number, patch: Partial<RunBlock>) => {
+    setBlocks((prev) =>
+      prev.map((block) => (block.id === id && block.kind === "run" ? { ...block, ...patch, running: false } : block)),
+    );
+  };
+
+  const chooseProgram = (name: string) => {
+    setProgram(name);
+    setHistoryIndex(-1);
+    setProgramMenu(false);
+    // Picking a program is a step towards typing a command, so the caret
+    // belongs in the command field, not on the menu button.
+    inputRef.current?.focus();
+  };
+
+  const toggleProgramMenu = () => {
+    if (programMenu) {
+      setProgramMenu(false);
+      inputRef.current?.focus();
+      return;
+    }
+    setCompletions([]);
+    setProgramMenu(true);
+  };
+
+  const moveProgramFocus = (delta: number) => {
+    const options = Array.from(
+      menuRef.current?.querySelectorAll<HTMLButtonElement>(".console-program-option") ?? [],
+    );
+    if (options.length === 0) return;
+    const current = options.findIndex((option) => option === document.activeElement);
+    const next = current < 0 ? 0 : (current + delta + options.length) % options.length;
+    options[next]?.focus();
+  };
 
   const complete = async () => {
     if (!repoOpen) return;
+    const prefix = completionPrefix(input, activeProgram);
+    if (prefix === "") return;
     try {
-      const list = await Git.completions(input.startsWith("!") ? lineFor(input) : `git ${input}`);
+      const list = await Git.completions(prefix);
       if (list.length === 0) return;
       setCompletions(list);
       setCompletionIndex(0);
@@ -98,26 +199,35 @@ export function ConsolePanel({ onCommandDone, repoOpen }: { onCommandDone: () =>
   const run = async (raw?: string) => {
     const typed = (raw ?? input).trim();
     if (typed === "" || running) return;
-    const command = typed.startsWith("!") || /^git(\s|$)/.test(typed) ? typed.replace(/^!/, "").trim() : `git ${typed}`;
-    append("command", command);
+    const shell = typed.startsWith("!");
+    const command = commandLine(typed, activeProgram);
+    if (command === "") return;
+    const id = nextId.current++;
+    setBlocks((prev) => {
+      // The hint card is an empty-state, not a permanent header: once a
+      // command runs, the whole area belongs to the command history.
+      const next: ConsoleBlock[] = [
+        ...prev.filter((block) => block.kind !== "intro"),
+        { id, kind: "run", command, shell, lines: [], running: true },
+      ];
+      return next.length > MAX_BLOCKS ? next.slice(next.length - MAX_BLOCKS) : next;
+    });
     setInput("");
     setCompletions([]);
-    setHistory([typed, ...history.filter((h) => h !== typed)].slice(0, 100));
+    remember(typed);
     setHistoryIndex(-1);
     setRunning(true);
     const channel = new Channel<string>();
     try {
       const promise = Git.console(command, channel);
       for await (const line of channel) {
-        append("output", line);
+        appendLine(id, line);
       }
       const result = await promise;
-      if (result.exitCode !== 0) {
-        append("error", t("exitCode", { code: result.exitCode, ms: result.duration }));
-      }
+      finish(id, { exitCode: result.exitCode, duration: result.duration });
       onCommandDone();
     } catch (err) {
-      append("error", err instanceof Error ? err.message : String(err));
+      finish(id, { error: err instanceof Error ? err.message : String(err) });
     } finally {
       setRunning(false);
       inputRef.current?.focus();
@@ -133,6 +243,26 @@ export function ConsolePanel({ onCommandDone, repoOpen }: { onCommandDone: () =>
     setInput(history[idx] ?? "");
   };
 
+  const introText = () =>
+    [
+      t("introTitle"),
+      `- ${t("hintPrefix", { program: activeProgram })}`,
+      `- ${t("hintShell")}`,
+      `- ${t("hintKeys")}`,
+    ].join("\n");
+
+  const blockText = (block: ConsoleBlock): string => {
+    if (block.kind === "intro") return introText();
+    const { head, rest } = splitCommand(block.command);
+    const prompt = block.shell ? `$ ${block.command}` : `${head} ${rest}`.trim();
+    const status = block.error
+      ? block.error
+      : block.exitCode !== undefined
+        ? `[${t("exitCode", { code: block.exitCode, ms: block.duration ?? 0 })}]`
+        : "";
+    return [prompt, ...block.lines, status].filter((line) => line !== "").join("\n");
+  };
+
   return (
     <div className="console-panel">
       <div className="panel-toolbar">
@@ -145,30 +275,90 @@ export function ConsolePanel({ onCommandDone, repoOpen }: { onCommandDone: () =>
           title={t("copyOutput")}
           small
           onClick={() => {
-            void navigator.clipboard.writeText(
-              lines.map((l) => (l.id === GREETING_ID ? t("intro") : l.text)).join("\n"),
-            );
+            void navigator.clipboard.writeText(blocks.map(blockText).join("\n\n"));
           }}
         />
-        <IconButton icon="trash" title={t("clearConsole")} small onClick={() => setLines([])} />
+        <IconButton
+          icon="trash"
+          title={t("clearConsole")}
+          small
+          onClick={() => {
+            setBlocks([{ id: INTRO_ID, kind: "intro" }]);
+            setProgramMenu(false);
+            inputRef.current?.focus();
+          }}
+        />
       </div>
       <div className="console-output" ref={outputRef} onClick={() => inputRef.current?.focus()}>
-        {lines.map((line) => (
-          <div className={cx("console-line", line.kind)} key={line.id}>
-            {line.kind === "command" ? <span className="console-prompt-inline">$</span> : null}
-            <span className="console-text">{line.id === GREETING_ID ? t("intro") : line.text || "\u00a0"}</span>
-          </div>
-        ))}
-        {running && (
-          <div className="console-line info">
-            <Spinner />
-          </div>
-        )}
+        {blocks.map((block) => {
+          if (block.kind === "intro") {
+            return (
+              <div className="console-intro" key={block.id}>
+                <div className="console-intro-title">{t("introTitle")}</div>
+                <ul className="console-intro-list">
+                  <li>{t("hintPrefix", { program: activeProgram })}</li>
+                  <li>{t("hintShell")}</li>
+                  <li>{t("hintKeys")}</li>
+                </ul>
+              </div>
+            );
+          }
+          const { head, rest } = splitCommand(block.command);
+          const failed = block.error !== undefined || (block.exitCode !== undefined && block.exitCode !== 0);
+          return (
+            <div className={cx("console-block", block.running && "running", failed && "failed")} key={block.id}>
+              <div className="console-block-head">
+                <span className={cx("console-block-prompt", block.shell && "shell")}>
+                  {block.shell ? "$" : head}
+                </span>
+                <span className="console-block-cmd">{block.shell ? block.command : rest}</span>
+                <span className="spacer" />
+                {block.running ? (
+                  <span className="console-block-meta">
+                    <Spinner /> {t("running")}
+                  </span>
+                ) : block.exitCode !== undefined ? (
+                  <span className={cx("console-block-meta", failed && "failed")}>
+                    {t("exitCode", { code: block.exitCode, ms: block.duration ?? 0 })}
+                  </span>
+                ) : null}
+              </div>
+              {block.lines.length > 0 && (
+                <pre className="console-block-out">{block.lines.join("\n")}</pre>
+              )}
+              {!block.running && block.lines.length === 0 && block.error === undefined && (
+                <div className="console-block-empty">{t("noOutput")}</div>
+              )}
+              {block.error !== undefined && <div className="console-block-error">{block.error}</div>}
+            </div>
+          );
+        })}
       </div>
       <div className="console-input-row">
-        <span className={cx("console-prompt", input.startsWith("!") && "shell")} title={t("intro")}>
-          {input.startsWith("!") ? "$" : "git"}
-        </span>
+        {input.startsWith("!") ? (
+          <span className="console-prompt shell">$</span>
+        ) : (
+          <button
+            ref={chipRef}
+            type="button"
+            className={cx("console-program", programMenu && "open")}
+            title={t("program")}
+            aria-label={t("program")}
+            aria-haspopup="menu"
+            aria-expanded={programMenu}
+            disabled={!repoOpen || running}
+            onClick={toggleProgramMenu}
+            onKeyDown={(e) => {
+              if (e.key === "ArrowDown" || e.key === "ArrowUp") {
+                e.preventDefault();
+                setCompletions([]);
+                setProgramMenu(true);
+              }
+            }}
+          >
+            {activeProgram}
+          </button>
+        )}
         <input
           ref={inputRef}
           className="console-input"
@@ -181,7 +371,10 @@ export function ConsolePanel({ onCommandDone, repoOpen }: { onCommandDone: () =>
           spellCheck={false}
           disabled={!repoOpen || running}
           placeholder={repoOpen ? undefined : t("openRepositoryFirst")}
-          onChange={(e) => setInput(e.target.value)}
+          onChange={(e) => {
+            setInput(e.target.value);
+            if (programMenu) setProgramMenu(false);
+          }}
           onKeyDown={(e) => {
             if (e.key === "Enter") {
               e.preventDefault();
@@ -212,6 +405,51 @@ export function ConsolePanel({ onCommandDone, repoOpen }: { onCommandDone: () =>
           }}
         />
       </div>
+      {programMenu && (
+        <div
+          className="console-program-menu"
+          ref={menuRef}
+          role="menu"
+          aria-label={t("program")}
+          onKeyDown={(e) => {
+            if (e.key === "Escape") {
+              e.preventDefault();
+              setProgramMenu(false);
+              inputRef.current?.focus();
+            } else if (e.key === "ArrowDown" || e.key === "ArrowRight") {
+              e.preventDefault();
+              moveProgramFocus(1);
+            } else if (e.key === "ArrowUp" || e.key === "ArrowLeft") {
+              e.preventDefault();
+              moveProgramFocus(-1);
+            } else if (e.key === "Tab") {
+              e.preventDefault();
+              setProgramMenu(false);
+              (e.shiftKey ? chipRef.current : inputRef.current)?.focus();
+            }
+          }}
+        >
+          <div className="console-program-menu-head">
+            <span>{t("program")}</span>
+            <kbd>esc</kbd>
+          </div>
+          <div className="console-program-grid">
+            {CONSOLE_PROGRAMS.map((name) => (
+              <button
+                key={name}
+                type="button"
+                role="menuitemradio"
+                aria-checked={name === activeProgram}
+                className={cx("console-program-option", name === activeProgram && "active")}
+                onClick={() => chooseProgram(name)}
+              >
+                <span className="console-program-name">{name}</span>
+                {name === activeProgram && <Icon name="check" size={10} />}
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
       {completions.length > 0 && (
         <div className="completions">
           {completions.slice(0, 12).map((c, i) => (

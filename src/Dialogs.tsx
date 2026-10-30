@@ -45,6 +45,7 @@ import {
 } from "./ui";
 
 import { count, useT } from "./i18n";
+import { FileIcon } from "./icons";
 
 const T = {
   en: {
@@ -1398,6 +1399,7 @@ export function PushDialog({
                       >
                         <span className="tree-chevron-spacer" />
                         <StatusMark kind={file.status} />
+                        <FileIcon path={file.path} size={14} />
                         <span className="tree-name">
                           <span className="file-base">{file.oldPath ? `${file.oldPath} → ${name}` : name}</span>
                           {flat && dir !== "" && <span className="file-dir">{dir}</span>}
