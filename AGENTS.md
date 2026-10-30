@@ -192,7 +192,10 @@ use it only for layout work. Vite's port is pinned to 5173 in **both**
   kills the arrow keys, `⌘B` and copy.
 - Change bars come from `Git.diff({target:"worktree"})` hunks, mapped to lines by
   `src/annotate.ts`; clicking a bar calls `Git.applyHunk(..., "rollback")` with
-  the same hunk index. Blame comes from `Git.blame`, rendered on the cursor line.
+  the same hunk index. Blame comes from `Git.blame(path, revision)` (`""` is
+  the worktree, `"INDEX"` the staged copy), rendered on the cursor line and in
+  the annotation column. Source and diff gutters share `src/blameMenu.ts`, so
+  the line-number menu means the same thing in both.
 - The editor's state fields must exist from construction (they start empty and
   are filled by effects). Dispatching an effect whose field is absent throws.
 - `SourceView` is keyed by document id: without the key, React reuses the pane
