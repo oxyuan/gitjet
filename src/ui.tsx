@@ -446,6 +446,20 @@ export function ContextMenu({
   );
 }
 
+/** The single bottom-right stack that owns toasts and the operation dock.
+ *  Both portal into it so the corner has one aligned edge; render order within
+ *  it is set by the order rules in style.css. */
+let notices: HTMLDivElement | null = null;
+
+export function noticeHost(): HTMLElement {
+  if (!notices || !notices.isConnected) {
+    notices = document.createElement("div");
+    notices.className = "notice-stack";
+    document.body.appendChild(notices);
+  }
+  return notices;
+}
+
 export function Toast({
   kind,
   title,
@@ -475,7 +489,7 @@ export function Toast({
         <Icon name="close" size={12} />
       </button>
     </div>,
-    document.body,
+    noticeHost(),
   );
 }
 

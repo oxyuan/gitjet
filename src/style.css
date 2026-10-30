@@ -2829,10 +2829,6 @@ kbd {
 }
 
 .toast {
-  position: fixed;
-  right: 16px;
-  bottom: 36px;
-  z-index: 120;
   width: min(420px, calc(100vw - 32px));
   display: flex;
   align-items: flex-start;
@@ -3534,22 +3530,6 @@ kbd {
 }
 
 /* ---------- Additional polish ---------- */
-
-.editor-tab-kind {
-  font-size: 8.5px;
-  text-transform: uppercase;
-  letter-spacing: 0.05em;
-  padding: 0 4px;
-  border-radius: 3px;
-  background: var(--panel-2);
-  color: var(--muted-2);
-  flex: none;
-}
-
-.editor-tab.active .editor-tab-kind {
-  background: var(--accent-soft);
-  color: var(--accent);
-}
 
 .diff-body.wrap .line-text {
   white-space: pre-wrap;
@@ -4356,19 +4336,6 @@ kbd {
   font-weight: 500;
 }
 
-.editor-tab-kind {
-  padding: 1px 5px;
-  border-radius: 5px;
-  background: var(--hover);
-  color: var(--muted-2);
-  font-size: 8.5px;
-}
-
-.editor-tab.active .editor-tab-kind {
-  background: var(--accent-soft);
-  color: var(--accent);
-}
-
 .statusbar {
   height: 28px;
   gap: 10px;
@@ -4714,12 +4681,9 @@ kbd {
   background: var(--border);
 }
 
-/* The toast lines up with the status bar's own gutter instead of floating in
-   the middle of the corner: the same 10px from the right that the bar pads
-   by, and 10px above it, so both edges read as one corner. */
+/* The corner geometry lives in .notice-stack: a toast is one card in that
+   stack, so it never floats somewhere the operation dock is not. */
 .toast {
-  right: 10px;
-  bottom: 38px;
   gap: 10px;
   padding: 12px 14px;
   border: 1px solid var(--border);
@@ -5310,10 +5274,6 @@ kbd {
    Fetch and pull report through a single quiet line above the status bar
    instead of taking the window with a modal. */
 .op-dock {
-  position: fixed;
-  left: var(--op-dock-left, 16px);
-  bottom: 40px;
-  z-index: 118;
   width: min(420px, calc(100vw - 32px));
   background: var(--panel-raised);
   border: 1px solid var(--border);
@@ -7561,16 +7521,22 @@ body.resizing-row .log-detail-split::after {
   flex: none;
 }
 
-/* The kind of a document is an icon, not a word: same pill, one glyph, and a
-   colour that says diff-versus-source at a glance. */
+/* The kind of a document is a tinted icon badge, not a word: one glyph and one
+   hue per kind, so a strip of diffs never reads as a strip of identical tabs.
+   The pill background follows currentColor, which keeps the tint in step with
+   the kind's colour and out of a second palette to maintain. */
 .editor-tab-kind {
   display: grid;
   place-items: center;
+  flex: none;
   width: 18px;
   height: 16px;
   padding: 0;
   border-radius: 4px;
   font-size: 0;
+  color: var(--muted);
+  background: color-mix(in srgb, currentColor 12%, transparent);
+  transition: background-color 120ms ease, color 120ms ease;
 }
 
 .editor-tab-kind .icon {
@@ -7579,16 +7545,11 @@ body.resizing-row .log-detail-split::after {
 }
 
 .editor-tab-kind.kind-diff {
-  color: var(--muted);
-}
-
-.editor-tab.active .editor-tab-kind.kind-diff {
-  background: var(--accent-soft);
   color: var(--accent);
 }
 
 .editor-tab-kind.kind-file {
-  color: var(--muted-2);
+  color: var(--muted);
 }
 
 .editor-tab-kind.kind-conflict {
@@ -7597,6 +7558,12 @@ body.resizing-row .log-detail-split::after {
 
 .editor-tab-kind.kind-commit {
   color: var(--success);
+}
+
+/* The active tab strengthens its own kind's tint instead of turning every
+   kind accent, so the colour still answers "what is this tab?". */
+.editor-tab.active .editor-tab-kind {
+  background: color-mix(in srgb, currentColor 22%, transparent);
 }
 
 /* ---------- Diff syntax colours ----------
@@ -8250,4 +8217,38 @@ body.resizing-row .log-detail-split::after {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+/* ---------- Notifications ----------
+   The bottom-right corner owns every transient message. One fixed stack holds
+   toasts and the operation dock, so both share the status bar's 10px gutter and
+   grow upward instead of each drawing its own floating box. It stops short of
+   the title bar: --window-h, not vh, because the root is zoomed by the UI
+   scale and a viewport unit would be scaled twice. */
+.notice-stack {
+  position: fixed;
+  right: 10px;
+  bottom: 38px;
+  z-index: 120;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 8px;
+  max-height: calc(var(--window-h, 100vh) - 56px);
+  pointer-events: none;
+}
+
+/* The stack itself is a gutter, not a click target. */
+.notice-stack > * {
+  pointer-events: auto;
+}
+
+/* A toast is feedback on what just happened; the dock reports the operation
+   behind it, so the toast reads first, on top. */
+.notice-stack > .toast {
+  order: 1;
+}
+
+.notice-stack > .op-dock {
+  order: 2;
 }

@@ -171,6 +171,13 @@ use it only for layout work. Vite's port is pinned to 5173 in **both**
   `buildDiffRows` only folds long unchanged stretches when the diff is a
   window. A stored default that changes needs a `settingsVersion` bump and a
   migration in `loadSettings`, not a "if the value is X, change it" until.
+- Transient messages have one home: `noticeHost()` (`src/ui.tsx`) owns the
+  single `.notice-stack` in the bottom-right, and both `Toast` and
+  `OperationDock` portal into it. Never give a new banner its own
+  `position: fixed` corner — add it to the stack and give it an `order`.
+- A tab's `editor-tab-kind` badge is tinted by its own kind colour through
+  `currentColor`, so diff, source, merge and commit tabs read apart at a
+  glance; the active tab strengthens its kind's tint, it does not turn accent.
 - i18n has no key files: each component declares `const T = { en, zh }` and
   uses `useT(T)`. Add strings to both languages in the same dictionary;
   placeholders are `{name}`; plurals use `count(n, one, other)`.

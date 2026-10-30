@@ -1,7 +1,8 @@
 import { useEffect, useRef } from "react";
+import { createPortal } from "react-dom";
 import { Icon } from "./icons";
 import { useT } from "./i18n";
-import { cx, Spinner } from "./ui";
+import { cx, noticeHost, Spinner } from "./ui";
 
 const T = {
   en: {
@@ -69,7 +70,7 @@ export function OperationDock({
     if (el) el.scrollTop = el.scrollHeight;
   }, [op.lines, open]);
 
-  return (
+  return createPortal(
     <section className={cx("op-dock", op.running && "running", op.error && "failed")} aria-live="polite">
       <button className="op-dock-head" onClick={onToggle} title={open ? t("hide") : t("show")}>
         {op.running ? <Spinner /> : <Icon name={op.error ? "error" : "check"} size={13} />}
@@ -98,6 +99,7 @@ export function OperationDock({
           </div>
         </div>
       )}
-    </section>
+    </section>,
+    noticeHost(),
   );
 }

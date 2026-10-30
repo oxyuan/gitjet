@@ -1992,7 +1992,7 @@ function AppShell({ onLangChange }: { onLangChange: (lang: Lang) => void }) {
   );
 
   return (
-    <div className="app" style={{ "--op-dock-left": `${splitWidth + 10}px` } as React.CSSProperties}>
+    <div className="app">
       <header className="titlebar">
         <div className="titlebar-brand">
           <span className="brand-mark">
