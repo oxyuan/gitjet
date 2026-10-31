@@ -33,6 +33,7 @@ import { findReferences, jumpToDefinition } from "@codemirror/lsp-client";
 import { editorHighlightStyle } from "./highlight";
 import type { BlameLine } from "./mygo";
 import { blameDepth, type ChangeRange } from "./annotate";
+import { normalizeText } from "./editorText";
 
 /** The editor paints with the app's tokens, so there is one palette, not two. */
 const theme = EditorView.theme({
@@ -258,6 +259,14 @@ export type EditorOptions = {
   doc: string;
   language: string;
   wrap: boolean;
+  /** Working-tree files are editable; the index and historical revisions are
+   *  read-only. Read-only still leaves the DOM focusable. */
+  editable?: boolean;
+  /** Reports when the document differs from the last saved text, so the tab
+   *  can show a dot and "close unmodified" can leave it alone. */
+  onDirtyChange?: (dirty: boolean) => void;
+  /** Ctrl/Cmd-S. The page owns the actual write. */
+  onSaveRequest?: () => void;
   /** Copy the editor needs, in the reader's language. */
   labels?: { addedHere?: string; deletedHere?: string };
   /** Formats one blame line; the app owns the wording. */
@@ -380,18 +389,24 @@ export class SourceEditor {
   private annotateConf = new Compartment();
   private annotateExtension: Extension;
   private currentLanguage = "";
+  private savedDoc: string;
+  private dirty = false;
+  private onDirtyChange?: (dirty: boolean) => void;
 
   constructor(parent: HTMLElement, opts: EditorOptions) {
     let lastLine = 1;
+    const editable = !!opts.editable;
+    this.savedDoc = normalizeText(opts.doc);
+    this.onDirtyChange = opts.onDirtyChange;
     this.annotateExtension = annotateGutter(opts);
     this.view = new EditorView({
       parent,
       state: EditorState.create({
-        doc: opts.doc,
+        doc: this.savedDoc,
         extensions: [
           // Read-only keeps the document untouchable; the DOM stays editable
           // so the pane can take focus and answer to the arrow keys.
-          EditorState.readOnly.of(true),
+          EditorState.readOnly.of(!editable),
           // The blame column sits left of the line numbers, like an IDE.
           this.annotateConf.of(opts.annotate ? this.annotateExtension : []),
           lineNumbers({
@@ -457,6 +472,13 @@ export class SourceEditor {
                 return true;
               },
             },
+            {
+              key: "Mod-s",
+              run: () => {
+                if (opts.onSaveRequest && this.dirty) opts.onSaveRequest();
+                return true;
+              },
+            },
           ]),
           EditorView.domEventHandlers({
             mousedown: (event, view) => {
@@ -492,6 +514,7 @@ export class SourceEditor {
           // The line the caret sits on is what "copy path with line" means;
           // report it when it moves rather than on every transaction.
           EditorView.updateListener.of((u) => {
+            if (u.docChanged) this.noteDoc(u.state.doc.toString());
             if (!u.selectionSet && !u.docChanged) return;
             const n = u.state.doc.lineAt(u.state.selection.main.head).number;
             if (n === lastLine) return;
@@ -504,17 +527,53 @@ export class SourceEditor {
     void this.setLanguage(opts.language);
     if (opts.changes) this.setChanges(opts.changes);
     if (opts.blame) this.setBlame(opts.blame);
+    this.setDirty(this.view.state.doc.toString() !== this.savedDoc);
+  }
+
+  private noteDoc(text: string) {
+    this.setDirty(text !== this.savedDoc);
+  }
+
+  private setDirty(dirty: boolean) {
+    if (this.dirty === dirty) return;
+    this.dirty = dirty;
+    this.onDirtyChange?.(dirty);
+  }
+
+  /** The text the page would write to disk. */
+  getDoc(): string {
+    return this.view.state.doc.toString();
+  }
+
+  isDirty(): boolean {
+    return this.dirty;
+  }
+
+  /** Marks the current document as the saved baseline after a successful
+   *  write. If the user kept typing during the write, the saved text is the
+   *  older snapshot and the document stays dirty. */
+  markSaved(saved: string) {
+    this.savedDoc = saved;
+    this.setDirty(this.view.state.doc.toString() !== saved);
   }
 
   /** Swaps the shown document without tearing the editor down. The change
    *  bars and the blame belong to the old document, so they are cleared in
-   *  the same transaction; the fetch that follows fills them back in. */
+   *  the same transaction; the fetch that follows fills them back in. Unsaved
+   *  edits win over a refresh from disk. */
   setDoc(doc: string, language: string) {
-    if (this.view.state.doc.toString() !== doc) {
+    const incoming = normalizeText(doc);
+    const current = this.view.state.doc.toString();
+    if (current !== incoming) {
+      if (this.dirty) return;
+      this.savedDoc = incoming;
       this.view.dispatch({
-        changes: { from: 0, to: this.view.state.doc.length, insert: doc },
+        changes: { from: 0, to: this.view.state.doc.length, insert: incoming },
         effects: [setChanges.of([]), setBlame.of(new Map())],
       });
+    } else if (this.savedDoc !== incoming) {
+      this.savedDoc = incoming;
+      this.setDirty(false);
     }
     if (language !== this.currentLanguage) void this.setLanguage(language);
   }

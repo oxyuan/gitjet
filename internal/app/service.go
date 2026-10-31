@@ -444,6 +444,19 @@ func (g *Git) CreateDir(path string) error {
 	return nil
 }
 
+// SaveFile replaces an existing working-tree file's text.
+func (g *Git) SaveFile(path, text string) error {
+	repo, err := g.c.currentRepo()
+	if err != nil {
+		return err
+	}
+	if err := repo.SaveFile(context.Background(), path, text); err != nil {
+		return err
+	}
+	g.notify()
+	return nil
+}
+
 // RenamePath moves a file or directory.
 func (g *Git) RenamePath(from, to string) error {
 	repo, err := g.c.currentRepo()

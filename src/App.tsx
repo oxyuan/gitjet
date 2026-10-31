@@ -125,6 +125,8 @@ const T = {
     showDiffFailed: "Could not show the diff",
     openFileFailed: "Could not open the file",
     fileActionFailed: "Could not change the file",
+    fileSaved: "File saved",
+    saveFileFailed: "Could not save the file",
     symbolLookupFailed: "Could not search for that name",
     rollbackHunkTitle: "Roll back this change",
     rollbackHunkMessage: "Discard this block of changes in {path}?",
@@ -146,6 +148,11 @@ const T = {
     closeUnmodifiedTabs: "Close Unmodified",
     closeLeftTabs: "Close to the Left",
     closeRightTabs: "Close to the Right",
+    unsaved: "Unsaved changes",
+    discardTitle: "Unsaved Changes",
+    discardMessage: "Discard unsaved changes in the tabs being closed?",
+    discard: "Discard",
+    unsavedCloseRepo: "Open tabs have unsaved changes.",
     rollbackChangesTitle: "Rollback Changes",
     rollbackFilesOne: "Discard local changes to {n} file?",
     rollbackFilesOther: "Discard local changes to {n} files?",
@@ -306,6 +313,8 @@ const T = {
     showDiffFailed: "无法显示差异",
     openFileFailed: "无法打开文件",
     fileActionFailed: "无法修改文件",
+    fileSaved: "文件已保存",
+    saveFileFailed: "无法保存文件",
     symbolLookupFailed: "无法搜索该名称",
     rollbackHunkTitle: "回滚这段修改",
     rollbackHunkMessage: "要丢弃 {path} 里的这段修改吗?",
@@ -327,6 +336,11 @@ const T = {
     closeUnmodifiedTabs: "关闭未修改标签页",
     closeLeftTabs: "关闭左侧标签页",
     closeRightTabs: "关闭右侧标签页",
+    unsaved: "未保存的更改",
+    discardTitle: "未保存的更改",
+    discardMessage: "要丢弃正在关闭的标签页中的未保存更改吗？",
+    discard: "丢弃",
+    unsavedCloseRepo: "已打开的标签页中有未保存的更改。",
     rollbackChangesTitle: "回滚更改",
     rollbackFilesOne: "放弃对 {n} 个文件的本地更改？",
     rollbackFilesOther: "放弃对 {n} 个文件的本地更改？",
@@ -599,6 +613,7 @@ function AppShell({ onLangChange }: { onLangChange: (lang: Lang) => void }) {
   const snapshotRef = useRef<ChangesSnapshot | null>(null);
   const docsRef = useRef<Doc[]>([]);
   const activeIdRef = useRef<string | null>(null);
+  const dirtyDocsRef = useRef<Set<string>>(new Set());
   const repoOpenRef = useRef(false);
   const refreshRef = useRef<(() => void) | null>(null);
   const amendBackup = useRef("");
@@ -628,6 +643,7 @@ function AppShell({ onLangChange }: { onLangChange: (lang: Lang) => void }) {
   snapshotRef.current = snapshot;
   docsRef.current = docs;
   activeIdRef.current = activeId;
+  dirtyDocsRef.current = dirtyDocs;
   const activeDoc = docs.find((d) => d.id === activeId) ?? null;
 
   const notify = useCallback((kind: "info" | "success" | "error", title: string, message?: string) => {
@@ -776,6 +792,30 @@ function AppShell({ onLangChange }: { onLangChange: (lang: Lang) => void }) {
 
   const closeDoc = useCallback((id: string) => closeDocs([id]), [closeDocs]);
 
+  /** A close the user asked for: edited tabs ask before they are dropped. */
+  const requestCloseDocs = (ids: string[]) => {
+    const dirty = ids.filter((id) => dirtyDocsRef.current.has(id));
+    if (dirty.length === 0) {
+      closeDocs(ids);
+      return;
+    }
+    const names = dirty.map((id) => {
+      const doc = docsRef.current.find((d) => d.id === id);
+      return doc ? tabTitle(doc, t) : id;
+    });
+    void ask({
+      title: t("discardTitle"),
+      message: t("discardMessage"),
+      detail: names.join(", "),
+      confirmLabel: t("discard"),
+      danger: true,
+    }).then((ok) => {
+      if (ok) closeDocs(ids);
+    });
+  };
+
+  const requestCloseDoc = (id: string) => requestCloseDocs([id]);
+
   /** One editor tab per commit: arrow keys switch the file inside it. */
   const openCommitFile = useCallback(
     async (hash: string, file: CommitFile) => {
@@ -855,6 +895,32 @@ function AppShell({ onLangChange }: { onLangChange: (lang: Lang) => void }) {
   refreshRef.current = () => {
     void reload(false);
   };
+
+  /** Writes an edited working-tree file, then refreshes status, diff and blame.
+   *  The saved text is put into the open documents immediately so a tab that
+   *  is already mounted does not wait for the refresh. */
+  const saveFile = useCallback(
+    async (path: string, text: string) => {
+      try {
+        await Git.saveFile(path, text);
+        const size = new TextEncoder().encode(text).length;
+        setDocs((prev) =>
+          prev.map((d) =>
+            d.kind === "file" && d.file.path === path && d.revision === ""
+              ? { ...d, file: { ...d.file, text, size } }
+              : d,
+          ),
+        );
+        await reload(false);
+        notify("success", t("fileSaved"), path);
+        return true;
+      } catch (err) {
+        fail(t("saveFileFailed"), err);
+        return false;
+      }
+    },
+    [fail, notify, reload, t],
+  );
 
   // A definition jump opens the file it lands in, through the same dock tab
   // the reader would have opened by hand.
@@ -1024,6 +1090,15 @@ function AppShell({ onLangChange }: { onLangChange: (lang: Lang) => void }) {
       }
       return;
     }
+    if (dirtyDocsRef.current.size > 0) {
+      const ok = await ask({
+        title: t("discardTitle"),
+        message: t("discardMessage"),
+        confirmLabel: t("discard"),
+        danger: true,
+      });
+      if (!ok) return;
+    }
     setBusy((n) => n + 1);
     try {
       const snap = await Workspace.open(chosen);
@@ -1068,6 +1143,7 @@ function AppShell({ onLangChange }: { onLangChange: (lang: Lang) => void }) {
     const ok = await ask({
       title: t("closeRepoTitle"),
       message: t("closeRepoMessage"),
+      detail: dirtyDocsRef.current.size > 0 ? t("unsavedCloseRepo") : undefined,
       confirmLabel: t("close"),
     });
     if (!ok) return;
@@ -1789,7 +1865,7 @@ function AppShell({ onLangChange }: { onLangChange: (lang: Lang) => void }) {
           if (repoOpenRef.current) setQuickOpen(true);
           break;
         case "closetab":
-          if (activeIdRef.current) closeDoc(activeIdRef.current);
+          if (activeIdRef.current) requestCloseDoc(activeIdRef.current);
           break;
         case "close":
           void closeRepo();
@@ -2181,12 +2257,13 @@ function AppShell({ onLangChange }: { onLangChange: (lang: Lang) => void }) {
             docs={docs}
             activeId={activeId}
             onActivate={setActiveId}
-            onCloseDoc={closeDoc}
-            onCloseDocs={closeDocs}
+            onCloseDoc={requestCloseDoc}
+            onCloseDocs={requestCloseDocs}
             dirtyIds={dirtyDocs}
             onDocDirty={setDocDirty}
             onFilesChanged={() => void reload(false)}
             onFileError={(err) => fail(t("fileActionFailed"), err)}
+            onSaveFile={saveFile}
             diffWrap={diffWrap}
             onToggleWrap={() => setDiffWrap(!diffWrap)}
             onApplyHunk={(hunk, action) => {
@@ -2698,6 +2775,7 @@ function RightPane({
   onDocDirty,
   onFilesChanged,
   onFileError,
+  onSaveFile,
   diffMode,
   diffWrap,
   onToggleWrap,
@@ -2736,6 +2814,7 @@ function RightPane({
   onDocDirty: (id: string, dirty: boolean) => void;
   onFilesChanged: () => void;
   onFileError: (err: unknown) => void;
+  onSaveFile: (path: string, text: string) => Promise<boolean>;
   diffWrap: boolean;
   onToggleWrap: () => void;
   diffMode: "split" | "unified";
@@ -2772,6 +2851,15 @@ function RightPane({
     onCopy: onCopyPath,
     onReveal,
   });
+  // A source tab's unsaved text while another tab is active. Clean documents
+  // need no draft, and closing a tab drops its key.
+  const drafts = useRef<Map<string, string>>(new Map());
+  useEffect(() => {
+    const open = new Set(docs.map((d) => d.id));
+    for (const id of drafts.current.keys()) {
+      if (!open.has(id) || !dirtyIds.has(id)) drafts.current.delete(id);
+    }
+  }, [docs, dirtyIds]);
 
   const closeTabItems = (doc: Doc): ContextItem[] => {
     const index = docs.findIndex((d) => d.id === doc.id);
@@ -2913,6 +3001,7 @@ function RightPane({
                 {doc.diff.status === "added" ? "A" : doc.diff.status === "deleted" ? "D" : doc.diff.status === "renamed" ? "R" : "M"}
               </span>
             )}
+            {dirtyIds.has(doc.id) && <span className="tab-dirty" title={t("unsaved")} />}
             <button
               className="editor-tab-close"
               title={t("close")}
@@ -2963,6 +3052,10 @@ function RightPane({
             onReferences={(word) => onSymbol(word, active.file.language)}
             onLineHistory={(line) => onShowFileHistory(active.file.path, line, active.revision)}
             onCommitDiff={(hash) => onOpenDiff(active.file.path, hash)}
+            draft={drafts.current.get(active.id)}
+            onDraftChange={(text) => drafts.current.set(active.id, text)}
+            onSave={(text) => onSaveFile(active.file.path, text)}
+            onDirtyChange={(dirty) => onDocDirty(active.id, dirty)}
           />
         )}
         {active.kind === "commit" && (

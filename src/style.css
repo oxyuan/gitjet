@@ -2982,6 +2982,14 @@ kbd {
   flex: none;
 }
 
+.tab-dirty {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--accent);
+  flex: none;
+}
+
 .editor-tab-close {
   width: 16px;
   height: 16px;

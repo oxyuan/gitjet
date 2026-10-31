@@ -6,6 +6,7 @@ import { connectLSP, lspServes, registerView, unregisterView, toUri } from "./ls
 import { blameMenuItems } from "./blameMenu";
 import { ContextMenu, useStoredState, type ContextItem } from "./ui";
 import { useT } from "./i18n";
+import { withLineEnding, type LineEnding } from "./editorText";
 
 const T = {
   en: {
@@ -36,6 +37,9 @@ export function SourceEditor({
   file,
   line,
   wrap,
+  editable = false,
+  lineEnding = "\n",
+  draft,
   labels,
   blameFormat,
   onRollbackHunk,
@@ -46,10 +50,20 @@ export function SourceEditor({
   onLineHistory,
   onCommitDiff,
   onCopy,
+  onDirtyChange,
+  onSave,
+  onDraftChange,
+  saveRef,
 }: {
   file: SourceFile;
   line?: number;
   wrap: boolean;
+  /** Working-tree files take edits; the index and commits do not. */
+  editable?: boolean;
+  /** The separator the file used on disk, restored when saving. */
+  lineEnding?: LineEnding;
+  /** Text restored after switching away with unsaved edits. */
+  draft?: string;
   labels?: { addedHere: string; deletedHere: string };
   blameFormat?: (line: BlameLine) => string;
   onRollbackHunk?: (hunk: number) => void;
@@ -62,12 +76,77 @@ export function SourceEditor({
   /** Show the diff the blame commit made to this file. */
   onCommitDiff?: (hash: string) => void;
   onCopy?: (text: string) => void;
+  onDirtyChange?: (dirty: boolean) => void;
+  /** Writes the text to disk; resolves true when it succeeded. */
+  onSave?: (text: string) => Promise<boolean>;
+  /** Preserves a draft while the tab is not the active one. */
+  onDraftChange?: (text: string) => void;
+  /** Lets the header's Save button invoke the same write as Ctrl/Cmd-S. */
+  saveRef?: { current: (() => Promise<boolean>) | null };
 }) {
   const t = useT(T);
   const host = useRef<HTMLDivElement | null>(null);
   const editor = useRef<Editor | null>(null);
-  const actions = useRef({ onRollbackHunk, onSymbol, onJump, onReferences, onCaret, onLineHistory, onCommitDiff, onCopy });
-  actions.current = { onRollbackHunk, onSymbol, onJump, onReferences, onCaret, onLineHistory, onCommitDiff, onCopy };
+  const actions = useRef({
+    onRollbackHunk,
+    onSymbol,
+    onJump,
+    onReferences,
+    onCaret,
+    onLineHistory,
+    onCommitDiff,
+    onCopy,
+    editable,
+    lineEnding,
+    onDirtyChange,
+    onSave,
+    onDraftChange,
+  });
+  actions.current = {
+    onRollbackHunk,
+    onSymbol,
+    onJump,
+    onReferences,
+    onCaret,
+    onLineHistory,
+    onCommitDiff,
+    onCopy,
+    editable,
+    lineEnding,
+    onDirtyChange,
+    onSave,
+    onDraftChange,
+  };
+  const saving = useRef(false);
+  const save = async (): Promise<boolean> => {
+    const current = editor.current;
+    const write = actions.current.onSave;
+    if (!current || !actions.current.editable || !write || saving.current) return false;
+    saving.current = true;
+    try {
+      const doc = current.getDoc();
+      const ok = await write(withLineEnding(doc, actions.current.lineEnding));
+      if (ok) {
+        current.markSaved(doc);
+        current.view.focus();
+      }
+      return ok;
+    } catch {
+      return false;
+    } finally {
+      saving.current = false;
+    }
+  };
+  const saveLatest = useRef(save);
+  saveLatest.current = save;
+
+  useEffect(() => {
+    if (!saveRef) return;
+    saveRef.current = () => saveLatest.current();
+    return () => {
+      saveRef.current = null;
+    };
+  }, [saveRef]);
   const [changes, setChanges] = useState<ChangeRange[]>([]);
   const [blame, setBlame] = useState<BlameLine[] | null>(null);
   const [menu, setMenu] = useState<{ x: number; y: number; line: number } | null>(null);
@@ -81,11 +160,14 @@ export function SourceEditor({
   useEffect(() => {
     if (!host.current) return;
     const created = new Editor(host.current, {
-      doc: file.text,
+      doc: draft ?? file.text,
       language: file.language,
       wrap,
+      editable,
       labels,
       blameFormat,
+      onDirtyChange: (dirty) => actions.current.onDirtyChange?.(dirty),
+      onSaveRequest: editable ? () => void saveLatest.current() : undefined,
       onRollbackHunk: (hunk) => actions.current.onRollbackHunk?.(hunk),
       onSymbol: (word) => (actions.current.onSymbol ?? actions.current.onJump)?.(word),
       onJump: (word) => actions.current.onJump?.(word),
@@ -102,6 +184,9 @@ export function SourceEditor({
     const uri = toUri(file.path);
     registerView(uri, created.view);
     return () => {
+      if (actions.current.editable && created.isDirty()) {
+        actions.current.onDraftChange?.(created.getDoc());
+      }
       unregisterView(uri, created.view);
       created.destroy();
       editor.current = null;

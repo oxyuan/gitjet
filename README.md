@@ -69,7 +69,7 @@ flowchart LR
 - 识别二进制、超大文件、重命名与复制
 
 ### 源码阅读与跳转
-- CodeMirror 6 只读查看工作区 / 索引 / 任意提交中的文件，30+ 语言语法按需加载
+- CodeMirror 6 查看工作区文件并可编辑（`⌘/Ctrl+S` 或工具栏保存，标签页显示未保存圆点）；索引与任意提交版本只读；30+ 语言语法按需加载
 - 编辑器标注：左侧变更条对应 git 的 hunk，点击即可回滚该段修改（带确认）；当前行尾部显示 blame（作者、提交、摘要、时间），未提交的行单独标记
 - 行号 Git 菜单：点击或右键行号显示该行的提交、作者、时间与摘要；可查看该提交在此文件中的全部差异、按行过滤历史（`git log -L`）或复制哈希。工作区、索引与任意提交的源码都是同一个视图，blame 按当前版本计算
 - 行注解（Annotate）：在同一菜单里开关「使用 Git Blame 注解」，在行号左侧逐行展开提交日期与作者，并按提交着色；点击任意注解行可打开同一菜单。差异视图的两侧行号也提供同一菜单与注解列（左侧按父提交、右侧按新版本）
@@ -155,6 +155,7 @@ go test ./... && go vet ./... && bun run typecheck && bun run test:web && bun ru
 | ``⌘/Ctrl+Shift+` `` | 分支弹窗 |
 | `⌘/Ctrl+,` | 设置 |
 | `⌘/Ctrl+B` / `⌘/Ctrl+Shift+B` | 跳到定义 / 列出引用（源码视图） |
+| `⌘/Ctrl+S` | 保存当前源码（源码视图） |
 | `⌘/Ctrl+点击` / `⌘/Ctrl+Alt+点击` | 跳到定义 / 列出引用 |
 | `⌘/Ctrl+9` / `⌘/Ctrl+Shift+9` / `⌘/Ctrl+Shift+E` | 提交 / 控制台 / 文件 工具窗口 |
 
@@ -171,7 +172,7 @@ src/                    React 前端
   CommitPanel.tsx       变更列表、变更集与提交
   DiffView.tsx          并排/统一差异、行号 blame 菜单与注解列
   ConflictView.tsx      三路冲突解决
-  SourceView.tsx        源码视图外壳：标题、工具栏、二进制/空文件状态
+  SourceView.tsx        可编辑源码外壳：保存、工具栏、二进制/缺失文件状态
   SourceEditor.tsx      CodeMirror 挂载、变更条、blame、跳转接线
   SourceTree.tsx        文件视图：工作区目录树 + 子序列筛选
   editor.ts             CodeMirror 配置：主题、按需语法、装饰

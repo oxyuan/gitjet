@@ -46,6 +46,27 @@ func (r *Repo) CreateFile(ctx context.Context, path string) error {
 	return f.Close()
 }
 
+// SaveFile replaces the contents of an existing working-tree file. Creating
+// one is CreateFile's job, and a directory or a missing path is an error so a
+// save can never turn a typo into a new file. The file's mode is kept.
+func (r *Repo) SaveFile(_ context.Context, path, text string) error {
+	clean, err := cleanWorkPath(path)
+	if err != nil {
+		return err
+	}
+	r.write.Lock()
+	defer r.write.Unlock()
+	abs := r.AbsPath(clean)
+	st, err := os.Stat(abs)
+	if err != nil {
+		return err
+	}
+	if st.IsDir() {
+		return fmt.Errorf("%s is a directory", clean)
+	}
+	return os.WriteFile(abs, []byte(text), st.Mode().Perm())
+}
+
 // CreateDir creates a directory, making missing parents. An existing path is
 // an error rather than a silent success, so the page can say why nothing new
 // appeared.

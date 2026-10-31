@@ -104,6 +104,12 @@ const PATHS: Record<string, ReactNode> = {
   plus: <path d="M8 3v10M3 8h10" />,
   minus: <path d="M3 8h10" />,
   check: <path d="m3.2 8.4 3.1 3.1 6.5-6.9" />,
+  save: (
+    <>
+      <path d="M2.5 2.5h8.6L13.5 5v8.5h-11z" />
+      <path d="M5 2.5v3.6h4.5V2.5M5 13.5V9.2h6v4.3" />
+    </>
+  ),
   trash: (
     <>
       <path d="M2.8 4.4h10.4M6.4 4.4V2.8h3.2v1.6" />

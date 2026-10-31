@@ -20,6 +20,32 @@ func TestCreateFileMakesParents(t *testing.T) {
 	}
 }
 
+func TestSaveFileReplacesContent(t *testing.T) {
+	repo, dir := newTestRepo(t)
+	if err := repo.SaveFile(context.Background(), "a.txt", "one\nTHREE\n"); err != nil {
+		t.Fatalf("SaveFile: %v", err)
+	}
+	got, err := os.ReadFile(filepath.Join(dir, "a.txt"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(got) != "one\nTHREE\n" {
+		t.Fatalf("content = %q", got)
+	}
+}
+
+func TestSaveFileRejectsMissingDirectoryAndGit(t *testing.T) {
+	repo, dir := newTestRepo(t)
+	if err := os.Mkdir(filepath.Join(dir, "pkg"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	for _, path := range []string{"missing.txt", "pkg", ".git/config"} {
+		if err := repo.SaveFile(context.Background(), path, "text"); err == nil {
+			t.Errorf("SaveFile(%q) accepted a path it cannot edit", path)
+		}
+	}
+}
+
 func TestCreateDirRejectsExisting(t *testing.T) {
 	repo, dir := newTestRepo(t)
 	if err := repo.CreateDir(context.Background(), "pkg/inner"); err != nil {

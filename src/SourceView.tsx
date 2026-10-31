@@ -1,10 +1,11 @@
-import { useMemo, useState } from "react";
+import { useMemo, useRef, useState } from "react";
 import type { SourceFile } from "./mygo";
 import { SourceEditor } from "./SourceEditor";
 import { Icon } from "./icons";
 import { cx, formatWhen, IconButton } from "./ui";
 import { PathCopyButton } from "./PathCopy";
 import { useT } from "./i18n";
+import { detectLineEnding } from "./editorText";
 
 const T = {
   en: {
@@ -21,9 +22,10 @@ const T = {
 
     revealInManager: "Reveal in file manager",
     wrap: "Wrap",
+    save: "Save",
+    saveHint: "Save (⌘/Ctrl+S)",
     truncated: "File truncated at 8 MB",
     binaryFile: "Binary file — no text to show",
-    emptyFile: "Empty file",
     missingFile: "File does not exist in this revision",
     addedHere: "Changed here — click to roll this block back",
     deletedHere: "Deleted here — click to roll this back",
@@ -43,9 +45,10 @@ const T = {
 
     revealInManager: "在文件管理器中显示",
     wrap: "折行",
+    save: "保存",
+    saveHint: "保存（⌘/Ctrl+S）",
     truncated: "文件已截断至 8 MB",
     binaryFile: "二进制文件 — 无文本可显示",
-    emptyFile: "空文件",
     missingFile: "此版本中不存在该文件",
     addedHere: "此处的修改 — 点击回滚这一块",
     deletedHere: "此处有删除 — 点击回滚",
@@ -85,6 +88,10 @@ export function SourceView({
   onReferences,
   onLineHistory,
   onCommitDiff,
+  draft,
+  onDraftChange,
+  onSave,
+  onDirtyChange,
 }: {
   file: SourceFile;
   /** 1-based line to put the cursor on, for a jump from another file. */
@@ -104,9 +111,19 @@ export function SourceView({
   onLineHistory?: (line: number) => void;
   /** The gutter menu's diff of the commit that last touched the line. */
   onCommitDiff?: (hash: string) => void;
+  /** Text kept while this tab was inactive. */
+  draft?: string;
+  onDraftChange?: (text: string) => void;
+  /** Writes the working-tree file; resolves false when the write failed. */
+  onSave?: (text: string) => Promise<boolean>;
+  /** Tells the tab strip whether this document has unsaved edits. */
+  onDirtyChange?: (dirty: boolean) => void;
 }) {
   const t = useT(T);
   const [wrap, setWrap] = useState(false);
+  const saveRef = useRef<(() => Promise<boolean>) | null>(null);
+  const [dirty, setDirty] = useState(false);
+  const [saving, setSaving] = useState(false);
   // The line the menu offers alongside the path: where the caret is.
   const [caret, setCaret] = useState<number | undefined>(undefined);
   const lines = useMemo(() => {
@@ -120,6 +137,23 @@ export function SourceView({
   const dir = file.path.includes("/") ? file.path.slice(0, file.path.lastIndexOf("/") + 1) : "";
   const name = file.path.slice(dir.length);
   const revision = revisionLabel(file.revision, t);
+  // Only a live working-tree text file can be edited; the index, a commit and
+  // a truncated copy must not be overwritten from this pane.
+  const editable = file.revision === "" && file.exists && !file.binary && !file.truncated;
+  const lineEnding = detectLineEnding(file.text);
+  const handleDirty = (next: boolean) => {
+    setDirty(next);
+    onDirtyChange?.(next);
+  };
+  const runSave = async () => {
+    if (saving) return;
+    setSaving(true);
+    try {
+      await saveRef.current?.();
+    } finally {
+      setSaving(false);
+    }
+  };
 
   return (
     <div className="source-view">
@@ -164,6 +198,16 @@ export function SourceView({
           <button className={cx("toolbar-text-btn", wrap && "active")} onClick={() => setWrap((v) => !v)}>
             <Icon name="rows" /> {t("wrap")}
           </button>
+          {editable && (
+            <button
+              className={cx("toolbar-text-btn", dirty && "active")}
+              onClick={() => void runSave()}
+              disabled={!dirty || saving}
+              title={t("saveHint")}
+            >
+              <Icon name="save" /> {t("save")}
+            </button>
+          )}
           <span className="toolbar-sep" />
           <span className="muted">UTF-8</span>
           <span className="spacer" />
@@ -176,16 +220,19 @@ export function SourceView({
           <div>{t("binaryFile")}</div>
           <div className="muted">{formatSize(file.size)}</div>
         </div>
-      ) : lines.length === 0 ? (
+      ) : !file.exists ? (
         <div className="diff-empty">
           <Icon name="file" size={20} />
-          <div>{file.exists ? t("emptyFile") : t("missingFile")}</div>
+          <div>{t("missingFile")}</div>
         </div>
       ) : (
         <SourceEditor
           file={file}
           line={line}
           wrap={wrap}
+          editable={editable}
+          lineEnding={lineEnding}
+          draft={draft}
           labels={{ addedHere: t("addedHere"), deletedHere: t("deletedHere") }}
           blameFormat={(blame) =>
             blame.uncommitted
@@ -200,6 +247,10 @@ export function SourceView({
           onLineHistory={file.revision === "INDEX" ? undefined : onLineHistory}
           onCommitDiff={onCommitDiff}
           onCopy={onCopyPath}
+          onDirtyChange={handleDirty}
+          onSave={onSave}
+          onDraftChange={onDraftChange}
+          saveRef={saveRef}
         />
       )}
     </div>

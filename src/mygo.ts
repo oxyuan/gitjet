@@ -931,6 +931,10 @@ export const Git = {
   rollback(paths: string[]): Promise<void> {
     return call("Git.Rollback", paths);
   },
+  /** SaveFile replaces an existing working-tree file's text. */
+  saveFile(path: string, text: string): Promise<void> {
+    return call("Git.SaveFile", path, text);
+  },
   /** SaveResolution writes and stages a resolved file. */
   saveResolution(path: string, content: string): Promise<void> {
     return call("Git.SaveResolution", path, content);

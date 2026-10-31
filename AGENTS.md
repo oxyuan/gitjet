@@ -196,9 +196,17 @@ use it only for layout work. Vite's port is pinned to 5173 in **both**
 
 ### Editing and language servers
 
-- The source pane is read-only CodeMirror: `EditorState.readOnly`,
-  never `EditorView.editable(false)` — the latter makes the DOM unfocusable and
-  kills the arrow keys, `⌘B` and copy.
+- The working-tree source pane is editable CodeMirror; the index and historical
+  revisions use `EditorState.readOnly`, never `EditorView.editable(false)` — the
+  latter makes the DOM unfocusable and kills the arrow keys, `⌘B` and copy.
+  Saving goes through `Git.saveFile` (Ctrl/Cmd-S or the toolbar), which refuses
+  directories and missing paths. `src/editorText.ts` folds CRLF for CodeMirror
+  and restores the file's separator on write.
+- Dirty state is owned by `App` (`dirtyDocs`): the editor compares against its
+  saved baseline, the tab shows a dot, and closing a dirty tab asks first.
+  `SourceView` keeps an inactive dirty tab's text in `RightPane`'s `drafts`
+  map; a clean tab is always re-read from `file.text`. A refresh from disk never
+  replaces a dirty document.
 - Change bars come from `Git.diff({target:"worktree"})` hunks, mapped to lines by
   `src/annotate.ts`; clicking a bar calls `Git.applyHunk(..., "rollback")` with
   the same hunk index. Blame comes from `Git.blame(path, revision)` (`""` is
