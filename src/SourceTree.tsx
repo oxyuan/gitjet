@@ -3,6 +3,7 @@ import { Git, type RepoFile } from "./mygo";
 import { buildChangeTree } from "./changes";
 import { expandedTo, filterFiles } from "./explorer";
 import { FileTree, type ListedFile } from "./FileTree";
+import { useFileMenu } from "./FileMenu";
 import { FileIcon, Icon } from "./icons";
 import { cx, IconButton, Spinner } from "./ui";
 import { useT } from "./i18n";
@@ -38,17 +39,23 @@ type ExplorerRow = ListedFile & { untracked: boolean };
  *  files too and has no idea what changed. */
 export function SourceTree({
   repoOpen,
+  root,
   reloadKey,
   activePath,
   onOpen,
   onError,
+  onActionError,
 }: {
   repoOpen: boolean;
+  /** Absolute repository root, for the copy-path choices. */
+  root: string;
   /** Changes whenever the working tree might have: branch, file count. */
   reloadKey: string;
   activePath?: string;
   onOpen: (path: string) => void;
   onError: (err: unknown) => void;
+  /** A failed create/rename/delete, reported apart from a failed read. */
+  onActionError: (err: unknown) => void;
 }) {
   const t = useT(T);
   const [files, setFiles] = useState<ExplorerRow[]>([]);
@@ -56,6 +63,11 @@ export function SourceTree({
   const [query, setQuery] = useState("");
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
   const [nonce, setNonce] = useState(0);
+  const menu = useFileMenu({
+    root,
+    onChanged: () => setNonce((n) => n + 1),
+    onError: onActionError,
+  });
 
   useEffect(() => {
     if (!repoOpen) {
@@ -131,7 +143,10 @@ export function SourceTree({
         {loading && <Spinner />}
         <IconButton icon="refresh" title={t("refresh")} small onClick={() => setNonce((n) => n + 1)} disabled={!repoOpen} />
       </div>
-      <div className="explorer-body">
+      <div
+        className="explorer-body"
+        onContextMenu={(e) => menu.openMenu(e, { path: "", isDir: true })}
+      >
         {visible.length === 0 ? (
           <div className="explorer-empty muted">
             {files.length === 0 ? (repoOpen ? t("noFiles") : t("openRepositoryFirst")) : t("noMatch", { query })}
@@ -142,6 +157,7 @@ export function SourceTree({
             expanded={shownExpanded}
             onToggleDir={toggleDir}
             indent={6}
+            onDirContextMenu={(node, e) => menu.openMenu(e, { path: node.path, isDir: true })}
             renderFile={(file, depth, flat) => {
               const slash = file.path.lastIndexOf("/");
               const name = slash < 0 ? file.path : file.path.slice(slash + 1);
@@ -157,6 +173,7 @@ export function SourceTree({
                   style={{ paddingLeft: 6 + depth * 12 }}
                   title={file.untracked ? `${file.path}\n${t("untracked")}` : file.path}
                   onClick={() => onOpen(file.path)}
+                  onContextMenu={(e) => menu.openMenu(e, { path: file.path, isDir: false })}
                 >
                   <span className="tree-chevron-spacer" />
                   <FileIcon path={file.path} size={14} />
@@ -171,6 +188,7 @@ export function SourceTree({
           />
         )}
       </div>
+      {menu.menuNode}
     </div>
   );
 }

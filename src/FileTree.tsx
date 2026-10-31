@@ -1,4 +1,4 @@
-import type { ReactNode } from "react";
+import type { MouseEvent, ReactNode } from "react";
 import { buildChangeTree, treeFiles, treeTotals, type TreeNode, type TreeFile } from "./changes";
 import { Icon } from "./icons";
 import { cx } from "./ui";
@@ -27,6 +27,7 @@ export function FileTree<T extends ListedFile>({
   onToggleDir,
   renderFile,
   renderDirLead,
+  onDirContextMenu,
   indent = 6,
   step = 12,
 }: {
@@ -38,6 +39,8 @@ export function FileTree<T extends ListedFile>({
   renderFile: (file: T, depth: number, flat: boolean) => ReactNode;
   /** Extra controls shown before the folder icon of a directory row. */
   renderDirLead?: (node: TreeNode<T>) => ReactNode;
+  /** Right-click on a directory row; file rows own their own handler. */
+  onDirContextMenu?: (node: TreeNode<T>, event: MouseEvent) => void;
   indent?: number;
   step?: number;
 }) {
@@ -62,6 +65,9 @@ export function FileTree<T extends ListedFile>({
           className={cx("tree-row dir", open && "expanded")}
           style={{ paddingLeft: indent + depth * step }}
           onClick={() => onToggleDir(node.path)}
+          onContextMenu={
+            onDirContextMenu ? (event) => onDirContextMenu(node, event) : undefined
+          }
           title={treeFiles(node)
             .map((file) => file.path)
             .slice(0, 12)

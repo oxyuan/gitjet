@@ -418,13 +418,52 @@ func (g *Git) Rollback(paths []string) error {
 	return nil
 }
 
-// DeleteUntracked deletes untracked files.
-func (g *Git) DeleteUntracked(paths []string) error {
+// CreateFile creates an empty file in the working tree.
+func (g *Git) CreateFile(path string) error {
 	repo, err := g.c.currentRepo()
 	if err != nil {
 		return err
 	}
-	if err := repo.DeleteUntracked(context.Background(), paths); err != nil {
+	if err := repo.CreateFile(context.Background(), path); err != nil {
+		return err
+	}
+	g.notify()
+	return nil
+}
+
+// CreateDir creates a directory in the working tree.
+func (g *Git) CreateDir(path string) error {
+	repo, err := g.c.currentRepo()
+	if err != nil {
+		return err
+	}
+	if err := repo.CreateDir(context.Background(), path); err != nil {
+		return err
+	}
+	g.notify()
+	return nil
+}
+
+// RenamePath moves a file or directory.
+func (g *Git) RenamePath(from, to string) error {
+	repo, err := g.c.currentRepo()
+	if err != nil {
+		return err
+	}
+	if err := repo.RenamePath(context.Background(), from, to); err != nil {
+		return err
+	}
+	g.notify()
+	return nil
+}
+
+// DeletePath deletes a file or directory and stages tracked removals.
+func (g *Git) DeletePath(path string) error {
+	repo, err := g.c.currentRepo()
+	if err != nil {
+		return err
+	}
+	if err := repo.DeletePath(context.Background(), path); err != nil {
 		return err
 	}
 	g.notify()

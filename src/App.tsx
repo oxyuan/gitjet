@@ -122,6 +122,7 @@ const T = {
     openRepoFailed: "Could not open the repository",
     showDiffFailed: "Could not show the diff",
     openFileFailed: "Could not open the file",
+    fileActionFailed: "Could not change the file",
     symbolLookupFailed: "Could not search for that name",
     rollbackHunkTitle: "Roll back this change",
     rollbackHunkMessage: "Discard this block of changes in {path}?",
@@ -143,10 +144,6 @@ const T = {
     rollbackFilesOther: "Discard local changes to {n} files?",
     rollbackChangesDetail: "The files are restored from HEAD. This cannot be undone.",
     rollback: "Rollback",
-    deleteFilesTitle: "Delete Files",
-    deleteFilesOne: "Delete {n} untracked file?",
-    deleteFilesOther: "Delete {n} untracked files?",
-    deleteFilesDetail: "The files are removed from disk. This cannot be undone.",
     delete: "Delete",
     rollbackFileTitle: "Rollback File",
     rollbackFileMessage: "Discard all changes to {path}?",
@@ -301,6 +298,7 @@ const T = {
     openRepoFailed: "无法打开仓库",
     showDiffFailed: "无法显示差异",
     openFileFailed: "无法打开文件",
+    fileActionFailed: "无法修改文件",
     symbolLookupFailed: "无法搜索该名称",
     rollbackHunkTitle: "回滚这段修改",
     rollbackHunkMessage: "要丢弃 {path} 里的这段修改吗?",
@@ -322,10 +320,6 @@ const T = {
     rollbackFilesOther: "放弃对 {n} 个文件的本地更改？",
     rollbackChangesDetail: "文件将从 HEAD 恢复。此操作无法撤销。",
     rollback: "回滚",
-    deleteFilesTitle: "删除文件",
-    deleteFilesOne: "删除 {n} 个未跟踪文件？",
-    deleteFilesOther: "删除 {n} 个未跟踪文件？",
-    deleteFilesDetail: "文件将从磁盘删除。此操作无法撤销。",
     delete: "删除",
     rollbackFileTitle: "回滚文件",
     rollbackFileMessage: "放弃对 {path} 的所有更改？",
@@ -1194,21 +1188,6 @@ function AppShell({ onLangChange }: { onLangChange: (lang: Lang) => void }) {
     });
   };
 
-  const deleteUntracked = async (paths: string[]) => {
-    const ok = await ask({
-      title: t("deleteFilesTitle"),
-      message: count(paths.length, t("deleteFilesOne", { n: paths.length }), t("deleteFilesOther", { n: paths.length })),
-      detail: t("deleteFilesDetail"),
-      confirmLabel: t("delete"),
-      danger: true,
-    });
-    if (!ok) return;
-    await withBusy(async () => {
-      await Git.deleteUntracked(paths);
-      await reload(false);
-    });
-  };
-
   const ignorePaths = (paths: string[]) =>
     withBusy(async () => {
       const file = await Git.ignore(paths);
@@ -1877,6 +1856,7 @@ function AppShell({ onLangChange }: { onLangChange: (lang: Lang) => void }) {
 
   const actions: CommitActions = {
     onRefresh: () => void reload(true),
+    onError: (err) => fail(t("gitFailed"), err),
     onShowDiff: openEntryDiff,
     onShowConflict: (path) => void openConflict(path),
     onOpenSource: (path, revision) => void showFile(path, revision),
@@ -1884,7 +1864,6 @@ function AppShell({ onLangChange }: { onLangChange: (lang: Lang) => void }) {
     onStage: (paths) => void stage(paths),
     onUnstage: (paths) => void unstage(paths),
     onRollback: (paths) => void rollback(paths),
-    onDelete: (paths) => void deleteUntracked(paths),
     onIgnore: (paths) => void ignorePaths(paths),
     onReveal: (path) => void Workspace.reveal(path).catch((err) => fail(t("revealFailed"), err)),
     onCopyPath: copyText,
@@ -2129,10 +2108,12 @@ function AppShell({ onLangChange }: { onLangChange: (lang: Lang) => void }) {
               (repoOpen ? (
                 <SourceTree
                   repoOpen={repoOpen}
+                  root={state?.root ?? ""}
                   reloadKey={`${state?.branch ?? ""}:${snapshot?.state.changed ?? 0}:${snapshot?.state.untracked ?? 0}`}
                   activePath={activeDocPath}
                   onOpen={(path) => void showFile(path)}
                   onError={(err) => fail(t("openFileFailed"), err)}
+                  onActionError={(err) => fail(t("fileActionFailed"), err)}
                 />
               ) : (
                 <NoRepo onOpen={() => void openRepo()} />

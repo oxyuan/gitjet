@@ -8447,3 +8447,19 @@ body.resizing-row .log-detail-split::after {
 .journal-file:hover {
   color: var(--accent);
 }
+
+/* A nested context menu: fixed, above the parent, and never clipped by the
+   tool window it was opened from. */
+.context-submenu {
+  position: fixed;
+  z-index: 101;
+  min-width: 200px;
+}
+
+.menu-arrow {
+  display: grid;
+  place-items: center;
+  flex: none;
+  margin-left: 4px;
+  color: var(--muted-2);
+}

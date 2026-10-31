@@ -1,6 +1,7 @@
 import { useMemo, useState } from "react";
 import { buildChangeTree, directoryKeys, splitTracked, treeFiles } from "./changes";
 import { FileTree, type ChangeView } from "./FileTree";
+import { useFileMenu } from "./FileMenu";
 import { count, useT } from "./i18n";
 import type { Changelist, ChangesSnapshot, Settings } from "./mygo";
 import { FileIcon, Icon } from "./icons";
@@ -29,8 +30,6 @@ const T = {
     delete: "Delete…",
     addToGitignore: "Add to .gitignore",
     stage: "Stage",
-    copyPath: "Copy Path",
-    revealInFileManager: "Reveal in File Manager",
     newChangelist: "New Changelist…",
     rename: "Rename…",
     setActive: "Set Active",
@@ -103,8 +102,6 @@ const T = {
     delete: "删除…",
     addToGitignore: "添加到 .gitignore",
     stage: "Stage",
-    copyPath: "复制路径",
-    revealInFileManager: "在文件管理器中显示",
     newChangelist: "新建变更列表…",
     rename: "重命名…",
     setActive: "设为活动列表",
@@ -188,6 +185,8 @@ export interface CommitForm {
 
 export interface CommitActions {
   onRefresh: () => void;
+  /** Report a failed file operation with the app's toast. */
+  onError: (err: unknown) => void;
   onShowDiff: (entry: FileEntry) => void;
   onShowConflict: (path: string) => void;
   onOpenSource: (path: string, revision: string) => void;
@@ -195,7 +194,6 @@ export interface CommitActions {
   onStage: (paths: string[]) => void;
   onUnstage: (paths: string[]) => void;
   onRollback: (paths: string[]) => void;
-  onDelete: (paths: string[]) => void;
   onIgnore: (paths: string[]) => void;
   onReveal: (path: string) => void;
   onCopyPath: (path: string) => void;
@@ -293,6 +291,13 @@ export function CommitPanel({
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
   const [showOptions, setShowOptions] = useState(false);
   const [showHistory, setShowHistory] = useState(false);
+  const fileMenu = useFileMenu({
+    root: snapshot.state.root,
+    onChanged: actions.onRefresh,
+    onError: actions.onError,
+    onCopy: actions.onCopyPath,
+    onReveal: actions.onReveal,
+  });
 
   const staged = entries.filter((e) => e.staged);
   const conflicts = entries.filter((e) => e.unmerged && !e.staged);
@@ -348,7 +353,7 @@ export function CommitPanel({
     else actions.onShowDiff(entry);
   };
 
-  const menuFor = (entry: FileEntry, x: number, y: number) => {
+  const menuFor = (entry: FileEntry, event: React.MouseEvent) => {
     const chosen = selected.has(entry.path) && selected.size > 1 ? [...selected] : [entry.path];
     const items: ContextItem[] = [
       { label: t("showDiff"), icon: "diff", onClick: () => actions.onShowDiff(entry) },
@@ -372,7 +377,6 @@ export function CommitPanel({
       if (entry.kind === "untracked") {
         items.push(
           { label: t("addToVcs"), icon: "stage", onClick: () => actions.onStage(chosen) },
-          { label: t("delete"), icon: "trash", danger: true, onClick: () => actions.onDelete(chosen) },
           { label: t("addToGitignore"), icon: "eye", onClick: () => actions.onIgnore(chosen) },
         );
       } else {
@@ -390,12 +394,7 @@ export function CommitPanel({
         items.push({ separator: true }, ...clItems);
       }
     }
-    items.push(
-      { separator: true },
-      { label: t("copyPath"), icon: "copy", onClick: () => actions.onCopyPath(entry.path) },
-      { label: t("revealInFileManager"), icon: "external", onClick: () => actions.onReveal(entry.path) },
-    );
-    setMenu({ x, y, items });
+    fileMenu.openMenu(event, { path: entry.path, isDir: false }, items);
   };
 
   const toggleDir = (key: string) => {
@@ -433,8 +432,7 @@ export function CommitPanel({
         style={{ paddingLeft: 6 + depth * 12 }}
         onClick={(e) => selectRow(e, entry)}
         onContextMenu={(e) => {
-          e.preventDefault();
-          menuFor(entry, e.clientX, e.clientY);
+          menuFor(entry, e);
         }}
         title={entry.path}
       >
@@ -467,6 +465,7 @@ export function CommitPanel({
       onToggleDir={toggleDir}
       renderFile={renderFileRow}
       renderDirLead={renderDirLead}
+      onDirContextMenu={(node, e) => fileMenu.openMenu(e, { path: node.path, isDir: true })}
       indent={indent}
     />
   );
@@ -706,7 +705,10 @@ export function CommitPanel({
         />
       </div>
 
-      <div className="changes-scroll">
+      <div
+        className="changes-scroll"
+        onContextMenu={(e) => fileMenu.openMenu(e, { path: "", isDir: true })}
+      >
         {showStaged && staged.length > 0 &&
           section(
             "staged",
@@ -893,6 +895,7 @@ export function CommitPanel({
         </div>
       </div>
       {menu && <ContextMenu x={menu.x} y={menu.y} items={menu.items} onClose={() => setMenu(null)} />}
+      {fileMenu.menuNode}
     </div>
   );
 }

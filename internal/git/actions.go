@@ -155,20 +155,6 @@ func (r *Repo) Rollback(ctx context.Context, paths []string) error {
 	return nil
 }
 
-// DeleteUntracked removes untracked files or directories from disk.
-func (r *Repo) DeleteUntracked(ctx context.Context, paths []string) error {
-	clean, err := cleanPaths(paths)
-	if err != nil {
-		return err
-	}
-	if len(clean) == 0 {
-		return errors.New("no paths were given")
-	}
-	args := append([]string{"clean", "-f", "-d", "--"}, clean...)
-	_, err = r.writeRun(ctx, args...)
-	return err
-}
-
 // Commit stages the selected paths, unstages the selected staged paths
 // that were left out, and commits the index.
 func (r *Repo) Commit(ctx context.Context, opts CommitOptions) (CommitResult, error) {

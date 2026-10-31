@@ -709,6 +709,14 @@ export const Git = {
   createChangelist(name: string, comment: string): Promise<Changelists> {
     return call("Git.CreateChangelist", name, comment);
   },
+  /** CreateDir creates a directory in the working tree. */
+  createDir(path: string): Promise<void> {
+    return call("Git.CreateDir", path);
+  },
+  /** CreateFile creates an empty file in the working tree. */
+  createFile(path: string): Promise<void> {
+    return call("Git.CreateFile", path);
+  },
   /** CreateTag creates a tag. */
   createTag(opts: TagOptions): Promise<void> {
     return call("Git.CreateTag", opts);
@@ -728,13 +736,13 @@ export const Git = {
   deleteChangelist(id: string): Promise<Changelists> {
     return call("Git.DeleteChangelist", id);
   },
+  /** DeletePath deletes a file or directory and stages tracked removals. */
+  deletePath(path: string): Promise<void> {
+    return call("Git.DeletePath", path);
+  },
   /** DeleteTag deletes a tag. */
   deleteTag(name: string, remote: string): Promise<void> {
     return call("Git.DeleteTag", name, remote);
-  },
-  /** DeleteUntracked deletes untracked files. */
-  deleteUntracked(paths: string[]): Promise<void> {
-    return call("Git.DeleteUntracked", paths);
   },
   /** Diff returns one file's diff. */
   diff(opts: DiffOptions): Promise<FileDiff> {
@@ -885,6 +893,10 @@ export const Git = {
   /** RenameChangelist renames a changelist. */
   renameChangelist(id: string, name: string, comment: string): Promise<Changelists> {
     return call("Git.RenameChangelist", id, name, comment);
+  },
+  /** RenamePath moves a file or directory. */
+  renamePath(from: string, to: string): Promise<void> {
+    return call("Git.RenamePath", from, to);
   },
   /**
    * Reset moves the current branch. It deliberately does not stash: a hard

@@ -196,6 +196,7 @@ export function TextInput({
   monospace,
   disabled,
   spellCheck,
+  selectOnFocus,
 }: {
   value: string;
   onChange: (value: string) => void;
@@ -205,6 +206,7 @@ export function TextInput({
   monospace?: boolean;
   disabled?: boolean;
   spellCheck?: boolean;
+  selectOnFocus?: boolean;
 }) {
   return (
     <input
@@ -213,6 +215,7 @@ export function TextInput({
       onChange={(e) => onChange(e.target.value)}
       placeholder={placeholder}
       autoFocus={autoFocus}
+      onFocus={selectOnFocus ? (e) => e.currentTarget.select() : undefined}
       onKeyDown={onKeyDown}
       disabled={disabled}
       spellCheck={spellCheck ?? false}
@@ -375,8 +378,103 @@ export type ContextItem =
       danger?: boolean;
       disabled?: boolean;
       checked?: boolean;
-      onClick: () => void;
+      /** Nested choices, opened to the right of the row on hover. */
+      children?: ContextItem[];
+      onClick?: () => void;
     };
+
+/** The rows of a menu, shared by the root menu and its submenus. */
+function menuRows(
+  items: ContextItem[],
+  onClose: () => void,
+  openSub: ((items: ContextItem[], anchor: DOMRect) => void) | null,
+  closeSub: (() => void) | null,
+) {
+  return items.map((item, i) =>
+    item.separator ? (
+      <div className="menu-separator" key={i} />
+    ) : item.header ? (
+      <div className="menu-header" key={i}>
+        {item.label}
+      </div>
+    ) : (
+      <button
+        key={i}
+        className={`menu-item${item.danger ? " danger" : ""}`}
+        disabled={item.disabled}
+        onMouseEnter={(e) => {
+          if (item.children) openSub?.(item.children, e.currentTarget.getBoundingClientRect());
+          else closeSub?.();
+        }}
+        onClick={(e) => {
+          if (item.children) {
+            openSub?.(item.children, e.currentTarget.getBoundingClientRect());
+            return;
+          }
+          onClose();
+          item.onClick?.();
+        }}
+        role="menuitem"
+        aria-haspopup={item.children ? "menu" : undefined}
+      >
+        <span className="menu-icon">
+          {item.checked ? <Icon name="check" /> : item.icon ? <Icon name={item.icon} /> : null}
+        </span>
+        <span className="menu-label">{item.label}</span>
+        {item.shortcut && <span className="menu-shortcut">{item.shortcut}</span>}
+        {item.children && (
+          <span className="menu-arrow">
+            <Icon name="chevronRight" size={12} />
+          </span>
+        )}
+      </button>
+    ),
+  );
+}
+
+function SubMenu({
+  items,
+  anchor,
+  onClose,
+}: {
+  items: ContextItem[];
+  anchor: DOMRect;
+  onClose: () => void;
+}) {
+  const ref = useRef<HTMLDivElement>(null);
+  const [pos, setPos] = useState<CSSProperties>({
+    left: anchor.right + 2,
+    top: anchor.top,
+    visibility: "hidden",
+  });
+  useLayoutEffect(() => {
+    const el = ref.current;
+    if (!el) return;
+    const rect = el.getBoundingClientRect();
+    const gap = 2;
+    let left = anchor.right + gap;
+    let top = anchor.top;
+    if (left + rect.width > window.innerWidth - 6) left = anchor.left - rect.width - gap;
+    if (top + rect.height > window.innerHeight - 6) {
+      top = Math.max(6, window.innerHeight - rect.height - 6);
+    }
+    setPos({ left, top, visibility: "visible" });
+  }, [anchor]);
+  return createPortal(
+    <div
+      className="context-menu context-submenu"
+      style={pos}
+      ref={ref}
+      role="menu"
+      // The root menu listens for mousedown on the window to close itself;
+      // a press inside this portal is not "outside" it.
+      onMouseDown={(e) => e.stopPropagation()}
+    >
+      {menuRows(items, onClose, null, null)}
+    </div>,
+    document.body,
+  );
+}
 
 export function ContextMenu({
   x,
@@ -391,6 +489,7 @@ export function ContextMenu({
 }) {
   const ref = useRef<HTMLDivElement>(null);
   const [pos, setPos] = useState({ left: x, top: y });
+  const [sub, setSub] = useState<{ items: ContextItem[]; anchor: DOMRect } | null>(null);
   useLayoutEffect(() => {
     const el = ref.current;
     if (!el) return;
@@ -403,7 +502,10 @@ export function ContextMenu({
   }, [x, y]);
   useEffect(() => {
     const close = (e: MouseEvent) => {
-      if (ref.current && !ref.current.contains(e.target as Node)) onClose();
+      const target = e.target as Element | null;
+      // A submenu is a second portal, not a child of this menu's DOM.
+      if (target?.closest?.(".context-submenu")) return;
+      if (ref.current && !ref.current.contains(target as Node)) onClose();
     };
     const onKey = (e: KeyboardEvent) => e.key === "Escape" && onClose();
     window.addEventListener("mousedown", close);
@@ -413,36 +515,21 @@ export function ContextMenu({
       window.removeEventListener("keydown", onKey);
     };
   }, [onClose]);
-  return createPortal(
-    <div className="context-menu" style={pos} ref={ref} role="menu">
-      {items.map((item, i) =>
-        item.separator ? (
-          <div className="menu-separator" key={i} />
-        ) : item.header ? (
-          <div className="menu-header" key={i}>
-            {item.label}
-          </div>
-        ) : (
-          <button
-            key={i}
-            className={`menu-item${item.danger ? " danger" : ""}`}
-            disabled={item.disabled}
-            onClick={() => {
-              onClose();
-              item.onClick();
-            }}
-            role="menuitem"
-          >
-            <span className="menu-icon">
-              {item.checked ? <Icon name="check" /> : item.icon ? <Icon name={item.icon} /> : null}
-            </span>
-            <span className="menu-label">{item.label}</span>
-            {item.shortcut && <span className="menu-shortcut">{item.shortcut}</span>}
-          </button>
-        ),
+  return (
+    <>
+      {createPortal(
+        <div className="context-menu" style={pos} ref={ref} role="menu">
+          {menuRows(
+            items,
+            onClose,
+            (items, anchor) => setSub({ items, anchor }),
+            () => setSub(null),
+          )}
+        </div>,
+        document.body,
       )}
-    </div>,
-    document.body,
+      {sub && <SubMenu items={sub.items} anchor={sub.anchor} onClose={onClose} />}
+    </>
   );
 }
 
