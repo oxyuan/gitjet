@@ -9,6 +9,8 @@ import (
 	"path/filepath"
 	"strings"
 	"time"
+
+	"gitjet/internal/proc"
 )
 
 // ConsoleResult is what a command typed in the Git console printed.
@@ -102,7 +104,7 @@ func (r *Repo) runTyped(ctx context.Context, args []string, emit func(string)) (
 	cmd := exec.CommandContext(ctx, exe, args[1:]...)
 	cmd.Dir = r.dir
 	cmd.Env = append(os.Environ(), "LC_ALL=C", "LANG=C")
-	prepareCmd(cmd)
+	proc.HideConsole(cmd)
 	return r.streamCmd(ctx, cmd, args, emit)
 }
 

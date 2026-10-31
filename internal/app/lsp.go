@@ -14,6 +14,7 @@ import (
 
 	"gitjet/internal/git"
 	"gitjet/internal/lsp"
+	"gitjet/internal/proc"
 )
 
 // LSPMessage carries one message from the language server to the page. The
@@ -125,6 +126,7 @@ func (g *Git) LSPStart() (LSPInfo, error) {
 
 	cmd := exec.Command(server.Command, server.Args...)
 	cmd.Dir = repo.Dir()
+	proc.HideConsole(cmd)
 	stdin, err := cmd.StdinPipe()
 	if err != nil {
 		return LSPInfo{}, err

@@ -21,6 +21,8 @@ import (
 	"sort"
 	"strings"
 	"sync"
+
+	"gitjet/internal/proc"
 )
 
 // Error is a failed git command, with what git wrote to stderr.
@@ -128,7 +130,7 @@ func GitVersion(ctx context.Context, gitPath string) (string, error) {
 		return "", err
 	}
 	cmd := exec.CommandContext(ctx, exe, "--version")
-	prepareCmd(cmd)
+	proc.HideConsole(cmd)
 	out, err := cmd.Output()
 	if err != nil {
 		return "", err
@@ -206,7 +208,7 @@ func (r *Repo) command(ctx context.Context, args ...string) *exec.Cmd {
 	full := append([]string{"-C", r.dir, "--no-pager"}, args...)
 	cmd := exec.CommandContext(ctx, r.git, full...)
 	cmd.Env = gitEnv()
-	prepareCmd(cmd)
+	proc.HideConsole(cmd)
 	return cmd
 }
 

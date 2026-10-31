@@ -41,7 +41,8 @@ There is no router, no state library, no ORM: dock/tab/dialog state lives in
 
 |Path|Purpose|
 |---|---|
-|`internal/git/`|Git execution and parsing: `git.go` (spawn/env/paths), `status.go`, `diff.go`, `log.go`, `actions.go`, `blame.go`, `console.go`, `files.go`, `repoinfo.go`, `rewrite.go` (commit plan replay), `repo_extra.go` (worktrees, cleanup, submodules, LFS, shallow), `trace.go` (command echo), `exec_windows.go`|
+|`internal/git/`|Git execution and parsing: `git.go` (spawn/env/paths), `status.go`, `diff.go`, `log.go`, `actions.go`, `blame.go`, `console.go`, `files.go`, `repoinfo.go`, `rewrite.go` (commit plan replay), `repo_extra.go` (worktrees, cleanup, submodules, LFS, shallow), `trace.go` (command echo)|
+|`internal/proc/`|`HideConsole` (`internal/proc`, `CREATE_NO_WINDOW` on Windows): applied to every console child GitJet starts|
 |`internal/app/`|Host: `run.go` (window/menu/events), `service.go` (bound services, poll), `settings.go` (`core`, persistence), `i18n.go`, `lsp.go` (language server bridge)|
 |`src/`|React UI; `*.test.ts` next to the module under test. `EditHistoryDialog.tsx` (rewrite plan) and `RepoExtrasDialog.tsx` (worktrees/submodules/LFS) are the only standalone dialogs; the rest live in `Dialogs.tsx`|
 |`src/mygo.ts`|**Generated** bindings — never hand-edit|
@@ -85,7 +86,7 @@ use it only for layout work. Vite's port is pinned to 5173 in **both**
 - All git access goes through `internal/git`. Never `exec.Command("git", …)`
   elsewhere; the frontend never builds commands.
 - New commands go through `Repo.command` so they inherit `-C <worktree>`,
-  `--no-pager`, `gitEnv()` and `prepareCmd`.
+  `--no-pager`, `gitEnv()` and `proc.HideConsole`.
 - `gitEnv()` (`LC_ALL=C`, `GIT_PAGER=cat`, `GIT_EDITOR=true`,
   `GIT_TERMINAL_PROMPT=0`, `GIT_OPTIONAL_LOCKS=0`) is load-bearing: parsers and
   date ordering depend on the C locale, and `GIT_TERMINAL_PROMPT=0` stops the
@@ -111,8 +112,9 @@ use it only for layout work. Vite's port is pinned to 5173 in **both**
   manually like `Rollback`/`Commit`; **never** call `writeRun` while already
   holding the lock — `sync.Mutex` is not reentrant. Read methods stay lock-free
   so a poll can run during a long push.
-- Any `exec.Cmd` that runs a console program on Windows needs `prepareCmd`
-  (`CREATE_NO_WINDOW`); otherwise the 1.5 s poll flashes console windows.
+- Any `exec.Cmd` that runs a console program on Windows needs `proc.HideConsole`
+  (`CREATE_NO_WINDOW`, `internal/proc`); otherwise the 1.5 s poll flashes
+  console windows and each language server pops one open.
 - Parsers assume `status --porcelain=v2 -z`, NUL-separated records, and the
   rename origin as the *next* record. `%x1f`/`%x1e` are the field/record
   separators for log formats. Byte caps (8 MiB text, 2000 commits, 200
@@ -249,7 +251,8 @@ bindings, re-check hand-written test fixtures (`graph.test.ts`, `branches.test.t
 - `github.com/egoist/mygo` (Go) and `mygo-cli`/`mygo-runtime` (npm) are
   version-coupled at 0.6.4 — bump them together.
 - No cgo anywhere (`purego` loads dylibs); platform code uses build-tagged
-  files (`internal/git/exec_windows.go`, `internal/app/i18n_windows.go`), not
+  files (`internal/proc/hideconsole_windows.go`, `internal/app/i18n_windows.go`),
+  not
   runtime switches, for OS-only imports.
 - App version appears in three places: `mygo.config.ts`, `package.json`, and
   the constant in `internal/app/service.go`.
