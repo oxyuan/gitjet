@@ -153,6 +153,7 @@ export function ConflictView({
   onMarkResolved,
   onTakeSide,
   onClose,
+  onDirtyChange,
 }: {
   path: string;
   conflict: ConflictContent;
@@ -161,6 +162,8 @@ export function ConflictView({
   onMarkResolved: () => void;
   onTakeSide: (side: "ours" | "theirs") => void;
   onClose: () => void;
+  /** Reports whether the resolution has edits that are not saved yet. */
+  onDirtyChange?: (dirty: boolean) => void;
 }) {
   const { segments, trailingNewline } = useMemo(() => parseConflicts(conflict.working), [conflict.working]);
   const t = useT(T);
@@ -173,6 +176,15 @@ export function ConflictView({
   const [choices, setChoices] = useState<Choice[]>(() => conflicts.map(() => "none"));
   const [free, setFree] = useState(false);
   const [freeText, setFreeText] = useState(conflict.working);
+  const dirty = free
+    ? freeText !== conflict.working
+    : contents.some((text, i) => text !== "" || resolved[i]);
+  const dirtyRef = useRef(onDirtyChange);
+  dirtyRef.current = onDirtyChange;
+  useEffect(() => {
+    dirtyRef.current?.(dirty);
+  }, [dirty]);
+  useEffect(() => () => dirtyRef.current?.(false), []);
   const editors = useRef<(HTMLTextAreaElement | null)[]>([]);
   const cards = useRef<(HTMLDivElement | null)[]>([]);
   const [current, setCurrent] = useState(0);

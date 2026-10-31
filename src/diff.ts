@@ -34,6 +34,25 @@ export function isCollapsed(row: DiffRow): row is CollapsedRow {
   return "collapsed" in row;
 }
 
+/**
+ * The first row of every run of consecutive changed rows. A run is one block
+ * even when it spans many added and deleted lines, so navigation and the
+ * "n / m" counter talk about changes, not lines.
+ */
+export function changeBlockRows(rows: DiffRows): number[] {
+  const out: number[] = [];
+  let inBlock = false;
+  rows.forEach((row, i) => {
+    if (isCollapsed(row) || row.kind === "context") {
+      inBlock = false;
+      return;
+    }
+    if (!inBlock) out.push(i);
+    inBlock = true;
+  });
+  return out;
+}
+
 /** Splits file text into lines, dropping the empty tail after a final newline. */
 export function textLines(text: string): string[] {
   if (text === "") return [];

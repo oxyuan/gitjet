@@ -2,7 +2,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { annotateDate, blameDepth } from "./annotate";
 import { blameMenuItems } from "./blameMenu";
 import { Git, type BlameLine, type DiffOptions, type FileDiff } from "./mygo";
-import { buildDiffRows, isCollapsed, type AlignedRow, type DiffRows, type WordSegment } from "./diff";
+import { buildDiffRows, changeBlockRows, isCollapsed, type AlignedRow, type DiffRows, type WordSegment } from "./diff";
 import { FileIcon, Icon } from "./icons";
 import { useT } from "./i18n";
 import { paintLine, tokenize, type LineTokens } from "./syntax";
@@ -183,10 +183,7 @@ export function DiffView({
     setCurrent(-1);
   }, [reloadKey, diff.path]);
 
-  const changeRows = useMemo(
-    () => rows.flatMap((row, i) => (isCollapsed(row) ? [] : row.kind !== "context" ? [i] : [])),
-    [rows],
-  );
+  const changeRows = useMemo(() => changeBlockRows(rows), [rows]);
   const firstRowOfHunk = useMemo(() => {
     const map = new Map<number, number>();
     rows.forEach((row, i) => {

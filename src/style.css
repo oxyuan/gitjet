@@ -7544,6 +7544,14 @@ body.resizing-row .log-detail-split::after {
   height: 11px;
 }
 
+.editor-tab-file {
+  display: grid;
+  place-items: center;
+  flex: none;
+  width: 18px;
+  height: 16px;
+}
+
 .editor-tab-kind.kind-diff {
   color: var(--accent);
 }

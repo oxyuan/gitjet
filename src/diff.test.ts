@@ -1,6 +1,6 @@
 import { describe, expect, it } from "bun:test";
 import type { FileDiff } from "./mygo";
-import { buildDiffRows, isCollapsed, textLines, wordDiff } from "./diff";
+import { buildDiffRows, changeBlockRows, isCollapsed, textLines, wordDiff } from "./diff";
 
 describe("textLines", () => {
   it("drops the empty tail after a final newline", () => {
@@ -86,6 +86,71 @@ describe("buildDiffRows", () => {
     const rows = buildDiffRows(long);
     expect(rows.some(isCollapsed)).toBe(false);
     expect(rows.filter((r) => !isCollapsed(r) && r.kind === "context")).toHaveLength(29);
+  });
+});
+
+describe("changeBlockRows", () => {
+  const base: FileDiff = {
+    path: "a.txt",
+    oldPath: "a.txt",
+    status: "modified",
+    binary: false,
+    additions: 0,
+    deletions: 0,
+    hunks: [],
+    oldText: "",
+    newText: "",
+    oldLabel: "",
+    newLabel: "",
+    truncated: false,
+    patch: "",
+    hasChanges: true,
+    wholeFile: false,
+  };
+  const fileWith = (lines: FileDiff["hunks"][number]["lines"], oldText: string, newText: string): FileDiff => ({
+    ...base,
+    hunks: [{ header: "", oldStart: 1, oldLines: oldText.split("\n").length - 1, newStart: 1, newLines: newText.split("\n").length - 1, lines }],
+    oldText,
+    newText,
+  });
+
+  it("counts consecutive changed lines as one block", () => {
+    const rows = buildDiffRows(
+      fileWith(
+        [
+          { kind: "del", oldNo: 1, newNo: 0, text: "a" },
+          { kind: "del", oldNo: 2, newNo: 0, text: "b" },
+          { kind: "del", oldNo: 3, newNo: 0, text: "c" },
+          { kind: "add", oldNo: 0, newNo: 1, text: "A" },
+          { kind: "add", oldNo: 0, newNo: 2, text: "B" },
+          { kind: "add", oldNo: 0, newNo: 3, text: "C" },
+        ],
+        "a\nb\nc\n",
+        "A\nB\nC\n",
+      ),
+      false,
+    );
+    expect(changeBlockRows(rows)).toHaveLength(1);
+  });
+
+  it("splits blocks at unchanged lines inside one hunk", () => {
+    const rows = buildDiffRows(
+      fileWith(
+        [
+          { kind: "context", oldNo: 1, newNo: 1, text: "a" },
+          { kind: "del", oldNo: 2, newNo: 0, text: "b" },
+          { kind: "add", oldNo: 0, newNo: 2, text: "B" },
+          { kind: "context", oldNo: 3, newNo: 3, text: "c" },
+          { kind: "del", oldNo: 4, newNo: 0, text: "d" },
+          { kind: "add", oldNo: 0, newNo: 4, text: "D" },
+          { kind: "context", oldNo: 5, newNo: 5, text: "e" },
+        ],
+        "a\nb\nc\nd\ne\n",
+        "a\nB\nc\nD\ne\n",
+      ),
+      false,
+    );
+    expect(changeBlockRows(rows)).toEqual([1, 3]);
   });
 });
 

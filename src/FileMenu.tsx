@@ -104,6 +104,7 @@ export function useFileMenu({
     y: number;
     target: FileMenuTarget;
     extra: ContextItem[];
+    leading: ContextItem[];
   } | null>(null);
   const [prompt, setPrompt] = useState<PromptState | null>(null);
   const [confirm, setConfirm] = useState<ConfirmState | null>(null);
@@ -113,10 +114,11 @@ export function useFileMenu({
     event: React.MouseEvent,
     target: FileMenuTarget,
     extra: ContextItem[] = [],
+    leading: ContextItem[] = [],
   ) => {
     event.preventDefault();
     event.stopPropagation();
-    setMenu({ x: event.clientX, y: event.clientY, target, extra });
+    setMenu({ x: event.clientX, y: event.clientY, target, extra, leading });
   };
 
   const copy = (text: string) => {
@@ -188,16 +190,16 @@ export function useFileMenu({
       disabled: value === "",
       onClick: () => copy(value),
     });
-    const items: ContextItem[] = [
-      {
-        label: t("new"),
-        icon: "plus",
-        children: [
-          { label: t("newFile"), icon: "file", onClick: () => startNew("file") },
-          { label: t("newDir"), icon: "folder", onClick: () => startNew("dir") },
-        ],
-      },
-    ];
+    const items: ContextItem[] = [...menu.leading];
+    if (items.length > 0) items.push({ separator: true });
+    items.push({
+      label: t("new"),
+      icon: "plus",
+      children: [
+        { label: t("newFile"), icon: "file", onClick: () => startNew("file") },
+        { label: t("newDir"), icon: "folder", onClick: () => startNew("dir") },
+      ],
+    });
     if (menu.extra.length > 0) items.push({ separator: true }, ...menu.extra);
     if (target.path !== "") {
       items.push(

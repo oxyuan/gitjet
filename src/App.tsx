@@ -47,6 +47,7 @@ import {
 import { EditHistoryDialog } from "./EditHistoryDialog";
 import { RepoExtrasDialog } from "./RepoExtrasDialog";
 import { FileIcon, Icon } from "./icons";
+import { useFileMenu } from "./FileMenu";
 import { LangProvider, count, resolveLang, useT, type Lang } from "./i18n";
 import { LogDock } from "./LogDock";
 import { FileTree, type ChangeView } from "./FileTree";
@@ -61,6 +62,7 @@ import {
   Button,
   ConfirmDialog,
   ContextMenu,
+  type ContextItem,
   cx,
   formatStamp,
   IconButton,
@@ -139,6 +141,11 @@ const T = {
     closeRepoTitle: "Close Repository",
     closeRepoMessage: "Close this repository and return to the welcome screen?",
     close: "Close",
+    closeOthers: "Close Others",
+    closeAllTabs: "Close All",
+    closeUnmodifiedTabs: "Close Unmodified",
+    closeLeftTabs: "Close to the Left",
+    closeRightTabs: "Close to the Right",
     rollbackChangesTitle: "Rollback Changes",
     rollbackFilesOne: "Discard local changes to {n} file?",
     rollbackFilesOther: "Discard local changes to {n} files?",
@@ -315,6 +322,11 @@ const T = {
     closeRepoTitle: "关闭仓库",
     closeRepoMessage: "关闭此仓库并返回欢迎界面？",
     close: "关闭",
+    closeOthers: "关闭其他标签页",
+    closeAllTabs: "关闭所有标签页",
+    closeUnmodifiedTabs: "关闭未修改标签页",
+    closeLeftTabs: "关闭左侧标签页",
+    closeRightTabs: "关闭右侧标签页",
     rollbackChangesTitle: "回滚更改",
     rollbackFilesOne: "放弃对 {n} 个文件的本地更改？",
     rollbackFilesOther: "放弃对 {n} 个文件的本地更改？",
@@ -536,6 +548,7 @@ function AppShell({ onLangChange }: { onLangChange: (lang: Lang) => void }) {
   const setTabOrder = (next: ToolTab[]) => setStoredOrder(next);
   const [docs, setDocs] = useState<Doc[]>([]);
   const [activeId, setActiveId] = useState<string | null>(null);
+  const [dirtyDocs, setDirtyDocs] = useState<Set<string>>(new Set());
   // The word a Cmd-click asked about, and where it turns up.
   const [symbol, setSymbol] = useState<{ word: string; language: string; hits: SymbolHit[] | null } | null>(null);
   const [quickOpen, setQuickOpen] = useState(false);
@@ -727,18 +740,41 @@ function AppShell({ onLangChange }: { onLangChange: (lang: Lang) => void }) {
     setActiveId(doc.id);
   }, []);
 
-  const closeDoc = useCallback((id: string) => {
+  const setDocDirty = useCallback((id: string, dirty: boolean) => {
+    setDirtyDocs((prev) => {
+      if (prev.has(id) === dirty) return prev;
+      const next = new Set(prev);
+      if (dirty) next.add(id);
+      else next.delete(id);
+      return next;
+    });
+  }, []);
+
+  const closeDocs = useCallback((ids: string[]) => {
+    if (ids.length === 0) return;
+    const drop = new Set(ids);
     setDocs((prev) => {
-      const index = prev.findIndex((d) => d.id === id);
-      if (index === -1) return prev;
-      const next = prev.filter((d) => d.id !== id);
-      if (activeIdRef.current === id) {
+      const next = prev.filter((d) => !drop.has(d.id));
+      const active = activeIdRef.current;
+      if (active && drop.has(active)) {
+        const index = prev.findIndex((d) => d.id === active);
         const fallback = next[Math.min(index, next.length - 1)];
         setActiveId(fallback ? fallback.id : null);
       }
       return next;
     });
+    setDirtyDocs((prev) => {
+      let next: Set<string> | null = null;
+      for (const id of ids) {
+        if (!prev.has(id)) continue;
+        next ??= new Set(prev);
+        next.delete(id);
+      }
+      return next ?? prev;
+    });
   }, []);
+
+  const closeDoc = useCallback((id: string) => closeDocs([id]), [closeDocs]);
 
   /** One editor tab per commit: arrow keys switch the file inside it. */
   const openCommitFile = useCallback(
@@ -1005,6 +1041,7 @@ function AppShell({ onLangChange }: { onLangChange: (lang: Lang) => void }) {
       setTab("commit");
       setDocs([]);
       setActiveId(null);
+      setDirtyDocs(new Set());
       setForm(emptyForm);
       setLogResult(null);
       setSelectedCommit(null);
@@ -1042,6 +1079,7 @@ function AppShell({ onLangChange }: { onLangChange: (lang: Lang) => void }) {
     setRefs(null);
     setDocs([]);
     setActiveId(null);
+    setDirtyDocs(new Set());
     knownPaths.current = new Set();
     setChecked(new Set());
     document.title = "GitJet";
@@ -2142,6 +2180,11 @@ function AppShell({ onLangChange }: { onLangChange: (lang: Lang) => void }) {
             activeId={activeId}
             onActivate={setActiveId}
             onCloseDoc={closeDoc}
+            onCloseDocs={closeDocs}
+            dirtyIds={dirtyDocs}
+            onDocDirty={setDocDirty}
+            onFilesChanged={() => void reload(false)}
+            onFileError={(err) => fail(t("fileActionFailed"), err)}
             diffWrap={diffWrap}
             onToggleWrap={() => setDiffWrap(!diffWrap)}
             onApplyHunk={(hunk, action) => {
@@ -2609,6 +2652,20 @@ function docIcon(doc: Doc): "diff" | "file" | "merge" | "user" | "commit" {
   }
 }
 
+/** The repository-relative file a tab stands for; a commit tab has none. */
+function docPath(doc: Doc): string {
+  switch (doc.kind) {
+    case "diff":
+      return doc.opts.path;
+    case "file":
+      return doc.file.path;
+    case "conflict":
+      return doc.path;
+    case "commit":
+      return "";
+  }
+}
+
 function baseName(path: string): string {
   const slash = path.lastIndexOf("/");
   return slash >= 0 ? path.slice(slash + 1) : path;
@@ -2634,6 +2691,11 @@ function RightPane({
   activeId,
   onActivate,
   onCloseDoc,
+  onCloseDocs,
+  dirtyIds,
+  onDocDirty,
+  onFilesChanged,
+  onFileError,
   diffMode,
   diffWrap,
   onToggleWrap,
@@ -2667,6 +2729,11 @@ function RightPane({
   activeId: string | null;
   onActivate: (id: string) => void;
   onCloseDoc: (id: string) => void;
+  onCloseDocs: (ids: string[]) => void;
+  dirtyIds: ReadonlySet<string>;
+  onDocDirty: (id: string, dirty: boolean) => void;
+  onFilesChanged: () => void;
+  onFileError: (err: unknown) => void;
   diffWrap: boolean;
   onToggleWrap: () => void;
   diffMode: "split" | "unified";
@@ -2695,6 +2762,54 @@ function RightPane({
   const t = useT(T);
   // Each open commit keeps its own expanded directories.
   const [commitDirs, setCommitDirs] = useState<Map<string, Set<string>>>(new Map());
+  const [tabMenu, setTabMenu] = useState<{ x: number; y: number; items: ContextItem[] } | null>(null);
+  const fileMenu = useFileMenu({
+    root,
+    onChanged: onFilesChanged,
+    onError: onFileError,
+    onCopy: onCopyPath,
+    onReveal,
+  });
+
+  const closeTabItems = (doc: Doc): ContextItem[] => {
+    const index = docs.findIndex((d) => d.id === doc.id);
+    const before = docs.slice(0, index).map((d) => d.id);
+    const after = docs.slice(index + 1).map((d) => d.id);
+    const unmodified = docs.filter((d) => !dirtyIds.has(d.id)).map((d) => d.id);
+    return [
+      { label: t("close"), icon: "close", onClick: () => onCloseDocs([doc.id]) },
+      { separator: true },
+      {
+        label: t("closeOthers"),
+        icon: "close",
+        disabled: docs.length <= 1,
+        onClick: () => onCloseDocs(docs.filter((d) => d.id !== doc.id).map((d) => d.id)),
+      },
+      {
+        label: t("closeAllTabs"),
+        icon: "close",
+        onClick: () => onCloseDocs(docs.map((d) => d.id)),
+      },
+      {
+        label: t("closeUnmodifiedTabs"),
+        icon: "close",
+        disabled: unmodified.length === 0,
+        onClick: () => onCloseDocs(unmodified),
+      },
+      {
+        label: t("closeLeftTabs"),
+        icon: "close",
+        disabled: before.length === 0,
+        onClick: () => onCloseDocs(before),
+      },
+      {
+        label: t("closeRightTabs"),
+        icon: "close",
+        disabled: after.length === 0,
+        onClick: () => onCloseDocs(after),
+      },
+    ];
+  };
 
   const welcome = (
     <div className="welcome">
@@ -2757,7 +2872,9 @@ function RightPane({
   return (
     <main className="editor-area">
       <div className="editor-tabs" role="tablist">
-        {docs.map((doc) => (
+        {docs.map((doc) => {
+          const path = docPath(doc);
+          return (
           <div
             key={doc.id}
             role="tab"
@@ -2767,11 +2884,27 @@ function RightPane({
             onAuxClick={(e) => {
               if (e.button === 1) onCloseDoc(doc.id);
             }}
+            onContextMenu={(e) => {
+              if (path === "") {
+                e.preventDefault();
+                e.stopPropagation();
+                setTabMenu({ x: e.clientX, y: e.clientY, items: closeTabItems(doc) });
+              } else {
+                setTabMenu(null);
+                fileMenu.openMenu(e, { path, isDir: false }, [], closeTabItems(doc));
+              }
+            }}
             title={doc.kind === "diff" ? doc.opts.path : doc.kind === "file" ? doc.file.path : doc.title}
           >
-            <span className={cx("editor-tab-kind", `kind-${doc.kind}`)} title={kindLabel(doc, t)}>
-              <Icon name={docIcon(doc)} size={11} />
-            </span>
+            {path !== "" ? (
+              <span className="editor-tab-file" title={kindLabel(doc, t)}>
+                <FileIcon path={path} size={14} />
+              </span>
+            ) : (
+              <span className={cx("editor-tab-kind", `kind-${doc.kind}`)} title={kindLabel(doc, t)}>
+                <Icon name={docIcon(doc)} size={11} />
+              </span>
+            )}
             <span className="editor-tab-title">{tabTitle(doc, t)}</span>
             {doc.kind === "diff" && (
               <span className={cx("tab-status", `st-${doc.diff.status === "modified" ? "modified" : doc.diff.status === "added" ? "added" : "deleted"}`)}>
@@ -2789,12 +2922,14 @@ function RightPane({
               <Icon name="close" size={11} />
             </button>
           </div>
-        ))}
+          );
+        })}
         <span className="spacer" />
       </div>
       <div className="editor-content">
         {active.kind === "conflict" && (
           <ConflictView
+            key={active.id}
             path={active.path}
             conflict={active.content}
             busy={busy}
@@ -2802,6 +2937,7 @@ function RightPane({
             onTakeSide={(side) => void onTakeSide(active.path, side)}
             onMarkResolved={() => void onMarkResolved(active.path)}
             onClose={() => onCloseDoc(active.id)}
+            onDirtyChange={(dirty) => onDocDirty(active.id, dirty)}
           />
         )}
         {active.kind === "file" && (
@@ -2940,6 +3076,10 @@ function RightPane({
           />
         )}
       </div>
+      {tabMenu && (
+        <ContextMenu x={tabMenu.x} y={tabMenu.y} items={tabMenu.items} onClose={() => setTabMenu(null)} />
+      )}
+      {fileMenu.menuNode}
     </main>
   );
 }
