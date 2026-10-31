@@ -9,7 +9,7 @@ import { useLang, useT } from "./i18n";
 
 const T = {
   en: {
-    title: "Console",
+    commandView: "Commands",
     program: "Command program",
     introTitle: "How it works",
     hintPrefix: "The {program} chip is prepended: `status` runs `{program} status`.",
@@ -30,7 +30,7 @@ const T = {
     running: "Running",
   },
   zh: {
-    title: "控制台",
+    commandView: "命令",
     program: "命令前缀",
     introTitle: "使用提示",
     hintPrefix: "输入会自动加上前缀 `{program}`，例如 `status` 实际执行 `{program} status`。",
@@ -420,7 +420,7 @@ export function ConsolePanel({
             onClick={() => setView("console")}
           >
             <Icon name="console" />
-            {t("title")}
+            {t("commandView")}
           </button>
         </div>
         <span className="spacer" />
