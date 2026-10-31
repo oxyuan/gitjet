@@ -8454,6 +8454,7 @@ body.resizing-row .log-detail-split::after {
   position: fixed;
   z-index: 101;
   min-width: 200px;
+  max-width: min(560px, 70vw);
 }
 
 .menu-arrow {
@@ -8462,4 +8463,13 @@ body.resizing-row .log-detail-split::after {
   flex: none;
   margin-left: 4px;
   color: var(--muted-2);
+}
+
+/* The value a copy item will put on the clipboard: present, but quieter than
+   the label and clipped with it on a narrow menu. */
+.menu-hint {
+  margin-left: 8px;
+  color: var(--muted-2);
+  font-size: 10.5px;
+  font-weight: 400;
 }

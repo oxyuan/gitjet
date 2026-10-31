@@ -375,6 +375,9 @@ export type ContextItem =
       label: string;
       icon?: IconName;
       shortcut?: string;
+      /** A muted value shown after the label, e.g. the string that will be
+       *  copied. Truncates with the label when the menu is narrow. */
+      hint?: string;
       danger?: boolean;
       disabled?: boolean;
       checked?: boolean;
@@ -416,11 +419,15 @@ function menuRows(
         }}
         role="menuitem"
         aria-haspopup={item.children ? "menu" : undefined}
+        title={item.hint || undefined}
       >
         <span className="menu-icon">
           {item.checked ? <Icon name="check" /> : item.icon ? <Icon name={item.icon} /> : null}
         </span>
-        <span className="menu-label">{item.label}</span>
+        <span className="menu-label">
+          {item.label}
+          {item.hint && <span className="menu-hint">{item.hint}</span>}
+        </span>
         {item.shortcut && <span className="menu-shortcut">{item.shortcut}</span>}
         {item.children && (
           <span className="menu-arrow">

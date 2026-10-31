@@ -183,6 +183,7 @@ export function useFileMenu({
     const values = menuPathValues(root, target);
     const copyItem = (label: string, value: string, icon: IconName = "copy"): ContextItem => ({
       label,
+      hint: value,
       icon,
       disabled: value === "",
       onClick: () => copy(value),
