@@ -310,3 +310,9 @@ rebase/am/cherry-pick, diff of renames and binary files, and the console's
   builtin.
 - Several errors are deliberately swallowed (stash listing, meta saves,
   corrupt `settings.json` → defaults); don't "fix" them blindly.
+- `internal/app/firstmouse_darwin.go` adds `acceptsFirstMouse:` to MyGo's
+  `MyGoWebView` at startup. WebKit answers no, so without it the first click
+  in an inactive GitJet window only activates the app and the control under
+  the pointer does nothing; MyGo (0.7.3 included) does not override it for
+  page windows. Drop the patch only when MyGo itself accepts the first mouse
+  or its web view class is renamed.

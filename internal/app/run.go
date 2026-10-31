@@ -61,6 +61,9 @@ func openWindow() {
 		StateKey:             stateKey,
 		URL:                  "/",
 	})
+	// WebKit swallows the click that activates an inactive window; a Git
+	// client should act on it like the rest of the desktop.
+	acceptFirstMouse()
 }
 
 // applyMenu installs the menu in lang, replacing whatever menu is showing.
