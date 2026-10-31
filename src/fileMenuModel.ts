@@ -18,15 +18,18 @@ export function newEntryPrefix(target: FileMenuTarget): string {
   return cut < 0 ? "" : target.path.slice(0, cut + 1);
 }
 
-/** The strings behind the Copy Path/Reference submenu. */
+/** The strings behind the Copy Path/Reference submenu. The reference form is
+ *  `@path` (plus `:line` when known), so a pasted reference is recognisable
+ *  as one and reads as a mention. */
 export function menuPathValues(root: string, target: FileMenuTarget) {
   const path = target.path;
   const absolute = path === "" ? root : root ? joinRoot(root, path) : path;
+  const reference = path === "" ? "" : `@${path}`;
   return {
     absolute,
     name: path === "" ? "" : baseName(path),
     contentRoot: path,
-    reference: target.line && target.line > 0 ? `${path}:${target.line}` : path,
+    reference: target.line && target.line > 0 ? `${reference}:${target.line}` : reference,
     repositoryRoot: root,
   };
 }

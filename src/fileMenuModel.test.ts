@@ -23,7 +23,7 @@ describe("menuPathValues", () => {
     expect(values.absolute).toBe("/repo/src/app.ts");
     expect(values.name).toBe("app.ts");
     expect(values.contentRoot).toBe("src/app.ts");
-    expect(values.reference).toBe("src/app.ts");
+    expect(values.reference).toBe("@src/app.ts");
     expect(values.repositoryRoot).toBe("/repo");
   });
 
@@ -34,7 +34,7 @@ describe("menuPathValues", () => {
 
   it("appends a known line to the reference", () => {
     const values = menuPathValues("/repo", { path: "src/app.ts", isDir: false, line: 42 });
-    expect(values.reference).toBe("src/app.ts:42");
+    expect(values.reference).toBe("@src/app.ts:42");
     expect(values.contentRoot).toBe("src/app.ts");
   });
 
@@ -43,6 +43,7 @@ describe("menuPathValues", () => {
     expect(values.absolute).toBe("/repo");
     expect(values.name).toBe("");
     expect(values.contentRoot).toBe("");
+    expect(values.reference).toBe("");
     expect(values.repositoryRoot).toBe("/repo");
   });
 });
