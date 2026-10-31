@@ -2137,7 +2137,15 @@ function AppShell({ onLangChange }: { onLangChange: (lang: Lang) => void }) {
               ) : (
                 <NoRepo onOpen={() => void openRepo()} />
               ))}
-            {tab === "console" && <ConsolePanel onCommandDone={() => void reload(false)} repoOpen={repoOpen} />}
+            {tab === "console" && (
+              <ConsolePanel
+                key={snapshot?.state.root ?? "none"}
+                onCommandDone={() => void reload(false)}
+                repoOpen={repoOpen}
+                repoKey={snapshot?.state.root ?? ""}
+                notify={notify}
+              />
+            )}
           </div>
         </aside>
         <Splitter width={splitWidth} setWidth={setSplitWidth} />

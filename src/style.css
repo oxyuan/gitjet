@@ -8252,3 +8252,198 @@ body.resizing-row .log-detail-split::after {
 .notice-stack > .op-dock {
   order: 2;
 }
+
+/* ---------- Console views ----------
+   The tab opens on the log: everything the app ran, newest last, with the
+   command line a click away. Both views share one toolbar, so copy, the log
+   file and clear mean the same thing in each — and clearing is a watermark,
+   never a deletion. */
+.console-views {
+  display: inline-flex;
+  gap: 2px;
+  padding: 2px;
+  border: 1px solid var(--border);
+  border-radius: 7px;
+  background: var(--input-bg);
+}
+
+.console-view-tab {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  height: 24px;
+  padding: 0 9px;
+  border: 0;
+  border-radius: 5px;
+  background: transparent;
+  color: var(--muted);
+  font-size: 11.5px;
+  font-weight: 500;
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.console-view-tab .icon {
+  width: 13px;
+  height: 13px;
+}
+
+.console-view-tab:hover {
+  background: var(--hover);
+  color: var(--fg);
+}
+
+.console-view-tab.active {
+  background: var(--selection);
+  color: var(--fg);
+  font-weight: 600;
+}
+
+.console-view-tab:focus-visible {
+  outline: 2px solid color-mix(in srgb, var(--accent) 45%, transparent);
+  outline-offset: -2px;
+}
+
+.journal {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  padding: 6px 8px;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  line-height: 1.55;
+  user-select: text;
+}
+
+.journal-entry {
+  margin: 0 0 14px;
+}
+
+.journal-entry:last-child {
+  margin-bottom: 0;
+}
+
+.journal-entry-head {
+  display: flex;
+  align-items: baseline;
+  gap: 7px;
+  min-width: 0;
+  padding: 0 2px 3px;
+}
+
+.journal-action {
+  color: var(--fg);
+  font-size: 11px;
+  font-weight: 700;
+}
+
+.journal-action.failed {
+  color: var(--danger);
+}
+
+.journal-time,
+.journal-meta {
+  flex: none;
+  color: var(--muted-2);
+  font-size: 9.5px;
+  white-space: nowrap;
+}
+
+.journal-meta.failed {
+  color: var(--danger);
+}
+
+.journal-cmd {
+  display: flex;
+  gap: 5px;
+  padding: 0 2px;
+  color: var(--fg-soft);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.journal-prompt {
+  flex: none;
+  color: var(--accent);
+  font-weight: 700;
+}
+
+.journal-out {
+  margin: 2px 0 0;
+  padding: 0 2px;
+  color: var(--fg-soft);
+  font: inherit;
+  line-height: 1.5;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.journal-error {
+  padding: 2px 2px 0;
+  color: var(--danger);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.journal-empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  min-height: 100%;
+  padding: 28px 20px;
+  color: var(--muted);
+  font-family: var(--font-ui);
+  font-size: 12px;
+  text-align: center;
+}
+
+.journal-empty-hint {
+  max-width: 260px;
+  color: var(--muted-2);
+  font-size: 10.5px;
+  line-height: 1.5;
+}
+
+.journal-empty-btn {
+  height: 26px;
+  padding: 0 12px;
+  border: 1px solid var(--border-strong);
+  border-radius: 6px;
+  background: var(--panel-raised);
+  color: var(--fg-soft);
+  font-size: 11.5px;
+  cursor: pointer;
+}
+
+.journal-empty-btn:hover {
+  background: var(--hover);
+  color: var(--fg);
+}
+
+.journal-file {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  min-width: 0;
+  max-width: 100%;
+  margin-top: 6px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--muted-2);
+  font-size: 9.5px;
+  cursor: pointer;
+}
+
+.journal-file code {
+  font-family: var(--font-mono);
+  font-size: 9.5px;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.journal-file:hover {
+  color: var(--accent);
+}

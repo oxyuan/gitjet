@@ -1,10 +1,11 @@
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Channel } from "mygo-runtime";
-import { Git, type Completion } from "./mygo";
+import { events, Git, type Completion, type JournalEntry } from "./mygo";
 import { commandLine, completionPrefix, CONSOLE_PROGRAMS, rememberLine, splitCommand } from "./console";
 import { Icon } from "./icons";
+import { entryText, JournalView } from "./JournalView";
 import { cx, IconButton, Spinner, useStoredState } from "./ui";
-import { useT } from "./i18n";
+import { useLang, useT } from "./i18n";
 
 const T = {
   en: {
@@ -15,7 +16,14 @@ const T = {
     hintShell: "Start with `!` to run another program as typed: `!ls -la`.",
     hintKeys: "Tab completes · ↑/↓ recalls history · click the chip to switch programs.",
     copyOutput: "Copy console output",
-    clearConsole: "Clear console",
+    copyLog: "Copy the recorded log",
+    clearConsole: "Clear the console view (records are kept)",
+    clearLog: "Clear the log view (records are kept)",
+    logView: "Log",
+    logHint: "Everything the app has run, with its full output",
+    views: "Console views",
+    revealJournal: "Open the log file",
+    revealFailed: "The log file could not be opened",
     openRepositoryFirst: "Open a repository first",
     exitCode: "exit {code} · {ms} ms",
     noOutput: "No output",
@@ -29,7 +37,14 @@ const T = {
     hintShell: "以 `!` 开头按原样运行其他程序，例如 `!ls -la`。",
     hintKeys: "Tab 补全 · ↑/↓ 翻历史 · 点击左侧标签切换前缀程序。",
     copyOutput: "复制控制台输出",
-    clearConsole: "清空控制台",
+    copyLog: "复制日志记录",
+    clearConsole: "清空控制台显示（记录仍保留）",
+    clearLog: "清除日志显示（记录仍保留）",
+    logView: "日志",
+    logHint: "软件执行过的全部操作及其完整输出",
+    views: "控制台视图",
+    revealJournal: "打开日志文件",
+    revealFailed: "日志文件无法打开",
     openRepositoryFirst: "请先打开仓库",
     exitCode: "退出码 {code} · {ms} 毫秒",
     noOutput: "没有输出",
@@ -39,7 +54,7 @@ const T = {
 
 /** INTRO_ID marks the opening hint block, which is re-rendered in the current
  *  language instead of being stored as literal text. */
-const INTRO_ID = 0;
+const INTRO_ID = "intro";
 
 /** Output is capped per block: a runaway build keeps the newest lines. */
 const MAX_LINES = 4000;
@@ -47,12 +62,12 @@ const MAX_LINES = 4000;
 const MAX_BLOCKS = 200;
 
 interface IntroBlock {
-  id: number;
+  id: string;
   kind: "intro";
 }
 
 interface RunBlock {
-  id: number;
+  id: string;
   kind: "run";
   /** The complete line that ran, program included. */
   command: string;
@@ -67,9 +82,32 @@ interface RunBlock {
 
 type ConsoleBlock = IntroBlock | RunBlock;
 
-export function ConsolePanel({ onCommandDone, repoOpen }: { onCommandDone: () => void; repoOpen: boolean }) {
+type ConsoleView = "log" | "console";
+
+export function ConsolePanel({
+  onCommandDone,
+  repoOpen,
+  repoKey,
+  notify,
+}: {
+  onCommandDone: () => void;
+  repoOpen: boolean;
+  repoKey: string;
+  notify: (kind: "info" | "success" | "error", title: string, message?: string) => void;
+}) {
   const t = useT(T);
+  const lang = useLang();
+  // Entering the tab shows what the app has run; the command line is a click
+  // away, so it is not the default.
+  const [view, setView] = useState<ConsoleView>("log");
   const [blocks, setBlocks] = useState<ConsoleBlock[]>([{ id: INTRO_ID, kind: "intro" }]);
+  const [journal, setJournal] = useState<JournalEntry[]>([]);
+  const [journalError, setJournalError] = useState("");
+  const [journalPath, setJournalPath] = useState("");
+  // Clearing a view is a watermark, never a deletion: the journal file keeps
+  // every record and newer entries keep appearing.
+  const [logClearedAt, setLogClearedAt] = useStoredState<number>(`gitjet.console.logCleared:${repoKey}`, 0);
+  const [consoleClearedAt, setConsoleClearedAt] = useStoredState<number>(`gitjet.console.cleared:${repoKey}`, 0);
   const [input, setInput] = useState("");
   const [program, setProgram] = useStoredState<string>("gitjet.console.program", "git");
   // History is per program: a line recalled while mvn is selected must not
@@ -91,6 +129,7 @@ export function ConsolePanel({ onCommandDone, repoOpen }: { onCommandDone: () =>
   // Block ids belong to this mount, so a fast refresh cannot collide with a
   // preserved block list.
   const nextId = useRef(1);
+  const seeded = useRef(false);
 
   const activeProgram = CONSOLE_PROGRAMS.find((p) => p === program) ?? "git";
   const history = historyByProgram[activeProgram] ?? [];
@@ -98,6 +137,90 @@ export function ConsolePanel({ onCommandDone, repoOpen }: { onCommandDone: () =>
   const remember = (line: string) => {
     setStoredHistory(rememberLine(historyByProgram, activeProgram, line));
   };
+
+  // The journal is the source of truth for both views: the log renders it and
+  // the command view is rebuilt from it, so switching tabs no longer loses
+  // what was printed.
+  const loadJournal = useCallback(
+    async (seed: boolean) => {
+      if (!repoOpen) {
+        setJournal([]);
+        setJournalError("");
+        return;
+      }
+      try {
+        const list = await Git.journal(500);
+        setJournal(list);
+        setJournalError("");
+        if (!seed || seeded.current) return;
+        seeded.current = true;
+        const runs = list.filter(
+          (entry) => entry.source === "console" && entry.command !== "" && entry.at > consoleClearedAt,
+        );
+        if (runs.length === 0) return;
+        setBlocks([
+          { id: INTRO_ID, kind: "intro" },
+          ...runs.slice(-MAX_BLOCKS).map((entry) => ({
+            id: entry.id,
+            kind: "run" as const,
+            command: entry.command,
+            shell: false,
+            lines: entry.output === "" ? [] : entry.output.split("\n"),
+            running: false,
+            exitCode: entry.exitCode,
+            duration: entry.duration,
+            error: entry.error === "" ? undefined : entry.error,
+          })),
+        ]);
+      } catch (err) {
+        setJournalError(err instanceof Error ? err.message : String(err));
+      }
+    },
+    [repoOpen, consoleClearedAt],
+  );
+
+  useEffect(() => {
+    void loadJournal(true);
+  }, [loadJournal]);
+
+  // Every operation notifies when it finishes; the journal is written before
+  // the notification leaves, so a short debounce reads the new entry.
+  useEffect(() => {
+    if (!repoOpen) return;
+    let timer: number | undefined;
+    const off = events.repoChanged.on(() => {
+      window.clearTimeout(timer);
+      timer = window.setTimeout(() => void loadJournal(false), 250);
+    });
+    return () => {
+      window.clearTimeout(timer);
+      off();
+    };
+  }, [repoOpen, loadJournal]);
+
+  useEffect(() => {
+    if (!repoOpen) {
+      setJournalPath("");
+      return;
+    }
+    let alive = true;
+    Git.journalFile()
+      .then((path) => {
+        if (alive) setJournalPath(path);
+      })
+      .catch(() => {
+        if (alive) setJournalPath("");
+      });
+    return () => {
+      alive = false;
+    };
+  }, [repoOpen]);
+
+  useEffect(() => {
+    if (view === "console") inputRef.current?.focus();
+  }, [view]);
+
+  const logEntries = useMemo(() => journal.filter((entry) => entry.at > logClearedAt), [journal, logClearedAt]);
 
   useEffect(() => {
     if (completions.length === 0) return;
@@ -129,7 +252,7 @@ export function ConsolePanel({ onCommandDone, repoOpen }: { onCommandDone: () =>
     if (nearBottom) el.scrollTop = el.scrollHeight;
   }, [blocks]);
 
-  const appendLine = (id: number, text: string) => {
+  const appendLine = (id: string, text: string) => {
     setBlocks((prev) =>
       prev.map((block) => {
         if (block.id !== id || block.kind !== "run") return block;
@@ -139,7 +262,7 @@ export function ConsolePanel({ onCommandDone, repoOpen }: { onCommandDone: () =>
     );
   };
 
-  const finish = (id: number, patch: Partial<RunBlock>) => {
+  const finish = (id: string, patch: Partial<RunBlock>) => {
     setBlocks((prev) =>
       prev.map((block) => (block.id === id && block.kind === "run" ? { ...block, ...patch, running: false } : block)),
     );
@@ -202,7 +325,7 @@ export function ConsolePanel({ onCommandDone, repoOpen }: { onCommandDone: () =>
     const shell = typed.startsWith("!");
     const command = commandLine(typed, activeProgram);
     if (command === "") return;
-    const id = nextId.current++;
+    const id = `local-${nextId.current++}`;
     setBlocks((prev) => {
       // The hint card is an empty-state, not a permanent header: once a
       // command runs, the whole area belongs to the command history.
@@ -263,32 +386,91 @@ export function ConsolePanel({ onCommandDone, repoOpen }: { onCommandDone: () =>
     return [prompt, ...block.lines, status].filter((line) => line !== "").join("\n");
   };
 
+  const revealJournal = async () => {
+    try {
+      const path = await Git.revealJournal();
+      setJournalPath(path);
+      notify("info", t("revealJournal"), path);
+    } catch (err) {
+      notify("error", t("revealFailed"), err instanceof Error ? err.message : String(err));
+    }
+  };
+
   return (
     <div className="console-panel">
       <div className="panel-toolbar">
-        <span className="console-title">
-          <Icon name="console" /> {t("title")}
-        </span>
+        <div className="console-views" role="tablist" aria-label={t("views")}>
+          <button
+            type="button"
+            role="tab"
+            aria-selected={view === "log"}
+            className={cx("console-view-tab", view === "log" && "active")}
+            title={t("logHint")}
+            onClick={() => setView("log")}
+          >
+            <Icon name="log" />
+            {t("logView")}
+          </button>
+          <button
+            type="button"
+            role="tab"
+            aria-selected={view === "console"}
+            className={cx("console-view-tab", view === "console" && "active")}
+            title={t("hintKeys")}
+            onClick={() => setView("console")}
+          >
+            <Icon name="console" />
+            {t("title")}
+          </button>
+        </div>
         <span className="spacer" />
         <IconButton
           icon="copy"
-          title={t("copyOutput")}
+          title={view === "log" ? t("copyLog") : t("copyOutput")}
           small
           onClick={() => {
-            void navigator.clipboard.writeText(blocks.map(blockText).join("\n\n"));
+            const text =
+              view === "log"
+                ? logEntries.map((entry) => entryText(entry, lang)).join("\n\n")
+                : blocks.map(blockText).join("\n\n");
+            if (text !== "") void navigator.clipboard.writeText(text);
           }}
         />
         <IconButton
+          icon="file"
+          title={t("revealJournal")}
+          small
+          disabled={!repoOpen}
+          onClick={() => void revealJournal()}
+        />
+        <IconButton
           icon="trash"
-          title={t("clearConsole")}
+          title={view === "log" ? t("clearLog") : t("clearConsole")}
           small
           onClick={() => {
+            if (view === "log") {
+              setLogClearedAt(Date.now());
+              return;
+            }
             setBlocks([{ id: INTRO_ID, kind: "intro" }]);
+            setConsoleClearedAt(Date.now());
             setProgramMenu(false);
             inputRef.current?.focus();
           }}
         />
       </div>
+      {view === "log" ? (
+        <JournalView
+          entries={logEntries}
+          hidden={journal.length - logEntries.length}
+          repoOpen={repoOpen}
+          error={journalError}
+          filePath={journalPath}
+          onShowAll={() => setLogClearedAt(0)}
+          onOpenFile={() => void revealJournal()}
+        />
+      ) : (
+        <>
       <div className="console-output" ref={outputRef} onClick={() => inputRef.current?.focus()}>
         {blocks.map((block) => {
           if (block.kind === "intro") {
@@ -467,6 +649,8 @@ export function ConsolePanel({ onCommandDone, repoOpen }: { onCommandDone: () =>
             </button>
           ))}
         </div>
+      )}
+        </>
       )}
     </div>
   );

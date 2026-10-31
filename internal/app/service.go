@@ -246,6 +246,11 @@ func (w *Workspace) Reveal(path string) error {
 		}
 		target = repo.AbsPath(path)
 	}
+	return revealPath(target)
+}
+
+// revealPath shows a file or folder in the system file manager.
+func revealPath(target string) error {
 	switch runtime.GOOS {
 	case "darwin":
 		return exec.Command("open", "-R", target).Start()
@@ -488,7 +493,9 @@ func (g *Git) Commit(opts git.CommitOptions) (git.CommitResult, error) {
 		return git.CommitResult{}, err
 	}
 	ctx, trace := git.WithCommandTrace(context.Background())
+	started := time.Now()
 	res, err := repo.Commit(ctx, opts)
+	g.journalOperation(repo, JournalEntry{Action: "commit", Commands: *trace, Output: res.Output}, err, started)
 	if err != nil {
 		return git.CommitResult{}, err
 	}
@@ -609,9 +616,11 @@ func (g *Git) Checkout(ref string) (string, error) {
 		return "", err
 	}
 	ctx, trace := git.WithCommandTrace(context.Background())
+	started := time.Now()
 	out, err := preserveLocalChanges(ctx, repo, "checking out "+ref, func() (string, error) {
 		return repo.Checkout(ctx, ref)
 	})
+	g.journalOperation(repo, JournalEntry{Action: "checkout", Commands: *trace, Output: out}, err, started)
 	g.notify()
 	return appendCommands(out, *trace), err
 }
@@ -676,9 +685,11 @@ func (g *Git) Merge(ref string, opts git.MergeOptions) (string, error) {
 		return "", err
 	}
 	ctx, trace := git.WithCommandTrace(context.Background())
+	started := time.Now()
 	out, err := preserveLocalChanges(ctx, repo, "merging "+ref, func() (string, error) {
 		return repo.Merge(ctx, ref, opts)
 	})
+	g.journalOperation(repo, JournalEntry{Action: "merge", Commands: *trace, Output: out}, err, started)
 	g.notify()
 	return appendCommands(out, *trace), err
 }
@@ -691,9 +702,11 @@ func (g *Git) Rebase(onto string, autostash bool) (string, error) {
 		return "", err
 	}
 	ctx, trace := git.WithCommandTrace(context.Background())
+	started := time.Now()
 	out, err := preserveLocalChanges(ctx, repo, "rebasing onto "+onto, func() (string, error) {
 		return repo.Rebase(ctx, onto, autostash)
 	})
+	g.journalOperation(repo, JournalEntry{Action: "rebase", Commands: *trace, Output: out}, err, started)
 	g.notify()
 	return appendCommands(out, *trace), err
 }
@@ -705,9 +718,11 @@ func (g *Git) CherryPick(hashes []string, noCommit bool) (string, error) {
 		return "", err
 	}
 	ctx, trace := git.WithCommandTrace(context.Background())
+	started := time.Now()
 	out, err := preserveLocalChanges(ctx, repo, "cherry-picking", func() (string, error) {
 		return repo.CherryPick(ctx, hashes, noCommit)
 	})
+	g.journalOperation(repo, JournalEntry{Action: "cherry-pick", Commands: *trace, Output: out}, err, started)
 	g.notify()
 	return appendCommands(out, *trace), err
 }
@@ -719,9 +734,11 @@ func (g *Git) Revert(hashes []string) (string, error) {
 		return "", err
 	}
 	ctx, trace := git.WithCommandTrace(context.Background())
+	started := time.Now()
 	out, err := preserveLocalChanges(ctx, repo, "reverting", func() (string, error) {
 		return repo.Revert(ctx, hashes)
 	})
+	g.journalOperation(repo, JournalEntry{Action: "revert", Commands: *trace, Output: out}, err, started)
 	g.notify()
 	return appendCommands(out, *trace), err
 }
@@ -734,7 +751,9 @@ func (g *Git) Reset(hash, mode string) (string, error) {
 		return "", err
 	}
 	ctx, trace := git.WithCommandTrace(context.Background())
+	started := time.Now()
 	out, err := repo.Reset(ctx, hash, mode)
+	g.journalOperation(repo, JournalEntry{Action: "reset", Commands: *trace, Output: out}, err, started)
 	g.notify()
 	return appendCommands(out, *trace), err
 }
@@ -782,7 +801,9 @@ func (g *Git) Push(opts git.PushOptions, out *mygo.Channel[string]) (string, err
 		return "", err
 	}
 	ctx, trace := git.WithCommandTrace(context.Background())
+	started := time.Now()
 	text, err := repo.Push(ctx, opts, func(line string) { _ = out.Send(line) })
+	g.journalOperation(repo, JournalEntry{Action: "push", Commands: *trace, Output: text}, err, started)
 	if err == nil {
 		g.rememberPushTarget(opts.Remote, opts.Branch)
 	}
@@ -798,6 +819,7 @@ func (g *Git) Pull(opts git.PullOptions, out *mygo.Channel[string]) (string, err
 		return "", err
 	}
 	ctx, trace := git.WithCommandTrace(context.Background())
+	started := time.Now()
 	run := func(ctx context.Context) (string, error) {
 		return repo.Pull(ctx, opts, func(line string) { _ = out.Send(line) })
 	}
@@ -807,6 +829,7 @@ func (g *Git) Pull(opts git.PullOptions, out *mygo.Channel[string]) (string, err
 	} else {
 		text, err = preserveLocalChanges(ctx, repo, "pulling", func() (string, error) { return run(ctx) })
 	}
+	g.journalOperation(repo, JournalEntry{Action: "pull", Commands: *trace, Output: text}, err, started)
 	g.notify()
 	return appendCommands(text, *trace), err
 }
@@ -818,7 +841,9 @@ func (g *Git) Fetch(opts git.FetchOptions, out *mygo.Channel[string]) (string, e
 		return "", err
 	}
 	ctx, trace := git.WithCommandTrace(context.Background())
+	started := time.Now()
 	text, err := repo.Fetch(ctx, opts, func(line string) { _ = out.Send(line) })
+	g.journalOperation(repo, JournalEntry{Action: "fetch", Commands: *trace, Output: text}, err, started)
 	g.notify()
 	return appendCommands(text, *trace), err
 }
@@ -839,7 +864,9 @@ func (g *Git) StashPush(opts git.StashOptions) (string, error) {
 		return "", err
 	}
 	ctx, trace := git.WithCommandTrace(context.Background())
+	started := time.Now()
 	out, err := repo.StashPush(ctx, opts)
+	g.journalOperation(repo, JournalEntry{Action: "stash-push", Commands: *trace, Output: out}, err, started)
 	if err != nil {
 		return out, err
 	}
@@ -854,7 +881,13 @@ func (g *Git) StashApply(index int, pop bool) (string, error) {
 		return "", err
 	}
 	ctx, trace := git.WithCommandTrace(context.Background())
+	started := time.Now()
 	out, err := repo.StashApply(ctx, index, pop)
+	action := "stash-apply"
+	if pop {
+		action = "stash-pop"
+	}
+	g.journalOperation(repo, JournalEntry{Action: action, Commands: *trace, Output: out}, err, started)
 	if err != nil {
 		return out, err
 	}
@@ -869,7 +902,9 @@ func (g *Git) StashDrop(index int) (string, error) {
 		return "", err
 	}
 	ctx, trace := git.WithCommandTrace(context.Background())
+	started := time.Now()
 	out, err := repo.StashDrop(ctx, index)
+	g.journalOperation(repo, JournalEntry{Action: "stash-drop", Commands: *trace, Output: out}, err, started)
 	if err != nil {
 		return out, err
 	}
@@ -932,7 +967,9 @@ func (g *Git) AbortOperation() (string, error) {
 		return "", err
 	}
 	ctx, trace := git.WithCommandTrace(context.Background())
+	started := time.Now()
 	out, err := repo.AbortOperation(ctx)
+	g.journalOperation(repo, JournalEntry{Action: "abort", Commands: *trace, Output: out}, err, started)
 	if err != nil {
 		return out, err
 	}
@@ -947,7 +984,9 @@ func (g *Git) ContinueOperation() (string, error) {
 		return "", err
 	}
 	ctx, trace := git.WithCommandTrace(context.Background())
+	started := time.Now()
 	out, err := repo.ContinueOperation(ctx)
+	g.journalOperation(repo, JournalEntry{Action: "continue", Commands: *trace, Output: out}, err, started)
 	if err != nil {
 		return out, err
 	}
@@ -1013,7 +1052,15 @@ func (g *Git) Console(command string, out *mygo.Channel[string]) (git.ConsoleRes
 	if err != nil {
 		return git.ConsoleResult{}, err
 	}
+	started := time.Now()
 	res, err := repo.RunConsole(context.Background(), command, func(line string) { _ = out.Send(line) })
+	g.journalOperation(repo, JournalEntry{
+		Action:   "console",
+		Source:   "console",
+		Command:  command,
+		Output:   res.Output,
+		ExitCode: res.ExitCode,
+	}, err, started)
 	g.notify()
 	return res, err
 }
@@ -1229,9 +1276,11 @@ func (g *Git) Rewrite(onto string, steps []git.PlanStep) (string, error) {
 		return "", err
 	}
 	ctx, trace := git.WithCommandTrace(context.Background())
+	started := time.Now()
 	out, err := preserveLocalChanges(ctx, repo, "rewriting history", func() (string, error) {
 		return repo.Rewrite(ctx, onto, steps)
 	})
+	g.journalOperation(repo, JournalEntry{Action: "rewrite", Commands: *trace, Output: out}, err, started)
 	g.notify()
 	return appendCommands(out, *trace), err
 }
@@ -1261,7 +1310,9 @@ func (g *Git) AddWorktree(path, branch string, newBranch bool) (string, error) {
 		return "", err
 	}
 	ctx, trace := git.WithCommandTrace(context.Background())
+	started := time.Now()
 	out, err := repo.AddWorktree(ctx, path, branch, newBranch)
+	g.journalOperation(repo, JournalEntry{Action: "worktree-add", Commands: *trace, Output: out}, err, started)
 	g.notify()
 	return appendCommands(out, *trace), err
 }
@@ -1273,7 +1324,9 @@ func (g *Git) RemoveWorktree(path string, force bool) (string, error) {
 		return "", err
 	}
 	ctx, trace := git.WithCommandTrace(context.Background())
+	started := time.Now()
 	out, err := repo.RemoveWorktree(ctx, path, force)
+	g.journalOperation(repo, JournalEntry{Action: "worktree-remove", Commands: *trace, Output: out}, err, started)
 	g.notify()
 	return appendCommands(out, *trace), err
 }
@@ -1285,7 +1338,9 @@ func (g *Git) PruneWorktrees() (string, error) {
 		return "", err
 	}
 	ctx, trace := git.WithCommandTrace(context.Background())
+	started := time.Now()
 	out, err := repo.PruneWorktrees(ctx)
+	g.journalOperation(repo, JournalEntry{Action: "worktree-prune", Commands: *trace, Output: out}, err, started)
 	return appendCommands(out, *trace), err
 }
 
@@ -1314,7 +1369,9 @@ func (g *Git) StashToBranch(index int, branch string) (string, error) {
 		return "", err
 	}
 	ctx, trace := git.WithCommandTrace(context.Background())
+	started := time.Now()
 	out, err := repo.StashToBranch(ctx, index, branch)
+	g.journalOperation(repo, JournalEntry{Action: "stash-branch", Commands: *trace, Output: out}, err, started)
 	g.notify()
 	return appendCommands(out, *trace), err
 }
@@ -1394,7 +1451,9 @@ func (g *Git) UpdateSubmodules(init bool) (string, error) {
 		return "", err
 	}
 	ctx, trace := git.WithCommandTrace(context.Background())
+	started := time.Now()
 	out, err := repo.UpdateSubmodules(ctx, init)
+	g.journalOperation(repo, JournalEntry{Action: "submodules", Commands: *trace, Output: out}, err, started)
 	g.notify()
 	return appendCommands(out, *trace), err
 }
@@ -1415,7 +1474,9 @@ func (g *Git) Unshallow(out *mygo.Channel[string]) (string, error) {
 		return "", err
 	}
 	ctx, trace := git.WithCommandTrace(context.Background())
+	started := time.Now()
 	text, err := repo.Unshallow(ctx, func(line string) { _ = out.Send(line) })
+	g.journalOperation(repo, JournalEntry{Action: "unshallow", Commands: *trace, Output: text}, err, started)
 	g.notify()
 	return appendCommands(text, *trace), err
 }

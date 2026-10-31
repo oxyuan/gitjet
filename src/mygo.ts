@@ -243,6 +243,30 @@ export interface FileDiff {
   language: string;
 }
 
+/**
+ * JournalEntry is one command the app ran for the user: what it did, the git
+ * invocations behind it, and everything they printed. Entries are
+ * append-only — clearing a view in the page never removes one.
+ */
+export interface JournalEntry {
+  id: string;
+  /** unix milliseconds */
+  at: number;
+  repo: string;
+  /** pull, push, console, ... */
+  action: string;
+  /** operation | console */
+  source: string;
+  /** the line typed in the console, "" otherwise */
+  command: string;
+  commands: string[];
+  output: string;
+  exitCode: number;
+  /** milliseconds */
+  duration: number;
+  error: string;
+}
+
 export interface LFSFile {
   path: string;
   oid: string;
@@ -735,6 +759,20 @@ export const Git = {
   ignore(paths: string[]): Promise<string> {
     return call("Git.Ignore", paths);
   },
+  /**
+   * Journal returns the newest recorded operations of the open repository,
+   * oldest first. Clearing a view never shortens this history.
+   */
+  journal(limit: number): Promise<JournalEntry[]> {
+    return call("Git.Journal", limit);
+  },
+  /**
+   * JournalFile returns where the journal is stored, creating it so the file
+   * manager has something to show.
+   */
+  journalFile(): Promise<string> {
+    return call("Git.JournalFile");
+  },
   /** LFS reports whether Git LFS is installed and what it tracks. */
   lfs(): Promise<LFSStatus> {
     return call("Git.LFS");
@@ -854,6 +892,10 @@ export const Git = {
    */
   reset(hash: string, mode: string): Promise<string> {
     return call("Git.Reset", hash, mode);
+  },
+  /** RevealJournal shows the journal in the file manager and returns its path. */
+  revealJournal(): Promise<string> {
+    return call("Git.RevealJournal");
   },
   /** Revert reverts commits. */
   revert(hashes: string[]): Promise<string> {
