@@ -1,9 +1,11 @@
 import { describe, expect, it } from "bun:test";
 import {
   buildBranchSections,
+  buildTagLeaves,
   describeBranch,
   flattenSections,
   searchSections,
+  searchTags,
   splitRefName,
   type BranchLeaf,
 } from "./branches";
@@ -141,5 +143,62 @@ describe("searchSections", () => {
 
   it("drops groups and sections without a match", () => {
     expect(searchSections(sections, "nothing-here")).toEqual([]);
+  });
+});
+
+describe("buildTagLeaves", () => {
+  const tag = (name: string, time: number, subject: string, short = "1111111"): RepoRef => ({
+    ...ref(name),
+    name,
+    fullName: `refs/tags/${name}`,
+    type: "tag",
+    remote: "",
+    short,
+    subject,
+    time,
+  });
+
+  it("uses the full ref as identity and sorts newest first", () => {
+    const tags = buildTagLeaves({
+      ...snapshot,
+      tags: [tag("v1.0.0", 100, "first"), tag("v2.0.0", 300, "third"), tag("v1.5.0", 200, "second")],
+    });
+    expect(tags.map((t) => t.name)).toEqual(["v2.0.0", "v1.5.0", "v1.0.0"]);
+    expect(tags[0]!.key).toBe("refs/tags/v2.0.0");
+    expect(tags[0]!.subject).toBe("third");
+  });
+
+  it("breaks equal timestamps by name so the list never jitters", () => {
+    const tags = buildTagLeaves({
+      ...snapshot,
+      tags: [tag("v1.10.0", 100, ""), tag("v1.9.0", 100, "")],
+    });
+    expect(tags.map((t) => t.name)).toEqual(["v1.9.0", "v1.10.0"]);
+  });
+
+  it("has no tags without a snapshot", () => {
+    expect(buildTagLeaves(null)).toEqual([]);
+  });
+});
+
+describe("searchTags", () => {
+  const tags = buildTagLeaves({
+    ...snapshot,
+    tags: [
+      { ...ref("v1.0.0"), name: "v1.0.0", fullName: "refs/tags/v1.0.0", type: "tag", subject: "Release one" },
+      { ...ref("v2.0.0"), name: "v2.0.0", fullName: "refs/tags/v2.0.0", type: "tag", subject: "Release two" },
+    ],
+  });
+
+  it("matches a tag name", () => {
+    expect(searchTags(tags, "v2").map((t) => t.name)).toEqual(["v2.0.0"]);
+  });
+
+  it("matches the commit a tag points at", () => {
+    expect(searchTags(tags, "release one").map((t) => t.name)).toEqual(["v1.0.0"]);
+  });
+
+  it("returns every tag for an empty query", () => {
+    expect(searchTags(tags, " ")).toBe(tags);
   });
 });

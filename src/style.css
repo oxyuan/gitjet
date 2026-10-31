@@ -5919,14 +5919,10 @@ kbd {
 }
 
 .bp-section {
-  /* Branch rows sit one level below their section title. Remote branches get
-     an extra step so local and remote rows never read as one flat list. */
-  --bp-indent: 0px;
-  padding-top: 1px;
-}
-
-.bp-section.remote {
+  /* Branch rows sit one level below their section title. Local and remote
+     sections use the same step so their groups and branches line up. */
   --bp-indent: 14px;
+  padding-top: 1px;
 }
 
 .bp-section + .bp-section {
@@ -8494,6 +8490,140 @@ body.resizing-row .log-detail-split::after {
   color: var(--muted-2);
   font-size: 10.5px;
   font-weight: 400;
+}
+
+/* ---- Branch page: list toolbar, foldable sections, tags ---- */
+
+.branch-list-actions {
+  display: flex;
+  align-items: center;
+  gap: 1px;
+  flex: none;
+  margin-left: 2px;
+  padding-left: 4px;
+  border-left: 1px solid var(--border);
+}
+
+.bp-section-toggle {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  min-width: 0;
+  height: 22px;
+  margin: -3px 0;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: inherit;
+  font: inherit;
+  letter-spacing: inherit;
+  text-transform: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.bp-section-toggle:hover {
+  color: var(--fg-soft);
+}
+
+.bp-section-toggle > .icon:first-child {
+  color: var(--muted-2);
+  flex: none;
+}
+
+.bp-section-action {
+  flex: none;
+  display: grid;
+  place-items: center;
+  width: 18px;
+  height: 18px;
+  margin-left: 2px;
+  padding: 0;
+  border: 0;
+  border-radius: 4px;
+  background: none;
+  color: var(--muted-2);
+}
+
+.bp-section-action:hover {
+  background: var(--hover);
+  color: var(--fg);
+}
+
+.bp-section.tags {
+  --bp-indent: 0px;
+}
+
+/* A tag is read as a title (name, time) over the commit it points at. */
+.bp-tag {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  padding: 4px 10px 5px 22px;
+  color: var(--fg-soft);
+  cursor: default;
+}
+
+.bp-tag:hover {
+  background: var(--hover);
+}
+
+.bp-tag.selected {
+  background: var(--selection);
+}
+
+.bp-tag-line {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+}
+
+.bp-tag-line > .icon {
+  color: var(--muted-2);
+  flex: none;
+}
+
+.bp-tag-name {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-family: var(--font-mono);
+  font-size: 11.5px;
+}
+
+.bp-tag-time {
+  flex: none;
+  margin-left: auto;
+  font-size: 9.5px;
+  color: var(--muted-2);
+  font-variant-numeric: tabular-nums;
+}
+
+.bp-tag-meta {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  min-width: 0;
+  padding-left: 17px;
+  font-size: 10.5px;
+  color: var(--muted-2);
+}
+
+.bp-tag-meta code {
+  flex: none;
+  font-family: var(--font-mono);
+  font-size: 9.5px;
+  color: var(--accent);
+}
+
+.bp-tag-subject {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 /* The commit view selects a changed file before opening it, like the log. */

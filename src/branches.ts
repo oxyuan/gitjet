@@ -202,5 +202,46 @@ export function flattenSections(sections: BranchSection[]): BranchLeaf[] {
   return sections.flatMap((section) => section.groups.flatMap((group) => group.branches));
 }
 
+/** A tag as the branch page lists it: what it points at, not a branch tree. */
+export interface TagLeaf {
+  key: string;
+  name: string;
+  hash: string;
+  short: string;
+  subject: string;
+  time: number;
+}
+
+/** Tags newest first; two tags made in the same second fall back to the name
+ *  so a rebuild of the list never reorders them. */
+export function buildTagLeaves(snapshot: RefsSnapshot | null): TagLeaf[] {
+  if (!snapshot) return [];
+  return snapshot.tags
+    .map((ref) => ({
+      key: ref.fullName,
+      name: ref.name,
+      hash: ref.hash,
+      short: ref.short,
+      subject: ref.subject,
+      time: ref.time,
+    }))
+    .sort((a, b) => b.time - a.time || a.name.localeCompare(b.name, undefined, { numeric: true }));
+}
+
+/** Filters tags by name or the commit they point at. */
+export function searchTags(tags: TagLeaf[], query: string): TagLeaf[] {
+  const q = query.trim().toLowerCase();
+  if (!q) return tags;
+  return tags.filter(
+    (tag) => tag.name.toLowerCase().includes(q) || tag.subject.toLowerCase().includes(q),
+  );
+}
+
 /** Groups with more than this many branches start collapsed. */
 export const COLLAPSE_THRESHOLD = 8;
+
+/** Whether a group starts folded: big groups do, unless the user said
+ *  otherwise with the section or the toolbar. */
+export function groupStartsCollapsed(size: number): boolean {
+  return size > COLLAPSE_THRESHOLD;
+}

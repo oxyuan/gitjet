@@ -135,6 +135,9 @@ const T = {
     copied: "Copied to the clipboard",
     gitFailed: "Git command failed",
     deleteBranchFailed: "Could not delete the branch",
+    deleteTagFailed: "Could not delete the tag",
+    deleteTagTitle: "Delete Tag",
+    deleteTagMessage: "Delete tag “{name}”? Only the local tag is removed.",
     revealFailed: "Could not reveal the file",
     saveSettingsFailed: "Could not save settings",
     lastCommitMessage: "Could not read the last commit message",
@@ -206,6 +209,7 @@ const T = {
     cherryPicked: "Cherry-picked",
     reverted: "Reverted",
     tagCreated: "Tag created",
+    tagDeleted: "Tag deleted",
     changesStashed: "Changes stashed",
     stashPopped: "Stash popped",
     stashApplied: "Stash applied",
@@ -323,6 +327,9 @@ const T = {
     copied: "已复制到剪贴板",
     gitFailed: "Git 命令失败",
     deleteBranchFailed: "无法删除分支",
+    deleteTagFailed: "无法删除标签",
+    deleteTagTitle: "删除标签",
+    deleteTagMessage: "删除标签“{name}”？只会删除本地标签。",
     revealFailed: "无法在文件管理器中显示该文件",
     saveSettingsFailed: "无法保存设置",
     lastCommitMessage: "无法读取上一条提交信息",
@@ -394,6 +401,7 @@ const T = {
     cherryPicked: "Cherry-pick 完成",
     reverted: "Revert 完成",
     tagCreated: "标签已创建",
+    tagDeleted: "标签已删除",
     changesStashed: "更改已 Stash",
     stashPopped: "Stash pop 完成",
     stashApplied: "已应用 Stash",
@@ -1601,6 +1609,31 @@ function AppShell({ onLangChange }: { onLangChange: (lang: Lang) => void }) {
     void loadLog(true);
   };
 
+  const deleteTag = async (name: string) => {
+    const ok = await ask({
+      title: t("deleteTagTitle"),
+      message: t("deleteTagMessage", { name }),
+      confirmLabel: t("delete"),
+      danger: true,
+    });
+    if (!ok) return;
+    try {
+      await withBusy(() => Git.deleteTag(name, ""));
+      notify("success", t("tagDeleted"), name);
+      // A deleted tag cannot stay the history scope.
+      if (logRef === name) {
+        setLogRef("");
+        setSelectedCommit(null);
+        setLogDetail(null);
+        setLogFile(null);
+      }
+      await reload(false);
+      void loadLog(true);
+    } catch (err) {
+      fail(t("deleteTagFailed"), err);
+    }
+  };
+
   const reset = async (hash: string, mode: "soft" | "mixed" | "hard") => {
     setDialog(null);
     if (mode === "hard") {
@@ -2212,6 +2245,8 @@ function AppShell({ onLangChange }: { onLangChange: (lang: Lang) => void }) {
                   onMerge={(name) => setDialog({ kind: "merge", refs: [name] })}
                   onRebase={(name) => void rebase(name)}
                   onDelete={(name) => void deleteBranch(name)}
+                  onDeleteTag={(name) => void deleteTag(name)}
+                  onNewTag={(start) => setDialog({ kind: "tag", start })}
                   onCopy={copyText}
                   onPull={(leaf) => pullBranch(leaf)}
                   onPush={(leaf) => pushBranch(leaf)}
