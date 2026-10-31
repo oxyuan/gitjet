@@ -62,6 +62,7 @@ export function SourceTree({
   const [loading, setLoading] = useState(false);
   const [query, setQuery] = useState("");
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
+  const [picked, setPicked] = useState<string>("");
   const [nonce, setNonce] = useState(0);
   const menu = useFileMenu({
     root,
@@ -168,11 +169,12 @@ export function SourceTree({
                     "tree-row file",
                     flat && "flat",
                     file.untracked && "untracked",
-                    activePath === file.path && "selected",
+                    (activePath === file.path || picked === file.path) && "selected",
                   )}
                   style={{ paddingLeft: 6 + depth * 12 }}
                   title={file.untracked ? `${file.path}\n${t("untracked")}` : file.path}
-                  onClick={() => onOpen(file.path)}
+                  onClick={() => setPicked(file.path)}
+                  onDoubleClick={() => onOpen(file.path)}
                   onContextMenu={(e) => menu.openMenu(e, { path: file.path, isDir: false })}
                 >
                   <span className="tree-chevron-spacer" />

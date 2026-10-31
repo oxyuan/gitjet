@@ -349,6 +349,10 @@ export function CommitPanel({
       next.add(entry.path);
     }
     setSelected(next);
+  };
+
+  // A click only reads the row; opening its diff or conflict is deliberate.
+  const openRow = (entry: FileEntry) => {
     if (entry.unmerged) actions.onShowConflict(entry.path);
     else actions.onShowDiff(entry);
   };
@@ -431,6 +435,7 @@ export function CommitPanel({
         className={cx("tree-row file", flat && "flat", isSelected && "selected")}
         style={{ paddingLeft: 6 + depth * 12 }}
         onClick={(e) => selectRow(e, entry)}
+        onDoubleClick={() => openRow(entry)}
         onContextMenu={(e) => {
           menuFor(entry, e);
         }}

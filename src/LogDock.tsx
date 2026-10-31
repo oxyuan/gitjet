@@ -171,7 +171,8 @@ export function LogDock({
   onInfoResize,
   onSelect,
   onOpenCommit,
-  onSelectFile,
+  onPickFile,
+  onOpenFile,
   onStepFile,
   onSearch,
   onAuthor,
@@ -215,7 +216,9 @@ export function LogDock({
   onInfoResize: (ratio: number) => void;
   onSelect: (commit: Commit) => void;
   onOpenCommit: (hash: string) => void;
-  onSelectFile: (file: CommitFile) => void;
+  /** A click reads the row; the diff opens on double click. */
+  onPickFile: (file: CommitFile) => void;
+  onOpenFile: (file: CommitFile) => void;
   onStepFile: (delta: number) => void;
   onSearch: (s: string) => void;
   onAuthor: (name: string) => void;
@@ -684,7 +687,8 @@ export function LogDock({
                         ref={selectedFile === file.path ? fileRowRef : undefined}
                         style={{ marginLeft: depth * 12 }}
                         className={cx("details-file", selectedFile === file.path && "selected")}
-                        onClick={() => onSelectFile(file)}
+                        onClick={() => onPickFile(file)}
+                        onDoubleClick={() => onOpenFile(file)}
                         title={file.oldPath ? `${file.oldPath} → ${file.path}` : file.path}
                       >
                       <StatusMark kind={file.status} />
@@ -702,6 +706,7 @@ export function LogDock({
                           e.stopPropagation();
                           onOpenSource(file.path, detail.hash);
                         }}
+                        onDoubleClick={(e) => e.stopPropagation()}
                       >
                         <Icon name="file" size={12} />
                       </button>
@@ -712,6 +717,7 @@ export function LogDock({
                           e.stopPropagation();
                           onShowHistory(file.path);
                         }}
+                        onDoubleClick={(e) => e.stopPropagation()}
                       >
                         <Icon name="log" size={12} />
                       </button>

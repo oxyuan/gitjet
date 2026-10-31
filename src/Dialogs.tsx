@@ -1083,6 +1083,7 @@ export function PushDialog({
   const [expanded, setExpanded] = useState<ReadonlySet<string>>(new Set());
   const [menu, setMenu] = useState<{ x: number; y: number; items: ContextItem[] } | null>(null);
   const [previewFile, setPreviewFile] = useState<PushFileTarget | null>(null);
+  const [pickedFile, setPickedFile] = useState("");
   // Capped below the modal's 900px so the file pane cannot be squeezed out.
   const [splitWidth, setSplitWidth] = useStoredState<number>("gitjet.pushSplit", 320);
   const split = Math.min(560, Math.max(220, splitWidth));
@@ -1381,10 +1382,11 @@ export function PushDialog({
                     const dir = slash < 0 ? "" : file.path.slice(0, slash + 1);
                     return (
                       <div
-                        className="tree-row file"
+                        className={cx("tree-row file", pickedFile === file.path && "selected")}
                         style={{ paddingLeft: 8 + depth * 12 }}
                         title={file.oldPath ? `${file.oldPath} → ${file.path}` : file.path}
-                        onClick={() => {
+                        onClick={() => setPickedFile(file.path)}
+                        onDoubleClick={() => {
                           // The newest commit carries the full hash; the
                           // preview's own head is only the short display form.
                           const revision = selected ?? preview?.commits[0]?.hash ?? preview?.head ?? "";
@@ -2023,6 +2025,7 @@ export function StashDetailDialog({
   const t = useT(T);
   const [files, setFiles] = useState<StashFile[]>([]);
   const [loading, setLoading] = useState(true);
+  const [picked, setPicked] = useState("");
   const [branch, setBranch] = useState(`stash-${index}`);
 
   useEffect(() => {
@@ -2062,9 +2065,10 @@ export function StashDetailDialog({
           {files.map((file) => (
             <button
               key={file.path}
-              className="stashd-file"
+              className={cx("stashd-file", picked === file.path && "selected")}
               title={t("stashd.open")}
-              onClick={() => onOpenDiff(index, file.path)}
+              onClick={() => setPicked(file.path)}
+              onDoubleClick={() => onOpenDiff(index, file.path)}
             >
               <Icon name="file" size={13} />
               <span className="stashd-path">
@@ -2267,6 +2271,7 @@ export function CompareDialog({
 }) {
   const t = useT(T);
   const [files, setFiles] = useState<Change[] | null>(null);
+  const [picked, setPicked] = useState("");
   const [error, setError] = useState("");
 
   useEffect(() => {
@@ -2295,7 +2300,12 @@ export function CompareDialog({
           <p className="setting-hint">{t("compare.files", { n: files.length })}</p>
           <div className="repo-list">
             {files.map((file) => (
-              <button className="repo-row compare-row" key={file.path} onClick={() => onOpenFile(file.path)}>
+              <button
+                className={cx("repo-row compare-row", picked === file.path && "selected")}
+                key={file.path}
+                onClick={() => setPicked(file.path)}
+                onDoubleClick={() => onOpenFile(file.path)}
+              >
                 <StatusMark kind={file.kind} />
                 <span className="repo-row-title">{file.path}</span>
                 {file.oldPath && <span className="muted">{file.oldPath}</span>}

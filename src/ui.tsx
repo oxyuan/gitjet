@@ -137,7 +137,11 @@ export function Checkbox({
     if (ref.current) ref.current.indeterminate = !!indeterminate && !checked;
   }, [indeterminate, checked]);
   return (
-    <label className={`checkbox${disabled ? " disabled" : ""}`} onClick={(e) => e.stopPropagation()}>
+    <label
+      className={`checkbox${disabled ? " disabled" : ""}`}
+      onClick={(e) => e.stopPropagation()}
+      onDoubleClick={(e) => e.stopPropagation()}
+    >
       <input
         ref={ref}
         type="checkbox"
