@@ -1,4 +1,4 @@
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { Icon } from "./icons";
 import { useT } from "./i18n";
@@ -29,6 +29,8 @@ export interface OperationState {
   icon: "fetch" | "pull" | "push" | "commit" | "stash" | "reset" | "merge";
   lines: string[];
   running: boolean;
+  /** When the operation started, for the elapsed time while it runs. */
+  startedAt?: number;
   error?: string;
   success?: string;
 }
@@ -57,6 +59,17 @@ export function OperationDock({
   const latest = op.lines.length > 0 ? op.lines[op.lines.length - 1] : "";
   const status = op.error ?? (op.running ? latest : (op.success ?? latest));
 
+  // A remote operation prints nothing while it connects: the elapsed time
+  // shows the wait is real and how long it has been.
+  const [clock, setClock] = useState(() => Date.now());
+  useEffect(() => {
+    if (!op.running || op.startedAt === undefined) return;
+    setClock(Date.now());
+    const timer = window.setInterval(() => setClock(Date.now()), 1000);
+    return () => window.clearInterval(timer);
+  }, [op.running, op.startedAt]);
+  const elapsed = op.running && op.startedAt !== undefined ? Math.max(0, Math.floor((clock - op.startedAt) / 1000)) : 0;
+
   // A finished operation clears itself unless its output is open: reading
   // the log must not be raced by the timer.
   useEffect(() => {
@@ -76,6 +89,7 @@ export function OperationDock({
         {op.running ? <Spinner /> : <Icon name={op.error ? "error" : "check"} size={13} />}
         <span className="op-dock-title">{op.title}</span>
         <span className="op-dock-status">{status || t("starting")}</span>
+        {elapsed > 0 && <span className="op-dock-elapsed">{elapsed}s</span>}
         <Icon name={open ? "chevronDown" : "chevronUp"} size={12} className="op-dock-chevron" />
       </button>
       {open && (

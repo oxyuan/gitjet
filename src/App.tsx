@@ -1365,7 +1365,7 @@ function AppShell({ onLangChange }: { onLangChange: (lang: Lang) => void }) {
     fn: (channel: Channel<string>) => Promise<string>,
   ) => {
     opLines.current = [];
-    setOp({ title, icon, lines: [], running: true });
+    setOp({ title, icon, lines: [], running: true, startedAt: Date.now() });
     setOpOpen(false);
     const update = (patch: Partial<OperationState>) => {
       setOp((prev) => (prev ? { ...prev, ...patch, lines: [...opLines.current] } : prev));
@@ -1381,8 +1381,10 @@ function AppShell({ onLangChange }: { onLangChange: (lang: Lang) => void }) {
       const out = await promise;
       const tail = out.split("\n").map((l) => l.trim()).filter(Boolean);
       const commands = tail.filter((l) => l.startsWith("$ "));
-      if (commands.length > 0) {
-        opLines.current.push(...commands);
+      // The streamed command is already the first line.
+      const unseen = commands.filter((l) => !opLines.current.includes(l));
+      if (unseen.length > 0) {
+        opLines.current.push(...unseen);
       }
       // The collapsed dock shows the command the operation ran, so the
       // user can see (and copy from the expanded log) what git was asked.
@@ -1400,7 +1402,7 @@ function AppShell({ onLangChange }: { onLangChange: (lang: Lang) => void }) {
   // commands it ran, in the same dock the streaming operations use.
   const runQuiet = async (title: string, icon: OperationState["icon"], fn: () => Promise<string>): Promise<boolean> => {
     opLines.current = [];
-    setOp({ title, icon, lines: [], running: true });
+    setOp({ title, icon, lines: [], running: true, startedAt: Date.now() });
     setOpOpen(false);
     try {
       const out = await fn();

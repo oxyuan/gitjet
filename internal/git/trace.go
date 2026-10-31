@@ -30,11 +30,17 @@ func recordCommand(ctx context.Context, args []string) {
 	if !ok || len(args) == 0 {
 		return
 	}
+	*out = append(*out, renderCommand(args))
+}
+
+// renderCommand renders git arguments as the line the app shows, so a
+// copied command runs as it did here.
+func renderCommand(args []string) string {
 	quoted := make([]string, 0, len(args))
 	for _, a := range args {
 		quoted = append(quoted, quoteArg(a))
 	}
-	*out = append(*out, "git "+strings.Join(quoted, " "))
+	return "git " + strings.Join(quoted, " ")
 }
 
 // quoteArg quotes one argument for display, so a copied command runs as

@@ -266,7 +266,14 @@ func (r *Repo) writeRun(ctx context.Context, args ...string) (string, error) {
 // stderr alike, until git exits. It returns git's full output and error.
 // Git's progress messages end in carriage returns; those count as lines
 // too, so a progress bar reaches the page as it changes.
+//
+// The command is the first line it emits: talking to a remote can stay
+// silent for seconds while it connects, and the page has to show what it
+// is waiting for.
 func (r *Repo) stream(ctx context.Context, emit func(string), args ...string) (string, error) {
+	if emit != nil {
+		emit("$ " + renderCommand(args))
+	}
 	return r.streamCmd(ctx, r.command(ctx, args...), args, emit)
 }
 

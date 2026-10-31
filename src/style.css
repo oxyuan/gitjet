@@ -5353,6 +5353,12 @@ kbd {
   color: var(--muted-2);
 }
 
+.op-dock-elapsed {
+  flex: none;
+  color: var(--muted-2);
+  font-variant-numeric: tabular-nums;
+}
+
 .op-dock-body {
   border-top: 1px solid var(--border);
 }
