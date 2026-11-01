@@ -2,6 +2,7 @@ package app
 
 import (
 	"os"
+	"sync"
 
 	"github.com/egoist/mygo"
 )
@@ -30,13 +31,31 @@ func Run() error {
 		applyMenu(c.uiLang())
 		openWindow()
 	})
-	app.OnWindowAllClosed(func() {})
+	app.OnWindowAllClosed(func() { setWindow(nil) })
 	app.OnActivate(func(hasVisibleWindows bool) {
 		if !hasVisibleWindows {
 			openWindow()
 		}
 	})
 	return app.Run()
+}
+
+// windowRef is the window this process shows, nil while it has none.
+var (
+	windowMu  sync.Mutex
+	windowRef *mygo.Window
+)
+
+func window() *mygo.Window {
+	windowMu.Lock()
+	defer windowMu.Unlock()
+	return windowRef
+}
+
+func setWindow(w *mygo.Window) {
+	windowMu.Lock()
+	windowRef = w
+	windowMu.Unlock()
 }
 
 // secondary is true when this process was started on a repository given on
@@ -48,7 +67,7 @@ func openWindow() {
 	if secondary {
 		stateKey = "main-2"
 	}
-	mygo.NewWindow(mygo.WindowOptions{
+	w := mygo.NewWindow(mygo.WindowOptions{
 		Title:                mygo.App.Name(),
 		Width:                1440,
 		Height:               900,
@@ -61,6 +80,9 @@ func openWindow() {
 		StateKey:             stateKey,
 		URL:                  "/",
 	})
+	setWindow(w)
+	w.OnClosed(func() { setWindow(nil) })
+	installPageContextMenu(w)
 }
 
 // applyMenu installs the menu in lang, replacing whatever menu is showing.
