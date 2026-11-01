@@ -1,137 +1,540 @@
-import { wordDiff, type WordSegment } from "./diff";
+/**
+ * Three-way line merge, the model the conflict view draws: every range says
+ * which side changed what, and the result is built from those ranges rather
+ * than from the markers Git happened to write.
+ */
 
-export type MergeSegment =
-  | { kind: "text"; text: string }
-  | {
-      kind: "conflict";
-      ours: string[];
-      theirs: string[];
-      base: string[];
-      label: string;
-      endLabel: string;
-    };
-
-export type ConflictSegment = Extract<MergeSegment, { kind: "conflict" }>;
-
-export interface MergeRow {
-  ours?: { no: number; text: string; segments?: WordSegment[] };
-  theirs?: { no: number; text: string; segments?: WordSegment[] };
-  same: boolean;
+export interface DiffHunk {
+  baseStart: number;
+  baseEnd: number;
+  sideStart: number;
+  sideEnd: number;
 }
 
-/**
- * parseConflicts splits a working file into its unchanged text and its
- * conflict blocks, reading the standard marker format with an optional
- * common ancestor (diff3 style).
- */
-export function parseConflicts(text: string): { segments: MergeSegment[]; trailingNewline: boolean } {
-  const trailingNewline = text.endsWith("\n");
+export type MergeKind = "inserted" | "deleted" | "modified" | "conflict";
+
+export interface MergeRange {
+  /** Position in the range list; the view uses it as the block id. */
+  index: number;
+  kind: MergeKind;
+  baseStart: number;
+  baseEnd: number;
+  oursStart: number;
+  oursEnd: number;
+  theirsStart: number;
+  theirsEnd: number;
+  oursChanged: boolean;
+  theirsChanged: boolean;
+  base: string[];
+  ours: string[];
+  theirs: string[];
+}
+
+export interface MergePlacement {
+  rangeIndex: number;
+  /** 0-based first result line, inclusive. */
+  startLine: number;
+  /** 0-based last result line, exclusive. */
+  endLine: number;
+}
+
+export interface MergeLabels {
+  ours: string;
+  theirs: string;
+}
+
+export interface MergeModel {
+  baseLines: string[];
+  oursLines: string[];
+  theirsLines: string[];
+  ranges: MergeRange[];
+  placements: MergePlacement[];
+  result: string;
+  labels: MergeLabels;
+  trailingNewline: boolean;
+}
+
+export interface MergeOptions {
+  labels?: Partial<MergeLabels>;
+  trailingNewline?: boolean;
+}
+
+type LineEq = (a: string, b: string) => boolean;
+
+type DiffOp =
+  | { kind: "equal" | "delete"; aStart: number; aEnd: number; bStart: number; bEnd: number }
+  | { kind: "insert"; aStart: number; aEnd: number; bStart: number; bEnd: number };
+
+const exact: LineEq = (a, b) => a === b;
+
+/** splitLines keeps the caller's trailing-newline fact out of the lines. */
+export function splitLines(text: string): { lines: string[]; trailingNewline: boolean } {
+  if (text === "") return { lines: [], trailingNewline: false };
   const lines = text.split("\n");
+  const trailingNewline = lines[lines.length - 1] === "";
   if (trailingNewline) lines.pop();
-  const segments: MergeSegment[] = [];
-  let buffer: string[] = [];
-  let ours: string[] | null = null;
-  let theirs: string[] | null = null;
-  let base: string[] | null = null;
-  let mode: "none" | "ours" | "base" | "theirs" = "none";
-  let label = "";
-  let endLabel = "";
-  const flush = () => {
-    if (buffer.length > 0) {
-      segments.push({ kind: "text", text: buffer.join("\n") });
-      buffer = [];
-    }
-  };
-  for (const line of lines) {
-    if (line.startsWith("<<<<<<<")) {
-      flush();
-      ours = [];
-      theirs = null;
-      base = null;
-      mode = "ours";
-      label = line.replace(/^<<<<<<<\s*/, "").trim();
-      endLabel = "";
-    } else if (line.startsWith("|||||||") && mode === "ours") {
-      base = [];
-      mode = "base";
-    } else if (line === "=======" && mode !== "none") {
-      theirs = [];
-      mode = "theirs";
-    } else if (line.startsWith(">>>>>>>") && mode === "theirs" && ours && theirs) {
-      endLabel = line.replace(/^>>>>>>>\s*/, "").trim();
-      segments.push({
-        kind: "conflict",
-        ours,
-        theirs,
-        base: base ?? [],
-        label: label || endLabel,
-        endLabel: endLabel || label,
+  return { lines, trailingNewline };
+}
+
+/** Myers diff over lines. Common prefix and suffix are trimmed first, which
+ *  keeps the edit graph small for the usual case of two similar files. */
+function diffOps(a: string[], b: string[], eq: LineEq): DiffOp[] {
+  let prefix = 0;
+  while (prefix < a.length && prefix < b.length && eq(a[prefix]!, b[prefix]!)) prefix++;
+  let suffix = 0;
+  while (
+    suffix < a.length - prefix &&
+    suffix < b.length - prefix &&
+    eq(a[a.length - 1 - suffix]!, b[b.length - 1 - suffix]!)
+  ) {
+    suffix++;
+  }
+
+  const n = a.length - prefix - suffix;
+  const m = b.length - prefix - suffix;
+  const ops: DiffOp[] = [];
+  const fallback = (): DiffOp[] => {
+    if (prefix > 0) ops.push({ kind: "equal", aStart: 0, aEnd: prefix, bStart: 0, bEnd: prefix });
+    if (n > 0) ops.push({ kind: "delete", aStart: prefix, aEnd: prefix + n, bStart: prefix, bEnd: prefix });
+    if (m > 0) ops.push({ kind: "insert", aStart: prefix, aEnd: prefix, bStart: prefix, bEnd: prefix + m });
+    if (suffix > 0) {
+      ops.push({
+        kind: "equal",
+        aStart: a.length - suffix,
+        aEnd: a.length,
+        bStart: b.length - suffix,
+        bEnd: b.length,
       });
-      ours = null;
-      theirs = null;
-      base = null;
-      mode = "none";
-    } else if (mode === "ours" && ours) ours.push(line);
-    else if (mode === "base" && base) base.push(line);
-    else if (mode === "theirs" && theirs) theirs.push(line);
-    else buffer.push(line);
+    }
+    return ops;
+  };
+
+  const max = n + m;
+  if (n === 0 || m === 0) return fallback();
+  {
+    const offset = max + 1;
+    const v = new Int32Array(2 * max + 3).fill(-1);
+    v[offset + 1] = 0;
+    const trace: Int32Array[] = [];
+    let done = false;
+    for (let d = 0; d <= max && !done; d++) {
+      // A pathological diff is not worth an out-of-memory crash: when the
+      // trace outgrows its budget, treat the different middle as one change.
+      if ((d + 1) * (2 * max + 3) > 4_000_000) return fallback();
+      trace.push(v.slice());
+      for (let k = -d; k <= d; k += 2) {
+        let x: number;
+        if (k === -d || (k !== d && v[offset + k - 1]! < v[offset + k + 1]!)) x = v[offset + k + 1]!;
+        else x = v[offset + k - 1]! + 1;
+        let y = x - k;
+        while (x < n && y < m && x >= 0 && y >= 0 && eq(a[prefix + x]!, b[prefix + y]!)) {
+          x++;
+          y++;
+        }
+        v[offset + k] = x;
+        if (x >= n && y >= m) {
+          done = true;
+          break;
+        }
+      }
+    }
+
+    if (!done) return fallback();
+    if (prefix > 0) ops.push({ kind: "equal", aStart: 0, aEnd: prefix, bStart: 0, bEnd: prefix });
+    const middle: DiffOp[] = [];
+    let x = n;
+    let y = m;
+    for (let d = trace.length - 1; d >= 0; d--) {
+      const vd = trace[d]!;
+      const k = x - y;
+      const prevK =
+        k === -d || (k !== d && vd[offset + k - 1]! < vd[offset + k + 1]!) ? k + 1 : k - 1;
+      const prevX = vd[offset + prevK]!;
+      const prevY = prevX - prevK;
+      while (x > prevX && y > prevY) {
+        middle.push({
+          kind: "equal",
+          aStart: prefix + x - 1,
+          aEnd: prefix + x,
+          bStart: prefix + y - 1,
+          bEnd: prefix + y,
+        });
+        x--;
+        y--;
+      }
+      if (d === 0) break;
+      if (x === prevX) {
+        middle.push({ kind: "insert", aStart: prefix + x, aEnd: prefix + x, bStart: prefix + y - 1, bEnd: prefix + y });
+        y--;
+      } else {
+        middle.push({ kind: "delete", aStart: prefix + x - 1, aEnd: prefix + x, bStart: prefix + y, bEnd: prefix + y });
+        x--;
+      }
+    }
+    ops.push(...middle.reverse());
+  }
+
+  if (suffix > 0) {
+    ops.push({
+      kind: "equal",
+      aStart: a.length - suffix,
+      aEnd: a.length,
+      bStart: b.length - suffix,
+      bEnd: b.length,
+    });
+  }
+  return ops;
+}
+
+/** diffHunks collapses adjacent insert/delete operations into one changed
+ *  region, which is the unit the merge view navigates. */
+export function diffHunks(a: string[], b: string[], ignoreWhitespace = false): DiffHunk[] {
+  const eq = ignoreWhitespace ? whitespaceInsensitive : exact;
+  const ops = diffOps(a, b, eq);
+  const hunks: DiffHunk[] = [];
+  let current: DiffHunk | null = null;
+  const flush = () => {
+    if (current) hunks.push(current);
+    current = null;
+  };
+  for (const op of ops) {
+    if (op.kind === "equal") {
+      flush();
+      continue;
+    }
+    if (!current) {
+      current = {
+        baseStart: op.aStart,
+        baseEnd: op.aEnd,
+        sideStart: op.bStart,
+        sideEnd: op.bEnd,
+      };
+    } else {
+      current.baseStart = Math.min(current.baseStart, op.aStart);
+      current.baseEnd = Math.max(current.baseEnd, op.aEnd);
+      current.sideStart = Math.min(current.sideStart, op.bStart);
+      current.sideEnd = Math.max(current.sideEnd, op.bEnd);
+    }
   }
   flush();
-  return { segments, trailingNewline };
+  return hunks;
 }
 
-/**
- * alignLines pairs the two sides of a conflict line by line, so changed
- * lines face each other and can be reviewed and inserted individually.
- */
-export function alignLines(ours: string[], theirs: string[]): MergeRow[] {
-  const rows: MergeRow[] = [];
-  const n = Math.max(ours.length, theirs.length);
-  for (let i = 0; i < n; i++) {
-    const a = ours[i];
-    const b = theirs[i];
-    let left: MergeRow["ours"];
-    let right: MergeRow["theirs"];
-    if (a !== undefined) left = { no: i + 1, text: a };
-    if (b !== undefined) right = { no: i + 1, text: b };
-    if (a !== undefined && b !== undefined && a !== b) {
-      const [leftSegs, rightSegs] = wordDiff(a, b);
-      left = { ...left!, segments: leftSegs };
-      right = { ...right!, segments: rightSegs };
+interface Boundaries {
+  before: number[];
+  after: number[];
+}
+
+function sideBoundaries(baseLength: number, ops: DiffOp[]): Boundaries {
+  const before = new Array<number>(baseLength + 1).fill(0);
+  const after = new Array<number>(baseLength + 1).fill(0);
+  const beforeSet = new Array<boolean>(baseLength + 1).fill(false);
+  const afterSet = new Array<boolean>(baseLength + 1).fill(false);
+  beforeSet[0] = true;
+  afterSet[0] = true;
+  let b = 0;
+  let s = 0;
+  for (const op of ops) {
+    if (op.kind === "equal") {
+      const len = op.aEnd - op.aStart;
+      for (let i = 0; i < len; i++) {
+        if (!beforeSet[b + i]) {
+          before[b + i] = s + i;
+          beforeSet[b + i] = true;
+        }
+        after[b + i] = s + i;
+        afterSet[b + i] = true;
+      }
+      b += len;
+      s += len;
+      if (!beforeSet[b]) before[b] = s;
+      beforeSet[b] = true;
+      after[b] = s;
+      afterSet[b] = true;
+    } else if (op.kind === "delete") {
+      const len = op.aEnd - op.aStart;
+      for (let i = 0; i < len; i++) {
+        if (!beforeSet[b + i]) before[b + i] = s;
+        beforeSet[b + i] = true;
+        after[b + i] = s;
+        afterSet[b + i] = true;
+      }
+      b += len;
+      if (!beforeSet[b]) before[b] = s;
+      beforeSet[b] = true;
+      after[b] = s;
+      afterSet[b] = true;
+    } else {
+      if (!beforeSet[b]) before[b] = s;
+      beforeSet[b] = true;
+      after[b] = s + (op.bEnd - op.bStart);
+      afterSet[b] = true;
+      s += op.bEnd - op.bStart;
     }
-    rows.push({ ours: left, theirs: right, same: a === b });
   }
-  return rows;
+  for (let i = 0; i <= baseLength; i++) {
+    if (!beforeSet[i]) before[i] = s;
+    if (!afterSet[i]) after[i] = s;
+  }
+  return { before, after };
 }
 
-/** assembleMerge joins the text segments and the chosen block results. */
-export function assembleMerge(
-  segments: MergeSegment[],
-  values: string[],
-  trailingNewline: boolean,
-): string {
-  let index = 0;
-  const parts = segments.map((seg) => (seg.kind === "text" ? seg.text : (values[index++] ?? "")));
-  return parts.join("\n") + (trailingNewline ? "\n" : "");
+function whitespaceInsensitive(a: string, b: string): boolean {
+  return a.replace(/\s+/g, "") === b.replace(/\s+/g, "");
+}
+
+function textEqual(a: string[], b: string[], eq: LineEq): boolean {
+  if (a.length !== b.length) return false;
+  for (let i = 0; i < a.length; i++) if (!eq(a[i]!, b[i]!)) return false;
+  return true;
+}
+
+function hunksOverlap(a: DiffHunk, b: DiffHunk): boolean {
+  return overlaps(a, b.baseStart, b.baseEnd) || overlaps(b, a.baseStart, a.baseEnd);
+}
+
+function overlaps(hunk: DiffHunk, start: number, end: number): boolean {
+  if (hunk.baseStart === hunk.baseEnd) return hunk.baseStart >= start && hunk.baseStart <= end;
+  if (start === end) return hunk.baseStart <= start && hunk.baseEnd >= end;
+  return hunk.baseStart < end && hunk.baseEnd > start;
+}
+
+function buildRanges(
+  baseLines: string[],
+  oursLines: string[],
+  theirsLines: string[],
+  oursHunks: DiffHunk[],
+  theirsHunks: DiffHunk[],
+  oursBoundary: Boundaries,
+  theirsBoundary: Boundaries,
+  eq: LineEq,
+): MergeRange[] {
+  const ranges: MergeRange[] = [];
+  let i = 0;
+  let j = 0;
+  const push = (
+    start: number,
+    end: number,
+    a: DiffHunk[],
+    b: DiffHunk[],
+  ) => {
+    const base = baseLines.slice(start, end);
+    const oursStart = a.length > 0 && a[0]!.baseStart === start ? a[0]!.sideStart : oursBoundary.after[start]!;
+    const oursEnd = a.length > 0 && a[a.length - 1]!.baseEnd === end ? a[a.length - 1]!.sideEnd : oursBoundary.before[end]!;
+    const theirsStart = b.length > 0 && b[0]!.baseStart === start ? b[0]!.sideStart : theirsBoundary.after[start]!;
+    const theirsEnd = b.length > 0 && b[b.length - 1]!.baseEnd === end ? b[b.length - 1]!.sideEnd : theirsBoundary.before[end]!;
+    const ours = oursLines.slice(oursStart, oursEnd);
+    const theirs = theirsLines.slice(theirsStart, theirsEnd);
+    const oursEqBase = textEqual(ours, base, eq);
+    const theirsEqBase = textEqual(theirs, base, eq);
+    const bothChanged = !oursEqBase && !theirsEqBase;
+    const same = textEqual(ours, theirs, eq);
+    const conflict = bothChanged && !same;
+    let kind: MergeKind;
+    if (conflict) kind = "conflict";
+    else if (base.length === 0) kind = "inserted";
+    else if ((same ? ours : theirsEqBase ? ours : theirs).length === 0) kind = "deleted";
+    else kind = "modified";
+    ranges.push({
+      index: ranges.length,
+      kind,
+      baseStart: start,
+      baseEnd: end,
+      oursStart,
+      oursEnd,
+      theirsStart,
+      theirsEnd,
+      oursChanged: a.length > 0,
+      theirsChanged: b.length > 0,
+      base,
+      ours,
+      theirs,
+    });
+  };
+
+  while (i < oursHunks.length || j < theirsHunks.length) {
+    const a = oursHunks[i];
+    const b = theirsHunks[j];
+    if (a && b && hunksOverlap(a, b)) {
+      let start = Math.min(a.baseStart, b.baseStart);
+      let end = Math.max(a.baseEnd, b.baseEnd);
+      const as: DiffHunk[] = [];
+      const bs: DiffHunk[] = [];
+      let progressed = true;
+      while (progressed) {
+        progressed = false;
+        while (i < oursHunks.length && overlaps(oursHunks[i]!, start, end)) {
+          const h = oursHunks[i]!;
+          as.push(h);
+          start = Math.min(start, h.baseStart);
+          end = Math.max(end, h.baseEnd);
+          i++;
+          progressed = true;
+        }
+        while (j < theirsHunks.length && overlaps(theirsHunks[j]!, start, end)) {
+          const h = theirsHunks[j]!;
+          bs.push(h);
+          start = Math.min(start, h.baseStart);
+          end = Math.max(end, h.baseEnd);
+          j++;
+          progressed = true;
+        }
+      }
+      push(start, end, as, bs);
+    } else if (a && (!b || a.baseStart < b.baseStart || (a.baseStart === b.baseStart && a.baseEnd <= b.baseEnd))) {
+      i++;
+      push(a.baseStart, a.baseEnd, [a], []);
+    } else if (b) {
+      j++;
+      push(b.baseStart, b.baseEnd, [], [b]);
+    }
+  }
+  return ranges;
+}
+
+/** The lines a non-conflict range contributes to the result. */
+export function chosenLines(range: MergeRange, eq: LineEq = exact): string[] {
+  if (range.kind === "conflict") return range.ours;
+  if (!range.theirsChanged) return range.ours;
+  if (!range.oursChanged) return range.theirs;
+  if (textEqual(range.ours, range.base, eq)) return range.theirs;
+  if (textEqual(range.theirs, range.base, eq)) return range.ours;
+  return range.ours;
 }
 
 /**
- * assembleForFree keeps resolved blocks and leaves unresolved ones as
- * conflict markers, so switching to whole-file editing never throws away
- * work or hides a conflict.
+ * Tries the line-attribution merge IDEA's wand performs: a line is taken from
+ * the side that changed it, and the block stays a conflict only when both
+ * sides changed the same line differently.
  */
-export function assembleForFree(
-  segments: MergeSegment[],
-  values: string[],
-  resolved: boolean[],
+export function tryResolveRange(range: MergeRange, ignoreWhitespace = false): string[] | null {
+  const eq = ignoreWhitespace ? whitespaceInsensitive : exact;
+  if (range.kind !== "conflict") return chosenLines(range, eq);
+  const total = Math.max(range.base.length, range.ours.length, range.theirs.length);
+  const out: string[] = [];
+  for (let i = 0; i < total; i++) {
+    const b = range.base[i];
+    const o = range.ours[i];
+    const t = range.theirs[i];
+    const oSame = lineEqual(o, b, eq);
+    const tSame = lineEqual(t, b, eq);
+    if (oSame && tSame) {
+      if (o !== undefined) out.push(o);
+    } else if (!oSame && tSame) {
+      if (o !== undefined) out.push(o);
+    } else if (oSame && !tSame) {
+      if (t !== undefined) out.push(t);
+    } else if (o !== undefined && t !== undefined && eq(o, t)) {
+      out.push(o);
+    } else {
+      return null;
+    }
+  }
+  return out;
+}
+
+function lineEqual(a: string | undefined, b: string | undefined, eq: LineEq): boolean {
+  if (a === undefined || b === undefined) return a === b;
+  return eq(a, b);
+}
+
+function renderResult(
+  baseLines: string[],
+  ranges: MergeRange[],
+  labels: MergeLabels,
   trailingNewline: boolean,
-): string {
-  let index = 0;
-  const parts = segments.map((seg) => {
-    if (seg.kind === "text") return seg.text;
-    const i = index++;
-    if (resolved[i]) return values[i] ?? "";
-    return `<<<<<<< ${seg.label}\n${seg.ours.join("\n")}\n=======\n${seg.theirs.join("\n")}\n>>>>>>> ${seg.endLabel}`;
-  });
-  return parts.join("\n") + (trailingNewline ? "\n" : "");
+): { text: string; placements: MergePlacement[] } {
+  const lines: string[] = [];
+  const placements: MergePlacement[] = [];
+  let b = 0;
+  for (const range of ranges) {
+    for (let i = b; i < range.baseStart; i++) lines.push(baseLines[i]!);
+    const startLine = lines.length;
+    if (range.kind === "conflict") {
+      lines.push(`<<<<<<< ${labels.ours}`);
+      lines.push(...range.ours);
+      lines.push("=======");
+      lines.push(...range.theirs);
+      lines.push(`>>>>>>> ${labels.theirs}`);
+    } else {
+      lines.push(...chosenLines(range));
+    }
+    placements.push({ rangeIndex: range.index, startLine, endLine: lines.length });
+    b = range.baseEnd;
+  }
+  for (let i = b; i < baseLines.length; i++) lines.push(baseLines[i]!);
+  return {
+    text: lines.join("\n") + (trailingNewline && lines.length > 0 ? "\n" : ""),
+    placements,
+  };
+}
+
+/** computeMerge is the whole model: diff both sides against the base, join
+ *  overlapping changes into conflict ranges, and render the initial result. */
+export function computeMerge(
+  baseText: string,
+  oursText: string,
+  theirsText: string,
+  options: MergeOptions = {},
+): MergeModel {
+  const base = splitLines(baseText);
+  const ours = splitLines(oursText);
+  const theirs = splitLines(theirsText);
+  const oursOps = diffOps(base.lines, ours.lines, exact);
+  const theirsOps = diffOps(base.lines, theirs.lines, exact);
+  const oursHunks = diffHunks(base.lines, ours.lines);
+  const theirsHunks = diffHunks(base.lines, theirs.lines);
+  const ranges = buildRanges(
+    base.lines,
+    ours.lines,
+    theirs.lines,
+    oursHunks,
+    theirsHunks,
+    sideBoundaries(base.lines.length, oursOps),
+    sideBoundaries(base.lines.length, theirsOps),
+    exact,
+  );
+  const labels: MergeLabels = {
+    ours: options.labels?.ours?.trim() || "LOCAL",
+    theirs: options.labels?.theirs?.trim() || "REMOTE",
+  };
+  const trailingNewline = options.trailingNewline ?? ours.trailingNewline;
+  const rendered = renderResult(base.lines, ranges, labels, trailingNewline);
+  return {
+    baseLines: base.lines,
+    oursLines: ours.lines,
+    theirsLines: theirs.lines,
+    ranges,
+    placements: rendered.placements,
+    result: rendered.text,
+    labels,
+    trailingNewline,
+  };
+}
+
+/** Labels Git wrote into the working file, so the panes say branch names
+ *  instead of LOCAL/REMOTE when they can. */
+export function conflictLabels(text: string): Partial<MergeLabels> | null {
+  let ours: string | undefined;
+  let theirs: string | undefined;
+  for (const line of text.split("\n")) {
+    if (!ours && line.startsWith("<<<<<<<")) ours = line.slice(7).trim();
+    if (line.startsWith(">>>>>>>")) theirs = line.slice(7).trim();
+  }
+  if (ours === undefined && theirs === undefined) return null;
+  return { ours, theirs };
+}
+
+/** Number of conflict blocks still carrying an opening marker. */
+export function countConflictMarkers(text: string): number {
+  let count = 0;
+  for (const line of text.split("\n")) if (line.startsWith("<<<<<<<")) count++;
+  return count;
+}
+
+export function hasConflictMarkers(text: string): boolean {
+  for (const line of text.split("\n")) {
+    if (line.startsWith("<<<<<<<") || line.startsWith(">>>>>>>")) return true;
+  }
+  return false;
 }

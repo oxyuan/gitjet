@@ -661,6 +661,7 @@ func (r *Repo) StashDrop(ctx context.Context, index int) (string, error) {
 // plus the working tree file with its conflict markers.
 type ConflictContent struct {
 	Path      string `json:"path"`
+	Language  string `json:"language"`
 	Base      string `json:"base"`
 	Ours      string `json:"ours"`
 	Theirs    string `json:"theirs"`
@@ -688,7 +689,7 @@ func (r *Repo) Conflict(ctx context.Context, path string) (ConflictContent, erro
 		}
 		return out, true
 	}
-	c := ConflictContent{Path: clean}
+	c := ConflictContent{Path: clean, Language: languageOf(clean)}
 	c.Base, c.HasBase = read(":1")
 	c.Ours, c.HasOurs = read(":2")
 	c.Theirs, c.HasTheirs = read(":3")
@@ -717,7 +718,9 @@ func (r *Repo) SaveResolution(ctx context.Context, path, content string) error {
 	return err
 }
 
-// TakeConflictSide checks out ours or theirs for a path and stages it.
+// TakeConflictSide checks out ours or theirs for a path and stages it. A
+// side stage can be missing (add/delete and modify/delete conflicts), in
+// which case "take this side" means the file does not exist.
 func (r *Repo) TakeConflictSide(ctx context.Context, path, side string) error {
 	clean, err := cleanPath(path)
 	if err != nil {
@@ -726,8 +729,19 @@ func (r *Repo) TakeConflictSide(ctx context.Context, path, side string) error {
 	if side != "ours" && side != "theirs" {
 		return errors.New("side must be ours or theirs")
 	}
+	stage := ":2"
+	if side == "theirs" {
+		stage = ":3"
+	}
 	r.write.Lock()
 	defer r.write.Unlock()
+	if _, err := r.run(ctx, "cat-file", "-e", stage+":"+clean); err != nil {
+		if err := os.Remove(r.AbsPath(clean)); err != nil && !os.IsNotExist(err) {
+			return err
+		}
+		_, err = r.run(ctx, "add", "-A", "--", clean)
+		return err
+	}
 	if _, err := r.run(ctx, "checkout", "--"+side, "--", clean); err != nil {
 		return err
 	}

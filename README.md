@@ -13,7 +13,7 @@
 
 多数 Git GUI「看」做得很好，「改历史」和「解冲突」却退化成一次性命令行弹窗。GitJet 把这两件事做成一等公民：
 
-- **冲突逐行解决**：三路对比（Ours / Theirs / Base），词级差异，点一行插入结果或整段取我方/对方/两方；最终文件可编辑、可预览，然后直接继续或中止 merge / rebase / cherry-pick / revert。
+- **IDEA 风格三栏冲突解决**：本地 / 结果 / 远程三栏同屏，变更块与行内词级差异高亮，按块从任一侧应用、自动解决简单冲突、`F7` 导航、滚动同步、结果区可直接编辑；应用即保存并暂存，然后继续 merge / rebase / cherry-pick / revert。
 - **可视化交互式 rebase**：对一段提交逐条保留 / 改写 / 压缩 / fixup / 删除；冲突时暂停，继续即重放剩余计划，中止即回到起点。
 - **变更集（Changelist）**：改动按主题分组、切换活动集，按仓库持久化，适合手上同时开三条线。
 - **在差异旁边读代码**：源码视图有 LSP 跳转定义/引用、悬停文档与诊断；左侧变更条点一下回滚对应 hunk，当前行显示 blame。
@@ -157,7 +157,9 @@ go test ./... && go vet ./... && bun run typecheck && bun run test:web && bun ru
 | ``⌘/Ctrl+Shift+` `` | 分支弹窗 |
 | `⌘/Ctrl+,` | 设置 |
 | `⌘/Ctrl+B` / `⌘/Ctrl+Shift+B` | 跳到定义 / 列出引用（源码视图） |
-| `⌘/Ctrl+S` | 保存当前源码（源码视图） |
+| `⌘/Ctrl+S` | 保存当前源码 / 应用冲突结果 |
+| `F7` / `Shift+F7` | 下一处 / 上一处变更（冲突视图） |
+| `Alt+←` / `Alt+→` | 采用本地 / 远程版本（冲突视图） |
 | `⌘/Ctrl+点击` / `⌘/Ctrl+Alt+点击` | 跳到定义 / 列出引用 |
 | `⌘/Ctrl+9` / `⌘/Ctrl+Shift+9` / `⌘/Ctrl+Shift+E` | 提交 / 控制台 / 文件 工具窗口 |
 
@@ -173,7 +175,8 @@ src/                    React 前端
   App.tsx               应用状态、命令分发、工具窗口与编辑器标签页
   CommitPanel.tsx       变更列表、变更集与提交
   DiffView.tsx          并排/统一差异、行号 blame 菜单与注解列
-  ConflictView.tsx      三路冲突解决
+  ConflictView.tsx      三栏冲突解决：块级应用、自动解决、同步滚动
+  mergePane.ts          冲突面板的 CodeMirror：块/词装饰、应用箭头、滚动映射
   SourceView.tsx        可编辑源码外壳：保存、工具栏、二进制/缺失文件状态
   SourceEditor.tsx      CodeMirror 挂载、变更条、blame、跳转接线
   SourceTree.tsx        文件视图：工作区目录树 + 子序列筛选

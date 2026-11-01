@@ -170,6 +170,7 @@ export interface Conflict {
 
 export interface ConflictContent {
   path: string;
+  language: string;
   base: string;
   ours: string;
   theirs: string;

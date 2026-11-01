@@ -219,7 +219,6 @@ const T = {
     tookTheirs: "Took theirs",
     settingsSaved: "Settings saved",
     conflictResolved: "Conflict resolved",
-    markedResolved: "Marked resolved",
     branchCreated: "Branch created",
     fetchAllRemotes: "Fetch all remotes",
     fetchOrigin: "Fetch origin",
@@ -411,7 +410,6 @@ const T = {
     tookTheirs: "已采用对方",
     settingsSaved: "设置已保存",
     conflictResolved: "冲突已解决",
-    markedResolved: "已标记为已解决",
     branchCreated: "分支已创建",
     fetchAllRemotes: "Fetch 所有远程",
     fetchOrigin: "Fetch origin",
@@ -2336,15 +2334,6 @@ function AppShell({ onLangChange }: { onLangChange: (lang: Lang) => void }) {
                 openNextConflict();
               });
             }}
-            onMarkResolved={async (path) => {
-              await withBusy(async () => {
-                await Git.markResolved([path]);
-                notify("success", t("markedResolved"), path);
-                closeDoc(`conflict:${path}`);
-                await reload(false);
-                openNextConflict();
-              });
-            }}
             onOpenRecent={(path) => void openRepo(path)}
             onRemoveRecent={async (path) => {
               await Workspace.removeRecent(path);
@@ -2831,7 +2820,6 @@ function RightPane({
   onShowFileHistory,
   onSaveConflict,
   onTakeSide,
-  onMarkResolved,
   onOpenRecent,
   onRemoveRecent,
   recent,
@@ -2870,7 +2858,6 @@ function RightPane({
   onShowFileHistory: (path: string, line?: number, revision?: string) => void;
   onSaveConflict: (path: string, content: string) => Promise<void>;
   onTakeSide: (path: string, side: "ours" | "theirs") => Promise<void>;
-  onMarkResolved: (path: string) => Promise<void>;
   onOpenRecent: (path: string) => void;
   onRemoveRecent: (path: string) => Promise<void>;
   recent: Settings["recent"];
@@ -3064,7 +3051,6 @@ function RightPane({
             busy={busy}
             onSave={(content) => void onSaveConflict(active.path, content)}
             onTakeSide={(side) => void onTakeSide(active.path, side)}
-            onMarkResolved={() => void onMarkResolved(active.path)}
             onClose={() => onCloseDoc(active.id)}
             onDirtyChange={(dirty) => onDocDirty(active.id, dirty)}
           />

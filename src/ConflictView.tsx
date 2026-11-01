@@ -1,148 +1,187 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { ConflictContent } from "./mygo";
-import type { WordSegment } from "./diff";
-import { Icon } from "./icons";
 import {
-  alignLines,
-  assembleForFree as assembleFreeText,
-  assembleMerge,
-  parseConflicts,
-  type ConflictSegment,
+  computeMerge,
+  conflictLabels,
+  countConflictMarkers,
+  hasConflictMarkers,
+  tryResolveRange,
+  type MergeModel,
+  type MergeRange,
 } from "./merge";
-import { Button, cx, IconButton, Spinner } from "./ui";
+import { wordDiff } from "./diff";
+import { detectLineEnding, normalizeText, withLineEnding } from "./editorText";
+import { MergePane, type MergePaneBlock } from "./mergePane";
+import { Icon } from "./icons";
+import { Button, IconButton, Spinner, cx } from "./ui";
 import { count, useT } from "./i18n";
-
-type Choice = "ours" | "theirs" | "both" | "custom" | "none";
 
 const T = {
   en: {
-    empty: "(empty)",
-    noMarkers: "No conflict markers remain — choose a side or mark it resolved",
     close: "Close",
-    takeOurs: "Take Ours",
-    takeTheirs: "Take Theirs",
-    markResolved: "Mark Resolved",
-    oursHead: "Ours (HEAD)",
-    theirs: "Theirs",
+    local: "Local Changes",
+    remote: "Remote Changes",
+    result: "Result",
+    previous: "Previous change (Shift+F7)",
+    next: "Next change (F7)",
+    applyAllLocal: "Apply all local changes",
+    applyAllRemote: "Apply all remote changes",
+    applySelected: "Apply selected change",
+    autoResolve: "Resolve simple conflicts",
+    copyResult: "Copy result",
+    cancel: "Cancel",
+    acceptLeft: "Accept Left",
+    acceptRight: "Accept Right",
+    apply: "Apply",
+    applyHint: "Save the result and stage the file",
+    binaryConflict: "Binary conflict — choose a side",
+    noChanges: "Contents are identical",
+    changesOne: "{n} change",
+    changesOther: "{n} changes",
+    conflictOne: "{n} conflict",
+    conflictOther: "{n} conflicts",
     allResolved: "All conflicts resolved",
     unresolved: "{n} unresolved",
-    block: "block",
-    blocks: "blocks",
-    blocksMode: "Blocks",
-    wholeFile: "Whole file",
-    wholeFileHint: "Edit the complete result as one file",
-    previousConflict: "Previous conflict",
-    nextConflict: "Next conflict",
-    allOurs: "All Ours",
-    allTheirs: "All Theirs",
-    copyResult: "Copy result",
-    saveResolution: "Save Resolution",
-    binaryConflict: "Binary conflict — choose a side",
-    completeResult: "Complete result",
-    markersRemaining: " — resolve every “<<<<<<<” marker before saving",
-    mergeHint:
-      "Click any line beside a conflict to add it to the result, or choose Ours / Theirs / Both. The result is editable, so you can adjust it line by line.",
-    unchangedLine: "{n} unchanged line",
-    unchangedLines: "{n} unchanged lines",
-    conflictNumber: "Conflict {n}",
-    ours: "Ours",
-    both: "Both",
-    resetConflict: "Reset this conflict",
-    insertOurs: "Insert this line from Ours",
-    insertTheirs: "Insert this line from Theirs",
-    useAllOurs: "Use all Ours",
-    useAllTheirs: "Use all Theirs",
-    hideBase: "Hide base",
-    showBase: "Show base",
-    resolved: "resolved",
-    pending: "pending",
-    commonAncestor: "Common ancestor",
-    result: "Result",
-    resultPlaceholder:
-      "Choose Ours, Theirs or Both, click lines above to insert them, or type the merged code here.",
-    nothingToResolve: "Nothing to resolve",
-    finalResult: "Final result",
-    lines: "{n} lines",
+    markersRemaining: "Resolve every conflict marker before applying",
+    applyLocal: "Apply this local change",
+    applyRemote: "Apply this remote change",
+    conflictBlock: "Unresolved conflict",
+    resolvedBlock: "Resolved conflict",
   },
   zh: {
-    empty: "（空）",
-    noMarkers: "已无冲突标记 — 请选择一侧或标记为已解决",
     close: "关闭",
-    takeOurs: "采用我方",
-    takeTheirs: "采用对方",
-    markResolved: "标记为已解决",
-    oursHead: "我方（HEAD）",
-    theirs: "对方",
-    allResolved: "所有冲突已解决",
-    unresolved: "{n} 处未解决",
-    block: "个冲突块",
-    blocks: "个冲突块",
-    blocksMode: "冲突块",
-    wholeFile: "整个文件",
-    wholeFileHint: "将完整结果作为单个文件编辑",
-    previousConflict: "上一处冲突",
-    nextConflict: "下一处冲突",
-    allOurs: "全部采用我方",
-    allTheirs: "全部采用对方",
-    copyResult: "复制结果",
-    saveResolution: "保存解决方案",
-    binaryConflict: "二进制文件冲突 — 请选择一侧",
-    completeResult: "完整结果",
-    markersRemaining: " — 保存前请解决所有“<<<<<<<”标记",
-    mergeHint:
-      "点击冲突旁边的任意行即可将其加入结果，或选择我方 / 对方 / 两者。结果可直接编辑，可逐行调整。",
-    unchangedLine: "{n} 行未更改",
-    unchangedLines: "{n} 行未更改",
-    conflictNumber: "冲突 {n}",
-    ours: "我方",
-    both: "两者",
-    resetConflict: "重置此冲突",
-    insertOurs: "插入我方此行",
-    insertTheirs: "插入对方此行",
-    useAllOurs: "全部使用我方",
-    useAllTheirs: "全部使用对方",
-    hideBase: "隐藏基线",
-    showBase: "显示基线",
-    resolved: "已解决",
-    pending: "待解决",
-    commonAncestor: "共同祖先",
+    local: "本地更改",
+    remote: "远程更改",
     result: "结果",
-    resultPlaceholder: "选择我方、对方或两者，点击上方各行插入，或在此直接输入合并后的代码。",
-    nothingToResolve: "没有需要解决的冲突",
-    finalResult: "最终结果",
-    lines: "{n} 行",
+    previous: "上一处变更（Shift+F7）",
+    next: "下一处变更（F7）",
+    applyAllLocal: "全部采用本地更改",
+    applyAllRemote: "全部采用远程更改",
+    applySelected: "应用选中更改",
+    autoResolve: "自动解决简单冲突",
+    copyResult: "复制结果",
+    cancel: "取消",
+    acceptLeft: "采用本地",
+    acceptRight: "采用远程",
+    apply: "应用",
+    applyHint: "保存结果并将文件加入暂存区",
+    binaryConflict: "二进制冲突 — 请选择一侧",
+    noChanges: "内容一致",
+    changesOne: "{n} 个变更",
+    changesOther: "{n} 个变更",
+    conflictOne: "{n} 个冲突",
+    conflictOther: "{n} 个冲突",
+    allResolved: "所有冲突已解决",
+    unresolved: "{n} 个未解决",
+    markersRemaining: "应用前请解决所有冲突标记",
+    applyLocal: "应用这处本地更改",
+    applyRemote: "应用这处远程更改",
+    conflictBlock: "未解决的冲突",
+    resolvedBlock: "已解决的冲突",
   },
 } as const;
 
-function Lines({ text }: { text: string }) {
-  const t = useT(T);
-  if (text === "") return <span className="muted">{t("empty")}</span>;
-  return (
-    <>
-      {text.split("\n").map((line, i) => (
-        <div className="merge-line-text" key={i}>
-          {line || "\u00a0"}
-        </div>
-      ))}
-    </>
-  );
+function lineOffsets(lines: string[]): number[] {
+  const offsets = [0];
+  for (const line of lines) offsets.push(offsets[offsets.length - 1]! + line.length + 1);
+  return offsets;
 }
 
-function Segments({ segs, text }: { segs?: WordSegment[]; text: string }) {
-  if (!segs) return <>{text || "\u00a0"}</>;
-  return (
-    <>
-      {segs.map((s, i) =>
-        s.changed ? (
-          <span className="word-changed" key={i}>
-            {s.text}
-          </span>
-        ) : (
-          <span key={i}>{s.text}</span>
-        ),
-      )}
-    </>
-  );
+function offsetAt(offsets: number[], line: number): number {
+  return offsets[Math.max(0, Math.min(line, offsets.length - 1))]!;
+}
+
+function conflictMarks(
+  range: MergeRange,
+  side: "ours" | "theirs",
+  offsets: number[],
+): { from: number; to: number }[] {
+  if (range.kind !== "conflict") return [];
+  const marks: { from: number; to: number }[] = [];
+  const start = side === "ours" ? range.oursStart : range.theirsStart;
+  for (let i = 0; i < Math.min(range.ours.length, range.theirs.length); i++) {
+    const left = range.ours[i]!;
+    const right = range.theirs[i]!;
+    if (left === right) continue;
+    const [oursSegs, theirsSegs] = wordDiff(left, right);
+    let pos = offsets[start + i]!;
+    for (const segment of side === "ours" ? oursSegs : theirsSegs) {
+      if (segment.changed && segment.text) marks.push({ from: pos, to: pos + segment.text.length });
+      pos += segment.text.length;
+    }
+  }
+  return marks;
+}
+
+function sideBlocks(model: MergeModel, side: "ours" | "theirs", labels: { apply: string }): MergePaneBlock[] {
+  const lines = side === "ours" ? model.oursLines : model.theirsLines;
+  const offsets = lineOffsets(lines);
+  const blocks: MergePaneBlock[] = [];
+  for (const range of model.ranges) {
+    const changed = side === "ours" ? range.oursChanged : range.theirsChanged;
+    if (!changed && range.kind !== "conflict") continue;
+    const start = side === "ours" ? range.oursStart : range.theirsStart;
+    const end = side === "ours" ? range.oursEnd : range.theirsEnd;
+    blocks.push({
+      id: range.index,
+      from: offsetAt(offsets, start),
+      to: offsetAt(offsets, end),
+      tone: range.kind === "conflict" ? "conflict" : side,
+      apply: range.kind === "conflict" ? side : undefined,
+      marks: conflictMarks(range, side, offsets),
+      title: range.kind === "conflict" ? labels.apply : undefined,
+    });
+  }
+  return blocks;
+}
+
+function resultBlocks(model: MergeModel, text: string, label: string): MergePaneBlock[] {
+  if (text !== model.result) return [];
+  const offsets = lineOffsets(text.split("\n"));
+  const blocks: MergePaneBlock[] = [];
+  for (const range of model.ranges) {
+    if (range.kind !== "conflict") continue;
+    const placement = model.placements.find((p) => p.rangeIndex === range.index);
+    if (!placement) continue;
+    blocks.push({
+      id: range.index,
+      from: offsetAt(offsets, placement.startLine),
+      to: offsetAt(offsets, placement.endLine),
+      tone: "conflict",
+      title: label,
+    });
+  }
+  return blocks;
+}
+
+interface SyncAnchor {
+  side: number;
+  result: number;
+}
+
+function anchorsFor(model: MergeModel, side: "ours" | "theirs"): SyncAnchor[] {
+  return model.ranges
+    .map((range) => {
+      const placement = model.placements.find((p) => p.rangeIndex === range.index);
+      return placement
+        ? {
+            side: (side === "ours" ? range.oursStart : range.theirsStart) + 1,
+            result: placement.startLine + 1,
+          }
+        : null;
+    })
+    .filter((a): a is SyncAnchor => a !== null)
+    .sort((a, b) => a.side - b.side);
+}
+
+function mapLine(line: number, anchors: SyncAnchor[], from: "side" | "result"): number {
+  let pick: SyncAnchor = { side: 1, result: 1 };
+  for (const anchor of anchors) {
+    if (anchor[from] <= line) pick = anchor;
+    else break;
+  }
+  const to = from === "side" ? "result" : "side";
+  return Math.max(1, pick[to] + (line - pick[from]));
 }
 
 export function ConflictView({
@@ -150,7 +189,6 @@ export function ConflictView({
   conflict,
   busy,
   onSave,
-  onMarkResolved,
   onTakeSide,
   onClose,
   onDirtyChange,
@@ -159,391 +197,430 @@ export function ConflictView({
   conflict: ConflictContent;
   busy: boolean;
   onSave: (content: string) => void;
-  onMarkResolved: () => void;
   onTakeSide: (side: "ours" | "theirs") => void;
   onClose: () => void;
-  /** Reports whether the resolution has edits that are not saved yet. */
   onDirtyChange?: (dirty: boolean) => void;
 }) {
-  const { segments, trailingNewline } = useMemo(() => parseConflicts(conflict.working), [conflict.working]);
   const t = useT(T);
-  const conflicts = useMemo(
-    () => segments.filter((s): s is ConflictSegment => s.kind === "conflict"),
-    [segments],
+  const labels = useMemo(() => conflictLabels(conflict.working) ?? {}, [conflict.working]);
+  const rawWorking = useMemo(() => normalizeText(conflict.working), [conflict.working]);
+  const ending = useMemo(
+    () => detectLineEnding(conflict.working || conflict.ours || conflict.base),
+    [conflict.base, conflict.ours, conflict.working],
   );
-  const [contents, setContents] = useState<string[]>(() => conflicts.map(() => ""));
-  const [resolved, setResolved] = useState<boolean[]>(() => conflicts.map(() => false));
-  const [choices, setChoices] = useState<Choice[]>(() => conflicts.map(() => "none"));
-  const [free, setFree] = useState(false);
-  const [freeText, setFreeText] = useState(conflict.working);
-  const dirty = free
-    ? freeText !== conflict.working
-    : contents.some((text, i) => text !== "" || resolved[i]);
+  const model = useMemo(
+    () =>
+      computeMerge(normalizeText(conflict.base), normalizeText(conflict.ours), normalizeText(conflict.theirs), {
+        labels,
+        trailingNewline: rawWorking.endsWith("\n") || normalizeText(conflict.ours).endsWith("\n"),
+      }),
+    [conflict.base, conflict.ours, conflict.theirs, labels, rawWorking],
+  );
+  const workingIsResolved = rawWorking !== "" && !hasConflictMarkers(rawWorking);
+  const initialText =
+    rawWorking !== "" && (workingIsResolved || model.ranges.length === 0)
+      ? rawWorking
+      : model.result;
+  const [resultText, setResultText] = useState(initialText);
+  const [unresolved, setUnresolved] = useState(() => countConflictMarkers(initialText));
+  const [dirty, setDirty] = useState(false);
+  const [current, setCurrent] = useState(0);
+  const [selected, setSelected] = useState<{
+    side: "ours" | "theirs";
+    start: number;
+    end: number;
+    empty: boolean;
+  } | null>(null);
+
+  const oursRef = useRef<HTMLDivElement>(null);
+  const resultRef = useRef<HTMLDivElement>(null);
+  const theirsRef = useRef<HTMLDivElement>(null);
+  const oursPane = useRef<MergePane | null>(null);
+  const resultPane = useRef<MergePane | null>(null);
+  const theirsPane = useRef<MergePane | null>(null);
+  const initialRef = useRef(initialText);
+  const resultTextRef = useRef(initialText);
+  const lock = useRef(0);
+
   const dirtyRef = useRef(onDirtyChange);
   dirtyRef.current = onDirtyChange;
+  const busyRef = useRef(busy);
+  busyRef.current = busy;
+  const saveRef = useRef(onSave);
+  saveRef.current = onSave;
+  const endingRef = useRef(ending);
+  endingRef.current = ending;
   useEffect(() => {
     dirtyRef.current?.(dirty);
   }, [dirty]);
   useEffect(() => () => dirtyRef.current?.(false), []);
-  const editors = useRef<(HTMLTextAreaElement | null)[]>([]);
-  const cards = useRef<(HTMLDivElement | null)[]>([]);
-  const [current, setCurrent] = useState(0);
-  const [baseOpen, setBaseOpen] = useState<number | null>(null);
+
+  const ranges = model.ranges;
+  const conflicts = ranges.filter((r) => r.kind === "conflict");
+  const markersRemain = hasConflictMarkers(resultText);
+  const canApply = !busy && !conflict.binary && !markersRemain;
+
+  const scrollToRange = useCallback((range: MergeRange) => {
+    const placement = model.placements.find((p) => p.rangeIndex === range.index);
+    oursPane.current?.scrollToLine(range.oursStart + 1);
+    theirsPane.current?.scrollToLine(range.theirsStart + 1);
+    if (placement) resultPane.current?.scrollToLine(placement.startLine + 1);
+  }, [model]);
+
+  const jump = useCallback(
+    (delta: number) => {
+      if (ranges.length === 0) return;
+      const next = Math.max(0, Math.min(ranges.length - 1, current + delta));
+      setCurrent(next);
+      const range = ranges[next];
+      if (range) scrollToRange(range);
+    },
+    [current, ranges, scrollToRange],
+  );
+
+  const pendingConflict = useCallback((id: number) => {
+    const pane = resultPane.current;
+    const block = pane?.getBlocks().find((b) => b.id === id);
+    if (!pane || !block) return false;
+    const doc = pane.getDoc();
+    const from = Math.max(0, Math.min(block.from, doc.length));
+    const to = Math.max(from, Math.min(block.to, doc.length));
+    return doc.slice(from, to).includes("<<<<<<<");
+  }, []);
+
+  const applyRange = useCallback(
+    (id: number, side: "ours" | "theirs") => {
+      const range = ranges.find((r) => r.index === id);
+      if (!range || !pendingConflict(id)) return;
+      const lines = side === "ours" ? range.ours : range.theirs;
+      resultPane.current?.replaceBlock(id, lines.join("\n"));
+      setCurrent(id);
+    },
+    [pendingConflict, ranges],
+  );
+
+  const applyAll = useCallback(
+    (side: "ours" | "theirs") => {
+      const pane = resultPane.current;
+      if (!pane) return;
+      const changes = conflicts
+        .filter((range) => pendingConflict(range.index))
+        .map((range) => ({
+          id: range.index,
+          text: (side === "ours" ? range.ours : range.theirs).join("\n"),
+        }));
+      pane.replaceBlocks(changes);
+    },
+    [conflicts, pendingConflict],
+  );
+
+  const autoResolve = useCallback(() => {
+    const pane = resultPane.current;
+    if (!pane) return;
+    const changes: { id: number; text: string }[] = [];
+    for (const range of conflicts) {
+      if (!pendingConflict(range.index)) continue;
+      const resolved = tryResolveRange(range) ?? tryResolveRange(range, true);
+      if (resolved) changes.push({ id: range.index, text: resolved.join("\n") });
+    }
+    pane.replaceBlocks(changes);
+  }, [conflicts, pendingConflict]);
+
+  const selectedConflicts = selected && !selected.empty
+    ? conflicts.filter((range) => {
+        if (!pendingConflict(range.index)) return false;
+        const start = (selected.side === "ours" ? range.oursStart : range.theirsStart) + 1;
+        const end = Math.max(start, selected.side === "ours" ? range.oursEnd : range.theirsEnd);
+        return selected.start <= end && selected.end >= start;
+      })
+    : [];
+
+  const applySelected = useCallback(() => {
+    if (!selected) return;
+    const pane = resultPane.current;
+    if (!pane) return;
+    const changes = selectedConflicts.map((range) => ({
+      id: range.index,
+      text: (selected.side === "ours" ? range.ours : range.theirs).join("\n"),
+    }));
+    pane.replaceBlocks(changes);
+    const first = selectedConflicts[0];
+    if (first) setCurrent(first.index);
+  }, [selected, selectedConflicts]);
 
   useEffect(() => {
-    setContents(conflicts.map(() => ""));
-    setResolved(conflicts.map(() => false));
-    setChoices(conflicts.map(() => "none"));
-    setFreeText(conflict.working);
-    setFree(false);
-  }, [conflict.working, conflicts]);
+    const oursEl = oursRef.current;
+    const resultEl = resultRef.current;
+    const theirsEl = theirsRef.current;
+    if (!oursEl || !resultEl || !theirsEl) return;
+    const resolvedResult = workingIsResolved || initialText !== model.result;
 
-  const setConflictText = (i: number, text: string, choice: Choice) => {
-    setContents((prev) => prev.map((v, k) => (k === i ? text : v)));
-    setResolved((prev) => prev.map((v, k) => (k === i ? true : v)));
-    setChoices((prev) => prev.map((v, k) => (k === i ? choice : v)));
-  };
-
-  const useSide = (i: number, side: "ours" | "theirs" | "both") => {
-    const c = conflicts[i]!;
-    const text =
-      side === "ours" ? c.ours.join("\n") : side === "theirs" ? c.theirs.join("\n") : [...c.ours, ...c.theirs].join("\n");
-    setConflictText(i, text, side);
-  };
-
-  const insertLine = (i: number, line: string) => {
-    const currentText = contents[i] ?? "";
-    const el = editors.current[i];
-    const pos = el && document.activeElement === el ? el.selectionStart : currentText.length;
-    const before = currentText.slice(0, pos);
-    const after = currentText.slice(pos);
-    const sep = before === "" || before.endsWith("\n") ? "" : "\n";
-    const next = before + sep + line + after;
-    setConflictText(i, next, "custom");
-    requestAnimationFrame(() => {
-      const editor = editors.current[i];
-      if (editor) {
-        editor.focus();
-        const caret = pos + sep.length + line.length;
-        editor.setSelectionRange(caret, caret);
+    const sync = (source: "ours" | "result" | "theirs", line: number) => {
+      const now = performance.now();
+      if (now < lock.current) return;
+      lock.current = now + 120;
+      const oursAnchors = anchorsFor(model, "ours");
+      const theirsAnchors = anchorsFor(model, "theirs");
+      if (source === "ours") {
+        const resultLine = mapLine(line, oursAnchors, "side");
+        resultPane.current?.scrollToLine(resultLine);
+        theirsPane.current?.scrollToLine(mapLine(resultLine, theirsAnchors, "result"));
+      } else if (source === "theirs") {
+        const resultLine = mapLine(line, theirsAnchors, "side");
+        resultPane.current?.scrollToLine(resultLine);
+        oursPane.current?.scrollToLine(mapLine(resultLine, oursAnchors, "result"));
+      } else {
+        oursPane.current?.scrollToLine(mapLine(line, oursAnchors, "result"));
+        theirsPane.current?.scrollToLine(mapLine(line, theirsAnchors, "result"));
       }
+    };
+
+    const ours = new MergePane(oursEl, {
+      doc: conflict.ours,
+      editable: false,
+      language: conflict.language,
+      blocks: sideBlocks(model, "ours", { apply: t("applyLocal") }),
+      onApplyBlock: (id) => applyRange(id, "ours"),
+      onScroll: (line) => sync("ours", line),
+      onSelection: (start, end, empty) => setSelected({ side: "ours", start, end, empty }),
     });
-  };
+    const result = new MergePane(resultEl, {
+      doc: initialText,
+      editable: true,
+      language: conflict.language,
+      blocks: resolvedResult ? [] : resultBlocks(model, initialText, t("conflictBlock")),
+      onScroll: (line) => sync("result", line),
+      onSaveRequest: () => {
+        if (!busyRef.current && !conflict.binary && !hasConflictMarkers(resultTextRef.current)) {
+          saveRef.current(withLineEnding(resultTextRef.current, endingRef.current));
+        }
+      },
+      onChange: (doc, blocks) => {
+        resultTextRef.current = doc;
+        setResultText(doc);
+        const pending = new Set<number>();
+        const next = blocks.map((block) => {
+          const from = Math.max(0, Math.min(block.from, doc.length));
+          const to = Math.max(from, Math.min(block.to, doc.length));
+          const unresolved = doc.slice(from, to).includes("<<<<<<<");
+          if (unresolved) pending.add(block.id);
+          return {
+            ...block,
+            tone: unresolved ? "conflict" : "resolved",
+            title: unresolved ? t("conflictBlock") : t("resolvedBlock"),
+          } as MergePaneBlock;
+        });
+        if (next.some((block, i) => block.tone !== blocks[i]?.tone)) result.setBlocks(next);
+        for (const [pane, side] of [
+          [ours, "ours"],
+          [theirs, "theirs"],
+        ] as const) {
+          pane.setBlocks(
+            pane.getBlocks().map((block) => {
+              const range = model.ranges.find((r) => r.index === block.id);
+              if (range?.kind !== "conflict") return block;
+              const active = pending.has(block.id);
+              return {
+                ...block,
+                apply: active ? side : undefined,
+                tone: active ? "conflict" : "resolved",
+                title: active ? t(side === "ours" ? "applyLocal" : "applyRemote") : t("resolvedBlock"),
+              };
+            }),
+          );
+        }
+        setUnresolved(pending.size);
+        setDirty(doc !== initialRef.current);
+      },
+    });
+    const theirs = new MergePane(theirsEl, {
+      doc: conflict.theirs,
+      editable: false,
+      language: conflict.language,
+      blocks: sideBlocks(model, "theirs", { apply: t("applyRemote") }),
+      onApplyBlock: (id) => applyRange(id, "theirs"),
+      onScroll: (line) => sync("theirs", line),
+      onSelection: (start, end, empty) => setSelected({ side: "theirs", start, end, empty }),
+    });
+    oursPane.current = ours;
+    resultPane.current = result;
+    theirsPane.current = theirs;
+    const first = model.ranges.find((range) => range.kind === "conflict") ?? model.ranges[0];
+    if (first) requestAnimationFrame(() => scrollToRange(first));
 
-  const insertAll = (i: number, side: "ours" | "theirs") => {
-    const c = conflicts[i]!;
-    const text = (side === "ours" ? c.ours : c.theirs).join("\n");
-    setConflictText(i, text, side);
-  };
+    return () => {
+      ours.destroy();
+      result.destroy();
+      theirs.destroy();
+      oursPane.current = null;
+      resultPane.current = null;
+      theirsPane.current = null;
+    };
+    // The view is keyed by document id, so the panes are built once per file.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [conflict.path, initialText]);
 
-  const jump = (delta: number) => {
-    if (conflicts.length === 0) return;
-    const next = Math.max(0, Math.min(conflicts.length - 1, current + delta));
-    setCurrent(next);
-    cards.current[next]?.scrollIntoView({ block: "nearest", behavior: "smooth" });
-  };
+  const conflictAtCaret = useCallback(() => {
+    const line = resultPane.current?.caretLine() ?? 1;
+    for (const range of conflicts) {
+      const placement = model.placements.find((p) => p.rangeIndex === range.index);
+      if (placement && line >= placement.startLine + 1 && line <= placement.endLine) return range;
+    }
+    return conflicts.find((range) => range.index === current) ?? conflicts[0];
+  }, [conflicts, current, model.placements]);
 
-  const unresolved = resolved.filter((r) => !r).length;
-  const result = free ? freeText : assembleMerge(segments, contents, trailingNewline);
-  const resultLines = result.endsWith("\n") ? result.split("\n").length - 1 : result.split("\n").length;
-  const hasMarkers = result.includes("<<<<<<<") || result.includes("=======") || result.includes(">>>>>>>");
-  const canSave = !busy && !conflict.binary && (free ? !hasMarkers : unresolved === 0 && !hasMarkers);
+  useEffect(() => {
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key === "F7") {
+        event.preventDefault();
+        jump(event.shiftKey ? -1 : 1);
+      } else if (event.altKey && !event.ctrlKey && event.key === "ArrowLeft") {
+        event.preventDefault();
+        const range = conflictAtCaret();
+        if (range) applyRange(range.index, "ours");
+      } else if (event.altKey && !event.ctrlKey && event.key === "ArrowRight") {
+        event.preventDefault();
+        const range = conflictAtCaret();
+        if (range) applyRange(range.index, "theirs");
+      }
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [applyRange, conflictAtCaret, jump]);
 
-  if (!conflict.working.includes("<<<<<<<")) {
+  if (conflict.binary) {
     return (
-      <div className="conflict-view">
-        <div className="diff-header">
+      <div className="conflict-view merge3-view">
+        <header className="diff-header">
           <div className="diff-title-row">
             <span className="diff-status st-conflict">!</span>
             <span className="diff-path">{path}</span>
-            <span className="muted">{t("noMarkers")}</span>
             <span className="spacer" />
-            {busy && <Spinner />}
             <IconButton icon="close" title={t("close")} small onClick={onClose} />
           </div>
-          <div className="diff-toolbar conflict-toolbar">
-            <Button size="small" onClick={() => onTakeSide("ours")} disabled={!conflict.hasOurs || busy}>
-              <Icon name="ours" /> {t("takeOurs")}
-            </Button>
-            <Button size="small" onClick={() => onTakeSide("theirs")} disabled={!conflict.hasTheirs || busy}>
-              <Icon name="theirs" /> {t("takeTheirs")}
-            </Button>
-            <span className="toolbar-sep" />
-            <Button size="small" onClick={onMarkResolved} disabled={busy}>
-              <Icon name="check" /> {t("markResolved")}
-            </Button>
-          </div>
+        </header>
+        <div className="diff-empty">
+          <Icon name="warning" size={24} />
+          <div>{t("binaryConflict")}</div>
         </div>
-        <div className="conflict-body">
-          <div className="conflict-sides">
-            <div className="conflict-side ours">
-              <div className="side-label">{t("oursHead")}</div>
-              <pre>
-                <Lines text={conflict.ours} />
-              </pre>
-            </div>
-            <div className="conflict-side theirs">
-              <div className="side-label">{t("theirs")}</div>
-              <pre>
-                <Lines text={conflict.theirs} />
-              </pre>
-            </div>
-          </div>
-        </div>
+        <footer className="merge3-footer">
+          <span className="spacer" />
+          <Button size="small" onClick={() => onTakeSide("ours")} disabled={busy || (!conflict.hasOurs && !conflict.hasTheirs)}>
+            {t("acceptLeft")}
+          </Button>
+          <Button size="small" onClick={() => onTakeSide("theirs")} disabled={busy || (!conflict.hasTheirs && !conflict.hasOurs)}>
+            {t("acceptRight")}
+          </Button>
+          <Button size="small" onClick={onClose}>
+            {t("cancel")}
+          </Button>
+        </footer>
       </div>
     );
   }
 
   return (
-    <div className="conflict-view merge-view">
-      <div className="diff-header">
+    <div className="conflict-view merge3-view">
+      <header className="diff-header">
         <div className="diff-title-row">
           <span className="diff-status st-conflict">!</span>
           <span className="diff-path">{path}</span>
-          <span className={cx("merge-progress", unresolved === 0 ? "done" : "")}>
-            {unresolved === 0 ? t("allResolved") : t("unresolved", { n: unresolved })} ·{" "}
-            {conflicts.length} {count(conflicts.length, t("block"), t("blocks"))}
+          <span className={cx("merge3-progress", unresolved === 0 && "done")}>
+            <Icon name={unresolved === 0 ? "check" : "warning"} size={12} />
+            {unresolved === 0
+              ? t("allResolved")
+              : t("unresolved", { n: unresolved })}
           </span>
           <span className="spacer" />
           {busy && <Spinner />}
           <IconButton icon="close" title={t("close")} small onClick={onClose} />
         </div>
-        <div className="diff-toolbar merge-toolbar">
-          <div className="segmented">
-            <button className={cx("segmented-btn text", !free && "active")} onClick={() => setFree(false)}>
-              {t("blocksMode")}
-            </button>
-            <button
-              className={cx("segmented-btn text", free && "active")}
-              onClick={() => {
-                setFreeText(assembleFreeText(segments, contents, resolved, trailingNewline));
-                setFree(true);
-              }}
-              title={t("wholeFileHint")}
-            >
-              {t("wholeFile")}
-            </button>
-          </div>
-          {!free && conflicts.length > 0 && (
-            <>
-              <span className="toolbar-sep" />
-              <IconButton icon="chevronUp" title={t("previousConflict")} small onClick={() => jump(-1)} />
-              <IconButton icon="chevronDown" title={t("nextConflict")} small onClick={() => jump(1)} />
-              <span className="muted">
-                {Math.min(current + 1, conflicts.length)} / {conflicts.length}
-              </span>
-            </>
-          )}
+        <div className="diff-toolbar merge3-toolbar">
+          <IconButton icon="chevronUp" title={t("previous")} small onClick={() => jump(-1)} />
+          <IconButton icon="chevronDown" title={t("next")} small onClick={() => jump(1)} />
+          <span className="diff-nav-count">
+            {ranges.length === 0 ? "0 / 0" : `${Math.min(current + 1, ranges.length)} / ${ranges.length}`}
+          </span>
+          <span className="toolbar-sep" />
+          <button className="toolbar-text-btn" onClick={autoResolve} disabled={unresolved === 0}>
+            <Icon name="sparkle" /> {t("autoResolve")}
+          </button>
+          <button className="toolbar-text-btn" onClick={() => applyAll("ours")} disabled={unresolved === 0}>
+            <Icon name="ours" /> {t("applyAllLocal")}
+          </button>
+          <button className="toolbar-text-btn" onClick={() => applyAll("theirs")} disabled={unresolved === 0}>
+            <Icon name="theirs" /> {t("applyAllRemote")}
+          </button>
+          <button className="toolbar-text-btn" onClick={applySelected} disabled={selectedConflicts.length === 0}>
+            <Icon name="check" /> {t("applySelected")}
+          </button>
           <span className="spacer" />
-          {!free && conflicts.length > 0 && (
-            <>
-              <button className="toolbar-text-btn" onClick={() => conflicts.forEach((_, i) => useSide(i, "ours"))}>
-                <Icon name="ours" /> {t("allOurs")}
-              </button>
-              <button className="toolbar-text-btn" onClick={() => conflicts.forEach((_, i) => useSide(i, "theirs"))}>
-                <Icon name="theirs" /> {t("allTheirs")}
-              </button>
-              <span className="toolbar-sep" />
-            </>
-          )}
           <button
             className="toolbar-text-btn"
-            onClick={() => {
-              void navigator.clipboard.writeText(result);
-            }}
+            onClick={() => void navigator.clipboard.writeText(resultText)}
           >
             <Icon name="copy" /> {t("copyResult")}
           </button>
-          <Button size="small" variant="primary" onClick={() => onSave(result)} disabled={!canSave}>
-            <Icon name="check" /> {t("saveResolution")}
-          </Button>
         </div>
+      </header>
+
+      <div className="merge3-panes">
+        <section className="merge3-pane">
+          <div className="merge3-pane-head">
+            <span>{t("local")}</span>
+            {model.labels.ours && <span className="merge3-version">{model.labels.ours}</span>}
+          </div>
+          <div className="merge3-editor" ref={oursRef} />
+        </section>
+        <section className="merge3-pane result">
+          <div className="merge3-pane-head">
+            <span>{t("result")}</span>
+            {unresolved > 0 && <span className="merge3-version pending">{t("unresolved", { n: unresolved })}</span>}
+          </div>
+          <div className="merge3-editor" ref={resultRef} />
+        </section>
+        <section className="merge3-pane">
+          <div className="merge3-pane-head">
+            <span>{t("remote")}</span>
+            {model.labels.theirs && <span className="merge3-version">{model.labels.theirs}</span>}
+          </div>
+          <div className="merge3-editor" ref={theirsRef} />
+        </section>
       </div>
 
-      {conflict.binary ? (
-        <div className="diff-empty">
-          <Icon name="warning" size={24} />
-          <div>{t("binaryConflict")}</div>
-        </div>
-      ) : free ? (
-        <div className="merge-free">
-          <div className="side-label">
-            {t("completeResult")}
-            {hasMarkers && <span className="muted">{t("markersRemaining")}</span>}
-          </div>
-          <textarea
-            className="conflict-editor"
-            value={freeText}
-            spellCheck={false}
-            onChange={(e) => setFreeText(e.target.value)}
-          />
-        </div>
-      ) : (
-        <div className="merge-body">
-          <div className="merge-hint">
-            <Icon name="info" size={13} />
-            <span>{t("mergeHint")}</span>
-          </div>
-          {segments.map((seg, si) => {
-            if (seg.kind === "text") {
-              const lineCount = seg.text === "" ? 0 : seg.text.split("\n").length;
-              if (lineCount === 0) return null;
-              return (
-                <div className="merge-unchanged" key={si}>
-                  <span>{count(lineCount, t("unchangedLine"), t("unchangedLines"))}</span>
-                </div>
-              );
-            }
-            const index = segments.slice(0, si).filter((s) => s.kind === "conflict").length;
-            const c = conflicts[index]!;
-            const rows = alignLines(c.ours, c.theirs);
-            const isResolved = resolved[index] ?? false;
-            return (
-              <div
-                className={cx("merge-card", isResolved ? "resolved" : "unresolved", current === index && "current")}
-                key={si}
-                ref={(el) => {
-                  cards.current[index] = el;
-                }}
-                onMouseDown={() => setCurrent(index)}
-              >
-                <div className="merge-card-header">
-                  <span className={cx("merge-dot", isResolved ? "done" : "")} />
-                  <span className="merge-title">{t("conflictNumber", { n: index + 1 })}</span>
-                  {c.label && <span className="muted">({c.label})</span>}
-                  <span className="spacer" />
-                  <div className="segmented">
-                    {(["ours", "theirs", "both"] as const).map((side) => (
-                      <button
-                        key={side}
-                        className={cx("segmented-btn text", choices[index] === side && "active")}
-                        onClick={() => useSide(index, side)}
-                      >
-                        {side === "ours" ? t("ours") : side === "theirs" ? t("theirs") : t("both")}
-                      </button>
-                    ))}
-                  </div>
-                  <IconButton
-                    icon="undo"
-                    title={t("resetConflict")}
-                    small
-                    onClick={() => {
-                      setContents((prev) => prev.map((v, k) => (k === index ? "" : v)));
-                      setResolved((prev) => prev.map((v, k) => (k === index ? false : v)));
-                      setChoices((prev) => prev.map((v, k) => (k === index ? "none" : v)));
-                    }}
-                  />
-                </div>
-                <div className="merge-sides">
-                  <div className="merge-side-labels">
-                    <span>{t("oursHead")}</span>
-                    <span>{t("theirs")}</span>
-                  </div>
-                  {rows.map((row, ri) => (
-                    <div className="merge-row" key={ri}>
-                      <button
-                        className={cx("merge-cell ours", !row.ours && "empty")}
-                        disabled={!row.ours}
-                        title={row.ours ? t("insertOurs") : undefined}
-                        onClick={() => row.ours && insertLine(index, row.ours.text)}
-                      >
-                        {row.ours ? (
-                          <>
-                            <span className="merge-line-no">{row.ours.no}</span>
-                            <span className="merge-line-code">
-                              <Segments segs={row.ours.segments} text={row.ours.text} />
-                            </span>
-                            <span className="merge-insert">
-                              <Icon name="plus" size={11} />
-                            </span>
-                          </>
-                        ) : (
-                          <span className="merge-line-no" />
-                        )}
-                      </button>
-                      <button
-                        className={cx("merge-cell theirs", !row.theirs && "empty")}
-                        disabled={!row.theirs}
-                        title={row.theirs ? t("insertTheirs") : undefined}
-                        onClick={() => row.theirs && insertLine(index, row.theirs.text)}
-                      >
-                        {row.theirs ? (
-                          <>
-                            <span className="merge-line-no">{row.theirs.no}</span>
-                            <span className="merge-line-code">
-                              <Segments segs={row.theirs.segments} text={row.theirs.text} />
-                            </span>
-                            <span className="merge-insert">
-                              <Icon name="plus" size={11} />
-                            </span>
-                          </>
-                        ) : (
-                          <span className="merge-line-no" />
-                        )}
-                      </button>
-                    </div>
-                  ))}
-                </div>
-                <div className="merge-actions">
-                  <button className="merge-quick" onClick={() => insertAll(index, "ours")}>
-                    {t("useAllOurs")}
-                  </button>
-                  <button className="merge-quick" onClick={() => insertAll(index, "theirs")}>
-                    {t("useAllTheirs")}
-                  </button>
-                  {c.base.length > 0 && (
-                    <button
-                      className="merge-quick"
-                      onClick={() => setBaseOpen(baseOpen === index ? null : index)}
-                    >
-                      {baseOpen === index ? t("hideBase") : t("showBase")}
-                    </button>
-                  )}
-                  <span className="spacer" />
-                  <span className={cx("merge-state", isResolved ? "done" : "")}>
-                    {isResolved ? t("resolved") : t("pending")}
-                  </span>
-                </div>
-                {baseOpen === index && c.base.length > 0 && (
-                  <div className="merge-base">
-                    <div className="side-label">{t("commonAncestor")}</div>
-                    <pre>{c.base.join("\n")}</pre>
-                  </div>
-                )}
-                <div className="merge-result">
-                  <div className="side-label">
-                    {t("result")}
-                    {isResolved && <Icon name="check" size={12} />}
-                  </div>
-                  <textarea
-                    ref={(el) => {
-                      editors.current[index] = el;
-                    }}
-                    className="conflict-editor merge-editor"
-                    value={contents[index] ?? ""}
-                    placeholder={t("resultPlaceholder")}
-                    spellCheck={false}
-                    rows={Math.min(8, Math.max(2, (contents[index] ?? "").split("\n").length))}
-                    onChange={(e) => setConflictText(index, e.target.value, "custom")}
-                  />
-                </div>
-              </div>
-            );
-          })}
-          {conflicts.length === 0 && (
-            <div className="diff-empty">
-              <Icon name="check" size={22} />
-              <div>{t("nothingToResolve")}</div>
-            </div>
+      <footer className="merge3-footer">
+        <span className={cx("merge3-status", unresolved === 0 && "done")}>
+          {ranges.length === 0 ? (
+            t("noChanges")
+          ) : (
+            <>
+              <span>{count(ranges.length, t("changesOne", { n: ranges.length }), t("changesOther", { n: ranges.length }))}</span>
+              <span className="muted"> · </span>
+              <span>{count(unresolved, t("conflictOne", { n: unresolved }), t("conflictOther", { n: unresolved }))}</span>
+            </>
           )}
-          <div className="merge-result-preview">
-            <div className="side-label">
-              {t("finalResult")} · {t("lines", { n: resultLines })}
-            </div>
-            <pre>{free ? freeText : result}</pre>
-          </div>
-        </div>
-      )}
+        </span>
+        {markersRemain && <span className="conflict-warning">{t("markersRemaining")}</span>}
+        <span className="spacer" />
+        <Button size="small" onClick={onClose}>
+          {t("cancel")}
+        </Button>
+        <Button size="small" onClick={() => onTakeSide("ours")} disabled={busy || !conflict.hasOurs && !conflict.hasTheirs}>
+          {t("acceptLeft")}
+        </Button>
+        <Button size="small" onClick={() => onTakeSide("theirs")} disabled={busy || !conflict.hasTheirs && !conflict.hasOurs}>
+          {t("acceptRight")}
+        </Button>
+        <Button
+          size="small"
+          variant="primary"
+          onClick={() => onSave(withLineEnding(resultTextRef.current, ending))}
+          disabled={!canApply}
+          title={t("applyHint")}
+        >
+          {t("apply")}
+        </Button>
+      </footer>
     </div>
   );
 }

@@ -264,6 +264,39 @@ func TestBranchesStashAndRefs(t *testing.T) {
 	}
 }
 
+func TestTakeConflictSideDeletesAMissingStage(t *testing.T) {
+	repo, dir := newTestRepo(t)
+	runGit(t, dir, "checkout", "-q", "-b", "delete")
+	runGit(t, dir, "rm", "-q", "a.txt")
+	runGit(t, dir, "commit", "-q", "-m", "delete")
+	runGit(t, dir, "checkout", "-q", "main")
+	writeFile(t, dir, "a.txt", "one\nlocal\n")
+	runGit(t, dir, "commit", "-q", "-am", "local")
+	if _, err := repo.Merge(context.Background(), "delete", MergeOptions{}); err == nil {
+		t.Fatal("merge should have conflicted")
+	}
+	conflict, err := repo.Conflict(context.Background(), "a.txt")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if conflict.HasTheirs {
+		t.Fatalf("theirs stage should be missing: %+v", conflict)
+	}
+	if err := repo.TakeConflictSide(context.Background(), "a.txt", "theirs"); err != nil {
+		t.Fatalf("TakeConflictSide: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(dir, "a.txt")); !os.IsNotExist(err) {
+		t.Fatalf("a.txt still exists: %v", err)
+	}
+	st, err := repo.Status(context.Background(), false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if st.State.Conflicts != 0 {
+		t.Fatalf("conflicts = %d after taking the deletion", st.State.Conflicts)
+	}
+}
+
 func TestConflictResolution(t *testing.T) {
 	repo, dir := newTestRepo(t)
 	runGit(t, dir, "checkout", "-q", "-b", "other")
@@ -288,6 +321,9 @@ func TestConflictResolution(t *testing.T) {
 	}
 	if !conflict.HasOurs || !conflict.HasTheirs || !strings.Contains(conflict.Ours, "ours") {
 		t.Fatalf("conflict = %+v", conflict)
+	}
+	if conflict.Language != languageOf("a.txt") {
+		t.Fatalf("language = %q, want %q", conflict.Language, languageOf("a.txt"))
 	}
 	if err := repo.SaveResolution(context.Background(), "a.txt", "one\nresolved\n"); err != nil {
 		t.Fatal(err)

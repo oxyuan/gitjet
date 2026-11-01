@@ -36,7 +36,7 @@ import { blameDepth, type ChangeRange } from "./annotate";
 import { normalizeText } from "./editorText";
 
 /** The editor paints with the app's tokens, so there is one palette, not two. */
-const theme = EditorView.theme({
+export const editorTheme = EditorView.theme({
   "&": {
     height: "100%",
     color: "var(--fg)",
@@ -71,7 +71,7 @@ const theme = EditorView.theme({
  *  five classes. A shorter selector loses on specificity, which is why a dark
  *  pane showed a near-white block that swallowed the code. Same shape, same
  *  class count, top precedence, so the token is the one that lands. */
-const selectionTheme = Prec.highest(
+export const editorSelectionTheme = Prec.highest(
   EditorView.theme({
     ".cm-selectionBackground": { backgroundColor: "var(--selection-strong)" },
     "&.cm-focused > .cm-scroller > .cm-selectionLayer .cm-selectionBackground": {
@@ -500,8 +500,8 @@ export class SourceEditor {
             },
           }),
           syntaxHighlighting(editorHighlightStyle),
-          theme,
-          selectionTheme,
+          editorTheme,
+          editorSelectionTheme,
           this.languageConf.of([]),
           this.wrapConf.of(opts.wrap ? EditorView.lineWrapping : []),
           // Both start empty and fill in when the data arrives, so the
