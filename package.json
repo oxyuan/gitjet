@@ -23,7 +23,7 @@
     "@codemirror/view": "^6.43.15",
     "@lezer/highlight": "^1.2.5",
     "codemirror": "6",
-    "mygo-runtime": "^0.6.4",
+    "mygo-runtime": "^0.7.4",
     "react": "^19.3.1",
     "react-dom": "^19.3.1"
   },
@@ -31,7 +31,7 @@
     "@types/react": "^19.3.0",
     "@types/react-dom": "^19.3.0",
     "@vitejs/plugin-react": "^6.1.2",
-    "mygo-cli": "^0.6.4",
+    "mygo-cli": "^0.7.4",
     "typescript": "^7.0.2",
     "vite": "^8.3.5"
   }
