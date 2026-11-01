@@ -1947,6 +1947,13 @@ function AppShell({ onLangChange }: { onLangChange: (lang: Lang) => void }) {
 
   const handleCommand = useCallback(
     (cmd: string) => {
+      // A repository the system opened, from Open Recent, the Dock menu or
+      // the jump list, arrives as "open:<path>": it opens like one chosen
+      // with the picker.
+      if (cmd.startsWith("open:")) {
+        void openRepo(cmd.slice(5));
+        return;
+      }
       switch (cmd) {
         case "open":
           void openRepo();

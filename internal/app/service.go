@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"log"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -140,6 +141,12 @@ func (w *Workspace) Open(path string) (git.ChangesSnapshot, error) {
 	w.c.lastSig = ""
 	w.c.mu.Unlock()
 	w.c.addRecent(repo.Dir(), filepath.Base(repo.Dir()))
+	// The system lists the repository too: the Open Recent menu, the Dock
+	// menu on macOS and the jump list on Windows hand it back through
+	// App.OnOpenFile, which the window then opens like the picker does.
+	if err := mygo.App.AddRecentDocument(repo.Dir()); err != nil {
+		log.Print("gitjet: recent documents: ", err)
+	}
 	w.c.startPolling()
 	snap, err := w.c.snapshot(context.Background(), w.c.settings.ShowIgnored)
 	if err != nil {

@@ -2,6 +2,7 @@ package app
 
 import (
 	"os"
+	"path/filepath"
 	"sync"
 
 	"github.com/egoist/mygo"
@@ -26,6 +27,33 @@ func Run() error {
 	}
 	mygo.Bind(&Workspace{c: c})
 	mygo.Bind(&Git{c: c})
+
+	// Files and folders the system opens reach the app here: a repository
+	// given on the command line is the startup one and opens in Bootstrap,
+	// and any other, from Open Recent, the Dock menu and Finder, opens in
+	// the window the page already has.
+	app.OnOpenFile(func(path string) {
+		c.mu.Lock()
+		startup := c.startup
+		c.mu.Unlock()
+		if startup != "" && samePath(startup, path) {
+			return
+		}
+		path = repositoryPath(path)
+		if path == "" {
+			return
+		}
+		app.WhenReady(func() {
+			if window() == nil {
+				c.mu.Lock()
+				c.startup = path
+				c.mu.Unlock()
+				openWindow()
+				return
+			}
+			Command.Broadcast("open:" + path)
+		})
+	})
 
 	app.WhenReady(func() {
 		applyMenu(c.uiLang())
@@ -56,6 +84,33 @@ func setWindow(w *mygo.Window) {
 	windowMu.Lock()
 	windowRef = w
 	windowMu.Unlock()
+}
+
+// repositoryPath is the folder to open for a path the system opened: a
+// repository may be dragged in as any file of it.
+func repositoryPath(path string) string {
+	st, err := os.Stat(path)
+	if err != nil {
+		return ""
+	}
+	if st.IsDir() {
+		return path
+	}
+	return filepath.Dir(path)
+}
+
+// samePath tells whether two paths name the same place, as the startup
+// repository and the one the system reports for it do.
+func samePath(a, b string) bool {
+	aa, err := filepath.Abs(a)
+	if err != nil {
+		return a == b
+	}
+	bb, err := filepath.Abs(b)
+	if err != nil {
+		return a == b
+	}
+	return aa == bb
 }
 
 // secondary is true when this process was started on a repository given on
@@ -96,6 +151,10 @@ func buildMenu(l lang) *mygo.Menu {
 		{Role: mygo.RoleAppMenu},
 		{Label: l.tr("menu.file"), Submenu: []*mygo.MenuItem{
 			{Label: l.tr("menu.openRepo"), Accelerator: "CmdOrCtrl+O", Click: send("open")},
+			// The repositories the app opened lately, as the system lists
+			// them in the Dock menu and the jump list; choosing one comes
+			// back through App.OnOpenFile.
+			{Role: mygo.RoleOpenRecent},
 			{Label: l.tr("menu.quickOpen"), Accelerator: "CmdOrCtrl+P", Click: send("quickopen")},
 			{Label: l.tr("menu.closeTab"), Accelerator: "CmdOrCtrl+W", Click: send("closetab")},
 			{Label: l.tr("menu.closeRepo"), Accelerator: "CmdOrCtrl+Shift+W", Click: send("close")},
