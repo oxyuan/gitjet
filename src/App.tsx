@@ -104,6 +104,7 @@ const T = {
     pushUnpublished: "the branch has not been published",
     conflictOne: "{n} conflict",
     conflictOther: "{n} conflicts",
+    stoppedOnConflicts: "Stopped on conflicts",
     changed: "{n} changed",
     staged: "{n} staged",
     untracked: "{n} untracked",
@@ -295,6 +296,7 @@ const T = {
     pushUnpublished: "分支尚未发布",
     conflictOne: "{n} 个冲突",
     conflictOther: "{n} 个冲突",
+    stoppedOnConflicts: "停在冲突上",
     changed: "{n} 项更改",
     staged: "{n} 项已暂存",
     untracked: "{n} 个未跟踪文件",
@@ -1279,6 +1281,41 @@ function AppShell({ onLangChange }: { onLangChange: (lang: Lang) => void }) {
     }
   };
 
+  // git leaves a stopped operation behind with the paths it could not merge:
+  // the merge/rebase/cherry-pick/revert is in progress and those paths are
+  // listed as conflicts. That is a state to work in, not a failed command.
+  const stoppedOnConflicts = () => {
+    const snap = snapshotRef.current;
+    return (snap?.conflicts.length ?? 0) > 0 && (snap?.state.operation ?? "") !== "";
+  };
+
+  const conflictSummary = () => {
+    const n = snapshotRef.current?.conflicts.length ?? 0;
+    return count(n, t("conflictOne", { n }), t("conflictOther", { n }));
+  };
+
+  // withConflicts is withBusy for the commands that can stop on a conflict:
+  // a failure is reloaded and, when the operation stopped with conflicts
+  // left, reported as that stop and handed to the first conflicted file.
+  const withConflicts = async <T,>(fn: () => Promise<T>): Promise<T | undefined> => {
+    setBusy((n) => n + 1);
+    try {
+      return await fn();
+    } catch (err) {
+      await reload(false);
+      if (stoppedOnConflicts()) {
+        notify("info", t("stoppedOnConflicts"), conflictSummary());
+        openNextConflict();
+        void loadLog(true);
+      } else {
+        fail(t("gitFailed"), err);
+      }
+      return undefined;
+    } finally {
+      setBusy((n) => n - 1);
+    }
+  };
+
   const stage = (paths: string[]) =>
     withBusy(async () => {
       await Git.stage(paths);
@@ -1453,6 +1490,7 @@ function AppShell({ onLangChange }: { onLangChange: (lang: Lang) => void }) {
       setOp((prev) => (prev ? { ...prev, ...patch, lines: [...opLines.current] } : prev));
     };
     const channel = new Channel<string>();
+    let failed: string | undefined;
     try {
       const promise = fn(channel);
       for await (const line of channel) {
@@ -1474,9 +1512,19 @@ function AppShell({ onLangChange }: { onLangChange: (lang: Lang) => void }) {
       const first = [...tail].reverse().find((l) => !l.startsWith("$ "));
       update({ running: false, success: command ?? (first || t("done")) });
     } catch (err) {
-      update({ running: false, error: err instanceof Error ? err.message : String(err) });
+      failed = err instanceof Error ? err.message : String(err);
     }
     await reload(false);
+    // A pull that stops on a conflict is the start of the resolution, not a
+    // failed command: the refreshed conflict list already says what is left.
+    if (failed !== undefined) {
+      if (stoppedOnConflicts()) {
+        update({ running: false, success: t("stoppedOnConflicts") });
+        notify("info", t("stoppedOnConflicts"), conflictSummary());
+      } else {
+        update({ running: false, error: failed });
+      }
+    }
     void loadLog(true);
   };
 
@@ -1495,9 +1543,20 @@ function AppShell({ onLangChange }: { onLangChange: (lang: Lang) => void }) {
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
       opLines.current = [message];
+      await reload(false);
+      if (stoppedOnConflicts()) {
+        // The plan stopped on the next conflict: the remaining steps are
+        // kept for Continue, so this is a stop, not a failed rewrite.
+        setOp((prev) =>
+          prev ? { ...prev, running: false, lines: [message], success: t("stoppedOnConflicts") } : prev,
+        );
+        notify("info", t("stoppedOnConflicts"), conflictSummary());
+        openNextConflict();
+        void loadLog(true);
+        return false;
+      }
       setOp((prev) => (prev ? { ...prev, running: false, lines: [message], error: message } : prev));
       notify("error", title, message);
-      await reload(false);
       void loadLog(true);
       return false;
     }
@@ -1654,7 +1713,7 @@ function AppShell({ onLangChange }: { onLangChange: (lang: Lang) => void }) {
 
   const merge = async (ref: string, opts: Parameters<typeof Git.merge>[1]) => {
     setDialog(null);
-    await withBusy(async () => {
+    await withConflicts(async () => {
       const out = await Git.merge(ref, opts);
       notify("success", t("merged"), out.split("\n")[0]);
       await reload(false);
@@ -1671,7 +1730,7 @@ function AppShell({ onLangChange }: { onLangChange: (lang: Lang) => void }) {
       confirmLabel: t("rebase"),
     });
     if (!ok) return;
-    await withBusy(async () => {
+    await withConflicts(async () => {
       await Git.rebase(onto, true);
       notify("success", t("rebaseFinished"));
       await reload(false);
@@ -1682,7 +1741,7 @@ function AppShell({ onLangChange }: { onLangChange: (lang: Lang) => void }) {
 
   const cherryPick = async (hashes: string[]) => {
     if (hashes.length === 0) return;
-    await withBusy(async () => {
+    await withConflicts(async () => {
       const out = await Git.cherryPick(hashes, false);
       notify("success", t("cherryPicked"), out.split("\n")[0]);
       await reload(false);
@@ -1702,7 +1761,7 @@ function AppShell({ onLangChange }: { onLangChange: (lang: Lang) => void }) {
       confirmLabel: t("revert"),
     });
     if (!ok) return;
-    await withBusy(async () => {
+    await withConflicts(async () => {
       await Git.revert(hashes);
       notify("success", t("reverted"), hashes.map((h) => h.slice(0, 8)).join(", "));
       await reload(false);
@@ -1863,7 +1922,7 @@ function AppShell({ onLangChange }: { onLangChange: (lang: Lang) => void }) {
     });
 
   const continueOperation = async () => {
-    await withBusy(async () => {
+    await withConflicts(async () => {
       const out = await Git.continueOperation();
       notify("success", t("operationContinued"), out.split("\n")[0]);
       await reload(false);
