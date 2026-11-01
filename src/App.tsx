@@ -2438,8 +2438,7 @@ function AppShell({ onLangChange }: { onLangChange: (lang: Lang) => void }) {
             onResize={setLogDockHeight}
             onSelect={selectCommit}
             onOpenCommit={openCommit}
-            onPickFile={(file) => setLogFile(file.path)}
-            onOpenFile={(file) => {
+            onSelectFile={(file) => {
               if (logDetail) void openCommitFile(logDetail.hash, file);
             }}
             onStepFile={stepCommitFile}
@@ -2932,8 +2931,6 @@ function RightPane({
   const t = useT(T);
   // Each open commit keeps its own expanded directories.
   const [commitDirs, setCommitDirs] = useState<Map<string, Set<string>>>(new Map());
-  // A row in the commit view is read on click and opened on double click.
-  const [commitFile, setCommitFile] = useState("");
   const [tabMenu, setTabMenu] = useState<{ x: number; y: number; items: ContextItem[] } | null>(null);
   const fileMenu = useFileMenu({
     root,
@@ -3188,10 +3185,9 @@ function RightPane({
                 indent={4}
                 renderFile={(file, depth, flat) => (
                 <div
-                  className={cx("details-file", commitFile === file.path && "selected")}
+                  className="details-file"
                   style={{ marginLeft: depth * 12 }}
-                  onClick={() => setCommitFile(file.path)}
-                  onDoubleClick={() => onOpenDiff(file.path, active.detail.hash)}
+                  onClick={() => onOpenDiff(file.path, active.detail.hash)}
                   title={file.path}
                 >
                   <StatusMark kind={file.status} />
@@ -3209,7 +3205,6 @@ function RightPane({
                       e.stopPropagation();
                       onOpenFile(file.path, active.detail.hash);
                     }}
-                    onDoubleClick={(e) => e.stopPropagation()}
                   >
                     <Icon name="file" size={12} />
                   </button>
@@ -3220,7 +3215,6 @@ function RightPane({
                       e.stopPropagation();
                       onShowFileHistory(file.path);
                     }}
-                    onDoubleClick={(e) => e.stopPropagation()}
                   >
                     <Icon name="log" size={12} />
                   </button>

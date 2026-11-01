@@ -156,8 +156,7 @@ export function QuickOpen({
                   key={`commit:${commit.hash}`}
                   className={cx("quick-item", i === index && "active")}
                   onMouseEnter={() => setIndex(i)}
-                  onClick={() => setIndex(i)}
-                  onDoubleClick={() => choose(row)}
+                  onClick={() => choose(row)}
                   title={commit.message}
                 >
                   <Icon name="commit" size={14} />
@@ -176,8 +175,7 @@ export function QuickOpen({
                 key={`file:${file.path}`}
                 className={cx("quick-item", i === index && "active")}
                 onMouseEnter={() => setIndex(i)}
-                onClick={() => setIndex(i)}
-                onDoubleClick={() => choose(row)}
+                onClick={() => choose(row)}
                 title={file.path}
               >
                 <FileIcon path={file.path} size={14} />

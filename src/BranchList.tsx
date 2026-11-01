@@ -33,7 +33,7 @@ const T = {
     addFavorite: "Add to favorites",
     removeFavorite: "Remove from favorites",
     checkout: "Check out",
-    filterTip: "Double-click to show this branch's history · right-click for actions",
+    filterTip: "Click to show this branch's history · right-click for actions",
     newBranch: "New branch from here…",
     merge: "Merge into current",
     rebase: "Rebase current onto this",
@@ -66,7 +66,7 @@ const T = {
     addFavorite: "收藏分支",
     removeFavorite: "取消收藏",
     checkout: "Checkout",
-    filterTip: "双击查看该分支历史 · 右键查看更多操作",
+    filterTip: "单击查看该分支历史 · 右键查看更多操作",
     newBranch: "从此分支新建…",
     merge: "Merge 到当前分支",
     rebase: "Rebase 当前分支到此",
@@ -89,11 +89,11 @@ const T = {
 const TAG_SECTION_KEY = "tags";
 
 /**
- * The branch tree of the branch page. A single click only selects the row for
- * reading; showing a branch's history and checking it out are deliberate, so
- * they live on double click and in the context menu. A section title folds or
- * unfolds every group beneath it, and the toolbar does the same for the whole
- * list, so a hundred remote branches are one click away.
+ * The branch tree of the branch page. Clicking a branch or tag shows its
+ * history, and the context menu carries everything that writes — checkout,
+ * new branch, compare, delete. A section title folds or unfolds every group
+ * beneath it, and the toolbar does the same for the whole list, so a hundred
+ * remote branches are one click away.
  */
 export function BranchList({
   refs,
@@ -139,7 +139,6 @@ export function BranchList({
   const [collapsed, setCollapsed] = useState<Record<string, boolean>>({});
   // A single click picks a tag for reading; the selection is not the history
   // scope, so it never repaints the log on its own.
-  const [pickedTag, setPickedTag] = useState("");
   const [menu, setMenu] = useState<{ x: number; y: number; items: ContextItem[] } | null>(null);
 
   const sections = useMemo(() => buildBranchSections(refs, current), [refs, current]);
@@ -235,7 +234,7 @@ export function BranchList({
         key={(full ? "fav:" : "") + leaf.key}
         className={cx("bp-leaf", !full && "nested", leaf.current && "current", selected === leaf.name && "selected")}
         title={leaf.upstream ? `${leaf.name} → ${leaf.upstream}` : t("filterTip")}
-        onDoubleClick={() => onSelect(leaf.name)}
+        onClick={() => onSelect(leaf.name)}
         onContextMenu={(e) => {
           e.preventDefault();
           branchMenu(leaf, e.clientX, e.clientY);
@@ -267,7 +266,6 @@ export function BranchList({
             e.stopPropagation();
             onToggleFavorite(leaf.key);
           }}
-          onDoubleClick={(e) => e.stopPropagation()}
         >
           <Icon name="star" size={12} />
         </button>
@@ -276,7 +274,7 @@ export function BranchList({
   };
 
   const tagRow = (tag: TagLeaf) => {
-    const active = selected === tag.name || pickedTag === tag.name;
+    const active = selected === tag.name;
     return (
       <div
         key={"tag:" + tag.key}
@@ -284,8 +282,7 @@ export function BranchList({
         role="treeitem"
         aria-selected={active}
         title={`${tag.name} · ${tag.short}\n${tag.subject}\n${formatWhen(tag.time)}`}
-        onClick={() => setPickedTag(tag.name)}
-        onDoubleClick={() => onSelect(tag.name)}
+        onClick={() => onSelect(tag.name)}
         onContextMenu={(e) => {
           e.preventDefault();
           tagMenu(tag, e.clientX, e.clientY);

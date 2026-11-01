@@ -8314,15 +8314,3 @@ body.resizing-row .log-detail-split::after {
   white-space: nowrap;
 }
 
-/* The commit view selects a changed file before opening it, like the log. */
-.commit-view .details-file.selected {
-  background: var(--selection);
-}
-
-.stashd-file.selected {
-  background: var(--selection);
-}
-
-.repo-row.compare-row.selected {
-  background: var(--selection);
-}
