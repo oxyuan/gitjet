@@ -6,6 +6,10 @@ import (
 	"sync"
 
 	"github.com/egoist/mygo"
+	// MyGo's own labels, of its menu items and dialogs, in Chinese: the app
+	// translates its own text, and SetLanguages makes these two the languages
+	// it comes in.
+	_ "github.com/egoist/mygo/locales/zh-Hans"
 )
 
 // Command is sent to the page when a menu item asks it to act, e.g.
@@ -16,6 +20,10 @@ var Command = mygo.NewEvent[string]("app:command")
 func Run() error {
 	app := mygo.App
 	app.SetName("GitJet")
+	// The languages the app comes in: its pages and menu labels say them
+	// themselves, and this makes MyGo's own labels, its dialogs and its
+	// standard menu items, say them too.
+	app.SetLanguages("en", "zh-Hans")
 	c := newCore()
 	if len(os.Args) > 1 {
 		if st, err := os.Stat(os.Args[1]); err == nil && st.IsDir() {
@@ -56,7 +64,7 @@ func Run() error {
 	})
 
 	app.WhenReady(func() {
-		applyMenu(c.uiLang())
+		applyMenu(c.languageSetting())
 		openWindow()
 	})
 	app.OnWindowAllClosed(func() { setWindow(nil) })
@@ -140,8 +148,21 @@ func openWindow() {
 	installPageContextMenu(w)
 }
 
-// applyMenu installs the menu in lang, replacing whatever menu is showing.
-func applyMenu(l lang) { mygo.App.SetMenu(buildMenu(l)) }
+// applyMenu installs the menu for the language setting, replacing whatever
+// menu is showing, and makes MyGo's own labels say the same language.
+func applyMenu(setting string) {
+	// "system" leaves MyGo to the user's languages, as the app does then.
+	// MyGo's strings are Simplified Chinese; the app has no Traditional one.
+	locale := ""
+	switch setting {
+	case string(langZH):
+		locale = "zh-Hans"
+	case string(langEN):
+		locale = "en"
+	}
+	mygo.App.SetLocale(locale)
+	mygo.App.SetMenu(buildMenu(resolveLang(setting)))
+}
 
 func buildMenu(l lang) *mygo.Menu {
 	send := func(cmd string) func(*mygo.MenuItem, *mygo.Window) {

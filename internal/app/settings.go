@@ -248,6 +248,13 @@ func newCore() *core {
 	return &core{settings: loadSettings()}
 }
 
+// languageSetting is the stored language setting: "system", "en" or "zh".
+func (c *core) languageSetting() string {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return c.settings.Language
+}
+
 // uiLang is the language the native side should speak.
 func (c *core) uiLang() lang {
 	c.mu.Lock()

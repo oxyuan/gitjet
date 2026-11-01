@@ -1,9 +1,9 @@
 package app
 
 import (
-	"os"
-	"runtime"
 	"strings"
+
+	"github.com/egoist/mygo"
 )
 
 // lang is the UI language: "en" or "zh".
@@ -26,18 +26,17 @@ func resolveLang(setting string) lang {
 	return systemLang()
 }
 
-// systemLang reads the user's language from the OS.
+// systemLang is the language the user reads best: the first of MyGo's
+// preferred languages, which are the system's own on every platform. The
+// environment cannot say it: a macOS app started from the Finder has no
+// LANG, and would show English to a Chinese reader. The page asks
+// navigator.language, which is the same list.
 func systemLang() lang {
-	if runtime.GOOS == "windows" {
-		if systemUILanguageIsChinese() {
+	for _, tag := range mygo.App.PreferredLanguages() {
+		if strings.HasPrefix(strings.ToLower(tag), "zh") {
 			return langZH
 		}
 		return langEN
-	}
-	for _, key := range []string{"LC_ALL", "LC_MESSAGES", "LANG"} {
-		if v := os.Getenv(key); strings.HasPrefix(strings.ToLower(v), "zh") {
-			return langZH
-		}
 	}
 	return langEN
 }

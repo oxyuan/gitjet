@@ -196,7 +196,7 @@ func (w *Workspace) SaveSettings(s Settings) (Settings, error) {
 		return s, err
 	}
 	if s.Language != oldLang {
-		applyMenu(resolveLang(s.Language))
+		applyMenu(s.Language)
 	}
 	if repo != nil && s.GitPath != oldGitPath {
 		reopened, err := git.Open(context.Background(), repo.Dir(), s.GitPath)
