@@ -26,9 +26,11 @@ promise.
 
 Push direction: native menu accelerators broadcast `events.appCommand`
 (`"commit"`, `"refresh"`, `"tab:console"`, …) and `AppShell.handleCommand`
-switches on the string. `events.repoChanged` fires when the 1500 ms poll sees a
-changed `status --porcelain=v2` signature, or after any mutation that calls
-`Git.notify()`.
+switches on the string; `"open:<path>"` is a repository the system opened (see
+below). `events.repoChanged` fires when the poll sees a changed
+`status --porcelain=v2` signature, or after any mutation that calls
+`Git.notify()`. The poll reads every 1.5 s while the app is active and one
+tick in six while it is not, and reads at once when the app becomes active.
 
 Long operations (`Push`, `Pull`, `Fetch`, `Console`) stream through a trailing
 `out *mygo.Channel[string]` parameter. The page must consume the channel with
@@ -43,7 +45,7 @@ There is no router, no state library, no ORM: dock/tab/dialog state lives in
 |---|---|
 |`internal/git/`|Git execution and parsing: `git.go` (spawn/env/paths), `status.go`, `diff.go`, `log.go`, `actions.go`, `blame.go`, `console.go`, `files.go`, `repoinfo.go`, `rewrite.go` (commit plan replay), `repo_extra.go` (worktrees, cleanup, submodules, LFS, shallow), `trace.go` (command echo)|
 |`internal/proc/`|`HideConsole` (`internal/proc`, `CREATE_NO_WINDOW` on Windows): applied to every console child GitJet starts|
-|`internal/app/`|Host: `run.go` (window/menu/events), `service.go` (bound services, poll), `settings.go` (`core`, persistence), `i18n.go`, `lsp.go` (language server bridge)|
+|`internal/app/`|Host: `run.go` (window/menu/events, recents, window tracking), `contextmenu.go` (the page's right-click menu), `service.go` (bound services, poll), `settings.go` (`core`, persistence), `i18n.go`, `lsp.go` (language server bridge)|
 |`src/`|React UI; `*.test.ts` next to the module under test. `EditHistoryDialog.tsx` (rewrite plan) and `RepoExtrasDialog.tsx` (worktrees/submodules/LFS) are the only standalone dialogs; the rest live in `Dialogs.tsx`|
 |`src/mygo.ts`|**Generated** bindings — never hand-edit|
 |`resources/`|`icon.png` only, copied into the bundle by MyGo|
@@ -237,7 +239,9 @@ bindings, re-check hand-written test fixtures (`graph.test.ts`, `branches.test.t
 ## Important Files
 
 - `main.go` — entry; calls `app.Run`.
-- `internal/app/run.go` — app name, bound services, events, window, menu.
+- `internal/app/run.go` — app name, bound services, events, window, menu,
+  `App.OnOpenFile` (recents and system-opened repositories).
+- `internal/app/contextmenu.go` — what the page's right-click menu offers.
 - `internal/app/service.go` — `Workspace`/`Git` methods, `Bootstrap`, poll loop.
 - `internal/app/settings.go` — `core`, `Settings`, per-repo `RepoMeta`
   (`<config dir>/GitJet/repos/<sha1(root)>.json`).
@@ -257,11 +261,10 @@ bindings, re-check hand-written test fixtures (`graph.test.ts`, `branches.test.t
   TypeScript 7, Vite 8, React 19. No ESLint/Prettier/Biome/golangci config
   exists; formatting is 2-space, double quotes, trailing commas.
 - `github.com/egoist/mygo` (Go) and `mygo-cli`/`mygo-runtime` (npm) are
-  version-coupled at 0.6.4 — bump them together.
+  version-coupled at 0.7.4 — bump them together.
 - No cgo anywhere (`purego` loads dylibs); platform code uses build-tagged
-  files (`internal/proc/hideconsole_windows.go`, `internal/app/i18n_windows.go`),
-  not
-  runtime switches, for OS-only imports.
+  files (`internal/proc/hideconsole_windows.go` and `hideconsole_other.go`),
+  not runtime switches, for OS-only imports.
 - App version appears in three places: `mygo.config.ts`, `package.json`, and
   the constant in `internal/app/service.go`.
 - Windows needs WebView2 at runtime (not bundled). Builds are unsigned /
@@ -321,9 +324,16 @@ rebase/am/cherry-pick, diff of renames and binary files, and the console's
   builtin.
 - Several errors are deliberately swallowed (stash listing, meta saves,
   corrupt `settings.json` → defaults); don't "fix" them blindly.
-- `internal/app/firstmouse_darwin.go` adds `acceptsFirstMouse:` to MyGo's
-  `MyGoWebView` at startup. WebKit answers no, so without it the first click
-  in an inactive GitJet window only activates the app and the control under
-  the pointer does nothing; MyGo (0.7.3 included) does not override it for
-  page windows. Drop the patch only when MyGo itself accepts the first mouse
-  or its web view class is renamed.
+- The page's context menu removes WebKit's browser items (navigation,
+  new windows, downloads, web search, share, print) in
+  `internal/app/contextmenu.go`; the app's own React menus still suppress it
+  by calling `preventDefault`.
+- The app's language setting drives both sides: `resolveLang` reads
+  `mygo.App.PreferredLanguages()` for `"system"`, and `applyMenu` calls
+  `mygo.App.SetLocale` so MyGo's own labels (role menu items, dialogs) speak
+  the same language. The `zh-Hans` catalog import in `run.go` supplies those
+  translations.
+- The first click in an inactive window reaches the page since MyGo 0.7.4
+  (`MyGoWebView` answers `acceptsFirstMouse:` itself); the private AppKit patch
+  GitJet used for that on 0.6.4 is gone, and pinning MyGo below 0.7.4 would
+  bring the bug back.
