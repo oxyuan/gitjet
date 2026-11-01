@@ -163,6 +163,7 @@ go test ./... && go vet ./... && bun run typecheck && bun run test:web && bun ru
 | `Alt+←` / `Alt+→` | 采用本地 / 远程版本（冲突视图） |
 | `⌘/Ctrl+点击` / `⌘/Ctrl+Alt+点击` | 跳到定义 / 列出引用 |
 | `⌘/Ctrl+9` / `⌘/Ctrl+Shift+9` / `⌘/Ctrl+Shift+E` | 提交 / 控制台 / 文件 工具窗口 |
+| 任意字符（文件窗口、焦点不在编辑器时） | 匹配并高亮文件名，`↑`/`↓` 切换，`Enter` 打开，`Esc` 清除 |
 
 ## 目录结构
 
@@ -180,7 +181,7 @@ src/                    React 前端
   mergePane.ts          冲突面板的 CodeMirror：块/词装饰、应用箭头、滚动映射
   SourceView.tsx        可编辑源码外壳：保存、工具栏、二进制/缺失文件状态
   SourceEditor.tsx      CodeMirror 挂载、变更条、blame、跳转接线
-  SourceTree.tsx        文件视图：工作区目录树 + 子序列筛选
+  SourceTree.tsx        文件视图：工作区目录树、子序列筛选、键入即匹配高亮
   editor.ts             CodeMirror 配置：主题、按需语法、装饰
   lsp.ts                LSP 客户端（IPC 传输，无 socket/worker）
   syntax.ts / highlight.ts  Lezer 语法树 → 逐行 token；编辑器与差异共用的调色板

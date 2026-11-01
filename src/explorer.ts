@@ -1,9 +1,10 @@
-/** Filtering and initial expansion for the source explorer's project tree.
+/** Filtering, matching and initial expansion for the source explorer's project
+ *  tree.
  *
- *  Both are pure: the panel owns the data and the expansion set, so a refresh
- *  or a fresh query cannot mutate the tree it is showing. */
+ *  All of it is pure: the panel owns the data and the expansion set, so a
+ *  refresh or a fresh query cannot mutate the tree it is showing. */
 
-import type { TreeNode } from "./changes";
+import { buildChangeTree, type TreeNode } from "./changes";
 
 /** A working-tree path, tracked or not. */
 export interface ExplorerFile {
@@ -43,4 +44,44 @@ export function expandedTo<T extends { path: string }>(nodes: TreeNode<T>[], dep
   };
   nodes.forEach((node) => walk(node, 0));
   return keys;
+}
+
+/**
+ * Where a query's characters land in `name`, or null when it does not contain
+ * them all in order. Matched a character at a time, so the positions index the
+ * string the caller drew, and case-insensitively, so "spt" finds "SourceTree"
+ * at 0, 6 and 10.
+ */
+export function matchIndices(name: string, query: string): number[] | null {
+  const needle = query.toLowerCase();
+  if (needle === "") return null;
+  const hits: number[] = [];
+  let at = 0;
+  for (let c = 0; c < name.length && at < needle.length; c++) {
+    if (name.charAt(c).toLowerCase() === needle.charAt(at)) {
+      hits.push(c);
+      at++;
+    }
+  }
+  return at === needle.length ? hits : null;
+}
+
+/**
+ * The files a tree is actually showing, in the order it draws them: a
+ * directory's children count only while it is open, so what the eye sees and
+ * what the keyboard steps through are the same list.
+ */
+export function visibleFiles<T extends { path: string }>(
+  files: T[],
+  expanded: ReadonlySet<string>,
+): T[] {
+  const shown: T[] = [];
+  const walk = (nodes: TreeNode<T>[]) => {
+    for (const node of nodes) {
+      if (!node.isDir) shown.push(node.file);
+      else if (expanded.has(node.path)) walk(node.children);
+    }
+  };
+  walk(buildChangeTree(files));
+  return shown;
 }

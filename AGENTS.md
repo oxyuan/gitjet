@@ -182,6 +182,14 @@ use it only for layout work. Vite's port is pinned to 5173 in **both**
 - A tab's `editor-tab-kind` badge is tinted by its own kind colour through
   `currentColor`, so diff, source, merge and commit tabs read apart at a
   glance; the active tab strengthens its kind's tint, it does not turn accent.
+- The files panel matches as you type: any keystroke that no text field owns
+  (the editor, an input, a `textarea`, a dialog) is appended to a match buffer,
+  `↑`/`↓` step the matching rows, `Enter` opens the stepped one, `Esc` clears.
+  It highlights, it never filters, and it only ever walks the rows the tree is
+  showing (`visibleFiles` in `src/explorer.ts` mirrors `FileTree`'s order), so
+  the keyboard cannot land on a file hidden inside a closed folder. The
+  listener is registered once and reads the latest buffer and matches through
+  a ref: re-subscribing per keystroke could drop characters.
 - A control beside a focused text field acts on the press, not on the click:
   pressing elsewhere blurs the field first, and the release click arrives late
   enough to be dropped, so the first click would only take the focus away.
