@@ -95,7 +95,14 @@ const languageAliases: Record<string, string> = {
 
 const languageCache = new Map<string, Promise<LanguageSupport | null>>();
 
-/** Loads the grammar for a language name, once. Unknown names get plain text. */
+/** Loads the grammar for a language name, once. Unknown names get plain text.
+ *  A grammar is a chunk of its own, fetched the first time its language is
+ *  needed, and that fetch can fail by itself — a dev server re-optimizing its
+ *  dependencies replaces the chunk's URL under the running page, and a failed
+ *  module URL stays failed for the life of the page. Such a failure is not a
+ *  grammar, so it is not what "once" remembers, and it is not swallowed: the
+ *  page goes plain until it reloads, and the console is the only thing that
+ *  can say why. */
 export function loadLanguage(name: string): Promise<LanguageSupport | null> {
   const key = languageAliases[name] ?? name;
   const cached = languageCache.get(key);
@@ -103,9 +110,15 @@ export function loadLanguage(name: string): Promise<LanguageSupport | null> {
   const description = languages.find(
     (d) => d.name.toLowerCase() === key || d.alias.includes(key) || d.extensions.includes(key),
   );
-  const loading = description
-    ? description.load().then((support) => support as LanguageSupport | null, () => null)
-    : Promise.resolve(null);
+  if (!description) return Promise.resolve(null);
+  const loading = description.load().then(
+    (support) => support as LanguageSupport | null,
+    (err: unknown) => {
+      languageCache.delete(key);
+      console.warn(`gitjet: the ${key} grammar did not load; reload the window to try again`, err);
+      return null;
+    },
+  );
   languageCache.set(key, loading);
   return loading;
 }
