@@ -288,6 +288,15 @@ func (w *Workspace) OpenURL(url string) error {
 	}
 }
 
+// The poll reads git status while the app is in front; a read takes a git
+// process, so while it is not, it reads one tick in pollIdleEvery: nothing
+// on screen changes for a user in another app, and becoming active again
+// refreshes at once.
+const (
+	pollEvery     = 1500 * time.Millisecond
+	pollIdleEvery = 6
+)
+
 // startPolling watches git status for changes the app did not make, the
 // way an IDE refreshes VCS status in the background.
 func (c *core) startPolling() {
@@ -301,51 +310,67 @@ func (c *core) startPolling() {
 		return
 	}
 	go func() {
-		ticker := time.NewTicker(1500 * time.Millisecond)
+		ticker := time.NewTicker(pollEvery)
 		defer ticker.Stop()
+		// Coming back to the app reads the state right away instead of
+		// waiting for the next tick.
+		wake := make(chan struct{}, 1)
+		offActive := mygo.App.OnDidBecomeActive(func() {
+			select {
+			case wake <- struct{}{}:
+			default:
+			}
+		})
+		defer offActive()
 		lastFetch := time.Now()
+		ticks := 0
 		for {
 			select {
 			case <-stop:
 				return
+			case <-wake:
 			case <-ticker.C:
-				ctx, cancel := context.WithTimeout(context.Background(), 8*time.Second)
-				c.mu.Lock()
-				autoFetch := c.settings.AutoFetch
-				fetchEvery := time.Duration(c.settings.AutoFetchMinutes) * time.Minute
-				c.mu.Unlock()
-				if autoFetch && fetchEvery > 0 && time.Since(lastFetch) >= fetchEvery {
-					lastFetch = time.Now()
-					if remotes, err := repo.Remotes(ctx); err == nil && len(remotes) > 0 {
-						fetchCtx, fetchCancel := context.WithTimeout(context.Background(), 2*time.Minute)
-						if _, ferr := repo.Fetch(fetchCtx, git.FetchOptions{All: true, Prune: true, Tags: true}, nil); ferr == nil {
-							if snap, serr := c.snapshot(fetchCtx, c.settings.ShowIgnored); serr == nil {
-								RepoChanged.Broadcast(snap.State)
-							}
-						}
-						fetchCancel()
-						cancel()
-						continue
-					}
+				ticks++
+				if !mygo.App.IsActive() && ticks%pollIdleEvery != 0 {
+					continue
 				}
-				sig := repo.Signature(ctx)
-				if sig == "" {
+			}
+			ctx, cancel := context.WithTimeout(context.Background(), 8*time.Second)
+			c.mu.Lock()
+			autoFetch := c.settings.AutoFetch
+			fetchEvery := time.Duration(c.settings.AutoFetchMinutes) * time.Minute
+			c.mu.Unlock()
+			if autoFetch && fetchEvery > 0 && time.Since(lastFetch) >= fetchEvery {
+				lastFetch = time.Now()
+				if remotes, err := repo.Remotes(ctx); err == nil && len(remotes) > 0 {
+					fetchCtx, fetchCancel := context.WithTimeout(context.Background(), 2*time.Minute)
+					if _, ferr := repo.Fetch(fetchCtx, git.FetchOptions{All: true, Prune: true, Tags: true}, nil); ferr == nil {
+						if snap, serr := c.snapshot(fetchCtx, c.settings.ShowIgnored); serr == nil {
+							RepoChanged.Broadcast(snap.State)
+						}
+					}
+					fetchCancel()
 					cancel()
 					continue
 				}
-				c.mu.Lock()
-				changed := sig != c.lastSig
-				if changed {
-					c.lastSig = sig
-				}
-				c.mu.Unlock()
-				if changed {
-					if snap, err := c.snapshot(ctx, c.settings.ShowIgnored); err == nil {
-						RepoChanged.Broadcast(snap.State)
-					}
-				}
-				cancel()
 			}
+			sig := repo.Signature(ctx)
+			if sig == "" {
+				cancel()
+				continue
+			}
+			c.mu.Lock()
+			changed := sig != c.lastSig
+			if changed {
+				c.lastSig = sig
+			}
+			c.mu.Unlock()
+			if changed {
+				if snap, err := c.snapshot(ctx, c.settings.ShowIgnored); err == nil {
+					RepoChanged.Broadcast(snap.State)
+				}
+			}
+			cancel()
 		}
 	}()
 }
