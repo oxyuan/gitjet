@@ -4,7 +4,7 @@ import { events, Git, type Completion, type JournalEntry } from "./mygo";
 import { commandLine, completionPrefix, CONSOLE_PROGRAMS, rememberLine, splitCommand } from "./console";
 import { Icon } from "./icons";
 import { entryText, JournalView } from "./JournalView";
-import { cx, IconButton, Spinner, useStoredState } from "./ui";
+import { cx, IconButton, Spinner, usePress, useStoredState } from "./ui";
 import { useLang, useT } from "./i18n";
 
 const T = {
@@ -287,6 +287,21 @@ export function ConsolePanel({
     setProgramMenu(true);
   };
 
+  // The command line keeps the focus, so the controls beside it act on the
+  // press: waiting for the release would cost a click that only blurs the
+  // input.
+  const pressLog = usePress(() => {
+    setView("log");
+    // The picker lives in the command view; it must not greet the return.
+    setProgramMenu(false);
+  });
+  const pressConsole = usePress(() => {
+    setView("console");
+    // Already showing the command line: the press is asking for the caret.
+    inputRef.current?.focus();
+  });
+  const pressProgram = usePress(toggleProgramMenu);
+
   const moveProgramFocus = (delta: number) => {
     const options = Array.from(
       menuRef.current?.querySelectorAll<HTMLButtonElement>(".console-program-option") ?? [],
@@ -406,7 +421,7 @@ export function ConsolePanel({
             aria-selected={view === "log"}
             className={cx("console-view-tab", view === "log" && "active")}
             title={t("logHint")}
-            onClick={() => setView("log")}
+            {...pressLog}
           >
             <Icon name="log" />
             {t("logView")}
@@ -417,7 +432,7 @@ export function ConsolePanel({
             aria-selected={view === "console"}
             className={cx("console-view-tab", view === "console" && "active")}
             title={t("hintKeys")}
-            onClick={() => setView("console")}
+            {...pressConsole}
           >
             <Icon name="console" />
             {t("commandView")}
@@ -428,6 +443,7 @@ export function ConsolePanel({
           icon="copy"
           title={view === "log" ? t("copyLog") : t("copyOutput")}
           small
+          pressOnDown
           onClick={() => {
             const text =
               view === "log"
@@ -440,6 +456,7 @@ export function ConsolePanel({
           icon="file"
           title={t("revealJournal")}
           small
+          pressOnDown
           disabled={!repoOpen}
           onClick={() => void revealJournal()}
         />
@@ -447,6 +464,7 @@ export function ConsolePanel({
           icon="trash"
           title={view === "log" ? t("clearLog") : t("clearConsole")}
           small
+          pressOnDown
           onClick={() => {
             if (view === "log") {
               setLogClearedAt(Date.now());
@@ -529,7 +547,7 @@ export function ConsolePanel({
             aria-haspopup="menu"
             aria-expanded={programMenu}
             disabled={!repoOpen || running}
-            onClick={toggleProgramMenu}
+            {...pressProgram}
             onKeyDown={(e) => {
               if (e.key === "ArrowDown" || e.key === "ArrowUp") {
                 e.preventDefault();

@@ -86,6 +86,32 @@ export function Button({
   );
 }
 
+/**
+ * Handlers for a control that sits beside a focused text field. It acts on the
+ * press, and ignores the click that follows that press: a press anywhere else
+ * blurs the field first, and the release click arrives late enough that the
+ * web view can drop it, which leaves such a control needing a second click. A
+ * keyboard click has no press of ours, so it acts on its own.
+ */
+export function usePress(action: (e: React.MouseEvent) => void) {
+  const pressed = useRef(false);
+  return {
+    onMouseDown: (e: React.MouseEvent) => {
+      if (e.button !== 0) return;
+      // The press must not move the focus: the control's action may put the
+      // caret somewhere, and the browser's own blur would undo it afterwards.
+      e.preventDefault();
+      pressed.current = true;
+      action(e);
+    },
+    onClick: (e: React.MouseEvent) => {
+      const fromPress = e.detail > 0 && pressed.current;
+      pressed.current = false;
+      if (!fromPress) action(e);
+    },
+  };
+}
+
 export function IconButton({
   icon,
   title,
@@ -95,6 +121,7 @@ export function IconButton({
   small,
   className,
   spinner,
+  pressOnDown,
 }: {
   icon: IconName;
   title: string;
@@ -104,15 +131,17 @@ export function IconButton({
   small?: boolean;
   className?: string;
   spinner?: boolean;
+  pressOnDown?: boolean;
 }) {
+  const press = usePress((e) => onClick?.(e));
   return (
     <button
       type="button"
       className={`icon-btn${active ? " active" : ""}${small ? " icon-btn-small" : ""}${className ? " " + className : ""}`}
       title={title}
       aria-label={title}
-      onClick={onClick}
       disabled={disabled}
+      {...(pressOnDown && onClick ? press : { onClick })}
     >
       {spinner ? <span className="spinner" /> : <Icon name={icon} />}
     </button>

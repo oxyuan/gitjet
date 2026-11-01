@@ -182,6 +182,11 @@ use it only for layout work. Vite's port is pinned to 5173 in **both**
 - A tab's `editor-tab-kind` badge is tinted by its own kind colour through
   `currentColor`, so diff, source, merge and commit tabs read apart at a
   glance; the active tab strengthens its kind's tint, it does not turn accent.
+- A control beside a focused text field acts on the press, not on the click:
+  pressing elsewhere blurs the field first, and the release click arrives late
+  enough to be dropped, so the first click would only take the focus away.
+  `usePress` (`src/ui.tsx`) wires that up (`IconButton` takes `pressOnDown`),
+  and it swallows the click its own press already handled.
 - i18n has no key files: each component declares `const T = { en, zh }` and
   uses `useT(T)`. Add strings to both languages in the same dictionary;
   placeholders are `{name}`; plurals use `count(n, one, other)`.
