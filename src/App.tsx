@@ -1253,6 +1253,12 @@ function AppShell({ onLangChange }: { onLangChange: (lang: Lang) => void }) {
     if (remaining[0]) void openConflict(remaining[0].path);
   };
 
+  const openConflictSummary = () => {
+    if ((snapshotRef.current?.conflicts ?? []).length === 0) return false;
+    setDialog({ kind: "conflicts" });
+    return true;
+  };
+
   const toggleWhitespace = () => {
     const next = !ignoreWhitespace;
     setIgnoreWhitespace(next);
@@ -1305,7 +1311,7 @@ function AppShell({ onLangChange }: { onLangChange: (lang: Lang) => void }) {
       await reload(false);
       if (stoppedOnConflicts()) {
         notify("info", t("stoppedOnConflicts"), conflictSummary());
-        openNextConflict();
+        openConflictSummary();
         void loadLog(true);
       } else {
         fail(t("gitFailed"), err);
@@ -1551,7 +1557,7 @@ function AppShell({ onLangChange }: { onLangChange: (lang: Lang) => void }) {
           prev ? { ...prev, running: false, lines: [message], success: t("stoppedOnConflicts") } : prev,
         );
         notify("info", t("stoppedOnConflicts"), conflictSummary());
-        openNextConflict();
+        openConflictSummary();
         void loadLog(true);
         return false;
       }
@@ -1584,7 +1590,7 @@ function AppShell({ onLangChange }: { onLangChange: (lang: Lang) => void }) {
 
   const pull = (opts: Parameters<typeof Git.pull>[0]) => {
     setDialog(null);
-    void runOperation(t("operationPull"), "pull", (ch) => Git.pull(opts, ch)).then(openNextConflict);
+    void runOperation(t("operationPull"), "pull", (ch) => Git.pull(opts, ch)).then(openConflictSummary);
   };
 
   // Fetch has no dialog: the toolbar fetches at once and keeps the options,
@@ -1717,7 +1723,6 @@ function AppShell({ onLangChange }: { onLangChange: (lang: Lang) => void }) {
       const out = await Git.merge(ref, opts);
       notify("success", t("merged"), out.split("\n")[0]);
       await reload(false);
-      openNextConflict();
       void loadLog(true);
     });
   };
@@ -2693,7 +2698,10 @@ function AppShell({ onLangChange }: { onLangChange: (lang: Lang) => void }) {
           operation={state?.operation ?? ""}
           conflicts={snapshot?.conflicts ?? []}
           onClose={() => setDialog(null)}
-          onOpen={(path) => void openConflict(path)}
+          onOpen={(path) => {
+            setDialog(null);
+            void openConflict(path);
+          }}
           onTakeSide={(paths, side) => void takeSideAll(paths, side)}
           onMarkResolved={(paths) => void markResolvedAll(paths)}
           onContinue={() => {
