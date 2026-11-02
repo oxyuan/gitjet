@@ -46,8 +46,10 @@ flowchart LR
 - 破坏性操作前自动贮藏本地改动（`gitjet: before <action>`），完成后 `stash pop --index` 还原，失败则保留并告知
 
 ### 冲突与历史重写
-- 并排对比 Ours / Theirs（含词级差异）：插入单行、整段取边、查看共同祖先、编辑最终文件、预览结果
-- 冲突汇总对话框：一次列出全部冲突文件，批量采用我方/对方、批量标记已解决
+- 三栏合并（Local / Result / Remote）：块级与选中变更采用、忽略、重置，非冲突变更按侧重放，词级/字符级高亮
+- 视图：折叠未修改行、同步滚动、自动换行、显示空白、忽略空白差异；Local/Remote/Base/Result 任意两版对比
+- 冲突汇总对话框：一次列出全部冲突文件，批量采用我方/对方、批量标记已解决；切 tab 保留未保存的解决结果
+- 有未解决标记时 Apply 会二次确认；支持冲突专用导航与 Accept Left / Right
 - merge / rebase / cherry-pick / revert / am 的继续与中止
 - 编辑历史：逐条 reword / squash / fixup / drop；计划按顺序写到 `<git dir>/gitjet-rewrite-plan.json`，可从中断处继续
 

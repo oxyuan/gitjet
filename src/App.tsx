@@ -3115,18 +3115,27 @@ function RightPane({
         <span className="spacer" />
       </div>
       <div className="editor-content">
-        {active.kind === "conflict" && (
-          <ConflictView
-            key={active.id}
-            path={active.path}
-            conflict={active.content}
-            busy={busy}
-            onSave={(content) => void onSaveConflict(active.path, content)}
-            onTakeSide={(side) => void onTakeSide(active.path, side)}
-            onClose={() => onCloseDoc(active.id)}
-            onDirtyChange={(dirty) => onDocDirty(active.id, dirty)}
-          />
-        )}
+        {docs
+          .filter((doc): doc is Extract<Doc, { kind: "conflict" }> => doc.kind === "conflict")
+          .map((doc) => (
+            <div
+              key={"layer:" + doc.id}
+              className="doc-layer"
+              style={{ display: active.id === doc.id ? undefined : "none" }}
+            >
+              <ConflictView
+                key={doc.id}
+                path={doc.path}
+                conflict={doc.content}
+                busy={busy}
+                onSave={(content) => void onSaveConflict(doc.path, content)}
+                onTakeSide={(side) => void onTakeSide(doc.path, side)}
+                onClose={() => onCloseDoc(doc.id)}
+                onDirtyChange={(dirty) => onDocDirty(doc.id, dirty)}
+                visible={active.id === doc.id}
+              />
+            </div>
+          ))}
         {active.kind === "file" && (
           <SourceView
             key={active.id}
