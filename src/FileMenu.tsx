@@ -21,6 +21,11 @@ const T = {
     newDir: "Directory…",
     rename: "Rename…",
     delete: "Delete…",
+    ignore: "Ignore",
+    ignoreTitle: "Ignore {name}",
+    ignoreMessage: "Ignore {path}?",
+    ignoreDetail:
+      "The path is added to .gitignore. Any tracked files under it are removed from Git's index and staged as deleted; files on disk are kept.",
     reveal: "Open in File Manager",
     copyPathRef: "Copy Path/Reference",
     copyAbsolute: "Absolute Path",
@@ -49,6 +54,11 @@ const T = {
     newDir: "目录…",
     rename: "重命名…",
     delete: "删除…",
+    ignore: "忽略",
+    ignoreTitle: "忽略 {name}",
+    ignoreMessage: "忽略 {path}？",
+    ignoreDetail:
+      "该路径会写入 .gitignore；如含已跟踪文件，它们会从 Git 索引移除并暂存为删除，磁盘上的文件保留。",
     reveal: "打开于资源管理器",
     copyPathRef: "复制路径/引用",
     copyAbsolute: "绝对路径",
@@ -78,7 +88,9 @@ type PromptState =
   | { kind: "dir"; value: string }
   | { kind: "rename"; from: string; value: string };
 
-type ConfirmState = { path: string; isDir: boolean };
+type ConfirmState =
+  | { kind: "delete"; path: string; isDir: boolean }
+  | { kind: "ignore"; path: string; isDir: boolean };
 
 /**
  * The working-tree half of a file row's context menu: create, rename, delete,
@@ -91,12 +103,14 @@ export function useFileMenu({
   onError,
   onCopy,
   onReveal,
+  onIgnore,
 }: {
   root: string;
   onChanged: () => void;
   onError: (err: unknown) => void;
   onCopy?: (text: string) => void;
   onReveal?: (path: string) => void;
+  onIgnore?: (paths: string[]) => void;
 }) {
   const t = useT(T);
   const [menu, setMenu] = useState<{
@@ -105,6 +119,7 @@ export function useFileMenu({
     target: FileMenuTarget;
     extra: ContextItem[];
     leading: ContextItem[];
+    ignore: boolean;
   } | null>(null);
   const [prompt, setPrompt] = useState<PromptState | null>(null);
   const [confirm, setConfirm] = useState<ConfirmState | null>(null);
@@ -115,10 +130,18 @@ export function useFileMenu({
     target: FileMenuTarget,
     extra: ContextItem[] = [],
     leading: ContextItem[] = [],
+    options?: { ignore?: boolean },
   ) => {
     event.preventDefault();
     event.stopPropagation();
-    setMenu({ x: event.clientX, y: event.clientY, target, extra, leading });
+    setMenu({
+      x: event.clientX,
+      y: event.clientY,
+      target,
+      extra,
+      leading,
+      ignore: options?.ignore ?? true,
+    });
   };
 
   const copy = (text: string) => {
@@ -166,7 +189,7 @@ export function useFileMenu({
   };
 
   const performDelete = async () => {
-    if (!confirm || busy) return;
+    if (!confirm || confirm.kind !== "delete" || busy) return;
     setBusy(true);
     try {
       await Git.deletePath(confirm.path);
@@ -177,6 +200,12 @@ export function useFileMenu({
     } finally {
       setBusy(false);
     }
+  };
+
+  const performIgnore = () => {
+    if (!confirm || confirm.kind !== "ignore" || !onIgnore) return;
+    onIgnore([confirm.path]);
+    setConfirm(null);
   };
 
   const menuItems = (): ContextItem[] => {
@@ -202,14 +231,21 @@ export function useFileMenu({
     });
     if (menu.extra.length > 0) items.push({ separator: true }, ...menu.extra);
     if (target.path !== "") {
+      items.push({ separator: true });
+      if (onIgnore && menu.ignore) {
+        items.push({
+          label: t("ignore"),
+          icon: "eye",
+          onClick: () => setConfirm({ kind: "ignore", path: target.path, isDir: target.isDir }),
+        });
+      }
       items.push(
-        { separator: true },
         { label: t("rename"), icon: "edit", onClick: beginRename },
         {
           label: t("delete"),
           icon: "trash",
           danger: true,
-          onClick: () => setConfirm({ path: target.path, isDir: target.isDir }),
+          onClick: () => setConfirm({ kind: "delete", path: target.path, isDir: target.isDir }),
         },
       );
     }
@@ -289,12 +325,29 @@ export function useFileMenu({
       )}
       {confirm && (
         <ConfirmDialog
-          title={t("deleteTitle", { name: baseName(confirm.path) || confirm.path })}
-          message={t("deleteMessage", { path: confirm.path })}
-          detail={confirm.isDir ? t("deleteDirDetail") : t("deleteFileDetail")}
-          confirmLabel={t("delete")}
-          danger
-          onConfirm={() => void performDelete()}
+          title={
+            confirm.kind === "ignore"
+              ? t("ignoreTitle", { name: baseName(confirm.path) || confirm.path })
+              : t("deleteTitle", { name: baseName(confirm.path) || confirm.path })
+          }
+          message={
+            confirm.kind === "ignore"
+              ? t("ignoreMessage", { path: confirm.path })
+              : t("deleteMessage", { path: confirm.path })
+          }
+          detail={
+            confirm.kind === "ignore"
+              ? t("ignoreDetail")
+              : confirm.isDir
+                ? t("deleteDirDetail")
+                : t("deleteFileDetail")
+          }
+          confirmLabel={confirm.kind === "ignore" ? t("ignore") : t("delete")}
+          danger={confirm.kind === "delete"}
+          onConfirm={() => {
+            if (confirm.kind === "ignore") performIgnore();
+            else void performDelete();
+          }}
           onCancel={() => setConfirm(null)}
         />
       )}

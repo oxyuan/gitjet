@@ -830,12 +830,47 @@ func (r *Repo) ContinueOperation(ctx context.Context) (string, error) {
 	return r.run(ctx, args...)
 }
 
-// Ignore appends paths to the repository's .gitignore.
+// Ignore adds paths to the repository's .gitignore. Tracked files under a
+// path are removed from the index first, so Git stops following their
+// changes; the files on disk are left alone.
 func (r *Repo) Ignore(ctx context.Context, paths []string) (string, error) {
 	clean, err := cleanPaths(paths)
 	if err != nil {
 		return "", err
 	}
+	r.write.Lock()
+	defer r.write.Unlock()
+
+	pathspec := append([]string{"--"}, clean...)
+	unmerged, err := r.run(ctx, append([]string{"ls-files", "-u", "-z"}, pathspec...)...)
+	if err != nil {
+		return "", err
+	}
+	if unmerged != "" {
+		return "", errors.New("cannot ignore a path with unresolved conflicts")
+	}
+	trackedOut, err := r.run(ctx, append([]string{"ls-files", "-z"}, pathspec...)...)
+	if err != nil {
+		return "", err
+	}
+	tracked := strings.Split(trackedOut, "\x00")
+	var roots []string
+	for _, p := range clean {
+		prefix := p + "/"
+		for _, file := range tracked {
+			if file == p || strings.HasPrefix(file, prefix) {
+				roots = append(roots, p)
+				break
+			}
+		}
+	}
+	if len(roots) > 0 {
+		rmArgs := append([]string{"rm", "-r", "--cached", "--quiet", "-f", "--"}, roots...)
+		if _, err := r.run(ctx, rmArgs...); err != nil {
+			return "", err
+		}
+	}
+
 	ignorePath := r.AbsPath(".gitignore")
 	existing, _ := os.ReadFile(ignorePath)
 	lines := map[string]bool{}
@@ -844,7 +879,7 @@ func (r *Repo) Ignore(ctx context.Context, paths []string) (string, error) {
 	}
 	var add strings.Builder
 	for _, p := range clean {
-		pattern := "/" + p
+		pattern := ignorePattern(p)
 		if lines[pattern] {
 			continue
 		}
@@ -869,4 +904,17 @@ func (r *Repo) Ignore(ctx context.Context, paths []string) (string, error) {
 		return "", err
 	}
 	return ".gitignore", nil
+}
+
+// ignorePattern renders one repository path as an anchored .gitignore line.
+func ignorePattern(p string) string {
+	var b strings.Builder
+	b.WriteByte('/')
+	for _, c := range p {
+		if strings.ContainsRune(`\*?[`, c) {
+			b.WriteByte('\\')
+		}
+		b.WriteRune(c)
+	}
+	return b.String()
 }

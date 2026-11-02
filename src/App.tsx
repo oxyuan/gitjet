@@ -196,7 +196,7 @@ const T = {
     abortMessageCurrent: "Abort the current operation and restore the previous state?",
     deleteChangelistTitle: "Delete Changelist",
     deleteChangelistMessage: "Delete “{name}”? Its files move to the default changelist.",
-    addedToGitignore: "Added to .gitignore",
+    ignoredPath: "Ignored",
     nothingToCommit: "Nothing to commit",
     nothingToCommitMessage: "Check at least one file in the commit panel.",
     commitNeedsMessage: "A commit needs a message",
@@ -388,7 +388,7 @@ const T = {
     abortMessageCurrent: "中止当前操作并恢复之前的状态？",
     deleteChangelistTitle: "删除变更列表",
     deleteChangelistMessage: "删除“{name}”？其中的文件将移至默认变更列表。",
-    addedToGitignore: "已添加到 .gitignore",
+    ignoredPath: "已忽略",
     nothingToCommit: "没有可提交的内容",
     nothingToCommitMessage: "请在提交面板中至少勾选一个文件。",
     commitNeedsMessage: "提交需要填写提交信息",
@@ -1348,7 +1348,7 @@ function AppShell({ onLangChange }: { onLangChange: (lang: Lang) => void }) {
   const ignorePaths = (paths: string[]) =>
     withBusy(async () => {
       const file = await Git.ignore(paths);
-      notify("success", t("addedToGitignore"), file);
+      notify("success", t("ignoredPath"), file);
       await reload(false);
     });
 
@@ -2329,6 +2329,7 @@ function AppShell({ onLangChange }: { onLangChange: (lang: Lang) => void }) {
                   onOpen={(path) => void showFile(path)}
                   onError={(err) => fail(t("openFileFailed"), err)}
                   onActionError={(err) => fail(t("fileActionFailed"), err)}
+                  onIgnore={(paths) => void ignorePaths(paths)}
                 />
               ) : (
                 <NoRepo onOpen={() => void openRepo()} />

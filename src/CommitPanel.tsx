@@ -28,7 +28,6 @@ const T = {
     rollback: "Rollback…",
     addToVcs: "Add to VCS",
     delete: "Delete…",
-    addToGitignore: "Add to .gitignore",
     stage: "Stage",
     newChangelist: "New Changelist…",
     rename: "Rename…",
@@ -100,7 +99,6 @@ const T = {
     rollback: "回滚…",
     addToVcs: "添加到版本控制",
     delete: "删除…",
-    addToGitignore: "添加到 .gitignore",
     stage: "Stage",
     newChangelist: "新建变更列表…",
     rename: "重命名…",
@@ -297,6 +295,7 @@ export function CommitPanel({
     onError: actions.onError,
     onCopy: actions.onCopyPath,
     onReveal: actions.onReveal,
+    onIgnore: actions.onIgnore,
   });
 
   const staged = entries.filter((e) => e.staged);
@@ -375,10 +374,7 @@ export function CommitPanel({
       );
     } else {
       if (entry.kind === "untracked") {
-        items.push(
-          { label: t("addToVcs"), icon: "stage", onClick: () => actions.onStage(chosen) },
-          { label: t("addToGitignore"), icon: "eye", onClick: () => actions.onIgnore(chosen) },
-        );
+        items.push({ label: t("addToVcs"), icon: "stage", onClick: () => actions.onStage(chosen) });
       } else {
         items.push(
           { label: t("stage"), icon: "stage", onClick: () => actions.onStage(chosen) },
@@ -394,7 +390,13 @@ export function CommitPanel({
         items.push({ separator: true }, ...clItems);
       }
     }
-    fileMenu.openMenu(event, { path: entry.path, isDir: false }, items);
+    fileMenu.openMenu(
+      event,
+      { path: entry.path, isDir: false },
+      items,
+      [],
+      { ignore: !entry.unmerged && !entry.ignored },
+    );
   };
 
   const toggleDir = (key: string) => {

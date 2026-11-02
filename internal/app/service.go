@@ -515,7 +515,7 @@ func (g *Git) DeletePath(path string) error {
 	return nil
 }
 
-// Ignore appends paths to .gitignore.
+// Ignore adds paths to .gitignore and removes tracked files under them from the index.
 func (g *Git) Ignore(paths []string) (string, error) {
 	repo, err := g.c.currentRepo()
 	if err != nil {

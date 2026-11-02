@@ -54,6 +54,7 @@ export function SourceTree({
   onOpen,
   onError,
   onActionError,
+  onIgnore,
 }: {
   repoOpen: boolean;
   /** Absolute repository root, for the copy-path choices. */
@@ -65,6 +66,7 @@ export function SourceTree({
   onError: (err: unknown) => void;
   /** A failed create/rename/delete, reported apart from a failed read. */
   onActionError: (err: unknown) => void;
+  onIgnore: (paths: string[]) => void;
 }) {
   const t = useT(T);
   const [files, setFiles] = useState<ExplorerRow[]>([]);
@@ -76,6 +78,7 @@ export function SourceTree({
     root,
     onChanged: () => setNonce((n) => n + 1),
     onError: onActionError,
+    onIgnore,
   });
 
   useEffect(() => {

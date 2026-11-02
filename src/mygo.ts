@@ -764,7 +764,7 @@ export const Git = {
   files(query: string): Promise<RepoFile[]> {
     return call("Git.Files", query);
   },
-  /** Ignore appends paths to .gitignore. */
+  /** Ignore adds paths to .gitignore and removes tracked files under them from the index. */
   ignore(paths: string[]): Promise<string> {
     return call("Git.Ignore", paths);
   },
