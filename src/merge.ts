@@ -57,6 +57,7 @@ export interface MergeModel {
 export interface MergeOptions {
   labels?: Partial<MergeLabels>;
   trailingNewline?: boolean;
+  ignoreWhitespace?: boolean;
 }
 
 type LineEq = (a: string, b: string) => boolean;
@@ -443,6 +444,7 @@ function renderResult(
   ranges: MergeRange[],
   labels: MergeLabels,
   trailingNewline: boolean,
+  eq: LineEq = exact,
 ): { text: string; placements: MergePlacement[] } {
   const lines: string[] = [];
   const placements: MergePlacement[] = [];
@@ -457,7 +459,7 @@ function renderResult(
       lines.push(...range.theirs);
       lines.push(`>>>>>>> ${labels.theirs}`);
     } else {
-      lines.push(...chosenLines(range));
+      lines.push(...chosenLines(range, eq));
     }
     placements.push({ rangeIndex: range.index, startLine, endLine: lines.length });
     b = range.baseEnd;
@@ -480,10 +482,12 @@ export function computeMerge(
   const base = splitLines(baseText);
   const ours = splitLines(oursText);
   const theirs = splitLines(theirsText);
-  const oursOps = diffOps(base.lines, ours.lines, exact);
-  const theirsOps = diffOps(base.lines, theirs.lines, exact);
-  const oursHunks = diffHunks(base.lines, ours.lines);
-  const theirsHunks = diffHunks(base.lines, theirs.lines);
+  const ignoreWhitespace = options.ignoreWhitespace ?? false;
+  const eq = ignoreWhitespace ? whitespaceInsensitive : exact;
+  const oursOps = diffOps(base.lines, ours.lines, eq);
+  const theirsOps = diffOps(base.lines, theirs.lines, eq);
+  const oursHunks = diffHunks(base.lines, ours.lines, ignoreWhitespace);
+  const theirsHunks = diffHunks(base.lines, theirs.lines, ignoreWhitespace);
   const ranges = buildRanges(
     base.lines,
     ours.lines,
@@ -492,14 +496,14 @@ export function computeMerge(
     theirsHunks,
     sideBoundaries(base.lines.length, oursOps),
     sideBoundaries(base.lines.length, theirsOps),
-    exact,
+    eq,
   );
   const labels: MergeLabels = {
     ours: options.labels?.ours?.trim() || "LOCAL",
     theirs: options.labels?.theirs?.trim() || "REMOTE",
   };
   const trailingNewline = options.trailingNewline ?? ours.trailingNewline;
-  const rendered = renderResult(base.lines, ranges, labels, trailingNewline);
+  const rendered = renderResult(base.lines, ranges, labels, trailingNewline, eq);
   return {
     baseLines: base.lines,
     oursLines: ours.lines,

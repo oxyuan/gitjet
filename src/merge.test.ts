@@ -132,6 +132,13 @@ describe("computeMerge", () => {
     expect(hasConflictMarkers(model.result)).toBe(true);
   });
 
+  it("can compare whitespace-insensitively", () => {
+    const exact = computeMerge("a\n", "a \n", "a\t\n");
+    expect(exact.ranges.some((range) => range.kind === "conflict")).toBe(true);
+    const loose = computeMerge("a\n", "a \n", "a\t\n", { ignoreWhitespace: true });
+    expect(loose.ranges.every((range) => range.kind !== "conflict")).toBe(true);
+  });
+
   it("uses marker labels when they are supplied", () => {
     const model = computeMerge("x\n", "O\n", "T\n", {
       labels: { ours: "main", theirs: "feature" },

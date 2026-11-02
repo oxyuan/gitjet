@@ -1,6 +1,6 @@
 import { describe, expect, it } from "bun:test";
 import type { FileDiff } from "./mygo";
-import { buildDiffRows, changeBlockRows, isCollapsed, textLines, wordDiff } from "./diff";
+import { buildDiffRows, changeBlockRows, charDiff, isCollapsed, textLines, wordDiff } from "./diff";
 
 describe("textLines", () => {
   it("drops the empty tail after a final newline", () => {
@@ -16,6 +16,15 @@ describe("wordDiff", () => {
     expect(left.some((s) => s.changed && s.text.includes("a"))).toBe(true);
     expect(right.some((s) => s.changed && s.text.includes("b"))).toBe(true);
     expect(left.filter((s) => !s.changed).map((s) => s.text).join("")).toContain("const ");
+  });
+});
+
+describe("charDiff", () => {
+  it("marks only the characters that changed", () => {
+    const [left, right] = charDiff("abcd", "abXd");
+    expect(left.some((s) => s.changed && s.text === "c")).toBe(true);
+    expect(right.some((s) => s.changed && s.text === "X")).toBe(true);
+    expect(left.filter((s) => !s.changed).map((s) => s.text).join("")).toBe("abd");
   });
 });
 

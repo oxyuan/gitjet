@@ -67,21 +67,16 @@ function tokenize(text: string): string[] {
   return text.match(/\s+|[A-Za-z0-9_]+|[^\sA-Za-z0-9_]/g) ?? [];
 }
 
-/**
- * wordDiff marks the words that differ between two changed lines, so the
- * viewer can highlight inside the line.
- */
-export function wordDiff(a: string, b: string): [WordSegment[], WordSegment[]] {
-  const left = tokenize(a);
-  const right = tokenize(b);
-  if (left.length > 1200 || right.length > 1200) {
-    return [
-      [{ text: a, changed: true }],
-      [{ text: b, changed: true }],
-    ];
-  }
+/** LCS-based segments for two token arrays, shared by word and char diffs. */
+function diffTokens(left: string[], right: string[]): [WordSegment[], WordSegment[]] {
   const n = left.length;
   const m = right.length;
+  if (n > 1200 || m > 1200) {
+    return [
+      [{ text: left.join(""), changed: true }],
+      [{ text: right.join(""), changed: true }],
+    ];
+  }
   const lcs: Uint16Array[] = Array.from({ length: n + 1 }, () => new Uint16Array(m + 1));
   for (let i = n - 1; i >= 0; i--) {
     for (let j = m - 1; j >= 0; j--) {
@@ -114,6 +109,19 @@ export function wordDiff(a: string, b: string): [WordSegment[], WordSegment[]] {
   while (i < n) push(leftSegs, left[i++]!, true);
   while (j < m) push(rightSegs, right[j++]!, true);
   return [leftSegs, rightSegs];
+}
+
+/**
+ * wordDiff marks the words that differ between two changed lines, so the
+ * viewer can highlight inside the line.
+ */
+export function wordDiff(a: string, b: string): [WordSegment[], WordSegment[]] {
+  return diffTokens(tokenize(a), tokenize(b));
+}
+
+/** charDiff highlights the individual characters that differ. */
+export function charDiff(a: string, b: string): [WordSegment[], WordSegment[]] {
+  return diffTokens(Array.from(a), Array.from(b));
 }
 
 /**
