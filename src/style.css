@@ -2209,6 +2209,67 @@ body.col-resizing {
   background: color-mix(in srgb, var(--diff-add-bg) 52%, transparent);
 }
 
+.cm-merge-line.ignored {
+  background: color-mix(in srgb, var(--border) 35%, transparent);
+  opacity: 0.72;
+}
+
+.compare-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 1px;
+  height: min(70vh, 560px);
+  background: var(--border);
+  border: 1px solid var(--border);
+}
+
+.compare-column {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  background: var(--editor-bg);
+}
+
+.compare-column-title {
+  flex: none;
+  padding: 6px 10px;
+  border-bottom: 1px solid var(--border);
+  background: var(--panel);
+  font-weight: 600;
+}
+
+.compare-scroll {
+  flex: 1;
+  overflow: auto;
+  font-family: var(--mono-font);
+  font-size: var(--editor-font-size);
+  line-height: 1.55;
+}
+
+.compare-line {
+  display: flex;
+  gap: 10px;
+  min-height: 1.55em;
+  white-space: pre;
+}
+
+.compare-line.changed {
+  background: color-mix(in srgb, var(--diff-add-bg) 72%, transparent);
+}
+
+.compare-number {
+  flex: none;
+  width: 3.5em;
+  padding-right: 8px;
+  text-align: right;
+  color: var(--muted);
+  user-select: none;
+}
+
+.compare-text {
+  min-width: 0;
+}
+
 .cm-merge-word.ours {
   background: var(--diff-add-word);
   border-radius: 2px;
@@ -2258,6 +2319,10 @@ body.col-resizing {
 
 .cm-merge-gutter-mark.resolved {
   color: var(--success);
+}
+
+.cm-merge-gutter-mark.ignored {
+  color: var(--muted);
 }
 
 /* ---------- Console ---------- */
@@ -3097,6 +3162,13 @@ kbd {
   display: flex;
   flex-direction: column;
   background: var(--editor-bg);
+}
+
+.doc-layer {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
 }
 
 /* ---------- Source view ---------- */
