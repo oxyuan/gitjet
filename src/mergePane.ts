@@ -14,6 +14,7 @@ import {
   gutter,
   highlightActiveLine,
   highlightActiveLineGutter,
+  highlightWhitespace,
   keymap,
   lineNumbers,
   type BlockInfo,
@@ -21,11 +22,11 @@ import {
   type GutterMarker as GutterMarkerType,
 } from "@codemirror/view";
 import { defaultKeymap, history, historyKeymap } from "@codemirror/commands";
-import { syntaxHighlighting } from "@codemirror/language";
+import { codeFolding, foldEffect, syntaxHighlighting, unfoldAll } from "@codemirror/language";
 import { editorHighlightStyle } from "./highlight";
 import { editorSelectionTheme, editorTheme, loadLanguage } from "./editor";
 
-export type MergePaneTone = "ours" | "theirs" | "conflict" | "resolved";
+export type MergePaneTone = "ours" | "theirs" | "conflict" | "resolved" | "ignored";
 
 export interface MergePaneBlock {
   id: number;
@@ -49,10 +50,11 @@ export interface MergePaneOptions {
   onScroll?: (topLine: number) => void;
   onSelection?: (start: number, end: number, empty: boolean) => void;
   onSaveRequest?: () => void;
+  wrap?: boolean;
+  whitespace?: boolean;
 }
 
 const setBlocks = StateEffect.define<MergePaneBlock[]>();
-
 function lineRange(view: EditorView, block: MergePaneBlock): { first: number; last: number } {
   const doc = view.state.doc;
   const from = Math.max(0, Math.min(block.from, doc.length));
@@ -180,6 +182,8 @@ function blockAtLine(view: EditorView, line: number): MergePaneBlock | null {
 export class MergePane {
   readonly view: EditorView;
   private language = new Compartment();
+  private wrap = new Compartment();
+  private whitespace = new Compartment();
   private opts: MergePaneOptions;
   private scrollHandler: () => void;
 
@@ -198,6 +202,9 @@ export class MergePane {
           highlightActiveLine(),
           drawSelection(),
           this.language.of([]),
+          codeFolding(),
+          this.wrap.of(opts.wrap ? EditorView.lineWrapping : []),
+          this.whitespace.of(opts.whitespace ? highlightWhitespace() : []),
           blocksField,
           gutter({
             class: "cm-merge-gutter",
@@ -268,6 +275,46 @@ export class MergePane {
     return this.view.state.doc.toString();
   }
 
+  setViewOptions(options: { wrap?: boolean; whitespace?: boolean }) {
+    const effects = [];
+    if (options.wrap !== undefined) {
+      effects.push(this.wrap.reconfigure(options.wrap ? EditorView.lineWrapping : []));
+    }
+    if (options.whitespace !== undefined) {
+      effects.push(this.whitespace.reconfigure(options.whitespace ? highlightWhitespace() : []));
+    }
+    if (effects.length > 0) this.view.dispatch({ effects });
+  }
+
+  /** Folds every stretch between change blocks, or unfolds everything. */
+  setCollapsed(collapsed: boolean) {
+    if (!collapsed) {
+      unfoldAll(this.view);
+      return;
+    }
+    const doc = this.view.state.doc;
+    const blocks = [...this.getBlocks()].sort((a, b) => a.from - b.from);
+    const folds: { from: number; to: number }[] = [];
+    const addGap = (from: number, to: number) => {
+      const start = Math.max(0, Math.min(from, doc.length));
+      const end = Math.max(start, Math.min(to, doc.length));
+      if (end <= start) return;
+      const first = doc.lineAt(start).number;
+      // The gap ends where the next block starts, so that line stays visible.
+      const last = doc.lineAt(end > start ? end - 1 : end).number;
+      if (last > first) folds.push({ from: doc.line(first).from, to: doc.line(last).to });
+    };
+    let cursor = 0;
+    for (const block of blocks) {
+      addGap(cursor, block.from);
+      cursor = Math.max(cursor, block.to);
+    }
+    addGap(cursor, doc.length);
+    if (folds.length > 0) {
+      this.view.dispatch({ effects: folds.map((range) => foldEffect.of(range)) });
+    }
+  }
+
   async setLanguage(language: string) {
     const support = await loadLanguage(language);
     this.view.dispatch({ effects: this.language.reconfigure(support ?? []) });
@@ -297,12 +344,15 @@ export class MergePane {
     const blocks = this.getBlocks();
     const byId = new Map(blocks.map((b) => [b.id, b]));
     const edits: { from: number; to: number; insert: string }[] = [];
-    let lastTo = -1;
+    // Edits are applied from the end so earlier positions stay valid. Walk the
+    // blocks in descending order and reject one that overlaps the block after
+    // it; `lastTo` would reject every earlier block.
+    let lastFrom = Number.MAX_SAFE_INTEGER;
     for (const change of [...changes].sort((a, b) => (byId.get(b.id)?.from ?? 0) - (byId.get(a.id)?.from ?? 0))) {
       const block = byId.get(change.id);
-      if (!block || block.from < lastTo) continue;
+      if (!block || block.to > lastFrom) continue;
       edits.push({ from: block.from, to: block.to, insert: this.withTrailingNewline(block, change.text) });
-      lastTo = block.to;
+      lastFrom = block.from;
     }
     if (edits.length === 0) return 0;
     this.view.dispatch({ changes: edits });
@@ -320,6 +370,10 @@ export class MergePane {
     const target = doc.line(Math.max(1, Math.min(line, doc.lines)));
     const top = this.view.lineBlockAt(target.from).top;
     this.view.scrollDOM.scrollTop = Math.max(0, top - 4);
+  }
+
+  requestMeasure() {
+    this.view.requestMeasure();
   }
 
   caretLine(): number {
