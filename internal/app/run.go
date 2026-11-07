@@ -16,8 +16,9 @@ import (
 // "open", "commit" or "fetch".
 var Command = mygo.NewEvent[string]("app:command")
 
-// Run starts GitJet with its services and window.
-func Run() error {
+// runWebview starts the old webview UI. It is kept while the native UI
+// replacement is built, and removed with the React frontend.
+func runWebview() error {
 	app := mygo.App
 	app.SetName("GitJet")
 	// The languages the app comes in: its pages and menu labels say them
@@ -56,7 +57,7 @@ func Run() error {
 				c.mu.Lock()
 				c.startup = path
 				c.mu.Unlock()
-				openWindow()
+				openWebWindow()
 				return
 			}
 			Command.Broadcast("open:" + path)
@@ -65,12 +66,12 @@ func Run() error {
 
 	app.WhenReady(func() {
 		applyMenu(c.languageSetting())
-		openWindow()
+		openWebWindow()
 	})
 	app.OnWindowAllClosed(func() { setWindow(nil) })
 	app.OnActivate(func(hasVisibleWindows bool) {
 		if !hasVisibleWindows {
-			openWindow()
+			openWebWindow()
 		}
 	})
 	return app.Run()
@@ -125,7 +126,7 @@ func samePath(a, b string) bool {
 // the command line, which makes it an extra window of the app.
 var secondary bool
 
-func openWindow() {
+func openWebWindow() {
 	stateKey := "main"
 	if secondary {
 		stateKey = "main-2"
@@ -166,7 +167,13 @@ func applyMenu(setting string) {
 
 func buildMenu(l lang) *mygo.Menu {
 	send := func(cmd string) func(*mygo.MenuItem, *mygo.Window) {
-		return func(*mygo.MenuItem, *mygo.Window) { Command.Broadcast(cmd) }
+		return func(*mygo.MenuItem, *mygo.Window) {
+			if dispatchNative != nil {
+				dispatchNative(cmd)
+				return
+			}
+			Command.Broadcast(cmd)
+		}
 	}
 	return mygo.NewMenu([]*mygo.MenuItem{
 		{Role: mygo.RoleAppMenu},

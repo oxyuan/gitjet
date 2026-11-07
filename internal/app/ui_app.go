@@ -1,0 +1,768 @@
+package app
+
+import (
+	"context"
+	"errors"
+	"fmt"
+	"os"
+	"path/filepath"
+	"runtime"
+	"sort"
+	"strings"
+	"sync/atomic"
+	"time"
+
+	"github.com/egoist/mygo"
+	"github.com/egoist/mygo/ui"
+	"github.com/egoist/mygo/ui/editor"
+
+	"gitjet/internal/git"
+)
+
+// The native UI: one window drawn by MyGo from Go, with no web page. The
+// services in service.go stay the only place that runs git; this layer owns
+// what the window shows and calls them.
+
+// dispatchNative sends a menu command to the native window. It is nil in
+// the retired webview host.
+var dispatchNative func(string)
+
+// tabKind is what an editor tab shows.
+type tabKind uint8
+
+const (
+	tabDiff tabKind = iota
+	tabSource
+	tabRevisionTree
+)
+
+// docTab is one editor tab: a diff, a source file, or the files of a
+// revision.
+type docTab struct {
+	kind     tabKind
+	id       string
+	title    string
+	path     string
+	revision string
+	opts     git.DiffOptions
+
+	// diff
+	diff     *editor.DiffState
+	loaded   bool
+	err      string
+	selStart int
+	selEnd   int
+	selSide  editor.DiffSide
+	hasSel   bool
+
+	// source
+	src        *editor.State
+	file       git.SourceFile
+	base       *editor.Buffer
+	blame      []git.BlameLine
+	blameOn    bool
+	image      ui.ImageSource
+	imageMime  string
+	binary     bool
+	missing    bool
+	truncated  bool
+	fileSize   int64
+	history    []git.LocalHistoryEntry
+	showLocal  bool
+	readOnly   bool
+	saveErr    string
+	lastSaved  uint64
+	sourceLang string
+
+	// revision tree
+	files []git.RepoFile
+}
+
+// nativeApp is the state the window shows. Everything in it is read and
+// written on the main thread; work that may block runs on a goroutine and
+// posts its result back with mygo.RunOnMain.
+type nativeApp struct {
+	win *mygo.Window
+	c   *core
+	ws  *Workspace
+	g   *Git
+
+	lang      lang
+	settings  Settings
+	startup   string
+	secondary bool
+
+	repoOpen bool
+	loading  bool
+	errText  string
+	busy     int
+	notice   string
+	redraws  uint64
+
+	snapshot   git.ChangesSnapshot
+	refs       git.RefsSnapshot
+	remotes    []git.Remote
+	shelves    []git.Shelf
+	lfs        git.LFSStatus
+	worktrees  []git.Worktree
+	submodules []git.Submodule
+	recent     []RecentRepo
+
+	// sidebar
+	sideTab    int
+	sideSplit  float32
+	changes    []changeRow
+	changeList ui.ListState
+	changeSel  int
+	checked    map[string]bool
+	commitForm commitForm
+	history    []string
+	showStaged bool
+
+	files      []git.RepoFile
+	fileTree   []fileRow
+	fileList   ui.ListState
+	fileSel    int
+	fileFilter string
+
+	branches    []repoRefRow
+	branchList  ui.ListState
+	branchSel   int
+	branchTab   int
+	recentBr    []string
+	tags        []repoRefRow
+	tagSel      int
+	remoteList  []repoRefRow
+	remoteSel   int
+	remotesOpen bool
+
+	log        git.LogResult
+	logList    ui.ListState
+	logSel     int
+	logOpts    git.LogOptions
+	logDetail  git.CommitDetail
+	logLoading bool
+	logSearch  string
+	logAll     bool
+	favorites  map[string]bool
+
+	// editor
+	tabs      []*docTab
+	activeTab int
+
+	// quick open
+	quickOpen  bool
+	quickQuery string
+	quickSel   int
+	quickFiles []git.RepoFile
+	quickIndex []quickHit
+
+	// console
+	consoleOpen bool
+	consoleTab  int
+	consoleLog  []string
+	consoleIn   string
+	consoleHis  []string
+	consoleAt   int
+
+	dialog dialogState
+
+	reloadGen atomic.Uint64
+	reloading atomic.Bool
+}
+
+// changeRow is one row of the commit tool window: a path on one side.
+type changeRow struct {
+	change git.Change
+	staged bool
+}
+
+// repoRefRow is a branch or tag shown in a list.
+type repoRefRow struct {
+	ref   git.RepoRef
+	group string
+}
+
+// fileRow is a flattened row of the working-tree file list.
+type fileRow struct {
+	path  string
+	name  string
+	depth int
+	dir   bool
+	open  bool
+}
+
+// commitForm is the commit message and its options.
+type commitForm struct {
+	Message     string
+	Amend       bool
+	SignOff     bool
+	NoVerify    bool
+	AllowEmpty  bool
+	Sign        bool
+	AuthorName  string
+	AuthorEmail string
+}
+
+// quickHit is a file or commit in the quick-open list.
+type quickHit struct {
+	title, detail, path, revision string
+	commit                        bool
+}
+
+// Run starts GitJet with its native window.
+func Run() error {
+	mygo.App.SetName("GitJet")
+	mygo.App.SetLanguages("en", "zh-Hans")
+	a := newNativeApp()
+	if len(os.Args) > 1 {
+		if st, err := os.Stat(os.Args[1]); err == nil && st.IsDir() {
+			a.startup = os.Args[1]
+			a.secondary = true
+		}
+	}
+	dispatchNative = a.command
+	mygo.App.OnOpenFile(func(path string) {
+		if st, err := os.Stat(path); err == nil {
+			if !st.IsDir() {
+				path = filepath.Dir(path)
+			}
+			a.openPath(path)
+		}
+	})
+	mygo.App.WhenReady(a.ready)
+	mygo.App.OnWindowAllClosed(func() { a.win = nil })
+	mygo.App.OnActivate(func(hasVisibleWindows bool) {
+		if !hasVisibleWindows && a.win == nil {
+			a.openWindow()
+		}
+	})
+	return mygo.App.Run()
+}
+
+func newNativeApp() *nativeApp {
+	c := newCore()
+	a := &nativeApp{
+		c:          c,
+		ws:         &Workspace{c: c},
+		g:          &Git{c: c},
+		settings:   c.settings,
+		lang:       resolveLang(c.settings.Language),
+		checked:    map[string]bool{},
+		showStaged: true,
+		sideSplit:  380,
+		favorites:  map[string]bool{},
+		logOpts: git.LogOptions{
+			Limit: 300,
+		},
+		logSel:    -1,
+		changeSel: -1,
+		fileSel:   -1,
+		branchSel: -1,
+	}
+	a.commitForm.Message = strings.TrimSpace(c.settings.CommitTemplate)
+	c.onChange = func() { mygo.RunOnMain(a.changed) }
+	for _, r := range c.settings.Recent {
+		a.favorites[r.Path] = a.favorites[r.Path]
+	}
+	return a
+}
+
+func (a *nativeApp) ready() {
+	applyMenu(a.settings.Language)
+	a.openWindow()
+	path := a.startup
+	if path == "" {
+		if recent := a.ws.Recent(); len(recent) > 0 {
+			if st, err := os.Stat(recent[0].Path); err == nil && st.IsDir() {
+				path = recent[0].Path
+			}
+		}
+	}
+	if path != "" {
+		a.openPath(path)
+	} else {
+		a.loadRecent()
+	}
+	if shot := os.Getenv("GITJET_SHOT"); shot != "" {
+		go func() {
+			time.Sleep(3 * time.Second)
+			mygo.RunOnMain(func() {
+				if a.win == nil {
+					mygo.App.Quit()
+					return
+				}
+				if png, err := a.win.CapturePage(); err == nil {
+					_ = os.WriteFile(shot, png, 0o644)
+				}
+				mygo.App.Quit()
+			})
+		}()
+	}
+}
+
+func (a *nativeApp) openWindow() {
+	stateKey := "main"
+	if a.secondary {
+		stateKey = "main-2"
+	}
+	a.win = mygo.NewWindow(mygo.WindowOptions{
+		Title:                "GitJet",
+		Width:                1440,
+		Height:               900,
+		MinWidth:             900,
+		MinHeight:            560,
+		TitleBarStyle:        mygo.TitleBarHidden,
+		TitleBarHeight:       52,
+		TrafficLightPosition: &mygo.Point{X: 20, Y: 19},
+		BackgroundColor:      "light-dark(#f5f5f7, #141416)",
+		StateKey:             stateKey,
+		Content:              ui.View(a.view),
+	})
+	a.win.OnClosed(func() { a.win = nil })
+}
+
+// view builds one frame of the window.
+func (a *nativeApp) view(c *ui.Context) {
+	a.applyAppearance(c)
+	if a.repoOpen {
+		a.mainView(c)
+	} else {
+		a.welcomeView(c)
+	}
+	a.dialogView(c)
+	if a.notice != "" {
+		ui.Text(c, a.notice).TextColor(c.Theme().Danger).Padding(6, 12)
+	}
+}
+
+func (a *nativeApp) applyAppearance(c *ui.Context) {
+	s := a.settings
+	switch s.Theme {
+	case "light":
+		c.SetTheme(ui.LightTheme())
+	case "dark":
+		c.SetTheme(ui.DarkTheme())
+	}
+	if s.UIScale > 0 {
+		c.SetZoom(float32(s.UIScale) / 100)
+	}
+}
+
+func (a *nativeApp) redraw() {
+	if a.win != nil {
+		a.win.Invalidate()
+	}
+}
+
+func (a *nativeApp) t(key string) string {
+	return a.lang.tr(key)
+}
+
+func (a *nativeApp) fail(err error) {
+	if err == nil {
+		return
+	}
+	a.errText = err.Error()
+	a.notice = err.Error()
+	a.redraw()
+}
+
+func (a *nativeApp) clearNotice() {
+	a.notice = ""
+	a.errText = ""
+}
+
+func (a *nativeApp) setNotice(s string) {
+	a.notice = s
+	a.redraw()
+}
+
+// busyRun runs fn off the main thread and reloads the view afterwards.
+func (a *nativeApp) busyRun(label string, fn func() error) {
+	a.busy++
+	a.redraw()
+	go func() {
+		err := fn()
+		mygo.RunOnMain(func() {
+			a.busy--
+			if err != nil {
+				a.fail(err)
+			}
+			a.refresh()
+		})
+	}()
+}
+
+func (a *nativeApp) changed() {
+	a.refresh()
+}
+
+// loadRecent reads the recent repository list.
+func (a *nativeApp) loadRecent() {
+	a.recent = a.ws.Recent()
+	a.redraw()
+}
+
+func (a *nativeApp) openPath(path string) {
+	path = strings.TrimSpace(path)
+	if path == "" {
+		return
+	}
+	a.loading = true
+	a.errText = ""
+	a.repoOpen = false
+	a.redraw()
+	go func() {
+		snap, err := a.ws.Open(path)
+		mygo.RunOnMain(func() {
+			a.loading = false
+			if err != nil {
+				a.fail(err)
+				a.repoOpen = false
+				return
+			}
+			a.repoOpen = true
+			a.snapshot = snap
+			a.commitForm.Message = strings.TrimSpace(a.settings.CommitTemplate)
+			a.pickInitialChange()
+			a.loadRecent()
+			a.refresh()
+			a.applyWindowTitle()
+		})
+	}()
+}
+
+func (a *nativeApp) closeRepo() {
+	a.ws.Close()
+	a.repoOpen = false
+	a.tabs = nil
+	a.activeTab = 0
+	a.snapshot = git.ChangesSnapshot{}
+	a.refs = git.RefsSnapshot{}
+	a.log = git.LogResult{}
+	a.changeSel = -1
+	a.loadRecent()
+	a.applyWindowTitle()
+	a.redraw()
+}
+
+func (a *nativeApp) applyWindowTitle() {
+	if a.win == nil {
+		return
+	}
+	if !a.repoOpen {
+		a.win.SetTitle("GitJet")
+		return
+	}
+	name := a.snapshot.State.Name
+	if name == "" {
+		name = filepath.Base(a.snapshot.State.Root)
+	}
+	a.win.SetTitle("GitJet — " + name)
+}
+
+// refresh reloads the repository state and the lists built from it.
+func (a *nativeApp) refresh() {
+	if !a.repoOpen || a.reloading.Swap(true) {
+		return
+	}
+	gen := a.reloadGen.Add(1)
+	opts := a.logOpts
+	opts.All = a.logAll
+	includeIgnored := a.settings.ShowIgnored
+	go func() {
+		snap, err := a.g.Refresh()
+		if err != nil {
+			mygo.RunOnMain(func() {
+				a.reloading.Store(false)
+				a.fail(err)
+			})
+			return
+		}
+		refs, refsErr := a.g.Refs()
+		remotes, _ := a.g.Remotes()
+		shelves, _ := a.g.Shelves()
+		lfs, _ := a.g.LFS()
+		worktrees, _ := a.g.Worktrees()
+		submodules, _ := a.g.Submodules()
+		logRes, logErr := a.g.Log(opts)
+		files, _ := a.g.Files("")
+		mygo.RunOnMain(func() {
+			a.reloading.Store(false)
+			if gen != a.reloadGen.Load() {
+				return
+			}
+			if refsErr != nil {
+				a.fail(refsErr)
+			}
+			a.snapshot = snap
+			a.refs = refs
+			a.remotes = remotes
+			a.shelves = shelves
+			a.lfs = lfs
+			a.worktrees = worktrees
+			a.submodules = submodules
+			if len(files) > 0 {
+				a.files = files
+			}
+			if logErr == nil {
+				a.log = logRes
+				if a.logSel >= len(a.log.Commits) {
+					a.logSel = len(a.log.Commits) - 1
+				}
+			}
+			_ = includeIgnored
+			a.rebuildRows()
+			a.applyWindowTitle()
+			a.redraw()
+		})
+	}()
+}
+
+func (a *nativeApp) rebuildRows() {
+	a.changes = a.changes[:0]
+	for _, ch := range a.snapshot.Changes {
+		if ch.Staged {
+			a.changes = append(a.changes, changeRow{change: ch, staged: true})
+		}
+	}
+	for _, ch := range a.snapshot.Changes {
+		if !ch.Staged {
+			a.changes = append(a.changes, changeRow{change: ch, staged: false})
+		}
+	}
+	sort.SliceStable(a.changes, func(i, j int) bool {
+		if a.changes[i].staged != a.changes[j].staged {
+			return a.changes[i].staged
+		}
+		return a.changes[i].change.Path < a.changes[j].change.Path
+	})
+	if a.changeSel >= len(a.changes) {
+		a.changeSel = len(a.changes) - 1
+	}
+	a.rebuildFiles()
+	a.rebuildBranches()
+}
+
+func (a *nativeApp) pickInitialChange() {
+	a.changeSel = -1
+	for i, ch := range a.snapshot.Changes {
+		if ch.Unmerged {
+			a.changeSel = i
+			return
+		}
+	}
+}
+
+func (a *nativeApp) rebuildFiles() {
+	if len(a.files) == 0 {
+		seen := map[string]bool{}
+		for _, ch := range a.snapshot.Changes {
+			if !seen[ch.Path] {
+				seen[ch.Path] = true
+				a.files = append(a.files, git.RepoFile{Path: ch.Path, Tracked: ch.Kind != "untracked"})
+			}
+		}
+	}
+	a.fileTree = flattenFiles(a.files)
+	if a.fileFilter != "" || len(a.fileTree) == 0 {
+		a.rebuildFileTree()
+	}
+}
+
+func flattenFiles(files []git.RepoFile) []fileRow {
+	sort.Slice(files, func(i, j int) bool { return files[i].Path < files[j].Path })
+	var rows []fileRow
+	for _, f := range files {
+		parts := strings.Split(f.Path, "/")
+		rows = append(rows, fileRow{path: f.Path, name: parts[len(parts)-1]})
+	}
+	return rows
+}
+
+func (a *nativeApp) rebuildBranches() {
+	a.branches = a.branches[:0]
+	for _, ref := range a.refs.Local {
+		a.branches = append(a.branches, repoRefRow{ref: ref, group: "local"})
+	}
+	for _, ref := range a.refs.Remote {
+		a.branches = append(a.branches, repoRefRow{ref: ref, group: "remote"})
+	}
+	a.tags = a.tags[:0]
+	a.remoteList = a.remoteList[:0]
+	for _, ref := range a.refs.Tags {
+		a.tags = append(a.tags, repoRefRow{ref: ref, group: "tag"})
+	}
+	if a.branchSel >= len(a.branches) {
+		a.branchSel = -1
+	}
+}
+
+// command runs a menu command.
+func (a *nativeApp) command(cmd string) {
+	switch {
+	case cmd == "open":
+		a.chooseAndOpen()
+	case cmd == "clone":
+		a.openCloneDialog()
+	case cmd == "init":
+		a.openInitDialog()
+	case cmd == "refresh":
+		a.refresh()
+	case cmd == "settings":
+		a.openSettingsDialog()
+	case cmd == "close":
+		a.closeRepo()
+	case cmd == "closetab":
+		a.closeActiveTab()
+	case cmd == "quickopen":
+		a.openQuickOpen()
+	case cmd == "commit":
+		a.requestCommit()
+	case cmd == "fetch":
+		a.fetch()
+	case cmd == "pull":
+		a.openPullDialog()
+	case cmd == "push":
+		a.openPushDialog()
+	case cmd == "branches":
+		a.sideTab = 1
+	case cmd == "stash":
+		a.openStashDialog()
+	case cmd == "repo-tools":
+		a.openRepoToolsDialog()
+	case cmd == "remotes":
+		a.openRemotesDialog()
+	case cmd == "cleanup-branches":
+		a.openCleanupDialog()
+	case cmd == "resolve-conflicts":
+		a.openConflictSummary()
+	case cmd == "browse-revision":
+		a.openBrowseRevisionDialog()
+	case strings.HasPrefix(cmd, "tab:"):
+		switch strings.TrimPrefix(cmd, "tab:") {
+		case "commit":
+			a.sideTab = 0
+		case "branch":
+			a.sideTab = 1
+		case "files":
+			a.sideTab = 2
+		case "console":
+			a.sideTab = 4
+			a.consoleOpen = true
+		}
+	}
+	a.redraw()
+}
+
+func (a *nativeApp) chooseAndOpen() {
+	l := a.lang
+	paths, err := mygo.Dialog.Open(mygo.OpenDialogOptions{
+		Parent:      a.win,
+		Title:       l.tr("dialog.openRepo"),
+		ButtonLabel: l.tr("dialog.openRepoButton"),
+		Message:     l.tr("dialog.openRepoMessage"),
+		Directory:   true,
+	})
+	if err != nil || len(paths) == 0 {
+		return
+	}
+	a.openPath(paths[0])
+}
+
+// updateTitle keeps the window title and the recent documents list current.
+func (a *nativeApp) rememberRecent() {
+	a.loadRecent()
+}
+
+func (a *nativeApp) copyText(text string) {
+	if text == "" {
+		return
+	}
+	if err := a.ws.Copy(text); err != nil {
+		a.fail(err)
+	}
+}
+
+func (a *nativeApp) repoRoot() string {
+	return a.snapshot.State.Root
+}
+
+func (a *nativeApp) absPath(path string) string {
+	if filepath.IsAbs(path) {
+		return path
+	}
+	return filepath.Join(a.repoRoot(), filepath.FromSlash(path))
+}
+
+func (a *nativeApp) isImage(path string) bool {
+	switch strings.ToLower(filepath.Ext(path)) {
+	case ".png", ".jpg", ".jpeg", ".gif", ".webp", ".bmp", ".svg", ".ico":
+		return true
+	}
+	return false
+}
+
+func (a *nativeApp) openURL(url string) {
+	_ = a.ws.OpenURL(url)
+}
+
+func (a *nativeApp) platformName() string {
+	return runtime.GOOS + "/" + runtime.GOARCH
+}
+
+func (a *nativeApp) contextWithWindow() context.Context {
+	return context.Background()
+}
+
+var errNoRepo = errors.New("no repository is open")
+
+func (a *nativeApp) requireRepo() error {
+	if !a.repoOpen {
+		return errNoRepo
+	}
+	return nil
+}
+
+func (a *nativeApp) changedCount() int {
+	return a.snapshot.State.Changed + a.snapshot.State.Untracked + a.snapshot.State.Conflicts
+}
+
+func (a *nativeApp) formatCount() string {
+	st := a.snapshot.State
+	if st.Changed == 0 && st.Untracked == 0 {
+		return a.t("clean")
+	}
+	return fmt.Sprintf("%d changed", st.Changed)
+}
+
+func (a *nativeApp) afterCommit() {
+	a.commitForm.Message = ""
+	a.checked = map[string]bool{}
+	a.commitForm.Amend = false
+	a.commitForm.SignOff = false
+	a.commitForm.NoVerify = false
+	a.commitForm.AllowEmpty = false
+	a.commitForm.Sign = false
+	a.refresh()
+}
+
+func (a *nativeApp) lastCommitMessage() string {
+	if msg, err := a.g.LastCommitMessage(); err == nil {
+		return msg
+	}
+	return ""
+}
+
+func (a *nativeApp) stamp(unix int64) string {
+	if unix == 0 {
+		return ""
+	}
+	t := time.Unix(unix, 0)
+	now := time.Now()
+	if t.Year() == now.Year() && t.YearDay() == now.YearDay() {
+		return t.Format("15:04:05")
+	}
+	return t.Format("2006-01-02 15:04")
+}

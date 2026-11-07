@@ -124,5 +124,8 @@ func (l lang) tr(key string) string {
 	if m, ok := messages[l][key]; ok {
 		return m
 	}
-	return messages[langEN][key]
+	if m, ok := messages[langEN][key]; ok {
+		return m
+	}
+	return key
 }

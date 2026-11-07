@@ -431,6 +431,7 @@ func (c *core) startPolling() {
 					if _, ferr := repo.Fetch(fetchCtx, git.FetchOptions{All: true, Prune: true, TagsMode: tagsMode}, nil); ferr == nil {
 						if snap, serr := c.snapshot(fetchCtx, c.settings.ShowIgnored); serr == nil {
 							RepoChanged.Broadcast(snap.State)
+							c.changed()
 						}
 					}
 					fetchCancel()
@@ -455,6 +456,7 @@ func (c *core) startPolling() {
 				repo.SnapshotChanged(ctx, 40)
 				if snap, err := c.snapshot(ctx, c.settings.ShowIgnored); err == nil {
 					RepoChanged.Broadcast(snap.State)
+					c.changed()
 				}
 			}
 			cancel()
@@ -485,6 +487,7 @@ func (g *Git) notify() {
 		g.c.lastSig = ""
 		g.c.mu.Unlock()
 		RepoChanged.Broadcast(st.State)
+		g.c.changed()
 	}
 }
 
