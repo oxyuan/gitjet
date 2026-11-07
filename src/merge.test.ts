@@ -1,14 +1,14 @@
 import { describe, expect, it } from "bun:test";
 import {
+  blockText,
+  buildMergeView,
   computeMerge,
   conflictLabels,
-  composeSegments,
   conflictSegments,
   countConflictMarkers,
   diffHunks,
   hasConflictMarkers,
-  ignoreSide,
-  initialConflictBlocks,
+  ignoreRangeLines,
   insertConflictMarkers,
   splitLines,
   resolveSimpleConflicts,
@@ -218,76 +218,136 @@ describe("tryResolveRange", () => {
   });
 });
 
-describe("block state", () => {
+describe("buildMergeView", () => {
   const model = computeMerge("a\nb\nc\n", "a\nOURS\nc\n", "a\nTHEIRS\nc\n");
   const working = "a\n<<<<<<< HEAD\nOURS\n=======\nTHEIRS\n>>>>>>> dev\nc\n";
 
-  it("keeps the plain text and turns each section into a block", () => {
+  it("keeps the plain text and opens each conflict range", () => {
     const segments = conflictSegments(working)!;
     expect(segments.map((segment) => segment.kind)).toEqual(["text", "conflict", "text"]);
     expect(segments[0]).toEqual({ kind: "text", text: "a\n" });
     expect(segments[2]).toEqual({ kind: "text", text: "c\n" });
 
-    const blocks = initialConflictBlocks(segments, model);
-    expect(blocks.get(0)).toMatchObject({
-      ours: ["OURS"],
-      theirs: ["THEIRS"],
-      lines: ["OURS"],
-      resolved: false,
-      rangeIndex: 0,
-    });
-    const composed = composeSegments(segments, blocks);
-    expect(composed.text).toBe("a\nOURS\nc\n");
-    expect(composed.spans).toEqual([{ id: 0, from: 2, to: 7 }]);
+    const view = buildMergeView(model, working);
+    expect(view.open).toEqual([0]);
+    expect(view.blocks).toHaveLength(1);
+    expect(view.blocks[0]).toMatchObject({ index: 0, lines: ["OURS"], resolved: false, from: 2, to: 7 });
+    expect(view.text).toBe("a\nOURS\nc\n");
   });
 
-  it("shows a saved partial merge as its file, with only open blocks left", () => {
-    // The first conflict was accepted and written as plain text; the second
-    // still has markers.
-    const partial = "a\nOURS\nc\n<<<<<<< HEAD\nX\n=======\nY\n>>>>>>> dev\n";
-    const two = computeMerge("a\nb\nc\nd\n", "a\nOURS\nc\nX\n", "a\nOTHER\nc\nY\n");
-    const segments = conflictSegments(partial)!;
-    const blocks = initialConflictBlocks(segments, two);
-    expect(blocks.size).toBe(1);
-    expect(blocks.get(0)).toMatchObject({ ours: ["X"], theirs: ["Y"], rangeIndex: 1 });
-    expect(composeSegments(segments, blocks).text).toBe("a\nOURS\nc\nX\n");
+  it("gives every changed range a span in the result", () => {
+    const base = "a\nb\nc\nd\n";
+    const ours = "a\nB\nc\nd\n";
+    const theirs = "a\nb\nc\nD\n";
+    const mixed = computeMerge(base, ours, theirs);
+    const view = buildMergeView(mixed, "a\nB\nc\nD\n");
+    expect(view.blocks.map((block) => block.index)).toEqual([0, 1]);
+    expect(view.text).toBe("a\nB\nc\nD\n");
+    for (const block of view.blocks) {
+      expect(splitLines(view.text.slice(block.from, block.to)).lines).toEqual(block.lines);
+      expect(block.resolved).toBe(true);
+    }
   });
 
-  it("round-trips a half-resolved file and keeps the settled block settled", () => {
+  it("auto-merges the one-sided changes Git grouped into a conflict", () => {
+    // Git's section covers b..d, but only b is a real conflict: ours changed c
+    // and theirs changed d, so the merged result must keep both.
+    const base = "a\nb\nc\nd\ne\nf\ng\nh\n";
+    const ours = "a\nb2\nc2\nd\ne\nF\ng\nh\n";
+    const theirs = "a\nB\nc\nD\ne\nf\ng\nh\n";
+    const working = "a\n<<<<<<< HEAD\nb2\nc2\nd\n=======\nB\nc\nD\n>>>>>>> feature\ne\nF\ng\nh\n";
+    const merged = computeMerge(base, ours, theirs);
+    const view = buildMergeView(merged, working);
+    expect(view.open).toEqual([0]);
+    expect(view.blocks.map((block) => [block.index, block.resolved, block.lines])).toEqual([
+      [0, false, ["b2", "c2"]],
+      [1, true, ["D"]],
+      [2, true, ["F"]],
+    ]);
+    expect(view.text).toBe("a\nb2\nc2\nD\ne\nF\ng\nh\n");
+  });
+
+  it("reopens a half-resolved file with the settled range closed", () => {
     const two = computeMerge("a\nb\nc\nd\n", "a\nX\nc\nZ\n", "a\nY\nc\nW\n");
     expect(two.ranges.filter((range) => range.kind === "conflict")).toHaveLength(2);
     const full =
       "a\n<<<<<<< HEAD\nX\n=======\nY\n>>>>>>> dev\nc\n<<<<<<< HEAD\nZ\n=======\nW\n>>>>>>> dev\n";
-    const segments = conflictSegments(full)!;
-    const blocks = initialConflictBlocks(segments, two);
-    expect([...blocks.values()].map((block) => block.rangeIndex)).toEqual([0, 1]);
+    const initial = buildMergeView(two, full);
+    expect(initial.open).toEqual([0, 1]);
 
-    // Accept the local side of the first block, then save with the second open.
-    blocks.set(0, { ...blocks.get(0)!, lines: ["X"], resolved: true });
-    const composed = composeSegments(segments, blocks);
-    expect(composed.text).toBe("a\nX\nc\nZ\n");
-    const open = composed.spans[1]!;
+    // Accept the right side of the first conflict, then save with the second
+    // one still marked, exactly as the pane does.
+    const first = initial.blocks[0]!;
+    const replacement = "Y\n";
+    const edited = initial.text.slice(0, first.from) + replacement + initial.text.slice(first.to);
+    const delta = replacement.length - (first.to - first.from);
+    const second = initial.blocks[1]!;
     const saved = insertConflictMarkers(
-      composed.text,
-      [{ from: open.from, to: open.to, theirs: blocks.get(1)!.theirs }],
+      edited,
+      [{ from: second.from + delta, to: second.to + delta, theirs: two.ranges[1]!.theirs }],
       two.labels,
     );
-    expect(saved).toBe("a\nX\nc\n<<<<<<< LOCAL\nZ\n=======\nW\n>>>>>>> REMOTE\n");
+    expect(saved).toBe("a\nY\nc\n<<<<<<< LOCAL\nZ\n=======\nW\n>>>>>>> REMOTE\n");
 
-    // Reopening finds one open block, not two, and keeps the settled text.
-    const reopened = conflictSegments(saved)!;
-    const again = initialConflictBlocks(reopened, two);
-    expect(again.size).toBe(1);
-    expect(again.get(0)).toMatchObject({ lines: ["Z"], resolved: false, rangeIndex: 1 });
-    expect(composeSegments(reopened, again).text).toBe("a\nX\nc\nZ\n");
+    const reopened = buildMergeView(two, saved);
+    expect(reopened.open).toEqual([1]);
+    expect(reopened.blocks[0]).toMatchObject({ lines: ["Y"], resolved: true });
+    expect(reopened.blocks[1]).toMatchObject({ lines: ["Z"], resolved: false });
+    expect(reopened.text).toBe("a\nY\nc\nZ\n");
+  });
+
+  it("treats a file without markers as already resolved", () => {
+    const two = computeMerge("a\nb\n", "a\nX\n", "a\nY\n");
+    const view = buildMergeView(two, "a\nY\n");
+    expect(view.open).toEqual([]);
+    expect(view.blocks.every((block) => block.resolved)).toBe(true);
+    expect(view.text).toBe("a\nY\n");
+  });
+
+  it("keeps an empty conflict range as an insertion point", () => {
+    const model = computeMerge("a\nb\nc\n", "a\nc\n", "a\nB\nc\n");
+    const working = "a\n<<<<<<< HEAD\n=======\nB\n>>>>>>> dev\nc\n";
+    const view = buildMergeView(model, working);
+    expect(view.open).toEqual([0]);
+    expect(view.text).toBe("a\nc\n");
+    const block = view.blocks[0]!;
+    expect(block.from).toBe(block.to);
+    expect(
+      insertConflictMarkers(
+        view.text,
+        [{ from: block.from, to: block.to, theirs: model.ranges[0]!.theirs }],
+        model.labels,
+      ),
+    ).toBe("a\n<<<<<<< LOCAL\n=======\nB\n>>>>>>> REMOTE\nc\n");
+  });
+
+  it("finds a conflict when zdiff3 pulled shared lines out of the section", () => {
+    // zdiff3 leaves the common suffix (`m1`) outside the markers, so the
+    // section's body is narrower than the conflict range.
+    const base = "a\nc\nb\nb\n";
+    const ours = "a\nc\nb\nm1\n";
+    const theirs = "a\nc\nm4\nm1\n";
+    const zdiff3 = "a\nc\n<<<<<<< HEAD\nb\n||||||| base\nb\nb\n=======\nm4\n>>>>>>> dev\nm1\n";
+    const view = buildMergeView(computeMerge(base, ours, theirs), zdiff3);
+    expect(view.open).toEqual([0]);
+    expect(view.blocks[0]).toMatchObject({ lines: ["b", "m1"], resolved: false });
+    expect(view.text).toBe("a\nc\nb\nm1\n");
+  });
+
+  it("keeps text the reader typed into a resolved range", () => {
+    const two = computeMerge("a\nb\nc\n", "a\nX\nc\n", "a\nY\nc\n");
+    const view = buildMergeView(two, "a\nCUSTOM\nc\n");
+    expect(view.open).toEqual([]);
+    expect(view.blocks[0]).toMatchObject({ lines: ["CUSTOM"], resolved: true });
+    expect(view.text).toBe("a\nCUSTOM\nc\n");
   });
 
   it("writes markers around open blocks and plain text elsewhere", () => {
-    const segments = conflictSegments(working)!;
-    const composed = composeSegments(segments, initialConflictBlocks(segments, model));
+    const view = buildMergeView(model, working);
+    const block = view.blocks[0]!;
     const marked = insertConflictMarkers(
-      composed.text,
-      [{ from: 2, to: 7, theirs: ["THEIRS"] }],
+      view.text,
+      [{ from: block.from, to: block.to, theirs: model.ranges[0]!.theirs }],
       model.labels,
     );
     expect(marked).toBe("a\n<<<<<<< LOCAL\nOURS\n=======\nTHEIRS\n>>>>>>> REMOTE\nc\n");
@@ -314,32 +374,87 @@ describe("block state", () => {
   });
 });
 
-describe("ignoreSide", () => {
-  const block = (lines: string[], resolved: boolean) => ({
+describe("blockText", () => {
+  it("keeps the newline that makes an empty final line exist", () => {
+    const doc = "a\nA\nB\n\ntail\n";
+    expect(blockText(doc, { from: 2, to: 7 }, ["A", "B", ""])).toBe("A\nB\n\n");
+  });
+
+  it("deletes the block for an empty line list", () => {
+    expect(blockText("a\nb\nc\n", { from: 2, to: 4 }, [])).toBe("");
+  });
+
+  it("adds a line break when inserting at a line boundary", () => {
+    expect(blockText("a\nc\n", { from: 2, to: 2 }, ["b"])).toBe("b\n");
+  });
+
+  it("inserts at the end of a file without a trailing newline", () => {
+    expect(blockText("a\nb", { from: 3, to: 3 }, ["c"])).toBe("\nc");
+    expect(blockText("a\nb\n", { from: 4, to: 4 }, ["c"])).toBe("c\n");
+  });
+
+  it("does not add a newline to the last line of a file that has none", () => {
+    expect(blockText("a\nb", { from: 2, to: 3 }, ["B"])).toBe("B");
+  });
+
+  it("keeps the empty last line of a conflict block when the other side is applied", () => {
+    const base = "void load();\n}, [load]);\n\nuseEffect(() => {\n};\n";
+    const ours = "// changed 7\n}, [load]);\n\nuseEffect(() => {\n};\n";
+    const theirs = "// changed 6\nuseEffect(() => {\n};\n";
+    const working =
+      "<<<<<<< HEAD\n// changed 7\n}, [load]);\n\n||||||| base\nvoid load();\n}, [load]);\n\n=======\n// changed 6\n>>>>>>> dev\nuseEffect(() => {\n};\n";
+    const model = computeMerge(base, ours, theirs);
+    const view = buildMergeView(model, working);
+    const block = view.blocks[0]!;
+    const replace = (lines: string[]) =>
+      view.text.slice(0, block.from) + blockText(view.text, block, lines) + view.text.slice(block.to);
+    expect(replace(model.ranges[0]!.ours)).toBe(view.text);
+    expect(replace(model.ranges[0]!.theirs)).toBe("// changed 6\nuseEffect(() => {\n};\n");
+  });
+});
+
+describe("ignoreRangeLines", () => {
+  const range = (kind: MergeRange["kind"], overrides: Partial<MergeRange> = {}): MergeRange => ({
+    index: 0,
+    kind,
+    baseStart: 0,
+    baseEnd: 1,
+    oursStart: 0,
+    oursEnd: 1,
+    theirsStart: 0,
+    theirsEnd: 1,
+    oursChanged: kind === "conflict",
+    theirsChanged: kind === "conflict",
+    base: ["b"],
     ours: ["O"],
     theirs: ["T"],
-    lines,
-    resolved,
+    ...overrides,
   });
 
-  it("keeps the other side, so ignoring after accepting changes nothing", () => {
-    expect(ignoreSide(block(["O"], true), "theirs")).toEqual(["O"]);
-    expect(ignoreSide(block(["O"], false), "theirs")).toEqual(["O"]);
+  it("keeps the other side when both sides changed the range", () => {
+    const conflict = range("conflict");
+    expect(ignoreRangeLines(conflict, "ours")).toEqual(["T"]);
+    expect(ignoreRangeLines(conflict, "theirs")).toEqual(["O"]);
   });
 
-  it("switches to the other side when the ignored side is the one showing", () => {
-    expect(ignoreSide(block(["O"], false), "ours")).toEqual(["T"]);
-    expect(ignoreSide(block(["O"], true), "ours")).toEqual(["T"]);
+  it("brings the base back when only the ignored side changed", () => {
+    const oursOnly = range("modified", { oursChanged: true, theirsChanged: false, theirs: ["b"] });
+    expect(ignoreRangeLines(oursOnly, "ours")).toEqual(["b"]);
+    const theirsOnly = range("modified", { oursChanged: false, theirsChanged: true, ours: ["b"] });
+    expect(ignoreRangeLines(theirsOnly, "theirs")).toEqual(["b"]);
   });
 
-  it("keeps an edited block, whichever side is ignored", () => {
-    expect(ignoreSide(block(["O", "X"], true), "ours")).toEqual(["O", "X"]);
-    expect(ignoreSide(block(["O", "X"], true), "theirs")).toEqual(["O", "X"]);
-  });
-
-  it("ignoring an added side empties the block", () => {
-    const added = { ours: [], theirs: ["T"], lines: ["T"], resolved: false };
-    expect(ignoreSide(added, "theirs")).toEqual([]);
+  it("ignoring an added side empties the range", () => {
+    const added = range("inserted", {
+      oursChanged: false,
+      theirsChanged: true,
+      base: [],
+      baseEnd: 0,
+      ours: [],
+      oursEnd: 0,
+      theirs: ["T"],
+    });
+    expect(ignoreRangeLines(added, "theirs")).toEqual([]);
   });
 });
 

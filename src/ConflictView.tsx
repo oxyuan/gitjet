@@ -1,22 +1,18 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { ConflictContent, MergeDetails } from "./mygo";
 import {
-  composeSegments,
+  buildMergeView,
   computeMerge,
   conflictLabels,
-  conflictSegments,
   diffHunks,
-  ignoreSide,
-  initialConflictBlocks,
+  ignoreRangeLines,
   insertConflictMarkers,
-  modelSegments,
   splitLines,
   tryResolveRange,
-  type ConflictBlockState,
-  type ConflictSegment,
   type MergeLabels,
   type MergeModel,
   type MergeRange,
+  type MergeView,
   type WhitespaceMode,
 } from "./merge";
 import { charDiff, wordDiff } from "./diff";
@@ -41,7 +37,6 @@ const T = {
     typeDeleted: "Deleted",
     typeModified: "Changed",
     typeConflict: "Conflict",
-    autoResolvable: "{n} auto-resolvable",
     viewOptions: "View options",
     syncScroll: "Synchronize scrolling",
     collapseUnchanged: "Collapse unchanged lines",
@@ -117,7 +112,6 @@ const T = {
     typeDeleted: "删除",
     typeModified: "修改",
     typeConflict: "冲突",
-    autoResolvable: "{n} 个可自动解决",
     viewOptions: "视图选项",
     syncScroll: "同步滚动",
     collapseUnchanged: "折叠未修改行",
@@ -248,15 +242,16 @@ function sideBlocks(
   const offsets = lineOffsets(lines);
   const blocks: MergePaneBlock[] = [];
   for (const range of model.ranges) {
-    const changed = side === "ours" ? range.oursChanged : range.theirsChanged;
-    if (!changed && range.kind !== "conflict") continue;
+    // A one-sided change is already merged: offering a button there would only
+    // ask for a decision the result cannot change.
+    if (range.kind !== "conflict") continue;
     const start = side === "ours" ? range.oursStart : range.theirsStart;
     const end = side === "ours" ? range.oursEnd : range.theirsEnd;
     blocks.push({
       id: range.index,
       from: offsetAt(offsets, start),
       to: offsetAt(offsets, end),
-      tone: range.kind === "conflict" ? "conflict" : side,
+      tone: "conflict",
       apply: side,
       ignore: true,
       marks: labels.marks ? conflictMarks(range, side, offsets, labels.chars) : [],
@@ -266,31 +261,62 @@ function sideBlocks(
   return blocks;
 }
 
-/** One block per conflict section, at its offsets in the composed result. */
+/** One block per model range: a conflict stays marked until it is decided,
+ *  an auto-merged range is already settled. */
 function resultBlocks(
   model: MergeModel,
-  blocks: ReadonlyMap<number, ConflictBlockState>,
-  spans: { id: number; from: number; to: number }[],
+  states: ReadonlyMap<number, RangeState>,
+  view: MergeView,
   t: (key: string, vars?: Record<string, string | number>) => string,
 ): MergePaneBlock[] {
-  return spans.map((span) => {
-    const state = blocks.get(span.id);
-    const range =
-      state?.rangeIndex != null ? model.ranges.find((r) => r.index === state.rangeIndex) : undefined;
-    const resolved = state?.resolved === true;
+  return view.blocks.map((block) => {
+    const range = model.ranges[block.index];
+    const resolved = states.get(block.index)?.resolved ?? block.resolved;
     return {
-      id: span.id,
-      from: span.from,
-      to: span.to,
+      id: block.index,
+      from: block.from,
+      to: block.to,
       tone: resolved ? "resolved" : "conflict",
       title: resolved ? (range ? rangeType(range, t) : t("resolvedBlock")) : t("conflictBlock"),
     } satisfies MergePaneBlock;
   });
 }
 
-function countUnresolved(blocks: ReadonlyMap<number, ConflictBlockState>): number {
+interface RangeState {
+  lines: string[];
+  resolved: boolean;
+}
+
+/** One block's state before and after a decision. The decision journal is the
+ *  undo history for blocks: a decision that changes no text still has an entry,
+ *  so Ctrl+Z can take it back and reopen the conflict. */
+interface BlockChange {
+  index: number;
+  before: RangeState;
+  after: RangeState;
+}
+
+interface Decision {
+  changes: BlockChange[];
+}
+
+/** "Resolve using left/right" replaces the whole file, so its undo restores
+ *  the text and block spans it replaced instead of per-block lines. */
+interface WholeDecision {
+  whole: {
+    beforeText: string;
+    beforeBlocks: MergePaneBlock[];
+    beforeStates: Map<number, RangeState>;
+    afterText: string;
+    afterStates: Map<number, RangeState>;
+  };
+}
+
+type JournalEntry = Decision | WholeDecision;
+
+function countUnresolved(states: ReadonlyMap<number, RangeState>): number {
   let count = 0;
-  for (const state of blocks.values()) if (!state.resolved) count++;
+  for (const state of states.values()) if (!state.resolved) count++;
   return count;
 }
 
@@ -426,21 +452,18 @@ export function ConflictView({
       }),
     [conflict.base, conflict.ours, conflict.theirs, labels, rawWorking, whitespaceMode],
   );
-  // The result is the working file itself, minus Git's marker lines: plain text
-  // stays exactly as it is, and each section becomes a block that carries the
-  // decision. That is why a partially saved file reopens with the blocks that
-  // are still open and nothing else.
-  const initial = useMemo(() => {
-    const parsed = conflictSegments(rawWorking);
-    const segments =
-      parsed && parsed.some((segment) => segment.kind === "conflict") ? parsed : modelSegments(model);
-    const blocks = initialConflictBlocks(segments, model);
-    const composed = composeSegments(segments, blocks);
-    return { segments, blocks, text: composed.text, spans: composed.spans };
-  }, [model, rawWorking]);
+  // Every changed range is a block in the result: Git's marker sections only
+  // decide which conflicts are still open, not how the result is laid out.
+  // A file saved half-resolved reopens with the decided ranges settled and the
+  // ranges still wrapped in markers open.
+  const initial = useMemo(() => buildMergeView(model, rawWorking), [model, rawWorking]);
+  const stateFromView = useMemo(
+    () => new Map<number, RangeState>(initial.blocks.map((block) => [block.index, { lines: block.lines, resolved: block.resolved }])),
+    [initial],
+  );
   const initialText = initial.text;
   const [resultText, setResultText] = useState(initialText);
-  const [unresolved, setUnresolved] = useState(() => countUnresolved(initial.blocks));
+  const [unresolved, setUnresolved] = useState(initial.open.length);
   const [dirty, setDirty] = useState(false);
   const [current, setCurrent] = useState(0);
   const [selected, setSelected] = useState<{
@@ -469,13 +492,24 @@ export function ConflictView({
   const theirsPane = useRef<MergePane | null>(null);
   const initialRef = useRef(initialText);
   const resultTextRef = useRef(initialText);
-  const blocksRef = useRef(initial.blocks);
+  const blocksRef = useRef<Map<number, RangeState>>(new Map(stateFromView));
   const anchorCache = useRef<{ text: string; ours: SyncAnchor[]; theirs: SyncAnchor[] } | null>(null);
   const lock = useRef(0);
   const autoScrollRef = useRef(autoScroll);
   autoScrollRef.current = autoScroll;
   const requestSaveRef = useRef<(stage: boolean) => void>(() => {});
   const scrolledToFirst = useRef(false);
+  const journal = useRef<{ entries: JournalEntry[]; at: number }>({ entries: [], at: 0 });
+  const lastAction = useRef<"decision" | "edit" | null>(null);
+  const programmatic = useRef(false);
+  const undoRef = useRef<() => void>(() => {});
+  const redoRef = useRef<() => void>(() => {});
+  /** A decided conflict changes the saved file even when its text did not
+   *  move: saving drops the markers. */
+  const isDirty = useCallback(
+    () => resultTextRef.current !== initialRef.current || journal.current.at > 0,
+    [],
+  );
 
   const dirtyRef = useRef(onDirtyChange);
   dirtyRef.current = onDirtyChange;
@@ -488,12 +522,14 @@ export function ConflictView({
   useEffect(() => {
     initialRef.current = initial.text;
     resultTextRef.current = initial.text;
-    blocksRef.current = initial.blocks;
+    blocksRef.current = new Map(stateFromView);
     anchorCache.current = null;
+    journal.current = { entries: [], at: 0 };
+    lastAction.current = null;
     setResultText(initial.text);
-    setUnresolved(countUnresolved(initial.blocks));
+    setUnresolved(initial.open.length);
     setDirty(false);
-  }, [initial]);
+  }, [initial, stateFromView]);
   useEffect(() => {
     dirtyRef.current?.(dirty);
   }, [dirty]);
@@ -519,13 +555,14 @@ export function ConflictView({
       .getBlocks()
       .map((block) => {
         const state = blocksRef.current.get(block.id);
-        return state && !state.resolved
-          ? { from: block.from, to: block.to, theirs: state.theirs }
+        const range = model.ranges[block.id];
+        return state && !state.resolved && range
+          ? { from: block.from, to: block.to, theirs: range.theirs }
           : null;
       })
       .filter((span): span is { from: number; to: number; theirs: string[] } => span !== null);
     return spans.length === 0 ? pane.getDoc() : insertConflictMarkers(pane.getDoc(), spans, markerLabels);
-  }, [markerLabels]);
+  }, [markerLabels, model]);
 
   const requestSave = useCallback(
     (stage: boolean) => {
@@ -542,89 +579,325 @@ export function ConflictView({
     theirsPane.current?.scrollToLine(range.theirsStart + 1);
     const pane = resultPane.current;
     if (!pane) return;
-    const block = pane
-      .getBlocks()
-      .find((candidate) => blocksRef.current.get(candidate.id)?.rangeIndex === range.index);
+    const block = pane.getBlocks().find((candidate) => candidate.id === range.index);
     if (!block) return;
     const doc = pane.view.state.doc;
     pane.scrollToLine(doc.lineAt(Math.max(0, Math.min(block.from, doc.length))).number);
   }, []);
 
+  /** The changed range whose block holds a line of the result. A caret outside
+   *  every block has no range: acting on a conflict the reader is not looking
+   *  at is how a click in the wrong place used to resolve the wrong block. */
+  const rangeAtResultLine = useCallback(
+    (line: number): MergeRange | null => {
+      const pane = resultPane.current;
+      if (!pane) return null;
+      const doc = pane.view.state.doc;
+      for (const block of pane.getBlocks()) {
+        const range = ranges[block.id];
+        if (!range) continue;
+        const first = doc.lineAt(Math.max(0, Math.min(block.from, doc.length))).number;
+        const last = doc.lineAt(Math.max(0, Math.min(block.to > block.from ? block.to - 1 : block.from, doc.length))).number;
+        if (line >= first && line <= last) return range;
+      }
+      return null;
+    },
+    [ranges],
+  );
+  const rangeAtCaret = useCallback((): MergeRange | null => {
+    const pane = resultPane.current;
+    return pane ? rangeAtResultLine(pane.caretLine()) : null;
+  }, [rangeAtResultLine]);
+  const rangeAtSideLine = useCallback(
+    (side: "ours" | "theirs", line: number): MergeRange | null =>
+      ranges.find((range) => {
+        const first = (side === "ours" ? range.oursStart : range.theirsStart) + 1;
+        const last = Math.max(first, side === "ours" ? range.oursEnd : range.theirsEnd);
+        return line >= first && line <= last;
+      }) ?? null,
+    [ranges],
+  );
+  /** The range under the caret in one of the side panes. */
+  const rangeAtSide = useCallback(
+    (side: "ours" | "theirs"): MergeRange | null =>
+      selected ? rangeAtSideLine(side, Math.min(selected.start, selected.end)) : null,
+    [rangeAtSideLine, selected],
+  );
+  /** The toolbar counter follows the caret, the way the IDE's does. */
+  const syncCurrentRef = useRef<(line: number) => void>(() => {});
+  syncCurrentRef.current = (line) => {
+    const range = rangeAtResultLine(line);
+    if (range) setCurrent(range.index);
+  };
+
   const jump = useCallback(
     (delta: number) => {
       if (ranges.length === 0) return;
-      const next = Math.max(0, Math.min(ranges.length - 1, current + delta));
+      const at = rangeAtCaret();
+      const base = at ? at.index : Math.max(0, Math.min(current, ranges.length - 1));
+      const next = Math.max(0, Math.min(ranges.length - 1, base + delta));
       setCurrent(next);
       const range = ranges[next];
-      if (range) scrollToRange(range);
+      if (!range) return;
+      scrollToRange(range);
+      // The caret travels with the navigation: without it the next press would
+      // start again from the block the reader left behind.
+      const pane = resultPane.current;
+      const block = pane?.getBlocks().find((candidate) => candidate.id === range.index);
+      if (!pane || !block) return;
+      const anchor = Math.min(block.from, pane.view.state.doc.length);
+      pane.view.dispatch({ selection: { anchor } });
     },
-    [current, ranges, scrollToRange],
+    [current, ranges, rangeAtCaret, scrollToRange],
   );
 
-  /** Settles one block on a side's text; the block, not the marker text, is
-   *  what "resolved" means. */
-  const resolveBlock = useCallback((id: number, lines: string[]) => {
+  /** The decorations and counts are derived from `blocksRef`, not from the
+   *  document, so a decision that leaves the text unchanged (accepting the
+   *  side the result already shows) still updates every pane. */
+  const refreshDecorations = useCallback(() => {
+    const pending = new Set<number>();
+    for (const [index, state] of blocksRef.current) {
+      if (!state.resolved) pending.add(index);
+    }
+    const result = resultPane.current;
+    if (result) {
+      const blocks = result.getBlocks();
+      const next = blocks.map((block) => {
+        const state = blocksRef.current.get(block.id);
+        const range = model.ranges[block.id];
+        const resolved = state?.resolved ?? true;
+        return {
+          ...block,
+          tone: resolved ? "resolved" : "conflict",
+          title: resolved ? (range ? rangeType(range, tr) : t("resolvedBlock")) : t("conflictBlock"),
+        } satisfies MergePaneBlock;
+      });
+      if (next.some((block, i) => block.tone !== blocks[i]?.tone || block.title !== blocks[i]?.title)) {
+        result.setBlocks(next);
+      }
+    }
+    for (const [pane, side] of [
+      [oursPane.current, "ours"],
+      [theirsPane.current, "theirs"],
+    ] as const) {
+      if (!pane) continue;
+      pane.setBlocks(
+        pane.getBlocks().map((block) => {
+          const range = model.ranges[block.id];
+          if (range?.kind !== "conflict") return block;
+          const active = pending.has(block.id);
+          // A decided block keeps only its status mark: choosing a side is the
+          // decision, and Ctrl+Z is how that decision is undone.
+          return {
+            ...block,
+            apply: active ? side : undefined,
+            ignore: active,
+            tone: active ? "conflict" : "resolved",
+            title: active
+              ? `${t(side === "ours" ? "applyLocal" : "applyRemote")} · ${rangeType(range, tr)}`
+              : rangeType(range, tr),
+          };
+        }),
+      );
+    }
+    setUnresolved(pending.size);
+  }, [model, t, tr]);
+
+  /** Pushes a decision and applies it: the block states change here, the text
+   *  changes atomically, and the entry becomes the undo target. */
+  const commitDecision = useCallback(
+    (changes: BlockChange[]) => {
+      const pane = resultPane.current;
+      if (!pane || changes.length === 0) return;
+      const next = new Map(blocksRef.current);
+      for (const change of changes) next.set(change.index, change.after);
+      blocksRef.current = next;
+      const history = journal.current;
+      history.entries.length = history.at;
+      history.entries.push({ changes });
+      history.at = history.entries.length;
+      lastAction.current = "decision";
+      programmatic.current = true;
+      try {
+        pane.replaceBlocks(
+          changes.map((change) => ({ id: change.index, lines: change.after.lines })),
+          { history: false },
+        );
+      } finally {
+        programmatic.current = false;
+      }
+      refreshDecorations();
+      setDirty(isDirty());
+    },
+    [isDirty, refreshDecorations],
+  );
+
+  /** Applies one side of the journal. The restore is not recorded in the
+   *  editor's own history: decisions live here, typing lives there. */
+  const restoreDecision = useCallback(
+    (entry: Decision, side: "before" | "after") => {
+      const pane = resultPane.current;
+      if (!pane) return;
+      const next = new Map(blocksRef.current);
+      for (const change of entry.changes) next.set(change.index, change[side]);
+      blocksRef.current = next;
+      programmatic.current = true;
+      try {
+        pane.replaceBlocks(
+          entry.changes.map((change) => ({ id: change.index, lines: change[side].lines })),
+          { history: false },
+        );
+      } finally {
+        programmatic.current = false;
+      }
+      resultTextRef.current = pane.getDoc();
+      setResultText(resultTextRef.current);
+      anchorCache.current = null;
+      refreshDecorations();
+      setDirty(isDirty());
+    },
+    [isDirty, refreshDecorations],
+  );
+
+  /** Puts the result pane into a stored state whole: the text and the block
+   *  spans travel together, so undoing a whole-side resolution cannot leave
+   *  blocks pointing at text that is gone. */
+  const resetPane = useCallback(
+    (text: string, blocks: MergePaneBlock[], states: Map<number, RangeState>) => {
+      const pane = resultPane.current;
+      if (!pane) return;
+      programmatic.current = true;
+      try {
+        pane.replaceAll(text, { history: false });
+      } finally {
+        programmatic.current = false;
+      }
+      pane.setBlocks(blocks);
+      blocksRef.current = new Map(states);
+      anchorCache.current = null;
+      resultTextRef.current = pane.getDoc();
+      setResultText(resultTextRef.current);
+      refreshDecorations();
+      setDirty(isDirty());
+    },
+    [isDirty, refreshDecorations],
+  );
+
+  const stepDecision = useCallback(
+    (direction: -1 | 1) => {
+      const history = journal.current;
+      if (direction < 0) {
+        if (history.at === 0) return false;
+        history.at--;
+        const entry = history.entries[history.at]!;
+        if ("whole" in entry) resetPane(entry.whole.beforeText, entry.whole.beforeBlocks, entry.whole.beforeStates);
+        else restoreDecision(entry, "before");
+      } else {
+        if (history.at >= history.entries.length) return false;
+        history.at++;
+        const entry = history.entries[history.at - 1]!;
+        if ("whole" in entry) resetPane(entry.whole.afterText, [], entry.whole.afterStates);
+        else restoreDecision(entry, "after");
+      }
+      lastAction.current = "decision";
+      return true;
+    },
+    [resetPane, restoreDecision],
+  );
+
+  /** Ctrl+Z: undo the last decision when it is the newest action; otherwise let
+   *  the editor undo typing. Decisions are never in the editor's history, so
+   *  the two stacks cannot undo each other's work. */
+  const undo = useCallback(() => {
     const pane = resultPane.current;
-    const state = blocksRef.current.get(id);
-    if (!pane || !state) return;
-    blocksRef.current = new Map(blocksRef.current).set(id, { ...state, lines, resolved: true });
-    pane.replaceBlock(id, lines.join("\n"));
-    // The next decision is what the reader wants next: the caret moves to the
-    // following open block, the way accepting a conflict advances the IDE.
-    const open = [...blocksRef.current.values()]
-      .filter((candidate) => !candidate.resolved)
-      .sort((a, b) => a.id - b.id);
-    const after = open.find((candidate) => candidate.id > id) ?? open[0];
-    if (!after) {
-      if (state.rangeIndex != null) setCurrent(state.rangeIndex);
+    if (!pane) return;
+    if (lastAction.current === "decision" && stepDecision(-1)) return;
+    if (pane.undo()) {
+      lastAction.current = "edit";
       return;
     }
-    if (after.rangeIndex != null) setCurrent(after.rangeIndex);
-    const block = pane.getBlocks().find((candidate) => candidate.id === after.id);
-    if (!block) return;
-    const doc = pane.view.state.doc;
-    const at = Math.min(block.from, doc.length);
-    pane.view.dispatch({ selection: { anchor: at } });
-    pane.scrollToLine(doc.lineAt(at).number);
-  }, []);
+    stepDecision(-1);
+  }, [stepDecision]);
 
-  /** A block's side text and its link to the model come from the section, not
-   *  from a range index that a partial save may have shifted. */
-  const applyRange = useCallback(
-    (id: number, side: "ours" | "theirs") => {
-      const state = blocksRef.current.get(id);
-      if (!state) return;
-      resolveBlock(id, side === "ours" ? state.ours : state.theirs);
+  const redo = useCallback(() => {
+    const pane = resultPane.current;
+    if (!pane) return;
+    if (lastAction.current === "decision" && stepDecision(1)) return;
+    if (pane.redo()) {
+      lastAction.current = "edit";
+      return;
+    }
+    stepDecision(1);
+  }, [stepDecision]);
+
+  undoRef.current = undo;
+  redoRef.current = redo;
+
+  /** Settles one range on the given text. Ranges are the only block identity:
+   *  the three panes and the marker writer all use the model's range index. */
+  const resolveRange = useCallback(
+    (index: number, lines: string[]) => {
+      const pane = resultPane.current;
+      const state = blocksRef.current.get(index);
+      if (!pane || !state) return;
+      commitDecision([{ index, before: state, after: { lines, resolved: true } }]);
+      // The next decision is what the reader wants next: the caret moves to the
+      // following open block, the way accepting a conflict advances the IDE.
+      const open = [...blocksRef.current.entries()]
+        .filter(([, candidate]) => !candidate.resolved)
+        .map(([id]) => id)
+        .sort((a, b) => a - b);
+      const after = open.find((candidate) => candidate > index) ?? open[0];
+      if (after === undefined) {
+        setCurrent(index);
+        return;
+      }
+      setCurrent(after);
+      const block = pane.getBlocks().find((candidate) => candidate.id === after);
+      if (!block) return;
+      const doc = pane.view.state.doc;
+      const at = Math.min(block.from, doc.length);
+      pane.view.dispatch({ selection: { anchor: at } });
+      pane.scrollToLine(doc.lineAt(at).number);
     },
-    [resolveBlock],
+    [commitDecision],
+  );
+
+  /** Accept a side: the range becomes exactly that revision's text. */
+  const applyRange = useCallback(
+    (index: number, side: "ours" | "theirs") => {
+      const range = model.ranges[index];
+      // Only a conflict asks for a decision: a one-sided change is already in
+      // the result, and replacing its recovered span would eat neighbours.
+      if (!range || range.kind !== "conflict") return;
+      resolveRange(index, side === "ours" ? range.ours : range.theirs);
+    },
+    [model, resolveRange],
+  );
+
+  /** Ignore a side: drop that side's change, keeping the other side or the
+   *  base when the other side did not touch the range. */
+  const ignoreRange = useCallback(
+    (index: number, side: "ours" | "theirs") => {
+      const range = model.ranges[index];
+      if (!range || range.kind !== "conflict") return;
+      resolveRange(index, ignoreRangeLines(range, side));
+    },
+    [model, resolveRange],
   );
 
   const autoResolve = useCallback(() => {
-    const pane = resultPane.current;
-    if (!pane) return;
-    const next = new Map(blocksRef.current);
-    const changes: { id: number; text: string }[] = [];
-    for (const state of next.values()) {
-      if (state.resolved || state.rangeIndex == null) continue;
-      const range = ranges.find((candidate) => candidate.index === state.rangeIndex);
+    const changes: BlockChange[] = [];
+    for (const [index, state] of blocksRef.current) {
+      if (state.resolved) continue;
+      const range = ranges[index];
       if (!range) continue;
       const resolved = tryResolveRange(range) ?? tryResolveRange(range, true);
       if (!resolved) continue;
-      next.set(state.id, { ...state, lines: resolved, resolved: true });
-      changes.push({ id: state.id, text: resolved.join("\n") });
+      changes.push({ index, before: state, after: { lines: resolved, resolved: true } });
     }
-    if (changes.length === 0) return;
-    blocksRef.current = next;
-    pane.replaceBlocks(changes);
-  }, [ranges]);
-
-  const selectedRanges = selected && !selected.empty
-    ? ranges.filter((range) => {
-        const start = (selected.side === "ours" ? range.oursStart : range.theirsStart) + 1;
-        const end = Math.max(start, selected.side === "ours" ? range.oursEnd : range.theirsEnd);
-        return selected.start <= end && selected.end >= start;
-      })
-    : [];
+    commitDecision(changes);
+  }, [commitDecision, ranges]);
 
   const openViewMenu = (event: React.MouseEvent) => {
     const rect = event.currentTarget.getBoundingClientRect();
@@ -677,60 +950,30 @@ export function ConflictView({
     });
   };
 
-  /** "Ignore" on a side keeps the other side; a block that is already
-   *  settled differently keeps its decision. */
-  const ignoreBlock = useCallback(
-    (id: number, side: "ours" | "theirs") => {
-      const state = blocksRef.current.get(id);
-      if (!state) return;
-      resolveBlock(id, ignoreSide(state, side));
-    },
-    [resolveBlock],
-  );
-
   /** "Resolve Using Left/Right": the whole result becomes that revision. */
   const applyWholeSide = useCallback(
     (side: "ours" | "theirs") => {
       const pane = resultPane.current;
       if (!pane) return;
       const text = normalizeText(side === "ours" ? conflict.ours : conflict.theirs);
-      pane.replaceAll(text);
-      pane.setBlocks([]);
-      const next = new Map(blocksRef.current);
-      for (const state of next.values()) next.set(state.id, { ...state, lines: [], resolved: true });
-      blocksRef.current = next;
-      anchorCache.current = null;
-      resultTextRef.current = text;
-      setResultText(text);
-      setUnresolved(0);
-      setDirty(true);
+      const afterStates = new Map<number, RangeState>();
+      for (const [index, state] of blocksRef.current) afterStates.set(index, { ...state, lines: [], resolved: true });
+      const history = journal.current;
+      history.entries.length = history.at;
+      history.entries.push({
+        whole: {
+          beforeText: pane.getDoc(),
+          beforeBlocks: pane.getBlocks(),
+          beforeStates: new Map(blocksRef.current),
+          afterText: text,
+          afterStates,
+        },
+      });
+      history.at = history.entries.length;
+      lastAction.current = "decision";
+      resetPane(text, [], afterStates);
     },
-    [conflict.ours, conflict.theirs],
-  );
-
-  /** The side panes and menus speak range indexes; the result speaks block ids. */
-  const applyConflict = useCallback(
-    (rangeIndex: number, side: "ours" | "theirs") => {
-      for (const state of blocksRef.current.values()) {
-        if (state.rangeIndex === rangeIndex) {
-          applyRange(state.id, side);
-          return;
-        }
-      }
-    },
-    [applyRange],
-  );
-
-  const ignoreConflict = useCallback(
-    (rangeIndex: number, side: "ours" | "theirs") => {
-      for (const state of blocksRef.current.values()) {
-        if (state.rangeIndex === rangeIndex) {
-          ignoreBlock(state.id, side);
-          return;
-        }
-      }
-    },
-    [ignoreBlock],
+    [conflict.ours, conflict.theirs, resetPane],
   );
 
   const compareClipboard = useCallback(
@@ -753,20 +996,33 @@ export function ConflictView({
 
   const openPaneMenu = (event: React.MouseEvent, side: "ours" | "theirs" | "result") => {
     event.preventDefault();
-    const target = conflictAtCaret();
+    const pane =
+      side === "ours" ? oursPane.current : side === "theirs" ? theirsPane.current : resultPane.current;
+    const pointerLine = pane?.lineAtCoords(event.clientX, event.clientY) ?? null;
+    const target =
+      pointerLine == null
+        ? side === "result"
+          ? rangeAtCaret()
+          : rangeAtSide(side)
+        : side === "result"
+          ? rangeAtResultLine(pointerLine)
+          : rangeAtSideLine(side, pointerLine);
+    const conflictTarget = target?.kind === "conflict" ? target : null;
     const items: ContextItem[] = [];
     if (side === "result") {
       items.push({
         label: t("acceptLeft"),
         shortcut: "⌘⌃→",
         icon: "ours",
-        onClick: () => target && applyConflict(target.index, "ours"),
+        disabled: conflictTarget === null,
+        onClick: () => conflictTarget && applyRange(conflictTarget.index, "ours"),
       });
       items.push({
         label: t("acceptRight"),
         shortcut: "⌘⌃←",
         icon: "theirs",
-        onClick: () => target && applyConflict(target.index, "theirs"),
+        disabled: conflictTarget === null,
+        onClick: () => conflictTarget && applyRange(conflictTarget.index, "theirs"),
       });
       items.push({ separator: true });
       items.push({ label: t("resolveUsingLocal"), icon: "ours", onClick: () => applyWholeSide("ours") });
@@ -776,9 +1032,11 @@ export function ConflictView({
         label: t("accept"),
         shortcut: side === "ours" ? "⌘⌃→" : "⌘⌃←",
         icon: side,
+        // A one-sided change is already in the result: only a conflict has a
+        // side to accept.
+        disabled: conflictTarget === null,
         onClick: () => {
-          const range = selectedRanges[0] ?? ranges[current];
-          if (range) applyConflict(range.index, side);
+          if (conflictTarget) applyRange(conflictTarget.index, side);
         },
       });
       items.push({
@@ -789,10 +1047,9 @@ export function ConflictView({
       items.push({
         label: t("ignore"),
         icon: "eye",
-        disabled: selectedRanges.length === 0,
+        disabled: conflictTarget === null,
         onClick: () => {
-          const first = selectedRanges[0];
-          if (first) ignoreConflict(first.index, side);
+          if (conflictTarget) ignoreRange(conflictTarget.index, side);
         },
       });
     }
@@ -803,11 +1060,11 @@ export function ConflictView({
       onClick: () => void compareClipboard(side),
     });
     if (side !== "result" && onShowHistory) {
-      const line = conflictAtCaret()?.oursStart ?? 0;
+      const line = side === "ours" ? target?.oursStart : target?.theirsStart;
       items.push({
         label: t("annotateBlame"),
         icon: "clock",
-        onClick: () => onShowHistory(side === "ours" ? (conflictAtCaret()?.oursStart ?? 0) + 1 : line + 1),
+        onClick: () => onShowHistory((line ?? 0) + 1),
       });
     }
     items.push({ separator: true });
@@ -834,95 +1091,34 @@ export function ConflictView({
       resultTextRef.current = doc;
       anchorCache.current = null;
       setResultText(doc);
-      const next = new Map(blocksRef.current);
-      const tones: MergePaneBlock[] = [];
-      let changed = false;
-      for (const block of blocks) {
-        const state = next.get(block.id);
-        if (!state) {
-          tones.push(block);
-          continue;
-        }
-        const lines = blockLines(doc, block);
-        if (!sameLines(state.lines, lines)) {
-          next.set(block.id, { ...state, lines, resolved: true });
+      // The journal owns decisions: a restore it dispatched must not be read
+      // back as a fresh manual edit of the same blocks.
+      if (!programmatic.current) {
+        lastAction.current = "edit";
+        const history = journal.current;
+        if (history.at < history.entries.length) history.entries.length = history.at;
+        const next = new Map(blocksRef.current);
+        let changed = false;
+        for (const block of blocks) {
+          const state = next.get(block.id);
+          if (!state) continue;
+          const lines = blockLines(doc, block);
+          if (sameLines(state.lines, lines)) continue;
+          // A manual edit decides the block: it no longer waits for a side.
+          next.set(block.id, { lines, resolved: true });
           changed = true;
         }
-        const settled = next.get(block.id)!;
-        const range =
-          settled.rangeIndex != null
-            ? model.ranges.find((candidate) => candidate.index === settled.rangeIndex)
-            : undefined;
-        tones.push({
-          ...block,
-          tone: settled.resolved ? "resolved" : "conflict",
-          title: settled.resolved ? (range ? rangeType(range, tr) : t("resolvedBlock")) : t("conflictBlock"),
-        });
+        if (changed) {
+          blocksRef.current = next;
+          refreshDecorations();
+        }
       }
-      if (changed) blocksRef.current = next;
-      if (tones.some((block, i) => block.tone !== blocks[i]?.tone || block.title !== blocks[i]?.title)) {
-        resultPane.current?.setBlocks(tones);
-      }
-      const pending = new Set<number>();
-      for (const state of next.values()) {
-        if (!state.resolved && state.rangeIndex != null) pending.add(state.rangeIndex);
-      }
-      for (const [pane, side] of [
-        [oursPane.current, "ours"],
-        [theirsPane.current, "theirs"],
-      ] as const) {
-        if (!pane) continue;
-        pane.setBlocks(
-          pane.getBlocks().map((block) => {
-            const range = model.ranges.find((candidate) => candidate.index === block.id);
-            if (range?.kind !== "conflict") return block;
-            const active = pending.has(range.index);
-            return {
-              ...block,
-              apply: active ? side : undefined,
-              tone: active ? "conflict" : "resolved",
-              title: active
-                ? `${t(side === "ours" ? "applyLocal" : "applyRemote")} · ${rangeType(range, tr)}`
-                : rangeType(range, tr),
-            };
-          }),
-        );
-      }
-      setUnresolved(countUnresolved(next));
-      setDirty(doc !== initialRef.current);
+      setDirty(isDirty());
     },
-    [model, t, tr],
+    [isDirty, refreshDecorations],
   );
   const changeRef = useRef(onResultChange);
   changeRef.current = onResultChange;
-
-  const syncSidePanes = useCallback(() => {
-    const pending = new Set<number>();
-    for (const state of blocksRef.current.values()) {
-      if (!state.resolved && state.rangeIndex != null) pending.add(state.rangeIndex);
-    }
-    for (const [pane, side] of [
-      [oursPane.current, "ours"],
-      [theirsPane.current, "theirs"],
-    ] as const) {
-      if (!pane) continue;
-      pane.setBlocks(
-        pane.getBlocks().map((block) => {
-          const range = model.ranges.find((candidate) => candidate.index === block.id);
-          if (range?.kind !== "conflict") return block;
-          const active = pending.has(range.index);
-          return {
-            ...block,
-            apply: active ? side : undefined,
-            tone: active ? "conflict" : "resolved",
-            title: active
-              ? `${t(side === "ours" ? "applyLocal" : "applyRemote")} · ${rangeType(range, tr)}`
-              : rangeType(range, tr),
-          };
-        }),
-      );
-    }
-  }, [model, t, tr]);
 
   useEffect(() => {
     const oursEl = oursRef.current;
@@ -971,8 +1167,8 @@ export function ConflictView({
       blocks: sideBlocks(model, "ours", { apply: t("applyLocal"), t: tr, chars: false, marks: !highlightLines }),
       wrap,
       whitespace: showWhitespace,
-      onApplyBlock: (id) => applyConflict(id, "ours"),
-      onIgnoreBlock: (id) => ignoreConflict(id, "ours"),
+      onApplyBlock: (id) => applyRange(id, "ours"),
+      onIgnoreBlock: (id) => ignoreRange(id, "ours"),
       actionLabels: { apply: t("acceptLeft"), ignore: t("ignore") },
       side: "after",
       onScroll: (line) => sync("ours", line),
@@ -982,11 +1178,14 @@ export function ConflictView({
       doc: initialText,
       editable: true,
       language: conflict.language,
-      blocks: resultBlocks(model, blocksRef.current, initial.spans, tr),
+      blocks: resultBlocks(model, blocksRef.current, initial, tr),
       wrap,
       whitespace: showWhitespace,
       onScroll: (line) => sync("result", line),
+      onSelection: (start) => syncCurrentRef.current(start),
       onSaveRequest: () => requestSaveRef.current(true),
+      onUndoRequest: () => undoRef.current(),
+      onRedoRequest: () => redoRef.current(),
       onChange: (doc, blocks) => changeRef.current(doc, blocks),
     });
     const theirs = new MergePane(theirsEl, {
@@ -996,8 +1195,8 @@ export function ConflictView({
       blocks: sideBlocks(model, "theirs", { apply: t("applyRemote"), t: tr, chars: false, marks: !highlightLines }),
       wrap,
       whitespace: showWhitespace,
-      onApplyBlock: (id) => applyConflict(id, "theirs"),
-      onIgnoreBlock: (id) => ignoreConflict(id, "theirs"),
+      onApplyBlock: (id) => applyRange(id, "theirs"),
+      onIgnoreBlock: (id) => ignoreRange(id, "theirs"),
       actionLabels: { apply: t("acceptRight"), ignore: t("ignore") },
       onScroll: (line) => sync("theirs", line),
       onSelection: (start, end, empty) => setSelected({ side: "theirs", start, end, empty }),
@@ -1007,7 +1206,7 @@ export function ConflictView({
     theirsPane.current = theirs;
     // A file that was saved with some blocks still open starts with those
     // blocks' arrows; the closed ones keep their status dot.
-    syncSidePanes();
+    refreshDecorations();
     return () => {
       ours.destroy();
       result.destroy();
@@ -1071,24 +1270,6 @@ export function ConflictView({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [visible, model]);
 
-  const conflictAtCaret = useCallback(() => {
-    const pane = resultPane.current;
-    if (!pane) return conflicts.find((range) => range.index === current) ?? conflicts[0];
-    const line = pane.caretLine();
-    const doc = pane.view.state.doc;
-    for (const block of pane.getBlocks()) {
-      const blockState = blocksRef.current.get(block.id);
-      const range =
-        blockState?.rangeIndex != null
-          ? conflicts.find((r) => r.index === blockState.rangeIndex)
-          : undefined;
-      if (!range) continue;
-      const first = doc.lineAt(Math.max(0, Math.min(block.from, doc.length))).number;
-      const last = doc.lineAt(Math.max(0, Math.min(block.to > block.from ? block.to - 1 : block.from, doc.length))).number;
-      if (line >= first && line <= last) return range;
-    }
-    return conflicts.find((range) => range.index === current) ?? conflicts[0];
-  }, [conflicts, current]);
 
   useEffect(() => {
     const onKey = (event: KeyboardEvent) => {
@@ -1104,21 +1285,30 @@ export function ConflictView({
       } else if ((event.metaKey && event.ctrlKey) || (event.ctrlKey && event.altKey)) {
         if (event.key !== "ArrowLeft" && event.key !== "ArrowRight") return;
         event.preventDefault();
-        const range = conflictAtCaret();
-        if (range) applyConflict(range.index, event.key === "ArrowRight" ? "ours" : "theirs");
+        const range = rangeAtCaret();
+        if (range?.kind === "conflict") applyRange(range.index, event.key === "ArrowRight" ? "ours" : "theirs");
       } else if (event.altKey && !event.ctrlKey && event.key === "ArrowLeft") {
         event.preventDefault();
-        const range = conflictAtCaret();
-        if (range) applyConflict(range.index, "ours");
+        const range = rangeAtCaret();
+        if (range?.kind === "conflict") applyRange(range.index, "ours");
       } else if (event.altKey && !event.ctrlKey && event.key === "ArrowRight") {
         event.preventDefault();
-        const range = conflictAtCaret();
-        if (range) applyConflict(range.index, "theirs");
+        const range = rangeAtCaret();
+        if (range?.kind === "conflict") applyRange(range.index, "theirs");
+      } else if ((event.metaKey || event.ctrlKey) && !event.altKey && !event.defaultPrevented) {
+        // The editor owns the keys while it has focus; everywhere else in the
+        // window (a gutter arrow, a toolbar button) Undo must still mean the
+        // decision journal.
+        const key = event.key.toLowerCase();
+        if (key !== "z" && key !== "y") return;
+        event.preventDefault();
+        if (key === "y" || event.shiftKey) redo();
+        else undo();
       }
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [applyConflict, conflictAtCaret, jump]);
+  }, [applyRange, jump, rangeAtCaret, redo, undo]);
 
   const versionText = (key: VersionKey) => {
     if (key === "base") return conflict.base;
@@ -1222,8 +1412,8 @@ export function ConflictView({
             onClick={autoResolve}
             disabled={unresolved === 0}
           />
-          <IconButton icon="undo" title={t("undo")} small onClick={() => resultPane.current?.undo()} />
-          <IconButton icon="redo" title={t("redo")} small onClick={() => resultPane.current?.redo()} />
+          <IconButton icon="undo" title={t("undo")} small onClick={undo} />
+          <IconButton icon="redo" title={t("redo")} small onClick={redo} />
           <span className="spacer" />
           {busy && <Spinner />}
           <span className={cx("merge3-status", unresolved === 0 && "done")}>

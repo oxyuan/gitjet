@@ -485,31 +485,15 @@ export type ConflictSegment =
       newline: boolean;
     };
 
-/** A conflict section's state in the result pane. `rangeIndex` links it back to
- *  the three-way model when its content still matches a conflict range. */
-export interface ConflictBlockState {
-  id: number;
-  ours: string[];
-  theirs: string[];
-  lines: string[];
-  resolved: boolean;
-  rangeIndex: number | null;
-}
-
 /**
- * The text the result shows after "Ignore" on one side: the other side.
- * A block that already holds a different decision keeps it, so ignoring a
- * side never rewrites a decision that is already made: accepting the left
- * and then ignoring the right leaves the result alone.
+ * The lines a range shows after "Ignore" on one side: that side's change is
+ * dropped. When the other side changed the same region its text is kept;
+ * when it did not, the merge base comes back. Ignoring is the mirror of
+ * applying the other side, which is what the IDE does.
  */
-export function ignoreSide(
-  state: Pick<ConflictBlockState, "lines" | "resolved" | "ours" | "theirs">,
-  side: "ours" | "theirs",
-): string[] {
-  const ignored = side === "ours" ? state.ours : state.theirs;
-  const keep = side === "ours" ? state.theirs : state.ours;
-  if (state.resolved && !textEqual(state.lines, ignored, exact)) return state.lines;
-  return keep;
+export function ignoreRangeLines(range: MergeRange, side: "ours" | "theirs"): string[] {
+  if (side === "ours") return range.theirsChanged ? range.theirs : range.base;
+  return range.oursChanged ? range.ours : range.base;
 }
 
 /** Character offsets of the composed result's line starts. */
@@ -580,96 +564,199 @@ export function conflictSegments(text: string): ConflictSegment[] | null {
   return segments;
 }
 
-/**
- * The result pane's text and block offsets: plain text verbatim, and each
- * conflict block's current text with no markers.
- */
-export function composeSegments(
-  segments: ConflictSegment[],
-  blocks: ReadonlyMap<number, ConflictBlockState>,
-): { text: string; spans: { id: number; from: number; to: number }[] } {
+/** The working file without Git's marker lines: each section keeps the local
+ *  side, which is what the three-way model starts from. */
+function strippedWorking(segments: ConflictSegment[]): string {
   let text = "";
-  const spans: { id: number; from: number; to: number }[] = [];
-  let id = 0;
   for (const segment of segments) {
     if (segment.kind === "text") {
       text += segment.text;
       continue;
     }
-    const lines = blocks.get(id)?.lines ?? segment.ours;
-    const from = text.length;
-    text += lines.join("\n") + (lines.length > 0 && segment.newline ? "\n" : "");
-    spans.push({ id, from, to: text.length });
-    id++;
+    text += segment.ours.join("\n") + (segment.ours.length > 0 && segment.newline ? "\n" : "");
   }
-  return { text, spans };
+  return text;
 }
 
-/** Block state for a file: every parsed section is an open conflict until the
- *  reader decides it. */
-export function initialConflictBlocks(
-  segments: ConflictSegment[],
-  model: Pick<MergeModel, "ranges">,
-): Map<number, ConflictBlockState> {
-  const conflicts = model.ranges.filter((range) => range.kind === "conflict");
-  const blocks = new Map<number, ConflictBlockState>();
-  let id = 0;
-  let next = 0;
-  for (const segment of segments) {
-    if (segment.kind !== "conflict") continue;
-    let matched: number | null = null;
-    for (let i = next; i < conflicts.length; i++) {
-      const range = conflicts[i]!;
-      if (textEqual(range.theirs, segment.theirs, exact) || textEqual(range.ours, segment.ours, exact)) {
-        matched = range.index;
-        next = i + 1;
-        break;
-      }
+/** One model range as the result pane holds it. Ids are range indexes, so the
+ *  three panes address the same block. */
+export interface MergeBlock {
+  index: number;
+  lines: string[];
+  resolved: boolean;
+  /** Character span in the view's text. */
+  from: number;
+  to: number;
+}
+
+export interface MergeView {
+  text: string;
+  /** One block per model range, in order. */
+  blocks: MergeBlock[];
+  /** Indexes of the conflict ranges that still carry Git's markers. */
+  open: number[];
+}
+
+/** Line positions of `base` in `side`: a line copied verbatim maps to the
+ *  same offset, and a changed stretch maps its start to the side's start and
+ *  its end to the side's end. At an insertion point the two differ: the text
+ *  before the boundary ends before the inserted lines, the line after it
+ *  begins after them. A range must not swallow inserted lines that sit at its
+ *  end, so `end` keeps the pre-insertion offset. */
+function lineMap(base: string[], side: string[]): { start: number[]; end: number[] } {
+  const start = new Array<number>(base.length + 1).fill(0);
+  const end = new Array<number>(base.length + 1).fill(0);
+  const set = new Array<boolean>(base.length + 1).fill(false);
+  const put = (i: number, from: number, to: number) => {
+    start[i] = from;
+    end[i] = to;
+    set[i] = true;
+  };
+  let b = 0;
+  let s = 0;
+  for (const hunk of diffHunks(base, side)) {
+    for (let i = b; i < hunk.baseStart; i++) if (!set[i]) put(i, s + (i - b), s + (i - b));
+    if (hunk.baseStart === hunk.baseEnd) {
+      put(hunk.baseStart, hunk.sideEnd, hunk.sideStart);
+    } else {
+      put(hunk.baseStart, hunk.sideStart, hunk.sideStart);
+      for (let i = hunk.baseStart + 1; i < hunk.baseEnd; i++) put(i, hunk.sideStart, hunk.sideEnd);
+      put(hunk.baseEnd, hunk.sideEnd, hunk.sideEnd);
     }
-    blocks.set(id, {
-      id,
-      ours: segment.ours,
-      theirs: segment.theirs,
-      lines: segment.ours,
-      resolved: false,
-      rangeIndex: matched,
-    });
-    id++;
+    b = hunk.baseEnd;
+    s = hunk.sideEnd;
   }
-  return blocks;
+  for (let i = b; i <= base.length; i++) if (!set[i]) put(i, s + (i - b), s + (i - b));
+  return { start, end };
 }
 
-/** Segments for a file the model builds itself, used when the working file has
- *  no markers left to read. */
-export function modelSegments(model: MergeModel): ConflictSegment[] {
-  const lines: string[] = [];
-  const conflicts: { start: number; range: MergeRange }[] = [];
+/** Whether a range's mapped span belongs to a marker section. zdiff3 pulls
+ *  lines shared by both sides out of the section, so a conflicted range may be
+ *  wider than the section's own body: overlap, not containment, is the test.
+ *  A section whose local side was entirely pulled out is a point inside the
+ *  range it represents. */
+function inSection(
+  span: { from: number; to: number },
+  section: { from: number; to: number },
+): boolean {
+  if (section.from === section.to) return span.from <= section.from && span.to >= section.from;
+  if (span.from === span.to) return span.from >= section.from && span.from <= section.to;
+  return span.from < section.to && span.to > section.from;
+}
+
+/**
+ * buildMergeView turns the three-way model plus the working file into the
+ * result pane's blocks. Every changed range is a block: a conflicted range
+ * stays open while Git's markers are around it, and an auto-merged range is
+ * already settled. The result text is composed from the model, so a conflict
+ * region that Git grouped around changes only one side made keeps those
+ * changes instead of showing the whole local section.
+ *
+ * Ranges outside the marker sections keep whatever the working file holds
+ * there, which is how a file saved half-resolved reopens with its decisions.
+ */
+export function buildMergeView(model: MergeModel, working: string): MergeView {
+  const expected: string[] = [];
+  const expectedSpans = new Map<number, { from: number; to: number }>();
   let b = 0;
   for (const range of model.ranges) {
+    for (let i = b; i < range.baseStart; i++) expected.push(model.baseLines[i]!);
+    const from = expected.length;
+    expected.push(...(range.kind === "conflict" ? range.ours : chosenLines(range)));
+    expectedSpans.set(range.index, { from, to: expected.length });
+    b = range.baseEnd;
+  }
+  for (let i = b; i < model.baseLines.length; i++) expected.push(model.baseLines[i]!);
+
+  const segments: ConflictSegment[] = conflictSegments(working) ?? [{ kind: "text", text: working }];
+  const stripped = splitLines(strippedWorking(segments)).lines;
+  // A missing working file (a path the merge never wrote) has nothing to
+  // compare; the stages are all there is.
+  const noFile = working === "" && expected.length > 0;
+  const map = noFile ? null : lineMap(expected, stripped);
+
+  const sections: { from: number; to: number }[] = [];
+  if (!noFile) {
+    let at = 0;
+    for (const segment of segments) {
+      if (segment.kind === "text") {
+        at += splitLines(segment.text).lines.length;
+        continue;
+      }
+      sections.push({ from: at, to: at + segment.ours.length });
+      at += segment.ours.length;
+    }
+  }
+
+  const lines: string[] = [];
+  const spans: { index: number; from: number; to: number }[] = [];
+  const open: number[] = [];
+  b = 0;
+  for (const range of model.ranges) {
     for (let i = b; i < range.baseStart; i++) lines.push(model.baseLines[i]!);
-    if (range.kind === "conflict") conflicts.push({ start: lines.length, range });
-    lines.push(...(range.kind === "conflict" ? range.ours : chosenLines(range)));
+    const span = expectedSpans.get(range.index)!;
+    const sameLine = span.from === span.to;
+    const mapped = {
+      from: map?.start[span.from] ?? span.from,
+      to: map ? (sameLine ? map.start[span.to]! : map.end[span.to]!) : span.to,
+    };
+    const section = noFile
+      ? undefined
+      : map && sections.find((candidate) => inSection(mapped, candidate));
+    let rangeLines: string[];
+    if (section) {
+      // Git grouped this range into a conflict section: a one-sided change is
+      // still an auto-merge, a conflicted one waits for a decision.
+      rangeLines = range.kind === "conflict" ? range.ours : chosenLines(range);
+    } else if (noFile) {
+      rangeLines = range.kind === "conflict" ? range.ours : chosenLines(range);
+    } else {
+      rangeLines = stripped.slice(mapped.from, mapped.to);
+    }
+    const from = lines.length;
+    lines.push(...rangeLines);
+    spans.push({ index: range.index, from, to: lines.length });
+    if (range.kind === "conflict" && (noFile || section !== undefined)) open.push(range.index);
     b = range.baseEnd;
   }
   for (let i = b; i < model.baseLines.length; i++) lines.push(model.baseLines[i]!);
+
   const text = lines.join("\n") + (model.trailingNewline && lines.length > 0 ? "\n" : "");
   const starts = lineStartsOf(text);
-  const segments: ConflictSegment[] = [];
-  let cursor = 0;
-  for (const { start, range } of conflicts) {
-    const from = starts[start] ?? text.length;
-    if (from > cursor) segments.push({ kind: "text", text: text.slice(cursor, from) });
-    segments.push({
-      kind: "conflict",
-      ours: range.ours,
-      base: range.base,
-      theirs: range.theirs,
-      newline: true,
-    });
-    cursor = starts[start + range.ours.length] ?? text.length;
+  const openSet = new Set(open);
+  const blocks: MergeBlock[] = spans.map((span) => ({
+    index: span.index,
+    lines: lines.slice(span.from, span.to),
+    resolved: !openSet.has(span.index),
+    from: starts[span.from] ?? text.length,
+    to: starts[span.to] ?? text.length,
+  }));
+  return { text, blocks, open };
+}
+
+/**
+ * blockText is the text one block of the result must hold. A block span covers
+ * whole lines including their line breaks, so the replacement is composed from
+ * the lines themselves: an empty final line keeps the newline that makes it
+ * exist, and an empty array deletes the block outright. A zero-width span is an
+ * insertion point and needs its own line break.
+ */
+export function blockText(
+  doc: string,
+  span: { from: number; to: number },
+  lines: string[],
+): string {
+  const from = Math.max(0, Math.min(span.from, doc.length));
+  const to = Math.max(from, Math.min(span.to, doc.length));
+  if (to > from) {
+    if (lines.length === 0) return "";
+    return lines.join("\n") + (doc.slice(from, to).endsWith("\n") ? "\n" : "");
   }
-  if (cursor < text.length) segments.push({ kind: "text", text: text.slice(cursor) });
-  return segments;
+  if (lines.length === 0) return "";
+  const text = lines.join("\n");
+  if (doc.length === 0) return text;
+  if (from >= doc.length) return doc.slice(doc.length - 1).endsWith("\n") ? text + "\n" : "\n" + text;
+  return text + "\n";
 }
 
 /**

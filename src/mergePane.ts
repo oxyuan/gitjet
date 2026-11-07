@@ -5,6 +5,7 @@ import {
   RangeSetBuilder,
   StateEffect,
   StateField,
+  Transaction,
 } from "@codemirror/state";
 import {
   Decoration,
@@ -23,6 +24,7 @@ import {
 } from "@codemirror/view";
 import { defaultKeymap, history, historyKeymap, redo, undo } from "@codemirror/commands";
 import { codeFolding, foldEffect, syntaxHighlighting, unfoldAll } from "@codemirror/language";
+import { blockText } from "./merge";
 import { editorHighlightStyle } from "./highlight";
 import { editorSelectionTheme, editorTheme, loadLanguage } from "./editor";
 
@@ -57,6 +59,10 @@ export interface MergePaneOptions {
   onScroll?: (topLine: number) => void;
   onSelection?: (start: number, end: number, empty: boolean) => void;
   onSaveRequest?: () => void;
+  /** Undo/redo go to the owner first: decisions are its history, typing is the
+   *  editor's, and only the owner can put them in the right order. */
+  onUndoRequest?: () => void;
+  onRedoRequest?: () => void;
   wrap?: boolean;
   whitespace?: boolean;
 }
@@ -142,6 +148,7 @@ class ApplyMarker extends GutterMarker {
       b.tabIndex = -1;
       b.className = `cm-merge-action ${extra}`;
       b.dataset.mergeAction = action;
+      b.dataset.mergeBlock = String(this.id);
       b.title = title;
       b.textContent = text;
       el.append(b);
@@ -251,7 +258,12 @@ export class MergePane {
               mousedown: (view, line: BlockInfo, event) => {
                 const target = (event.target as HTMLElement).closest("[data-merge-action]") as HTMLElement | null;
                 if (!target) return false;
-                const block = blockAtLine(view, view.state.doc.lineAt(line.from).number);
+                // The marker carries its block id: two blocks can start on the
+                // same line, and the line alone must not pick between them.
+                const id = Number(target.dataset.mergeBlock);
+                const block = Number.isFinite(id)
+                  ? view.state.field(blocksField).find((candidate) => candidate.id === id) ?? null
+                  : blockAtLine(view, view.state.doc.lineAt(line.from).number);
                 if (!block) return false;
                 const action = target.dataset.mergeAction;
                 if (action === "ignore" && this.opts.onIgnoreBlock) {
@@ -276,6 +288,31 @@ export class MergePane {
                 return true;
               },
             },
+            ...(editable && this.opts.onUndoRequest
+              ? [
+                  {
+                    key: "Mod-z",
+                    run: () => {
+                      this.opts.onUndoRequest?.();
+                      return true;
+                    },
+                  },
+                  {
+                    key: "Mod-Shift-z",
+                    run: () => {
+                      this.opts.onRedoRequest?.();
+                      return true;
+                    },
+                  },
+                  {
+                    key: "Mod-y",
+                    run: () => {
+                      this.opts.onRedoRequest?.();
+                      return true;
+                    },
+                  },
+                ]
+              : []),
             ...defaultKeymap,
             ...(editable ? historyKeymap : []),
           ]),
@@ -372,37 +409,25 @@ export class MergePane {
     this.view.dispatch({ effects: this.language.reconfigure(support ?? []) });
   }
 
-  /** Replaces the whole document, used by "resolve using left/right". */
-  replaceAll(text: string) {
+  /** Replaces the whole document, used by "resolve using left/right". The
+   *  caller owns that history, so it can leave the editor's own undo stack
+   *  alone. */
+  replaceAll(text: string, options: { history?: boolean } = {}) {
     this.view.dispatch({
       changes: { from: 0, to: this.view.state.doc.length, insert: text },
       selection: { anchor: 0 },
+      annotations: options.history === false ? [Transaction.addToHistory.of(false)] : undefined,
     });
-  }
-
-  replaceBlock(id: number, text: string): boolean {
-    const block = this.getBlocks().find((b) => b.id === id);
-    if (!block) return false;
-    const replacement = this.withTrailingNewline(block, text);
-    this.view.dispatch({
-      changes: { from: block.from, to: block.to, insert: replacement },
-      selection: { anchor: block.from + replacement.length },
-    });
-    return true;
-  }
-
-  /** A block range includes the newline that ended its last line. A non-empty
-   *  replacement has to end with one too, or it joins the following line. */
-  private withTrailingNewline(block: MergePaneBlock, text: string): string {
-    if (text === "" || text.endsWith("\n")) return text;
-    const original = this.view.state.doc.sliceString(block.from, block.to);
-    return original.endsWith("\n") ? text + "\n" : text;
   }
 
   /** Applies several blocks at once. Overlapping blocks are skipped. */
-  replaceBlocks(changes: { id: number; text: string }[]): number {
+  replaceBlocks(
+    changes: { id: number; lines: string[] }[],
+    options: { history?: boolean } = {},
+  ): number {
     const blocks = this.getBlocks();
     const byId = new Map(blocks.map((b) => [b.id, b]));
+    const doc = this.view.state.doc.toString();
     const edits: { from: number; to: number; insert: string }[] = [];
     // Edits are applied from the end so earlier positions stay valid. Walk the
     // blocks in descending order and reject one that overlaps the block after
@@ -411,11 +436,14 @@ export class MergePane {
     for (const change of [...changes].sort((a, b) => (byId.get(b.id)?.from ?? 0) - (byId.get(a.id)?.from ?? 0))) {
       const block = byId.get(change.id);
       if (!block || block.to > lastFrom) continue;
-      edits.push({ from: block.from, to: block.to, insert: this.withTrailingNewline(block, change.text) });
+      edits.push({ from: block.from, to: block.to, insert: blockText(doc, block, change.lines) });
       lastFrom = block.from;
     }
     if (edits.length === 0) return 0;
-    this.view.dispatch({ changes: edits });
+    this.view.dispatch({
+      changes: edits,
+      annotations: options.history === false ? [Transaction.addToHistory.of(false)] : undefined,
+    });
     return edits.length;
   }
 
@@ -438,6 +466,13 @@ export class MergePane {
 
   caretLine(): number {
     return this.view.state.doc.lineAt(this.view.state.selection.main.head).number;
+  }
+
+  /** The line under a viewport point, for a context menu that must act on what
+   *  the pointer is over rather than on a selection the click did not move. */
+  lineAtCoords(x: number, y: number): number | null {
+    const pos = this.view.posAtCoords({ x, y });
+    return pos == null ? null : this.view.state.doc.lineAt(pos).number;
   }
 
   destroy() {
