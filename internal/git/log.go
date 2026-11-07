@@ -41,13 +41,20 @@ type LogOptions struct {
 	Path string   `json:"path"`
 	// Line, with Path, lists only the commits that changed that line of the
 	// file (git log -L), so each line has its own history.
-	Line        int    `json:"line"`
-	Search      string `json:"search"`
-	Author      string `json:"author"`
-	Since       int64  `json:"since"`
-	Limit       int    `json:"limit"`
-	Skip        int    `json:"skip"`
-	FirstParent bool   `json:"firstParent"`
+	Line   int    `json:"line"`
+	Search string `json:"search"`
+	Author string `json:"author"`
+	Since  int64  `json:"since"`
+	Until  int64  `json:"until"`
+	// Follow tracks a file across renames.
+	Follow bool `json:"follow"`
+	// Regex reads Search as an extended regular expression.
+	Regex bool `json:"regex"`
+	// CaseSensitive keeps the search case-sensitive.
+	CaseSensitive bool `json:"caseSensitive"`
+	Limit         int  `json:"limit"`
+	Skip          int  `json:"skip"`
+	FirstParent   bool `json:"firstParent"`
 }
 
 // LogResult is a page of commits.
@@ -123,13 +130,22 @@ func (r *Repo) Log(ctx context.Context, opts LogOptions) (LogResult, error) {
 		args = append(args, "--branches", "--remotes")
 	}
 	if opts.Search != "" {
-		args = append(args, "-i", "--grep="+opts.Search)
+		if !opts.CaseSensitive {
+			args = append(args, "-i")
+		}
+		if opts.Regex {
+			args = append(args, "--extended-regexp")
+		}
+		args = append(args, "--grep="+opts.Search)
 	}
 	if opts.Author != "" {
 		args = append(args, "--author="+opts.Author)
 	}
 	if opts.Since > 0 {
 		args = append(args, "--since=@"+strconv.FormatInt(opts.Since, 10))
+	}
+	if opts.Until > 0 {
+		args = append(args, "--until=@"+strconv.FormatInt(opts.Until, 10))
 	}
 	args = append(args, "--max-count="+strconv.Itoa(opts.Limit+1))
 	if opts.Skip > 0 {
@@ -145,6 +161,9 @@ func (r *Repo) Log(ctx context.Context, opts LogOptions) (LogResult, error) {
 			// --no-patch leaves one formatted record per commit.
 			args = append(args, fmt.Sprintf("-L%d,%d:%s", opts.Line, opts.Line, path), "--no-patch")
 		} else {
+			if opts.Follow {
+				args = append(args, "--follow")
+			}
 			args = append(args, "--", path)
 		}
 	}
@@ -420,6 +439,8 @@ type CommitDetail struct {
 	// Branches lists the local and remote branches whose history contains
 	// this commit, the current branch first.
 	Branches []string `json:"branches"`
+	// Tags lists the tags whose history contains this commit.
+	Tags []string `json:"tags"`
 }
 
 // CommitFile is a path a commit changed.
@@ -482,6 +503,7 @@ func (r *Repo) ShowCommit(ctx context.Context, hash string) (CommitDetail, error
 	}
 	detail.Stats.Files = len(files)
 	detail.Branches = r.branchesContaining(ctx, c.Hash)
+	detail.Tags = r.tagsContaining(ctx, c.Hash)
 	return detail, nil
 }
 
@@ -519,6 +541,22 @@ func (r *Repo) branchesContaining(ctx context.Context, hash string) []string {
 			continue
 		}
 		names = append(names, name)
+	}
+	return names
+}
+
+// tagsContaining names the tags that contain a commit, best effort like
+// branchesContaining.
+func (r *Repo) tagsContaining(ctx context.Context, hash string) []string {
+	out, err := r.run(ctx, "tag", "--contains", hash)
+	if err != nil {
+		return []string{}
+	}
+	names := []string{}
+	for _, line := range strings.Split(out, "\n") {
+		if name := strings.TrimSpace(line); name != "" {
+			names = append(names, name)
+		}
 	}
 	return names
 }

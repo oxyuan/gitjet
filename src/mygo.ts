@@ -119,6 +119,7 @@ export interface CommitDetail {
   files: CommitFile[];
   stats: CommitStats;
   branches: string[];
+  tags: string[];
 }
 
 export interface CommitFile {
@@ -310,6 +311,10 @@ export interface LogOptions {
   search: string;
   author: string;
   since: number;
+  until: number;
+  follow: boolean;
+  regex: boolean;
+  caseSensitive: boolean;
   limit: number;
   skip: number;
   firstParent: boolean;

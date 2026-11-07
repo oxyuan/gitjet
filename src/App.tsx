@@ -51,7 +51,7 @@ import { useFileMenu } from "./FileMenu";
 import { LangProvider, count, resolveLang, useT, type Lang } from "./i18n";
 import { computeMerge, conflictLabels, resolveSimpleConflicts } from "./merge";
 import { normalizeText } from "./editorText";
-import { LogDock } from "./LogDock";
+import { LogDock, type LogFilters } from "./LogDock";
 import { FileTree, type ChangeView } from "./FileTree";
 import { BranchList } from "./BranchList";
 import type { AuthorOption } from "./AuthorPicker";
@@ -632,6 +632,7 @@ function AppShell({ onLangChange }: { onLangChange: (lang: Lang) => void }) {
   const [checked, setChecked] = useState<Set<string>>(new Set());
   const [searchInput, setSearchInput] = useState("");
   const [logSearch, setLogSearch] = useState("");
+  const [logFilters, setLogFilters] = useState<LogFilters>({ since: "", until: "", regex: false, caseSensitive: false });
   const [logAuthor, setLogAuthor] = useState("");
   const [authors, setAuthors] = useState<AuthorOption[]>([]);
   const [favorites, setFavorites] = useState<string[]>([]);
@@ -766,7 +767,11 @@ function AppShell({ onLangChange }: { onLangChange: (lang: Lang) => void }) {
           line: logLine,
           search: logSearch,
           author: logAuthor,
-          since: 0,
+          since: dayStart(logFilters.since),
+          until: dayEnd(logFilters.until),
+          follow: logPath !== "",
+          regex: logFilters.regex,
+          caseSensitive: logFilters.caseSensitive,
           limit: 300,
           skip: reset ? 0 : logResult?.commits.length ?? 0,
           firstParent: false,
@@ -800,7 +805,7 @@ function AppShell({ onLangChange }: { onLangChange: (lang: Lang) => void }) {
         if (req === logReq.current) setLogLoading(false);
       }
     },
-    [fail, logAuthor, logPath, logLine, logRef, logSearch, logResult?.commits.length, t],
+    [fail, logAuthor, logFilters, logPath, logLine, logRef, logSearch, logResult?.commits.length, t],
   );
 
   const showFileRef = useRef<(path: string, revision?: string, line?: number) => Promise<void>>(async () => {});
@@ -2635,6 +2640,11 @@ function AppShell({ onLangChange }: { onLangChange: (lang: Lang) => void }) {
             search={searchInput}
             author={logAuthor}
             authors={authors}
+            filters={logFilters}
+            onFilters={(next) => {
+              setLogFilters(next);
+              setTimeout(() => void loadLog(true), 0);
+            }}
             scope={logRef}
             pathScope={logPath ? (logLine > 0 ? `${logPath}:${logLine}` : logPath) : ""}
             onClearScope={() => setLogRef("")}
@@ -2669,6 +2679,15 @@ function AppShell({ onLangChange }: { onLangChange: (lang: Lang) => void }) {
             onLoadMore={() => void loadLog(false, true)}
             onCopy={copyText}
             onOpenSource={(path, revision) => void showFile(path, revision)}
+            onAnnotateRevision={(path, revision) => {
+              // The source view reads this preference when it mounts.
+              try {
+                localStorage.setItem("gitjet.annotate", "true");
+              } catch {
+                // A blocked store only loses the preference.
+              }
+              void showFile(path, revision);
+            }}
             onShowHistory={showFileHistory}
             onCheckout={(ref) => void checkout(ref)}
             onNewBranch={(start) => setDialog({ kind: "newBranch", start })}
@@ -3010,6 +3029,20 @@ function AppShell({ onLangChange }: { onLangChange: (lang: Lang) => void }) {
       {toast && <Toast kind={toast.kind} title={toast.title} message={toast.message} onClose={() => setToast(null)} />}
     </div>
   );
+}
+
+/** Start of a yyyy-mm-dd date in seconds; 0 means no bound. */
+function dayStart(value: string): number {
+  if (value === "") return 0;
+  const time = new Date(`${value}T00:00:00`).getTime();
+  return Number.isNaN(time) ? 0 : Math.floor(time / 1000);
+}
+
+/** End of a yyyy-mm-dd date in seconds; 0 means no bound. */
+function dayEnd(value: string): number {
+  if (value === "") return 0;
+  const time = new Date(`${value}T23:59:59`).getTime();
+  return Number.isNaN(time) ? 0 : Math.floor(time / 1000);
 }
 
 function operationLabel(op: string, t: Translate): string {

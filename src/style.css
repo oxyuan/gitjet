@@ -8986,3 +8986,43 @@ body.resizing-row .log-detail-split::after {
   font-family: var(--font-mono);
   font-size: 12px;
 }
+
+/* Log search filters */
+.log-filter-toggle {
+  border: 0;
+  background: transparent;
+  color: var(--muted);
+  font: 600 11px var(--font-mono);
+  padding: 2px 5px;
+  border-radius: 4px;
+  cursor: pointer;
+}
+
+.log-filter-toggle:hover {
+  background: var(--selection);
+}
+
+.log-filter-toggle.active {
+  color: var(--accent);
+  background: var(--selection);
+}
+
+.log-filter-wrap {
+  position: relative;
+}
+
+.log-filter-popover {
+  position: absolute;
+  top: calc(100% + 6px);
+  right: 0;
+  z-index: 40;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 10px;
+  min-width: 220px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.22);
+}

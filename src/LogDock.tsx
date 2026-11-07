@@ -51,6 +51,17 @@ const T = {
     noMatch: "No commit matches “{search}”.",
     loadingCommits: "Loading commits",
     selectCommit: "Select a commit to see its details",
+    useRegex: "Match the search as a regular expression",
+    annotateRevision: "Annotate this revision",
+    goToParent: "Go to the parent commit",
+    goToChild: "Go to the child commit",
+    inTagsOne: "In {n} tag",
+    inTagsOther: "In {n} tags",
+    caseSensitive: "Match case",
+    filters: "Date filters",
+    since: "From",
+    until: "To",
+    clearDates: "Clear dates",
     today: "Today",
     authored: "authored {date}",
     committedBy: "committed by {name} {date}",
@@ -104,6 +115,17 @@ const T = {
     noMatch: "没有匹配“{search}”的提交。",
     loadingCommits: "正在加载提交",
     selectCommit: "选择一个提交以查看详情",
+    useRegex: "按正则表达式匹配",
+    annotateRevision: "标注此版本",
+    goToParent: "转到父提交",
+    goToChild: "转到子提交",
+    inTagsOne: "位于 {n} 个标签",
+    inTagsOther: "位于 {n} 个标签",
+    caseSensitive: "区分大小写",
+    filters: "日期筛选",
+    since: "从",
+    until: "到",
+    clearDates: "清除日期",
     today: "今天",
     authored: "作者提交于 {date}",
     committedBy: "由 {name} 提交于 {date}",
@@ -151,6 +173,13 @@ const T = {
 const ROW = 26;
 const MID = 13;
 
+export interface LogFilters {
+  since: string;
+  until: string;
+  regex: boolean;
+  caseSensitive: boolean;
+}
+
 /** Commit history on the left and the selected commit on the right. */
 export function LogDock({
   result,
@@ -161,6 +190,8 @@ export function LogDock({
   search,
   author,
   authors,
+  filters,
+  onFilters,
   scope,
   pathScope,
   onClearScope,
@@ -184,6 +215,7 @@ export function LogDock({
   onLoadMore,
   onCopy,
   onOpenSource,
+  onAnnotateRevision,
   onShowHistory,
   onCheckout,
   onNewBranch,
@@ -203,6 +235,8 @@ export function LogDock({
   search: string;
   author: string;
   authors: AuthorOption[];
+  filters: LogFilters;
+  onFilters: (next: LogFilters) => void;
   /** Branch whose history is listed; "" when it follows HEAD. */
   scope: string;
   pathScope: string;
@@ -230,6 +264,7 @@ export function LogDock({
   onLoadMore: () => void;
   onCopy: (text: string) => void;
   onOpenSource: (path: string, revision: string) => void;
+  onAnnotateRevision: (path: string, revision: string) => void;
   onShowHistory: (path: string) => void;
   onCheckout: (ref: string) => void;
   onNewBranch: (start: string) => void;
@@ -243,6 +278,7 @@ export function LogDock({
 }) {
   const t = useT(T);
   const [menu, setMenu] = useState<{ x: number; y: number; items: ContextItem[] } | null>(null);
+  const [showFilters, setShowFilters] = useState(false);
   // A commit row can be part of a multi-commit selection, which the context
   // menu then acts on as a whole, like a table of commits.
   const [checked, setChecked] = useState<Set<string>>(new Set());
@@ -376,6 +412,10 @@ export function LogDock({
     window.addEventListener("mouseup", up);
   };
 
+  // A commit's child among the loaded rows: the graph only knows the
+  // commits that are on screen, which is what "go to child" can mean.
+  const child = detail ? commits.find((c) => c.parents.includes(detail.hash)) : undefined;
+
   const commitMenu = (commit: Commit, x: number, y: number) => {
     const target = checked.has(commit.hash) && chosenOldestFirst.length > 1 ? chosenOldestFirst : [commit];
     const hashes = target.map((c) => c.hash);
@@ -478,6 +518,55 @@ export function LogDock({
                 <button className="search-clear" onClick={() => onSearch("")} aria-label={t("clearSearch")}>
                   <Icon name="close" size={11} />
                 </button>
+              )}
+            </div>
+            <button
+              className={cx("log-filter-toggle", filters.regex && "active")}
+              title={t("useRegex")}
+              onClick={() => onFilters({ ...filters, regex: !filters.regex })}
+            >
+              .*
+            </button>
+            <button
+              className={cx("log-filter-toggle", filters.caseSensitive && "active")}
+              title={t("caseSensitive")}
+              onClick={() => onFilters({ ...filters, caseSensitive: !filters.caseSensitive })}
+            >
+              Aa
+            </button>
+            <div className="log-filter-wrap">
+              <IconButton
+                icon="list"
+                title={t("filters")}
+                active={showFilters || filters.since !== "" || filters.until !== ""}
+                onClick={() => setShowFilters((v) => !v)}
+              />
+              {showFilters && (
+                <div className="log-filter-popover" onMouseLeave={() => setShowFilters(false)}>
+                  <label className="field field-inline">
+                    <span className="field-label">{t("since")}</span>
+                    <input
+                      className="text-input"
+                      type="date"
+                      value={filters.since}
+                      onChange={(e) => onFilters({ ...filters, since: e.target.value })}
+                    />
+                  </label>
+                  <label className="field field-inline">
+                    <span className="field-label">{t("until")}</span>
+                    <input
+                      className="text-input"
+                      type="date"
+                      value={filters.until}
+                      onChange={(e) => onFilters({ ...filters, until: e.target.value })}
+                    />
+                  </label>
+                  {(filters.since !== "" || filters.until !== "") && (
+                    <button className="mini-btn" onClick={() => onFilters({ ...filters, since: "", until: "" })}>
+                      {t("clearDates")}
+                    </button>
+                  )}
+                </div>
               )}
             </div>
             <AuthorPicker authors={authors} value={author} onChange={onAuthor} />
@@ -717,6 +806,16 @@ export function LogDock({
                       </button>
                       <button
                         className="mini-icon"
+                        title={t("annotateRevision")}
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          onAnnotateRevision(file.path, detail.hash);
+                        }}
+                      >
+                        <Icon name="user" size={12} />
+                      </button>
+                      <button
+                        className="mini-icon"
                         title={t("showHistory")}
                         onClick={(e) => {
                           e.stopPropagation();
@@ -752,6 +851,22 @@ export function LogDock({
                     {detail.author}
                   </span>
                   <span className="muted">{formatStamp(detail.authorTime, t("today"))}</span>
+                </div>
+                <div className="log-detail-nav">
+                  {detail.parents[0] && (
+                    <button
+                      className="toolbar-text-btn"
+                      title={t("goToParent")}
+                      onClick={() => onOpenCommit(detail.parents[0]!)}
+                    >
+                      <Icon name="chevronDown" size={11} /> {detail.parents[0].slice(0, 8)}
+                    </button>
+                  )}
+                  {child && (
+                    <button className="toolbar-text-btn" title={t("goToChild")} onClick={() => onOpenCommit(child.hash)}>
+                      <Icon name="chevronRight" size={11} /> {child.short}
+                    </button>
+                  )}
                 </div>
                 {detail.parents.length > 1 && (
                   <div className="log-detail-merge">
@@ -789,6 +904,21 @@ export function LogDock({
                       {detail.branches.map((name) => (
                         <span key={name} className="log-detail-branch">
                           <Icon name="branch" size={10} />
+                          {name}
+                        </span>
+                      ))}
+                    </div>
+                  </div>
+                )}
+                {detail.tags && detail.tags.length > 0 && (
+                  <div className="log-detail-branches">
+                    <span className="log-detail-branches-count">
+                      {count(detail.tags.length, t("inTagsOne"), t("inTagsOther", { n: detail.tags.length }))}
+                    </span>
+                    <div className="log-detail-branch-names">
+                      {detail.tags.map((name) => (
+                        <span key={name} className="log-detail-branch">
+                          <Icon name="tag" size={10} />
                           {name}
                         </span>
                       ))}
