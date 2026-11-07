@@ -192,6 +192,9 @@ func (w *Workspace) Open(path string) (git.ChangesSnapshot, error) {
 	if err != nil {
 		return git.ChangesSnapshot{}, err
 	}
+	w.c.mu.Lock()
+	repo.SetSSHCommand(w.c.settings.SshCommand)
+	w.c.mu.Unlock()
 	// A bridge belongs to the repository it was started for.
 	w.c.stopLSP()
 	w.c.mu.Lock()
@@ -418,13 +421,14 @@ func (c *core) startPolling() {
 			ctx, cancel := context.WithTimeout(context.Background(), 8*time.Second)
 			c.mu.Lock()
 			autoFetch := c.settings.AutoFetch
+			tagsMode := c.settings.FetchTagsMode
 			fetchEvery := time.Duration(c.settings.AutoFetchMinutes) * time.Minute
 			c.mu.Unlock()
 			if autoFetch && fetchEvery > 0 && time.Since(lastFetch) >= fetchEvery {
 				lastFetch = time.Now()
 				if remotes, err := repo.Remotes(ctx); err == nil && len(remotes) > 0 {
 					fetchCtx, fetchCancel := context.WithTimeout(context.Background(), 2*time.Minute)
-					if _, ferr := repo.Fetch(fetchCtx, git.FetchOptions{All: true, Prune: true, Tags: true}, nil); ferr == nil {
+					if _, ferr := repo.Fetch(fetchCtx, git.FetchOptions{All: true, Prune: true, TagsMode: tagsMode}, nil); ferr == nil {
 						if snap, serr := c.snapshot(fetchCtx, c.settings.ShowIgnored); serr == nil {
 							RepoChanged.Broadcast(snap.State)
 						}
@@ -1263,6 +1267,7 @@ func (g *Git) Pull(opts git.PullOptions, out *mygo.Channel[string]) (string, err
 	}
 	ctx, trace := git.WithCommandTrace(context.Background())
 	started := time.Now()
+	opts.TagsMode = g.c.settings.FetchTagsMode
 	run := func(ctx context.Context) (string, error) {
 		return repo.Pull(ctx, opts, func(line string) { _ = out.Send(line) })
 	}
@@ -1285,6 +1290,7 @@ func (g *Git) Fetch(opts git.FetchOptions, out *mygo.Channel[string]) (string, e
 	}
 	ctx, trace := git.WithCommandTrace(context.Background())
 	started := time.Now()
+	opts.TagsMode = g.c.settings.FetchTagsMode
 	text, err := repo.Fetch(ctx, opts, func(line string) { _ = out.Send(line) })
 	g.journalOperation(repo, JournalEntry{Action: "fetch", Commands: *trace, Output: text}, err, started)
 	g.notify()

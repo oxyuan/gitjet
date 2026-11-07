@@ -13,8 +13,11 @@ import (
 type DiffTarget string
 
 const (
-	// DiffWorkingTree compares HEAD with the file on disk.
+	// DiffWorkingTree compares the index with the file on disk.
 	DiffWorkingTree DiffTarget = "worktree"
+	// DiffHead compares HEAD with the file on disk, which is the union of
+	// the staged and the unstaged changes.
+	DiffHead DiffTarget = "head"
 	// DiffStaged compares HEAD with the index.
 	DiffStaged DiffTarget = "staged"
 	// DiffCommit compares a commit with its first parent.
@@ -158,11 +161,13 @@ func labelsFor(opts DiffOptions) (string, string) {
 		return h + "^", h
 	case DiffRange:
 		return short(opts.From), short(opts.Revision)
+	case DiffHead:
+		return "HEAD", "Working Tree"
 	default:
 		if opts.Revision != "" {
 			return short(opts.Revision), "Working Tree"
 		}
-		return "HEAD", "Working Tree"
+		return "Index", "Working Tree"
 	}
 }
 
@@ -175,6 +180,8 @@ func (r *Repo) patchFor(ctx context.Context, opts DiffOptions, path string) (str
 	}
 	args = append(args, fmt.Sprintf("-U%d", opts.Context))
 	switch opts.Target {
+	case DiffHead:
+		args = append(args, "HEAD")
 	case DiffStaged:
 		args = append(args, "--cached")
 	case DiffCommit:

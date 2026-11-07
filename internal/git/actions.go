@@ -12,16 +12,16 @@ import (
 
 // CommitOptions is what the commit dialog selected.
 type CommitOptions struct {
-	Message     string   `json:"message"`
-	Paths       []string `json:"paths"`
-	Amend       bool     `json:"amend"`
-	SignOff     bool     `json:"signOff"`
-	NoVerify    bool     `json:"noVerify"`
-	AllowEmpty  bool     `json:"allowEmpty"`
+	Message    string   `json:"message"`
+	Paths      []string `json:"paths"`
+	Amend      bool     `json:"amend"`
+	SignOff    bool     `json:"signOff"`
+	NoVerify   bool     `json:"noVerify"`
+	AllowEmpty bool     `json:"allowEmpty"`
 	// Sign adds -S, signing this commit with the configured GPG key.
-	Sign        bool     `json:"sign"`
-	AuthorName  string   `json:"authorName"`
-	AuthorEmail string   `json:"authorEmail"`
+	Sign        bool   `json:"sign"`
+	AuthorName  string `json:"authorName"`
+	AuthorEmail string `json:"authorEmail"`
 }
 
 // CommitResult describes the commit that was created.
@@ -63,6 +63,8 @@ type PullOptions struct {
 	Squash bool `json:"squash"`
 	// NoCommit leaves the merge result in the index.
 	NoCommit bool `json:"noCommit"`
+	// TagsMode mirrors FetchOptions.TagsMode for the implicit fetch.
+	TagsMode string `json:"tagsMode"`
 }
 
 // FetchOptions selects what to fetch.
@@ -71,6 +73,10 @@ type FetchOptions struct {
 	Remote string `json:"remote"`
 	Prune  bool   `json:"prune"`
 	Tags   bool   `json:"tags"`
+	// TagsMode is the setting's policy when Tags is false: "always" adds
+	// --tags, "never" adds --no-tags, and anything else leaves git's
+	// default (tags that point into fetched history).
+	TagsMode string `json:"tagsMode"`
 }
 
 // MergeOptions selects how to merge.
@@ -608,6 +614,10 @@ func (r *Repo) Fetch(ctx context.Context, opts FetchOptions, emit func(string)) 
 	}
 	if opts.Tags {
 		args = append(args, "--tags")
+	} else if opts.TagsMode == "always" {
+		args = append(args, "--tags")
+	} else if opts.TagsMode == "never" {
+		args = append(args, "--no-tags")
 	}
 	return r.stream(ctx, emit, args...)
 }
@@ -626,6 +636,10 @@ func (r *Repo) Pull(ctx context.Context, opts PullOptions, emit func(string)) (s
 	}
 	if opts.Tags {
 		args = append(args, "--tags")
+	} else if opts.TagsMode == "always" {
+		args = append(args, "--tags")
+	} else if opts.TagsMode == "never" {
+		args = append(args, "--no-tags")
 	}
 	if opts.Remote != "" {
 		args = append(args, opts.Remote)

@@ -64,6 +64,8 @@ type Repo struct {
 	// history serializes the local history index, which the poll and the
 	// editor's save both append to.
 	history sync.Mutex
+	// sshCommand, when set, becomes GIT_SSH_COMMAND for every command.
+	sshCommand string
 }
 
 // Open resolves dir to the top of a git working tree and checks that git
@@ -109,6 +111,16 @@ func Open(ctx context.Context, dir, gitPath string) (*Repo, error) {
 		r.version = v
 	}
 	return r, nil
+}
+
+// SetSSHCommand makes every command run the given SSH client, which is
+// how a repository with a non-default key or agent is reached.
+func (r *Repo) SetSSHCommand(command string) {
+	command = strings.TrimSpace(command)
+	if strings.ContainsAny(command, "\n\r") {
+		return
+	}
+	r.sshCommand = command
 }
 
 // Dir returns the absolute path of the working tree's top.
@@ -210,7 +222,11 @@ func (r *Repo) command(ctx context.Context, args ...string) *exec.Cmd {
 	recordCommand(ctx, args)
 	full := append([]string{"-C", r.dir, "--no-pager"}, args...)
 	cmd := exec.CommandContext(ctx, r.git, full...)
-	cmd.Env = gitEnv()
+	env := gitEnv()
+	if r.sshCommand != "" {
+		env = append(env, "GIT_SSH_COMMAND="+r.sshCommand)
+	}
+	cmd.Env = env
 	proc.HideConsole(cmd)
 	return cmd
 }

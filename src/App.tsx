@@ -1056,7 +1056,7 @@ function AppShell({ onLangChange }: { onLangChange: (lang: Lang) => void }) {
         if (b.error) notify("error", tRef.current("reopenRepo"), b.error);
       })
       .catch((err) => {
-        setBoot({ settings: { version: 2, gitPath: "", language: "system", theme: "system", diffContext: -1, ignoreWhitespace: false, showIgnored: false, autoFetch: false, autoFetchMinutes: 15, updateMethod: "merge", confirmForcePush: true, confirmRollback: true, commitCheckCrlf: true, commitCheckLargeMB: 10, commitCheckNames: true, commitCheckHead: true, commitTemplate: "", protectedBranches: [], autoUpdateOnReject: true, openInNewWindow: false, uiScale: 100, recent: [] }, repo: null, error: String(err), version: "", platform: "" });
+        setBoot({ settings: { version: 2, gitPath: "", sshCommand: "", fetchTagsMode: "auto", language: "system", theme: "system", diffContext: -1, ignoreWhitespace: false, showIgnored: false, autoFetch: false, autoFetchMinutes: 15, updateMethod: "merge", confirmForcePush: true, confirmRollback: true, commitCheckCrlf: true, commitCheckLargeMB: 10, commitCheckNames: true, commitCheckHead: true, commitTemplate: "", protectedBranches: [], autoUpdateOnReject: true, openInNewWindow: false, uiScale: 100, recent: [] }, repo: null, error: String(err), version: "", platform: "" });
         notify("error", tRef.current("startFailed"), err instanceof Error ? err.message : String(err));
       });
   }, [applyCheckedDefaults, notify, reload]);
@@ -1847,6 +1847,7 @@ function AppShell({ onLangChange }: { onLangChange: (lang: Lang) => void }) {
           noFF: false,
           squash: false,
           noCommit: false,
+          tagsMode: "",
         },
         ch,
       ),
@@ -1866,7 +1867,7 @@ function AppShell({ onLangChange }: { onLangChange: (lang: Lang) => void }) {
     setFetchMenu(null);
     void runOperation(t("operationFetch"), "fetch", (ch) =>
       Git.fetch(
-        opts ?? { all: true, remote: "", prune: fetchOptions.prune, tags: fetchOptions.tags },
+        opts ?? { all: true, remote: "", prune: fetchOptions.prune, tags: fetchOptions.tags, tagsMode: "" },
         ch,
       ),
     );
@@ -1900,6 +1901,7 @@ function AppShell({ onLangChange }: { onLangChange: (lang: Lang) => void }) {
       noFF: false,
       squash: false,
       noCommit: false,
+      tagsMode: "",
     });
   };
 
@@ -2448,6 +2450,21 @@ function AppShell({ onLangChange }: { onLangChange: (lang: Lang) => void }) {
     onShowConflict: (path) => void openConflict(path),
     onOpenSource: (path, revision) => void showFile(path, revision),
     onShowHistory: showFileHistory,
+    onCompareHead: (path) =>
+      void withBusy(async () => {
+        const opts: DiffOptions = {
+          path,
+          target: "head",
+          revision: "",
+          from: "",
+          context: settingsRef.current?.diffContext ?? -1,
+          ignoreWhitespace: false,
+          ignoreWhitespaceEol: false,
+          noText: false,
+        };
+        const diff = await Git.diff(opts);
+        openDoc({ id: `diff:head::${path}`, title: path, kind: "diff", diff, opts });
+      }),
     onStage: (paths) => void stage(paths),
     onIntentToAdd: (paths) =>
       withBusy(async () => {
@@ -3196,7 +3213,7 @@ function AppShell({ onLangChange }: { onLangChange: (lang: Lang) => void }) {
             {
               label: t("fetchAllRemotes"),
               icon: "fetch",
-              onClick: () => fetch({ all: true, remote: "", prune: fetchOptions.prune, tags: fetchOptions.tags }),
+              onClick: () => fetch({ all: true, remote: "", prune: fetchOptions.prune, tags: fetchOptions.tags, tagsMode: "" }),
             },
             ...(remotes.some((r) => r.name === "origin")
               ? [
@@ -3204,7 +3221,7 @@ function AppShell({ onLangChange }: { onLangChange: (lang: Lang) => void }) {
                     label: t("fetchOrigin"),
                     icon: "download" as const,
                     onClick: () =>
-                      fetch({ all: false, remote: "origin", prune: fetchOptions.prune, tags: fetchOptions.tags }),
+                      fetch({ all: false, remote: "origin", prune: fetchOptions.prune, tags: fetchOptions.tags, tagsMode: "" }),
                   },
                 ]
               : []),

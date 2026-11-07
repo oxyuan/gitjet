@@ -23,8 +23,12 @@ import (
 type Settings struct {
 	// Version is the schema of this file, so a default that later changes
 	// can be migrated once instead of guessed at forever.
-	Version          int    `json:"version"`
-	GitPath          string `json:"gitPath"`
+	Version int    `json:"version"`
+	GitPath string `json:"gitPath"`
+	// SshCommand replaces the SSH client git runs, e.g. with a key.
+	SshCommand string `json:"sshCommand"`
+	// FetchTagsMode is auto, always or never.
+	FetchTagsMode    string `json:"fetchTagsMode"`
 	Language         string `json:"language"` // system, en, zh
 	Theme            string `json:"theme"`    // system, light, dark
 	DiffContext      int    `json:"diffContext"`
@@ -138,6 +142,13 @@ func (s *Settings) clamp() {
 	if s.UpdateMethod != "rebase" {
 		s.UpdateMethod = "merge"
 	}
+	if s.FetchTagsMode != "always" && s.FetchTagsMode != "never" {
+		s.FetchTagsMode = "auto"
+	}
+	if strings.ContainsAny(s.SshCommand, "\n\r") {
+		s.SshCommand = ""
+	}
+	s.SshCommand = strings.TrimSpace(s.SshCommand)
 	if s.AutoFetchMinutes <= 0 {
 		s.AutoFetchMinutes = 15
 	}

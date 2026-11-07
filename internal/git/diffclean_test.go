@@ -83,3 +83,20 @@ func TestFileDiffWholeFileKeepsEveryUnchangedLine(t *testing.T) {
 		t.Fatalf("default diff kept %d context lines, want 6 (3 either side)", narrowContext)
 	}
 }
+
+func TestFileDiffHeadCombinesStagedAndUnstagedChanges(t *testing.T) {
+	repo, dir := newTestRepo(t)
+	writeFile(t, dir, "a.txt", "one\nstaged\n")
+	runGit(t, dir, "add", "a.txt")
+	writeFile(t, dir, "a.txt", "one\nstaged\nand unstaged\n")
+	diff, err := repo.FileDiff(context.Background(), DiffOptions{Path: "a.txt", Target: DiffHead})
+	if err != nil {
+		t.Fatalf("FileDiff: %v", err)
+	}
+	if diff.Additions != 2 {
+		t.Fatalf("additions = %d, want both changes", diff.Additions)
+	}
+	if diff.OldLabel != "HEAD" || diff.NewLabel != "Working Tree" {
+		t.Fatalf("labels = %q -> %q", diff.OldLabel, diff.NewLabel)
+	}
+}

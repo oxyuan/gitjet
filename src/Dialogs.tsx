@@ -76,6 +76,13 @@ const T = {
     "settings.toolFiles": "Files",
     "settings.toolConsole": "Console",
     "settings.panelGitPath": "Git executable",
+    "settings.panelConnection": "Remote connection",
+    "settings.sshCommand": "SSH command",
+    "settings.sshCommandHint": "Replaces the SSH client git runs, for a key or an agent. Empty keeps git's own.",
+    "settings.fetchTags": "Fetch tags",
+    "settings.fetchTagsAuto": "Follow the fetched history",
+    "settings.fetchTagsAlways": "Always fetch all tags",
+    "settings.fetchTagsNever": "Never fetch tags",
     "settings.panelDiff": "Diff settings",
     "settings.panelSync": "Sync and update",
     "settings.panelCommit": "Commit",
@@ -610,6 +617,7 @@ const PANELS: { id: string; title: TKey; open: boolean; tone?: "warning" }[] = [
   { id: "general", title: "settings.panelGeneral", open: true },
   { id: "tabs", title: "settings.panelTabs", open: true },
   { id: "gitPath", title: "settings.panelGitPath", open: true },
+  { id: "connection", title: "settings.panelConnection", open: false },
   { id: "diff", title: "settings.panelDiff", open: false },
   { id: "sync", title: "settings.panelSync", open: true },
   { id: "commit", title: "settings.panelCommit", open: false },
@@ -625,6 +633,8 @@ const TAB_FIELDS: Record<SettingsTab, (keyof Settings)[]> = {
   general: ["language", "theme", "uiScale", "openInNewWindow"],
   git: [
     "gitPath",
+    "sshCommand",
+    "fetchTagsMode",
     "diffContext",
     "ignoreWhitespace",
     "showIgnored",
@@ -951,6 +961,26 @@ export function SettingsDialog({
                   </div>
                   {error && <div className="setting-note error">{error}</div>}
                 </SettingRow>,
+              )}
+              {panel(
+                "connection",
+                <>
+                  <SettingRow label={t("settings.sshCommand")} hint={t("settings.sshCommandHint")}>
+                    <TextInput
+                      value={draft.sshCommand}
+                      onChange={(value) => set("sshCommand", value)}
+                      placeholder="ssh -i ~/.ssh/id_ed25519"
+                      monospace
+                    />
+                  </SettingRow>
+                  <SettingRow label={t("settings.fetchTags")}>
+                    <Select value={draft.fetchTagsMode} onChange={(v) => set("fetchTagsMode", v)}>
+                      <option value="auto">{t("settings.fetchTagsAuto")}</option>
+                      <option value="always">{t("settings.fetchTagsAlways")}</option>
+                      <option value="never">{t("settings.fetchTagsNever")}</option>
+                    </Select>
+                  </SettingRow>
+                </>,
               )}
 
               {panel(
@@ -1980,7 +2010,7 @@ export function PullDialog({
         <>
           <Button onClick={onClose}>{t("common.cancel")}</Button>
           <Button variant="primary" onClick={() =>
-            onSubmit({ remote, branch: "", rebase, autostash, prune, tags, ffOnly, noFF, squash, noCommit })
+            onSubmit({ remote, branch: "", rebase, autostash, prune, tags, ffOnly, noFF, squash, noCommit, tagsMode: "" })
           }>
             {t("common.pull")}
           </Button>

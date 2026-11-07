@@ -21,6 +21,7 @@ const T = {
     showDiff: "Show Diff",
     openSourceFile: "Open Source File",
     showHistory: "Show History",
+    compareHead: "Compare with HEAD",
     resolveConflict: "Resolve Conflict…",
     acceptOurs: "Accept Ours",
     acceptTheirs: "Accept Theirs",
@@ -210,6 +211,7 @@ export interface CommitActions {
   onShowConflict: (path: string) => void;
   onOpenSource: (path: string, revision: string) => void;
   onShowHistory: (path: string) => void;
+  onCompareHead: (path: string) => void;
   onStage: (paths: string[]) => void;
   onIntentToAdd: (paths: string[]) => void;
   onUnstage: (paths: string[]) => void;
@@ -384,6 +386,7 @@ export function CommitPanel({
       { label: t("showDiff"), icon: "diff", onClick: () => actions.onShowDiff(entry) },
       { label: t("openSourceFile"), icon: "file", onClick: () => actions.onOpenSource(entry.path, entry.staged ? "INDEX" : "") },
       { label: t("showHistory"), icon: "log", onClick: () => actions.onShowHistory(entry.path) },
+      { label: t("compareHead"), icon: "diff", onClick: () => actions.onCompareHead(entry.path) },
       { separator: true },
     ];
     if (entry.unmerged) {

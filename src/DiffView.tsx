@@ -469,6 +469,8 @@ function blameRevisions(opts: DiffOptions): { before: string; after: string } {
       return { before: opts.from, after: opts.revision };
     case "staged":
       return { before: "HEAD", after: "INDEX" };
+    case "head":
+      return { before: "HEAD", after: "" };
     default:
       return { before: opts.revision || "HEAD", after: "" };
   }

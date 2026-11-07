@@ -240,6 +240,7 @@ export interface FetchOptions {
   remote: string;
   prune: boolean;
   tags: boolean;
+  tagsMode: string;
 }
 
 export interface FileDiff {
@@ -395,6 +396,7 @@ export interface PullOptions {
   noFF: boolean;
   squash: boolean;
   noCommit: boolean;
+  tagsMode: string;
 }
 
 export interface PushOptions {
@@ -527,6 +529,10 @@ export interface Settings {
    */
   version: number;
   gitPath: string;
+  /** SshCommand replaces the SSH client git runs, e.g. with a key. */
+  sshCommand: string;
+  /** FetchTagsMode is auto, always or never. */
+  fetchTagsMode: string;
   /** system, en, zh */
   language: string;
   /** system, light, dark */
