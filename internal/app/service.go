@@ -647,6 +647,15 @@ func (g *Git) ApplyHunk(opts git.DiffOptions, hunkIndex int, action string) erro
 	return nil
 }
 
+// ExternalDiff opens the user's difftool for one file.
+func (g *Git) ExternalDiff(opts git.DiffOptions) (string, error) {
+	repo, err := g.c.currentRepo()
+	if err != nil {
+		return "", err
+	}
+	return repo.OpenExternalDiff(context.Background(), opts)
+}
+
 // ApplyFile stages, unstages or rolls back a whole file.
 func (g *Git) ApplyFile(opts git.DiffOptions, action string) error {
 	repo, err := g.c.currentRepo()
@@ -1684,6 +1693,15 @@ func (g *Git) File(path, revision string) (git.SourceFile, error) {
 		return git.SourceFile{}, err
 	}
 	return repo.FileContent(context.Background(), path, revision)
+}
+
+// Image reads one version of an image file for the viewer.
+func (g *Git) Image(path, revision string) (git.ImageData, error) {
+	repo, err := g.c.currentRepo()
+	if err != nil {
+		return git.ImageData{}, err
+	}
+	return repo.Image(context.Background(), path, revision)
 }
 
 // Files searches the working tree's files for quick open.

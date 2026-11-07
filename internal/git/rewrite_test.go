@@ -228,3 +228,72 @@ func TestRewriteAbortRestoresOriginalTip(t *testing.T) {
 		t.Errorf("operation = %q after abort", op)
 	}
 }
+
+func TestRewriteStopsToEditAndContinues(t *testing.T) {
+	repo, dir := newTestRepo(t)
+	onto := runGit(t, dir, "rev-parse", "HEAD")
+	writeFile(t, dir, "b.txt", "b\n")
+	runGit(t, dir, "add", "b.txt")
+	runGit(t, dir, "commit", "-q", "-m", "first")
+	writeFile(t, dir, "c.txt", "c\n")
+	runGit(t, dir, "add", "c.txt")
+	runGit(t, dir, "commit", "-q", "-m", "second")
+	plan, err := repo.RewritePlan(context.Background(), onto)
+	if err != nil {
+		t.Fatalf("RewritePlan: %v", err)
+	}
+	steps := []PlanStep{
+		{Hash: plan[0].Hash, Action: PlanEdit},
+		{Hash: plan[1].Hash, Action: PlanPick},
+	}
+	out, err := repo.Rewrite(context.Background(), onto, steps)
+	if err != nil {
+		t.Fatalf("Rewrite: %v", err)
+	}
+	if !strings.Contains(out, "stopped to edit") {
+		t.Fatalf("output = %q, want a stop for the edit", out)
+	}
+	if op, _, _ := repo.operation(); op != "rebase-interactive" {
+		t.Fatalf("operation = %q, want rebase-interactive", op)
+	}
+	// The user amends the commit the edit stopped on, then continues.
+	runGit(t, dir, "commit", "-q", "--amend", "-m", "first amended")
+	if _, err := repo.ContinueOperation(context.Background()); err != nil {
+		t.Fatalf("ContinueOperation: %v", err)
+	}
+	if op, _, _ := repo.operation(); op != "" {
+		t.Fatalf("operation = %q after continue, want none", op)
+	}
+	subjects := runGit(t, dir, "log", "--format=%s", "-2")
+	if subjects != "second\nfirst amended" {
+		t.Fatalf("history = %q", subjects)
+	}
+}
+
+func TestRewriteReordersIndependentCommits(t *testing.T) {
+	repo, dir := newTestRepo(t)
+	onto := runGit(t, dir, "rev-parse", "HEAD")
+	writeFile(t, dir, "b.txt", "b\n")
+	runGit(t, dir, "add", "b.txt")
+	runGit(t, dir, "commit", "-q", "-m", "first")
+	writeFile(t, dir, "c.txt", "c\n")
+	runGit(t, dir, "add", "c.txt")
+	runGit(t, dir, "commit", "-q", "-m", "second")
+	plan, err := repo.RewritePlan(context.Background(), onto)
+	if err != nil {
+		t.Fatal(err)
+	}
+	reordered := []PlanStep{
+		{Hash: plan[1].Hash, Action: PlanPick},
+		{Hash: plan[0].Hash, Action: PlanPick},
+	}
+	if _, err := repo.Rewrite(context.Background(), onto, reordered); err != nil {
+		t.Fatalf("Rewrite: %v", err)
+	}
+	if subjects := runGit(t, dir, "log", "--format=%s", "-2"); subjects != "first\nsecond" {
+		t.Fatalf("history = %q, want the commits in the new order", subjects)
+	}
+	if _, err := os.Stat(filepath.Join(dir, "c.txt")); err != nil {
+		t.Fatalf("c.txt is missing: %v", err)
+	}
+}

@@ -162,6 +162,9 @@ func labelsFor(opts DiffOptions) (string, string) {
 	case DiffRange:
 		return short(opts.From), short(opts.Revision)
 	case DiffHead:
+		if rev := strings.TrimSpace(opts.Revision); rev != "" {
+			return short(rev), "Working Tree"
+		}
 		return "HEAD", "Working Tree"
 	default:
 		if opts.Revision != "" {
@@ -181,7 +184,14 @@ func (r *Repo) patchFor(ctx context.Context, opts DiffOptions, path string) (str
 	args = append(args, fmt.Sprintf("-U%d", opts.Context))
 	switch opts.Target {
 	case DiffHead:
-		args = append(args, "HEAD")
+		rev := strings.TrimSpace(opts.Revision)
+		if rev == "" {
+			rev = "HEAD"
+		}
+		if strings.ContainsAny(rev, " \t\n") || strings.HasPrefix(rev, "-") {
+			return "", errors.New("invalid revision")
+		}
+		args = append(args, rev)
 	case DiffStaged:
 		args = append(args, "--cached")
 	case DiffCommit:
@@ -532,4 +542,44 @@ func (r *Repo) ApplyDiffHunkFile(ctx context.Context, opts DiffOptions, action s
 		return r.Rollback(ctx, []string{path})
 	}
 	return fmt.Errorf("unknown action %q", action)
+}
+
+// OpenExternalDiff opens the configured difftool for one file. It blocks
+// until the tool exits, since git waits for the program it spawns.
+func (r *Repo) OpenExternalDiff(ctx context.Context, opts DiffOptions) (string, error) {
+	path, err := cleanPath(opts.Path)
+	if err != nil {
+		return "", err
+	}
+	args := []string{"difftool", "--no-prompt"}
+	switch opts.Target {
+	case DiffHead:
+		args = append(args, "HEAD")
+	case DiffStaged:
+		args = append(args, "--cached")
+	case DiffCommit:
+		rev := strings.TrimSpace(opts.Revision)
+		if rev == "" {
+			return "", errors.New("no revision given")
+		}
+		parents, perr := r.parents(ctx, rev)
+		if perr != nil {
+			return "", perr
+		}
+		base := emptyTree
+		if len(parents) > 0 {
+			base = parents[0]
+		}
+		args = append(args, base, rev)
+	case DiffRange:
+		if opts.From == "" || opts.Revision == "" {
+			return "", errors.New("a range needs two revisions")
+		}
+		args = append(args, opts.From, opts.Revision)
+	default:
+		// index against the working tree, which is what git difftool
+		// compares by default
+	}
+	args = append(args, "--", path)
+	return r.run(ctx, args...)
 }

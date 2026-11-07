@@ -262,6 +262,11 @@ export interface FileDiff {
   language: string;
 }
 
+export interface ImageData {
+  mime: string;
+  data: string;
+}
+
 /**
  * JournalEntry is one command the app ran for the user: what it did, the git
  * invocations behind it, and everything they printed. Entries are
@@ -927,6 +932,10 @@ export const Git = {
   dropShelf(name: string): Promise<string> {
     return call("Git.DropShelf", name);
   },
+  /** ExternalDiff opens the user's difftool for one file. */
+  externalDiff(opts: DiffOptions): Promise<string> {
+    return call("Git.ExternalDiff", opts);
+  },
   /** Fetch fetches and streams git's output. */
   fetch(opts: FetchOptions, out: Channel<string>): Promise<string> {
     return call("Git.Fetch", opts, out);
@@ -945,6 +954,10 @@ export const Git = {
   /** Ignore adds paths to .gitignore and removes tracked files under them from the index. */
   ignore(paths: string[]): Promise<string> {
     return call("Git.Ignore", paths);
+  },
+  /** Image reads one version of an image file for the viewer. */
+  image(path: string, revision: string): Promise<ImageData> {
+    return call("Git.Image", path, revision);
   },
   /**
    * Journal returns the newest recorded operations of the open repository,

@@ -938,6 +938,17 @@ func (r *Repo) ContinueOperation(ctx context.Context) (string, error) {
 	if hasPlan && plan != nil {
 		out := ""
 		committed := false
+		if plan.Paused {
+			// An "edit" step stopped after applying its commit; the user
+			// has amended it and asks for the rest of the plan.
+			plan.Paused = false
+			plan.Index++
+			if err := r.writePlan(plan); err != nil {
+				return "", err
+			}
+			rest, err := r.resumePlan(ctx, false)
+			return strings.TrimSpace(rest), err
+		}
 		if _, err := r.run(ctx, "rev-parse", "--verify", "--quiet", "CHERRY_PICK_HEAD"); err == nil {
 			res, err := r.run(ctx, "cherry-pick", "--continue")
 			if err != nil {

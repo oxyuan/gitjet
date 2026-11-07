@@ -278,6 +278,7 @@ const T = {
     "localHistory.labelPlaceholder": "Name this copy",
     "localHistory.binary": "This copy cannot be shown as text.",
     "stashd.restoreIndex": "Reinstate the index (--index)",
+    "stashd.compareLocal": "Compare with the working tree",
     "stashd.branch": "Restore on a new branch",
     "stashd.drop": "Drop",
     "stashd.branchPlaceholder": "branch name",
@@ -544,6 +545,7 @@ const T = {
     "localHistory.labelPlaceholder": "为此副本命名",
     "localHistory.binary": "此副本无法以文本显示。",
     "stashd.restoreIndex": "还原暂存区（--index）",
+    "stashd.compareLocal": "与工作区比较",
     "stashd.branch": "恢复到新分支",
     "stashd.drop": "Stash drop",
     "stashd.branchPlaceholder": "分支名",
@@ -1891,6 +1893,7 @@ function PushFilePreviewDialog({
                 onApply={() => {}}
                 onApplyFile={() => {}}
                 onApplyLines={() => {}}
+                onExternalDiff={() => {}}
                 onOpenFile={() => setMode("file")}
                 root={root}
                 onCopyPath={onCopyPath}
@@ -2464,7 +2467,7 @@ export function StashDetailDialog({
   index: number;
   refName: string;
   onClose: () => void;
-  onOpenDiff: (index: number, path: string) => void;
+  onOpenDiff: (index: number, path: string, compareLocal: boolean) => void;
   onApply: (index: number, pop: boolean, restoreIndex: boolean) => void;
   onDrop: (index: number) => void;
   onBranch: (index: number, branch: string) => void;
@@ -2474,6 +2477,7 @@ export function StashDetailDialog({
   const [loading, setLoading] = useState(true);
   const [branch, setBranch] = useState(`stash-${index}`);
   const [restoreIndex, setRestoreIndex] = useState(false);
+  const [compareLocal, setCompareLocal] = useState(false);
 
   useEffect(() => {
     let alive = true;
@@ -2514,7 +2518,7 @@ export function StashDetailDialog({
               key={file.path}
               className="stashd-file"
               title={t("stashd.open")}
-              onClick={() => onOpenDiff(index, file.path)}
+              onClick={() => onOpenDiff(index, file.path, compareLocal)}
             >
               <Icon name="file" size={13} />
               <span className="stashd-path">
@@ -2533,11 +2537,18 @@ export function StashDetailDialog({
           ))}
         </div>
       )}
-      <Checkbox
-        checked={restoreIndex}
-        onChange={setRestoreIndex}
-        label={t("stashd.restoreIndex")}
-      />
+      <div className="dialog-checks">
+        <Checkbox
+          checked={restoreIndex}
+          onChange={setRestoreIndex}
+          label={t("stashd.restoreIndex")}
+        />
+        <Checkbox
+          checked={compareLocal}
+          onChange={setCompareLocal}
+          label={t("stashd.compareLocal")}
+        />
+      </div>
       <div className="dialog-form stashd-branch">
         <Field label={t("stashd.branch")}>
           <TextInput value={branch} onChange={setBranch} placeholder={t("stashd.branchPlaceholder")} />

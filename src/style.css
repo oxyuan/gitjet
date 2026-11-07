@@ -9137,3 +9137,129 @@ body.resizing-row .log-detail-split::after {
   border-color: var(--accent);
   color: var(--accent);
 }
+
+/* Image diff */
+.image-diff-wrap {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.image-diff-bar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 12px;
+  border-bottom: 1px solid var(--border);
+}
+
+.image-diff-bar input[type="range"] {
+  width: 140px;
+}
+
+.image-split {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+}
+
+.image-side {
+  flex: 1 1 50%;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  border-right: 1px solid var(--border);
+  overflow: auto;
+}
+
+.image-side:last-child {
+  border-right: 0;
+}
+
+.image-label {
+  font-size: 10.5px;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--muted);
+  padding: 5px 10px;
+}
+
+.image-pane-img {
+  max-width: 100%;
+  margin: auto;
+  display: block;
+  background-image:
+    linear-gradient(45deg, var(--selection) 25%, transparent 25%),
+    linear-gradient(-45deg, var(--selection) 25%, transparent 25%),
+    linear-gradient(45deg, transparent 75%, var(--selection) 75%),
+    linear-gradient(-45deg, transparent 75%, var(--selection) 75%);
+  background-size: 16px 16px;
+  background-position: 0 0, 0 8px, 8px -8px, -8px 0;
+}
+
+.image-overlay {
+  flex: 1;
+  min-height: 0;
+  position: relative;
+  overflow: hidden;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.image-overlay > * {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.image-overlay .image-pane-img {
+  max-width: 96%;
+  max-height: 96%;
+  width: auto;
+  height: auto;
+}
+
+.image-overlay-top {
+  pointer-events: none;
+}
+
+.image-label.overlay-left {
+  left: 8px;
+  top: 6px;
+  inset: auto;
+}
+
+.image-label.overlay-right {
+  right: 8px;
+  top: 6px;
+  inset: auto;
+  text-align: right;
+}
+
+.image-empty {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--muted);
+  font-size: 12px;
+  padding: 24px;
+}
+
+.image-diff {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  overflow: auto;
+}
+
+.image-diff.single .image-pane-img {
+  max-width: 96%;
+  max-height: 96%;
+}

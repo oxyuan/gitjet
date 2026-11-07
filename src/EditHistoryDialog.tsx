@@ -19,6 +19,7 @@ const T = {
     squash: "Squash into previous",
     fixup: "Fixup into previous",
     drop: "Drop",
+    edit: "Edit (stop)",
     message: "Message",
     apply: "Rewrite {n} commits",
     cancel: "Cancel",
@@ -27,6 +28,8 @@ const T = {
     hintRoot: "The first line cannot be squashed or fixed up",
     hintMerge: "Merge commits cannot be rewritten; drop them instead",
     summary: "{picked} kept, {dropped} dropped, {folded} folded",
+    moveUp: "Move up",
+    moveDown: "Move down",
   },
   zh: {
     title: "编辑历史",
@@ -52,7 +55,7 @@ const T = {
   },
 } as const;
 
-const ACTIONS = ["pick", "reword", "squash", "fixup", "drop"] as const;
+const ACTIONS = ["pick", "reword", "edit", "squash", "fixup", "drop"] as const;
 
 /** EditHistoryDialog rewrites a commit range: reword, squash, fixup or drop. */
 export function EditHistoryDialog({
@@ -91,7 +94,19 @@ export function EditHistoryDialog({
   const update = (hash: string, patch: Partial<PlanStep>) =>
     setSteps((prev) => prev.map((s) => (s.hash === hash ? { ...s, ...patch } : s)));
 
-  const picked = steps.filter((s) => s.action === "pick" || s.action === "reword").length;
+  const move = (index: number, delta: number) =>
+    setSteps((prev) => {
+      const next = [...prev];
+      const target = index + delta;
+      if (target < 0 || target >= next.length) return prev;
+      const [step] = next.splice(index, 1);
+      next.splice(target, 0, step!);
+      return next;
+    });
+
+  const byHash = new Map(commits.map((c) => [c.hash, c]));
+  const firstKept = steps.find((s) => s.action !== "drop")?.hash ?? "";
+  const picked = steps.filter((s) => s.action === "pick" || s.action === "reword" || s.action === "edit").length;
   const dropped = steps.filter((s) => s.action === "drop").length;
   const folded = steps.filter((s) => s.action === "squash" || s.action === "fixup").length;
 
@@ -118,9 +133,9 @@ export function EditHistoryDialog({
         <>
           <div className="rewrite-list" role="list">
             {steps.map((step, i) => {
-              const commit = commits[i];
+              const commit = byHash.get(step.hash);
               if (!commit) return null;
-              const first = i === 0;
+              const first = step.hash === firstKept;
               const messageAction = step.action === "reword" || step.action === "squash";
               return (
                 <div className={cx("rewrite-row", step.action === "drop" && "dropped")} key={step.hash} role="listitem">
@@ -147,6 +162,22 @@ export function EditHistoryDialog({
                       {commit.subject}
                     </span>
                     <span className="rewrite-author">{commit.author}</span>
+                    <button
+                      className="mini-icon"
+                      title={t("moveUp")}
+                      disabled={i === 0}
+                      onClick={() => move(i, -1)}
+                    >
+                      <Icon name="chevronUp" size={12} />
+                    </button>
+                    <button
+                      className="mini-icon"
+                      title={t("moveDown")}
+                      disabled={i === steps.length - 1}
+                      onClick={() => move(i, 1)}
+                    >
+                      <Icon name="chevronDown" size={12} />
+                    </button>
                     {messageAction && (
                       <button
                         className="mini-btn"

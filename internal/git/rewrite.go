@@ -18,6 +18,9 @@ const (
 	PlanSquash = "squash"
 	PlanFixup  = "fixup"
 	PlanDrop   = "drop"
+	// PlanEdit applies the commit and stops, so its content or message can
+	// be amended before the rest of the plan continues.
+	PlanEdit = "edit"
 )
 
 // PlanCommit is one commit of a rewrite range, oldest first. The range is
@@ -51,6 +54,9 @@ type planState struct {
 	// Message is the message of the commit at the tip, which a squash
 	// appends to.
 	Message string `json:"message"`
+	// Paused is set between an applied "edit" commit and the continue that
+	// resumes the plan.
+	Paused bool `json:"paused"`
 }
 
 const planFile = "gitjet-rewrite-plan.json"
@@ -120,19 +126,29 @@ func (r *Repo) Rewrite(ctx context.Context, onto string, steps []PlanStep) (stri
 	if len(commits) != len(steps) {
 		return "", fmt.Errorf("the plan covers %d commits but the range has %d", len(steps), len(commits))
 	}
-	for i, st := range steps {
-		if st.Hash != commits[i].Hash {
+	// The plan may reorder commits, so it is matched by hash: every commit
+	// of the range appears exactly once, in whatever order the user chose.
+	byHash := make(map[string]PlanCommit, len(commits))
+	for _, c := range commits {
+		byHash[c.Hash] = c
+	}
+	seen := make(map[string]bool, len(steps))
+	for _, st := range steps {
+		commit, ok := byHash[st.Hash]
+		if !ok || seen[st.Hash] {
 			return "", errors.New("the plan does not match the commits of the range")
 		}
+		seen[st.Hash] = true
 		switch st.Action {
-		case PlanPick, PlanReword, PlanSquash, PlanFixup, PlanDrop:
+		case PlanPick, PlanReword, PlanSquash, PlanFixup, PlanDrop, PlanEdit:
 		default:
 			return "", fmt.Errorf("unknown action %q", st.Action)
 		}
-		if commits[i].Merge && st.Action != PlanDrop {
-			return "", fmt.Errorf("%s is a merge commit, which cannot be rewritten", commits[i].Short)
+		if commit.Merge && st.Action != PlanDrop {
+			return "", fmt.Errorf("%s is a merge commit, which cannot be rewritten", commit.Short)
 		}
 	}
+	firstKept := false
 	for _, st := range steps {
 		if st.Action == PlanDrop {
 			continue
@@ -140,7 +156,11 @@ func (r *Repo) Rewrite(ctx context.Context, onto string, steps []PlanStep) (stri
 		if st.Action == PlanSquash || st.Action == PlanFixup {
 			return "", errors.New("the first kept commit of the range cannot be squashed")
 		}
+		firstKept = true
 		break
+	}
+	if !firstKept {
+		return "", errors.New("the plan drops every commit")
 	}
 
 	r.write.Lock()
@@ -232,6 +252,12 @@ func (r *Repo) runPlan(ctx context.Context, state *planState, committed bool) (s
 			}
 		}
 		state.Message = r.headMessage(ctx)
+		if step.Action == PlanEdit {
+			state.Paused = true
+			r.savePlan(state)
+			out.WriteString("\nstopped to edit " + step.Hash)
+			return strings.TrimSpace(out.String()), nil
+		}
 		state.Index++
 	}
 	r.clearPlan()

@@ -100,3 +100,22 @@ func TestFileDiffHeadCombinesStagedAndUnstagedChanges(t *testing.T) {
 		t.Fatalf("labels = %q -> %q", diff.OldLabel, diff.NewLabel)
 	}
 }
+
+func TestFileDiffHeadWithARevisionComparesItWithTheWorkingTree(t *testing.T) {
+	repo, dir := newTestRepo(t)
+	writeFile(t, dir, "a.txt", "one\nstashed\n")
+	runGit(t, dir, "stash", "push", "-q", "-m", "wip")
+	writeFile(t, dir, "a.txt", "one\nworking\n")
+	diff, err := repo.FileDiff(context.Background(), DiffOptions{
+		Path: "a.txt", Target: DiffHead, Revision: "stash@{0}",
+	})
+	if err != nil {
+		t.Fatalf("FileDiff: %v", err)
+	}
+	if diff.NewLabel != "Working Tree" || !diff.HasChanges {
+		t.Fatalf("diff = %+v", diff)
+	}
+	if diff.Additions != 1 || diff.Deletions != 1 {
+		t.Fatalf("additions/deletions = %d/%d, want 1/1", diff.Additions, diff.Deletions)
+	}
+}

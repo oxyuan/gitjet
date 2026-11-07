@@ -3,6 +3,8 @@ import { annotateDate, blameDepth } from "./annotate";
 import { blameMenuItems } from "./blameMenu";
 import { Git, type BlameLine, type DiffOptions, type FileDiff } from "./mygo";
 import { buildDiffRows, changeBlockRows, isCollapsed, type AlignedRow, type DiffRows, type WordSegment } from "./diff";
+import { ImageDiff } from "./ImageDiff";
+import { isImagePath } from "./images";
 import { FileIcon, Icon } from "./icons";
 import { useT } from "./i18n";
 import { paintLine, tokenize, type LineTokens } from "./syntax";
@@ -38,6 +40,8 @@ const T = {
     lineHistory: "Show history of this line",
     copyHash: "Copy commit hash",
     annotateWithBlame: "Annotate with Git Blame",
+    externalDiff: "Open this comparison in the configured difftool",
+    externalDiffShort: "Difftool",
     ignoreWhitespaceBlame: "Ignore whitespace changes",
     keepWhitespaceBlame: "Attribute whitespace changes",
     closeAnnotations: "Close Annotations",
@@ -84,6 +88,8 @@ const T = {
     lineHistory: "查看该行的历史",
     copyHash: "复制提交哈希",
     annotateWithBlame: "使用 Git Blame 标注",
+    externalDiff: "用配置的差异工具打开此比较",
+    externalDiffShort: "差异工具",
     ignoreWhitespaceBlame: "忽略空白改动",
     keepWhitespaceBlame: "归属空白改动",
     closeAnnotations: "关闭 Blame",
@@ -117,6 +123,7 @@ export function DiffView({
   onApplyFile,
   onApplyLines,
   onOpenFile,
+  onExternalDiff,
   onShowFileHistory,
   root,
   onCopyPath,
@@ -135,6 +142,7 @@ export function DiffView({
   onApplyFile: (action: "stage" | "unstage" | "rollback") => void;
   onApplyLines: (lines: number[], action: "stage" | "unstage" | "rollback") => void;
   onOpenFile: () => void;
+  onExternalDiff?: () => void;
   /** Line history of one side of the diff, at that side's revision. */
   onShowFileHistory?: (path: string, line: number, revision: string) => void;
   root: string;
@@ -158,7 +166,7 @@ export function DiffView({
   const [annotate, setAnnotate] = useStoredState<boolean>("gitjet.annotate", false);
   const [ignoreWs, setIgnoreWs] = useStoredState<boolean>("gitjet.blameIgnoreWhitespace", false);
   const [menu, setMenu] = useState<{ x: number; y: number; side: Side; line: number } | null>(null);
-  const revisions = useMemo(() => blameRevisions(opts), [opts.target, opts.revision, opts.from]);
+  const revisions = useMemo(() => diffRevisions(opts), [opts.target, opts.revision, opts.from]);
   const beforePath = opts.oldPath || opts.path;
   const before = useBlame(beforePath, revisions.before, !diff.binary && (annotate || menu?.side === "before"), ignoreWs);
   const after = useBlame(diff.path, revisions.after, !diff.binary && (annotate || menu?.side === "after"), ignoreWs);
@@ -277,6 +285,11 @@ export function DiffView({
           <button className="toolbar-text-btn" onClick={onOpenFile} title={t("openSourceFile")}>
             <Icon name="file" /> {t("openFile")}
           </button>
+          {onExternalDiff && (
+            <button className="toolbar-text-btn" onClick={onExternalDiff} title={t("externalDiff")}>
+              <Icon name="external" /> {t("externalDiffShort")}
+            </button>
+          )}
           <PathCopyButton path={diff.path} root={root} onCopy={onCopyPath} />
         </div>
         <div className="diff-toolbar">
@@ -369,10 +382,19 @@ export function DiffView({
         </div>
       </div>
       {diff.binary ? (
-        <div className="diff-empty">
-          <Icon name="file" size={24} />
-          <div>{t("binaryDiff")}</div>
-        </div>
+        isImagePath(diff.path) ? (
+          <ImageDiff
+            path={diff.path}
+            oldPath={diff.oldPath}
+            before={revisions.before}
+            after={revisions.after}
+          />
+        ) : (
+          <div className="diff-empty">
+            <Icon name="file" size={24} />
+            <div>{t("binaryDiff")}</div>
+          </div>
+        )
       ) : rows.length === 0 ? (
         <div className="diff-empty">
           <Icon name="check" size={24} />
@@ -461,7 +483,8 @@ function useDiffTokens(diff: FileDiff): { left: LineTokens | null; right: LineTo
 /** Which revision each column of the diff belongs to, for blame. The left
  *  side of a commit is its parent; the right side of the working tree is the
  *  file on disk. */
-function blameRevisions(opts: DiffOptions): { before: string; after: string } {
+/** The two versions a diff compares, as blobs or revisions. */
+export function diffRevisions(opts: DiffOptions): { before: string; after: string } {
   switch (opts.target) {
     case "commit":
       return { before: opts.revision ? `${opts.revision}^` : "", after: opts.revision };
@@ -470,9 +493,10 @@ function blameRevisions(opts: DiffOptions): { before: string; after: string } {
     case "staged":
       return { before: "HEAD", after: "INDEX" };
     case "head":
-      return { before: "HEAD", after: "" };
-    default:
       return { before: opts.revision || "HEAD", after: "" };
+    default:
+      // The working tree diff is the index against the file on disk.
+      return { before: "INDEX", after: "" };
   }
 }
 

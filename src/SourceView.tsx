@@ -6,6 +6,8 @@ import { cx, formatWhen, IconButton } from "./ui";
 import { PathCopyButton } from "./PathCopy";
 import { useT } from "./i18n";
 import { detectLineEnding } from "./editorText";
+import { ImageDiff } from "./ImageDiff";
+import { isImagePath } from "./images";
 
 const T = {
   en: {
@@ -241,11 +243,15 @@ export function SourceView({
         </div>
       </div>
       {file.binary ? (
-        <div className="diff-empty">
-          <Icon name="file" size={24} />
-          <div>{t("binaryFile")}</div>
-          <div className="muted">{formatSize(file.size)}</div>
-        </div>
+        isImagePath(file.path) ? (
+          <ImageDiff path={file.path} before="" after={file.revision} single />
+        ) : (
+          <div className="diff-empty">
+            <Icon name="file" size={24} />
+            <div>{t("binaryFile")}</div>
+            <div className="muted">{formatSize(file.size)}</div>
+          </div>
+        )
       ) : !file.exists ? (
         <div className="diff-empty">
           <Icon name="file" size={20} />

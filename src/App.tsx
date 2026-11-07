@@ -254,6 +254,7 @@ const T = {
     clearStashesMessage: "Every stash entry of this repository is deleted. This cannot be undone.",
     patchSaved: "Patch saved",
     patchApplied: "Patch applied",
+    externalDiffFailed: "The difftool could not be opened",
     commitChecksMessage: "{n} problems were found. Commit anyway?",
     commitAnyway: "Commit Anyway",
     commitRebaseNoUpstream: "The branch has no upstream to rebase onto.",
@@ -479,6 +480,7 @@ const T = {
     clearStashesMessage: "该仓库的所有 Stash 条目都会被删除，且无法撤销。",
     patchSaved: "补丁已保存",
     patchApplied: "补丁已应用",
+    externalDiffFailed: "无法打开差异工具",
     commitChecksMessage: "发现 {n} 个问题，仍要提交吗？",
     commitAnyway: "仍然提交",
     commitRebaseNoUpstream: "当前分支没有可 Rebase 的上游。",
@@ -2143,11 +2145,11 @@ function AppShell({ onLangChange }: { onLangChange: (lang: Lang) => void }) {
     });
   };
 
-  const openStashDiff = async (index: number, path: string) => {
+  const openStashDiff = async (index: number, path: string, compareLocal: boolean) => {
     try {
       const opts: DiffOptions = {
         path,
-        target: "range",
+        target: compareLocal ? "head" : "range",
         from: `stash@{${index}}^`,
         revision: `stash@{${index}}`,
         context: settingsRef.current?.diffContext ?? -1,
@@ -2824,6 +2826,9 @@ function AppShell({ onLangChange }: { onLangChange: (lang: Lang) => void }) {
             onReveal={(path) => void Workspace.reveal(path).catch((err) => fail(t("revealFailed"), err))}
             onRollbackHunk={(path, hunk) => void rollbackEditorHunk(path, hunk)}
             onRollbackLine={(path, line) => void rollbackEditorLine(path, line)}
+            onExternalDiff={(opts) =>
+              void Git.externalDiff(opts).catch((err) => fail(t("externalDiffFailed"), err))
+            }
             onLocalHistory={(path) => setDialog({ kind: "localHistory", path })}
             onSymbol={(word, language) => void lookUpSymbol(word, language)}
             busy={diffBusy}
@@ -3162,7 +3167,7 @@ function AppShell({ onLangChange }: { onLangChange: (lang: Lang) => void }) {
           index={dialog.index}
           refName={dialog.refName}
           onClose={() => setDialog(null)}
-          onOpenDiff={(index, path) => void openStashDiff(index, path)}
+          onOpenDiff={(index, path, compareLocal) => void openStashDiff(index, path, compareLocal)}
           onApply={(index, pop, restoreIndex) => {
             setDialog(null);
             void stashApply(index, pop, restoreIndex);
@@ -3398,6 +3403,7 @@ function RightPane({
   onApplyFile,
   onApplyLines,
   onOpenFile,
+  onExternalDiff,
   onOpenDiff,
   onCopyPath,
   onReveal,
@@ -3437,6 +3443,7 @@ function RightPane({
   onApplyFile: (action: "stage" | "unstage" | "rollback") => void;
   onApplyLines: (lines: number[], action: "stage" | "unstage" | "rollback") => void;
   onOpenFile: (path: string, revision: string) => void;
+  onExternalDiff: (opts: DiffOptions) => void;
   onOpenDiff: (path: string, revision: string) => void;
   onCopyPath: (text: string) => void;
   onReveal: (path: string) => void;
@@ -3753,6 +3760,7 @@ function RightPane({
             onApply={onApplyHunk}
             onApplyFile={onApplyFile}
             onApplyLines={onApplyLines}
+            onExternalDiff={() => onExternalDiff(active.opts)}
             onOpenFile={() =>
               onOpenFile(
                 active.opts.path,
