@@ -3,6 +3,7 @@ package app
 import (
 	"encoding/base64"
 	"fmt"
+	"os"
 	"path/filepath"
 	"strings"
 
@@ -217,7 +218,7 @@ func (a *nativeApp) loadDiffBlame(tab *docTab) {
 	case git.DiffRange:
 		oldRev, newRev = tab.opts.From, tab.opts.Revision
 	}
-	opts := git.BlameOptions{IgnoreWhitespace: a.settings.IgnoreWhitespace, IgnoreRevsFile: ".git-blame-ignore-revs"}
+	opts := git.BlameOptions{IgnoreWhitespace: a.settings.IgnoreWhitespace}
 	if oldRev != "" {
 		go func() {
 			res, err := a.g.Blame(oldPath, oldRev, opts)
@@ -348,6 +349,9 @@ func (a *nativeApp) openSource(path, revision string) {
 		return
 	}
 	tab := &docTab{kind: tabSource, id: id, title: path, path: path, revision: revision}
+	if os.Getenv("GITJET_ANNOTATE") != "" {
+		tab.blameOn = true
+	}
 	a.tabs = append(a.tabs, tab)
 	a.activeTab = len(a.tabs) - 1
 	a.loadSource(tab)
@@ -455,7 +459,7 @@ func (a *nativeApp) loadBlame(tab *docTab) {
 	path, rev := tab.path, tab.revision
 	ignore := a.settings.IgnoreWhitespace
 	go func() {
-		br, err := a.g.Blame(path, rev, git.BlameOptions{IgnoreWhitespace: ignore, IgnoreRevsFile: ".git-blame-ignore-revs"})
+		br, err := a.g.Blame(path, rev, git.BlameOptions{IgnoreWhitespace: ignore})
 		mygoMain(func() {
 			if err == nil {
 				tab.blame = br.Lines
@@ -771,21 +775,25 @@ func (a *nativeApp) sourceToolbar(c *ui.Context, tab *docTab) {
 func (a *nativeApp) blameColumn(c *ui.Context, tab *docTab) {
 	t := c.Theme()
 	width := float32(180)
-	box := ui.Box(c).Width(width).FillHeight().Background(t.Surface)
+	box := ui.Box(c).Width(width).FillHeight().Background(t.Surface).Clip()
 	box.BorderWidth(0, 1, 0, 0).BorderColor(t.Border)
 	box.Children(func() {
 		if tab.src == nil || len(tab.blame) == 0 {
 			return
-		}
-		first, last := tab.src.VisibleLines()
-		if first < 0 {
-			first = 0
 		}
 		lineH := tab.src.LineTop(1) - tab.src.LineTop(0)
 		if lineH <= 0 {
 			lineH = 19.5
 		}
 		scroll := float32(tab.src.ScrollY())
+		first := int(scroll/float32(lineH)) - 1
+		if first < 0 {
+			first = 0
+		}
+		last := first + 90
+		if last >= len(tab.blame) {
+			last = len(tab.blame) - 1
+		}
 		font := ui.Font{Size: 10}
 		for line := first; line <= last && line < len(tab.blame); line++ {
 			l := tab.blame[line]

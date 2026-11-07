@@ -16,21 +16,10 @@ jobs:
         with:
           go-version-file: go.mod
           cache: true
-      - uses: oven-sh/setup-bun@v2
-        with:
-          bun-version: latest
       - name: Go tests
         run: go test ./...
       - name: Go vet
         run: go vet ./...
-      - name: Install frontend dependencies
-        run: bun install --frozen-lockfile
-      - name: TypeScript
-        run: bun run typecheck
-      - name: Frontend unit tests
-        run: bun run test:web
-      - name: Frontend build
-        run: bun run build:web
 
   cross-build:
     runs-on: ubuntu-latest

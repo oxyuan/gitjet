@@ -23,10 +23,6 @@ import (
 // services in service.go stay the only place that runs git; this layer owns
 // what the window shows and calls them.
 
-// dispatchNative sends a menu command to the native window. It is nil in
-// the retired webview host.
-var dispatchNative func(string)
-
 // tabKind is what an editor tab shows.
 type tabKind uint8
 
@@ -470,6 +466,26 @@ func (a *nativeApp) openPath(path string) {
 			a.refresh()
 			a.applyWindowTitle()
 			a.ensureLSP()
+			if tab := os.Getenv("GITJET_TAB"); tab != "" {
+				switch tab {
+				case "log":
+					a.sideTab = 3
+				case "files":
+					a.sideTab = 2
+				case "branches":
+					a.sideTab = 1
+				case "console":
+					a.sideTab = 4
+				}
+			}
+			switch os.Getenv("GITJET_DIALOG") {
+			case "settings":
+				a.openSettingsDialog()
+			case "tools":
+				a.openRepoToolsDialog()
+			case "journal":
+				a.openJournalDialog()
+			}
 			if open := os.Getenv("GITJET_OPEN"); open != "" {
 				if strings.HasPrefix(open, "diff:") {
 					a.openDiff(git.DiffOptions{Path: strings.TrimPrefix(open, "diff:"), Target: git.DiffWorkingTree, Context: a.settings.DiffContext})

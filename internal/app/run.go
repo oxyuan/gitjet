@@ -1,10 +1,6 @@
 package app
 
 import (
-	"os"
-	"path/filepath"
-	"sync"
-
 	"github.com/egoist/mygo"
 	// MyGo's own labels, of its menu items and dialogs, in Chinese: the app
 	// translates its own text, and SetLanguages makes these two the languages
@@ -12,142 +8,12 @@ import (
 	_ "github.com/egoist/mygo/locales/zh-Hans"
 )
 
-// Command is sent to the page when a menu item asks it to act, e.g.
-// "open", "commit" or "fetch".
-var Command = mygo.NewEvent[string]("app:command")
-
-// runWebview starts the old webview UI. It is kept while the native UI
-// replacement is built, and removed with the React frontend.
-func runWebview() error {
-	app := mygo.App
-	app.SetName("GitJet")
-	// The languages the app comes in: its pages and menu labels say them
-	// themselves, and this makes MyGo's own labels, its dialogs and its
-	// standard menu items, say them too.
-	app.SetLanguages("en", "zh-Hans")
-	c := newCore()
-	if len(os.Args) > 1 {
-		if st, err := os.Stat(os.Args[1]); err == nil && st.IsDir() {
-			c.startup = os.Args[1]
-			// A window opened on another repository keeps its own geometry,
-			// so it does not land exactly on the window that opened it.
-			secondary = true
-		}
-	}
-	mygo.Bind(&Workspace{c: c})
-	mygo.Bind(&Git{c: c})
-
-	// Files and folders the system opens reach the app here: a repository
-	// given on the command line is the startup one and opens in Bootstrap,
-	// and any other, from Open Recent, the Dock menu and Finder, opens in
-	// the window the page already has.
-	app.OnOpenFile(func(path string) {
-		c.mu.Lock()
-		startup := c.startup
-		c.mu.Unlock()
-		if startup != "" && samePath(startup, path) {
-			return
-		}
-		path = repositoryPath(path)
-		if path == "" {
-			return
-		}
-		app.WhenReady(func() {
-			if window() == nil {
-				c.mu.Lock()
-				c.startup = path
-				c.mu.Unlock()
-				openWebWindow()
-				return
-			}
-			Command.Broadcast("open:" + path)
-		})
-	})
-
-	app.WhenReady(func() {
-		applyMenu(c.languageSetting())
-		openWebWindow()
-	})
-	app.OnWindowAllClosed(func() { setWindow(nil) })
-	app.OnActivate(func(hasVisibleWindows bool) {
-		if !hasVisibleWindows {
-			openWebWindow()
-		}
-	})
-	return app.Run()
-}
-
-// windowRef is the window this process shows, nil while it has none.
-var (
-	windowMu  sync.Mutex
-	windowRef *mygo.Window
-)
-
-func window() *mygo.Window {
-	windowMu.Lock()
-	defer windowMu.Unlock()
-	return windowRef
-}
-
-func setWindow(w *mygo.Window) {
-	windowMu.Lock()
-	windowRef = w
-	windowMu.Unlock()
-}
-
-// repositoryPath is the folder to open for a path the system opened: a
-// repository may be dragged in as any file of it.
-func repositoryPath(path string) string {
-	st, err := os.Stat(path)
-	if err != nil {
-		return ""
-	}
-	if st.IsDir() {
-		return path
-	}
-	return filepath.Dir(path)
-}
-
-// samePath tells whether two paths name the same place, as the startup
-// repository and the one the system reports for it do.
-func samePath(a, b string) bool {
-	aa, err := filepath.Abs(a)
-	if err != nil {
-		return a == b
-	}
-	bb, err := filepath.Abs(b)
-	if err != nil {
-		return a == b
-	}
-	return aa == bb
-}
+// dispatchNative sends a menu command to the native window.
+var dispatchNative func(string)
 
 // secondary is true when this process was started on a repository given on
 // the command line, which makes it an extra window of the app.
 var secondary bool
-
-func openWebWindow() {
-	stateKey := "main"
-	if secondary {
-		stateKey = "main-2"
-	}
-	w := mygo.NewWindow(mygo.WindowOptions{
-		Title:                mygo.App.Name(),
-		Width:                1440,
-		Height:               900,
-		MinWidth:             900,
-		MinHeight:            560,
-		TitleBarStyle:        mygo.TitleBarHidden,
-		TitleBarHeight:       52,
-		TrafficLightPosition: &mygo.Point{X: 20, Y: 19},
-		BackgroundColor:      "light-dark(#f5f5f7, #141416)",
-		StateKey:             stateKey,
-		URL:                  "/",
-	})
-	setWindow(w)
-	w.OnClosed(func() { setWindow(nil) })
-	installPageContextMenu(w)
-}
 
 // applyMenu installs the menu for the language setting, replacing whatever
 // menu is showing, and makes MyGo's own labels say the same language.
@@ -170,9 +36,7 @@ func buildMenu(l lang) *mygo.Menu {
 		return func(*mygo.MenuItem, *mygo.Window) {
 			if dispatchNative != nil {
 				dispatchNative(cmd)
-				return
 			}
-			Command.Broadcast(cmd)
 		}
 	}
 	return mygo.NewMenu([]*mygo.MenuItem{
@@ -186,8 +50,8 @@ func buildMenu(l lang) *mygo.Menu {
 			// back through App.OnOpenFile.
 			{Role: mygo.RoleOpenRecent},
 			{Label: l.tr("menu.quickOpen"), Accelerator: "CmdOrCtrl+P", Click: send("quickopen")},
-			{Label: l.tr("menu.closeTab"), Accelerator: "CmdOrCtrl+W", Click: send("closetab")},
 			{Label: l.tr("menu.newWindow"), Accelerator: "CmdOrCtrl+Shift+N", Click: send("new-window")},
+			{Label: l.tr("menu.closeTab"), Accelerator: "CmdOrCtrl+W", Click: send("closetab")},
 			{Label: l.tr("menu.closeRepo"), Accelerator: "CmdOrCtrl+Shift+W", Click: send("close")},
 			mygo.Separator(),
 			{Label: l.tr("menu.settings"), Accelerator: "CmdOrCtrl+,", Click: send("settings")},

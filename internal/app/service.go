@@ -5,14 +5,12 @@ import (
 	"errors"
 	"fmt"
 	"log"
-	"net/url"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"runtime"
 	"strconv"
 	"strings"
-	"sync"
 	"time"
 
 	"gitjet/internal/git"
@@ -20,15 +18,6 @@ import (
 	"github.com/egoist/mygo"
 	"github.com/egoist/mygo/transfer"
 )
-
-// Bootstrap is the state the page needs when it starts.
-type Bootstrap struct {
-	Settings Settings             `json:"settings"`
-	Repo     *git.ChangesSnapshot `json:"repo"`
-	Error    string               `json:"error"`
-	Version  string               `json:"version"`
-	Platform string               `json:"platform"`
-}
 
 // Workspace is the bound service for app-level actions: choosing and
 // opening a repository, settings, and the recent list.
@@ -46,41 +35,6 @@ type Git struct {
 // including changes made outside the app.
 var RepoChanged = mygo.NewEvent[git.RepoState]("repo:changed")
 
-// Bootstrap returns settings, and reopens the last repository if it still
-// exists, like an IDE reopening the last project.
-func (w *Workspace) Bootstrap() (Bootstrap, error) {
-	b := Bootstrap{
-		Settings: w.c.settings,
-		Version:  "0.1.0",
-		Platform: runtime.GOOS + "/" + runtime.GOARCH,
-	}
-	w.c.mu.Lock()
-	startup := w.c.startup
-	recent := append([]RecentRepo(nil), w.c.settings.Recent...)
-	w.c.mu.Unlock()
-	if startup != "" {
-		snap, err := w.Open(startup)
-		if err != nil {
-			b.Error = err.Error()
-		} else {
-			b.Repo = &snap
-		}
-		return b, nil
-	}
-	if len(recent) > 0 {
-		path := recent[0].Path
-		if st, err := os.Stat(path); err == nil && st.IsDir() {
-			snap, err := w.Open(path)
-			if err == nil {
-				b.Repo = &snap
-			} else {
-				b.Error = err.Error()
-			}
-		}
-	}
-	return b, nil
-}
-
 // OpenInWindow starts another copy of the app on path, letting the caller
 // keep its own repository open. Each window is its own process, so the two
 // cannot share a repository, a poll loop or a settings write.
@@ -96,84 +50,6 @@ func (w *Workspace) OpenInWindow(path string) error {
 	cmd := exec.Command(exe, path)
 	cmd.Dir = path
 	return cmd.Start()
-}
-
-// mergeWindows tracks the separate merge-editor windows, so asking for the
-// same file twice focuses the one already showing it.
-var (
-	mergeMu      sync.Mutex
-	mergeWindows = map[string]*mygo.Window{}
-)
-
-// OpenMergeWindow shows one file's merge editor in its own window. IDEA
-// resolves a conflict in a window that belongs only to that file; closing it
-// leaves the repository window exactly as it was.
-func (w *Workspace) OpenMergeWindow(path string) error {
-	path = strings.TrimSpace(path)
-	if path == "" {
-		return errors.New("no file was given")
-	}
-	mergeMu.Lock()
-	if existing := mergeWindows[path]; existing != nil && !existing.IsDestroyed() {
-		mergeMu.Unlock()
-		existing.Show()
-		existing.Focus()
-		return nil
-	}
-	mergeMu.Unlock()
-	win := mygo.NewWindow(mygo.WindowOptions{
-		Title:           "Merge " + filepath.Base(path),
-		Width:           1240,
-		Height:          800,
-		MinWidth:        900,
-		MinHeight:       560,
-		BackgroundColor: "light-dark(#f5f5f7, #141416)",
-		URL:             "/?merge=" + url.QueryEscape(path),
-	})
-	mergeMu.Lock()
-	mergeWindows[path] = win
-	mergeMu.Unlock()
-	win.OnClosed(func() {
-		mergeMu.Lock()
-		if mergeWindows[path] == win {
-			delete(mergeWindows, path)
-		}
-		mergeMu.Unlock()
-	})
-	win.Focus()
-	return nil
-}
-
-// CloseWindow closes the window the call came from. The merge editor calls it
-// when its file is applied, saved or handed to the next conflict.
-func (w *Workspace) CloseWindow(ctx context.Context) error {
-	win := mygo.CallerWindow(ctx)
-	if win == nil || win.IsDestroyed() {
-		return nil
-	}
-	win.Close()
-	return nil
-}
-
-// ChooseFolder shows the native folder picker and returns the chosen
-// path, or "" when the user canceled.
-func (w *Workspace) ChooseFolder(ctx context.Context) (string, error) {
-	win := mygo.CallerWindow(ctx)
-	l := w.c.uiLang()
-	paths, err := mygo.Dialog.Open(mygo.OpenDialogOptions{
-		Parent:      win,
-		Title:       l.tr("dialog.openRepo"),
-		ButtonLabel: l.tr("dialog.openRepoButton"),
-		Directory:   true,
-		Message:     l.tr("dialog.openRepoMessage"),
-	})
-	if err != nil || len(paths) == 0 {
-		return "", err
-	}
-	if st, err := os.Stat(paths[0]); err == nil && !st.IsDir() {
-		return filepath.Dir(paths[0]), nil
-	}
-	return paths[0], nil
 }
 
 // Open opens a repository and returns its local changes.
@@ -1486,9 +1362,7 @@ func (g *Git) SavePatch(opts git.PatchOptions, name string) (string, error) {
 	if strings.TrimSpace(patch) == "" {
 		return "", errors.New("there are no changes for the patch")
 	}
-	win := mygo.CallerWindow(context.Background())
 	chosen, err := mygo.Dialog.Save(mygo.SaveDialogOptions{
-		Parent:      win,
 		Title:       g.c.uiLang().tr("dialog.savePatch"),
 		DefaultPath: filepath.Join(repo.Dir(), name),
 		ButtonLabel: g.c.uiLang().tr("dialog.save"),
@@ -1523,9 +1397,7 @@ func (g *Git) ApplyPatchFile(reverse bool) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	win := mygo.CallerWindow(context.Background())
 	paths, err := mygo.Dialog.Open(mygo.OpenDialogOptions{
-		Parent:  win,
 		Title:   g.c.uiLang().tr("dialog.openPatch"),
 		Filters: []mygo.FileFilter{{Name: "Patch", Extensions: []string{"patch", "diff"}}},
 	})
