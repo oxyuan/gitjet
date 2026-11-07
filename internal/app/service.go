@@ -224,7 +224,12 @@ func (w *Workspace) Clone(url, dir string, out *mygo.Channel[string]) (string, e
 	gitPath := w.c.settings.GitPath
 	w.c.mu.Unlock()
 	ctx, trace := git.WithCommandTrace(context.Background())
-	text, err := git.Clone(ctx, gitPath, url, dir, func(line string) { _ = out.Send(line) })
+	text, err := git.Clone(ctx, gitPath, url, dir, func(line string) {
+		if out != nil {
+			_ = out.Send(line)
+		}
+		w.c.emit(line)
+	})
 	return appendCommands(text, *trace), err
 }
 
@@ -1279,7 +1284,12 @@ func (g *Git) Push(opts git.PushOptions, out *mygo.Channel[string]) (string, err
 	}
 	ctx, trace := git.WithCommandTrace(context.Background())
 	started := time.Now()
-	text, err := repo.Push(ctx, opts, func(line string) { _ = out.Send(line) })
+	text, err := repo.Push(ctx, opts, func(line string) {
+		if out != nil {
+			_ = out.Send(line)
+		}
+		g.c.emit(line)
+	})
 	g.journalOperation(repo, JournalEntry{Action: "push", Commands: *trace, Output: text}, err, started)
 	if err == nil {
 		g.rememberPushTarget(opts.Remote, opts.Branch)
@@ -1299,7 +1309,12 @@ func (g *Git) Pull(opts git.PullOptions, out *mygo.Channel[string]) (string, err
 	started := time.Now()
 	opts.TagsMode = g.c.settings.FetchTagsMode
 	run := func(ctx context.Context) (string, error) {
-		return repo.Pull(ctx, opts, func(line string) { _ = out.Send(line) })
+		return repo.Pull(ctx, opts, func(line string) {
+			if out != nil {
+				_ = out.Send(line)
+			}
+			g.c.emit(line)
+		})
 	}
 	var text string
 	if opts.Autostash {
@@ -1321,7 +1336,12 @@ func (g *Git) Fetch(opts git.FetchOptions, out *mygo.Channel[string]) (string, e
 	ctx, trace := git.WithCommandTrace(context.Background())
 	started := time.Now()
 	opts.TagsMode = g.c.settings.FetchTagsMode
-	text, err := repo.Fetch(ctx, opts, func(line string) { _ = out.Send(line) })
+	text, err := repo.Fetch(ctx, opts, func(line string) {
+		if out != nil {
+			_ = out.Send(line)
+		}
+		g.c.emit(line)
+	})
 	g.journalOperation(repo, JournalEntry{Action: "fetch", Commands: *trace, Output: text}, err, started)
 	g.notify()
 	return appendCommands(text, *trace), err
@@ -1783,7 +1803,12 @@ func (g *Git) Console(command string, out *mygo.Channel[string]) (git.ConsoleRes
 		return git.ConsoleResult{}, err
 	}
 	started := time.Now()
-	res, err := repo.RunConsole(context.Background(), command, func(line string) { _ = out.Send(line) })
+	res, err := repo.RunConsole(context.Background(), command, func(line string) {
+		if out != nil {
+			_ = out.Send(line)
+		}
+		g.c.emit(line)
+	})
 	g.journalOperation(repo, JournalEntry{
 		Action:   "console",
 		Source:   "console",
@@ -2172,7 +2197,12 @@ func (g *Git) LFSPull(out *mygo.Channel[string]) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	return repo.LFSPull(context.Background(), func(line string) { _ = out.Send(line) })
+	return repo.LFSPull(context.Background(), func(line string) {
+		if out != nil {
+			_ = out.Send(line)
+		}
+		g.c.emit(line)
+	})
 }
 
 // StashFiles lists the paths a stash entry touches.
@@ -2304,7 +2334,12 @@ func (g *Git) Unshallow(out *mygo.Channel[string]) (string, error) {
 	}
 	ctx, trace := git.WithCommandTrace(context.Background())
 	started := time.Now()
-	text, err := repo.Unshallow(ctx, func(line string) { _ = out.Send(line) })
+	text, err := repo.Unshallow(ctx, func(line string) {
+		if out != nil {
+			_ = out.Send(line)
+		}
+		g.c.emit(line)
+	})
 	g.journalOperation(repo, JournalEntry{Action: "unshallow", Commands: *trace, Output: text}, err, started)
 	g.notify()
 	return appendCommands(text, *trace), err

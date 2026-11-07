@@ -661,6 +661,21 @@ func (a *nativeApp) sourceToolbar(c *ui.Context, tab *docTab) {
 			ui.Text(c, "●").FontSize(9).TextColor(t.Warning)
 		}
 		ui.Spacer(c).Grow(1)
+		if ui.Button(c, a.t("Working Tree")).Clicked() {
+			a.openSource(tab.path, "")
+		}
+		if ui.Button(c, a.t("Index")).Clicked() {
+			a.openSource(tab.path, "INDEX")
+		}
+		if ui.Button(c, "HEAD").Clicked() {
+			a.openSource(tab.path, "HEAD")
+		}
+		if tab.src != nil {
+			wrap := tab.src.SoftWrap
+			if ui.Checkbox(c, &wrap, a.t("Wrap")).Changed() {
+				tab.src.SoftWrap = wrap
+			}
+		}
 		if tab.revision == "" {
 			if ui.Button(c, a.t("Save")).Clicked() {
 				a.saveSource(tab)
@@ -783,7 +798,17 @@ func (a *nativeApp) revisionTreeView(c *ui.Context, tab *docTab) {
 					row := ui.ButtonBase(c).Padding(3, 8).Radius(4)
 					row.Children(func() { ui.Text(c, f.Path).FontSize(12) })
 					if row.Clicked() {
-						a.openSource(f.Path, tab.revision)
+						if tab.from != "" {
+							a.openDiff(git.DiffOptions{
+								Path:     f.Path,
+								Target:   git.DiffRange,
+								From:     tab.from,
+								Revision: tab.revision,
+								Context:  a.settings.DiffContext,
+							})
+						} else {
+							a.openSource(f.Path, tab.revision)
+						}
 					}
 				}
 				if len(list) == 0 {

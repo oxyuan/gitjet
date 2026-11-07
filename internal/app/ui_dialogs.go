@@ -1,8 +1,10 @@
 package app
 
 import (
+	"errors"
 	"fmt"
 	"path/filepath"
+	"strconv"
 	"strings"
 
 	"github.com/egoist/mygo"
@@ -38,6 +40,12 @@ const (
 	dialogPatch
 	dialogQuick
 	dialogPrompt
+	dialogStashFiles
+	dialogShelf
+	dialogJournal
+	dialogWorktree
+	dialogSubmodule
+	dialogLFS
 )
 
 // dialogState is the open dialog and everything it edits.
@@ -68,6 +76,7 @@ type dialogState struct {
 	line     int
 
 	preview      *git.PushPreview
+	pushOpts     *git.PushOptions
 	remote       string
 	branch       string
 	remoteBranch string
@@ -76,12 +85,18 @@ type dialogState struct {
 	from         string
 	to           string
 
-	draft   Settings
-	entries []git.LocalHistoryEntry
-	merged  []git.BranchInfo
-	gone    []git.BranchInfo
-	checks  map[string]bool
-	target  string
+	draft      Settings
+	entries    []git.LocalHistoryEntry
+	merged     []git.BranchInfo
+	gone       []git.BranchInfo
+	checks     map[string]bool
+	target     string
+	stashIndex int
+	stashFiles []git.StashFile
+	shelves    []git.Shelf
+	journal    []JournalEntry
+	dirPath    string
+	patterns   string
 }
 
 func (a *nativeApp) dialogOpen() bool { return a.dialog.kind != dialogNone }
@@ -157,6 +172,20 @@ func (a *nativeApp) dialogCard(c *ui.Context) {
 			a.compareDialog(c)
 		case dialogPrompt:
 			a.promptDialog(c)
+		case dialogStashFiles:
+			a.stashFilesDialog(c)
+		case dialogShelf:
+			a.shelfDialog(c)
+		case dialogJournal:
+			a.journalDialog(c)
+		case dialogWorktree:
+			a.worktreeDialog(c)
+		case dialogSubmodule:
+			a.submoduleDialog(c)
+		case dialogLFS:
+			a.lfsDialog(c)
+		case dialogPatch:
+			a.patchDialog(c)
 		}
 	})
 }
@@ -233,6 +262,16 @@ func (a *nativeApp) confirmDialog(c *ui.Context) {
 			a.busyRun("delete-branch", func() error { return a.g.DeleteBranch(d.text, true) })
 		case "delete-path":
 			a.busyRun("delete-path", func() error { return a.g.DeletePath(d.text) })
+		case "force-push":
+			if d.pushOpts != nil {
+				a.push(*d.pushOpts)
+			}
+		case "delete-changelist":
+			id := d.target
+			a.busyRun("changelist", func() error {
+				_, err := a.g.DeleteChangelist(id)
+				return err
+			})
 		case "close-tab":
 			if d.tabIndex >= 0 && d.tabIndex < len(a.tabs) {
 				a.tabs[d.tabIndex].src.Buffer.MarkSaved()
@@ -371,6 +410,11 @@ func (a *nativeApp) settingsDialog(c *ui.Context) {
 			ui.Checkbox(c, &s.ShowIgnored, a.t("Show ignored files"))
 			ui.Checkbox(c, &s.ConfirmRollback, a.t("Confirm before rollback"))
 			ui.Checkbox(c, &s.ConfirmForcePush, a.t("Confirm force push"))
+			ui.Field(c, a.t("Update method"), func() {
+				ui.Select(c, &s.UpdateMethod, []string{"merge", "rebase"})
+			})
+			ui.Checkbox(c, &s.AutoUpdateOnReject, a.t("Update when a push is rejected"))
+			ui.Checkbox(c, &s.OpenInNewWindow, a.t("Open a repository in a new window"))
 			ui.Checkbox(c, &s.AutoFetch, a.t("Fetch automatically"))
 			ui.Field(c, a.t("Fetch every (minutes)"), func() {
 				v := float64(s.AutoFetchMinutes)
@@ -552,7 +596,9 @@ func (a *nativeApp) pushDialog(c *ui.Context) {
 		ui.TextInput(c, &d.branch)
 	})
 	ui.Field(c, a.t("Remote branch"), func() {
-		ui.TextInput(c, &d.branch)
+		if ui.TextInput(c, &d.remoteBranch).Submitted() {
+			a.refreshPushPreview()
+		}
 	})
 	if d.preview != nil {
 		p := d.preview
@@ -598,6 +644,14 @@ func (a *nativeApp) pushDialog(c *ui.Context) {
 			DryRun:          d.flag5,
 		}
 		a.closeDialog()
+		if a.protectedBranch() && (opts.ForceWithLease || opts.ForceIfIncludes) {
+			a.fail(errors.New(a.t("A protected branch cannot be force-pushed")))
+			return
+		}
+		if (opts.ForceWithLease || opts.ForceIfIncludes) && a.settings.ConfirmForcePush {
+			a.dialog = dialogState{kind: dialogConfirm, title: a.t("Force push"), message: a.t("Rewrite the remote branch?"), action: "force-push", pushOpts: &opts}
+			return
+		}
 		a.push(opts)
 	})
 }
@@ -993,10 +1047,8 @@ func (a *nativeApp) openRepoToolsDialog() {
 
 func (a *nativeApp) repoToolsDialog(c *ui.Context) {
 	t := c.Theme()
-	tabs := []string{a.t("Worktrees"), a.t("Submodules"), "LFS"}
-	tab := 0
-	ui.Tabs(c, &tab, tabs...)
-	switch tab {
+	ui.Tabs(c, &a.repoTab, a.t("Worktrees"), a.t("Submodules"), "LFS", a.t("Shelves"), a.t("Patches"), a.t("Journal"))
+	switch a.repoTab {
 	case 0:
 		for _, w := range a.worktrees {
 			w := w
@@ -1022,7 +1074,7 @@ func (a *nativeApp) repoToolsDialog(c *ui.Context) {
 		}
 		ui.Row(c).Gap(6).Children(func() {
 			if ui.Button(c, a.t("New Worktree")).Clicked() {
-				a.dialog = dialogState{kind: dialogConfirm, title: a.t("Use the branch dialog"), message: a.t("Create a branch for the worktree first, then add the worktree.")}
+				a.openWorktreeDialog()
 			}
 			if ui.Button(c, a.t("Prune")).Clicked() {
 				a.busyRun("worktree", func() error {
@@ -1032,10 +1084,13 @@ func (a *nativeApp) repoToolsDialog(c *ui.Context) {
 			}
 		})
 	case 1:
-		for _, s := range a.submodules {
-			ui.Text(c, fmt.Sprintf("%s · %s · %s", s.Path, s.Short, s.State)).FontSize(11)
+		for _, sm := range a.submodules {
+			ui.Text(c, fmt.Sprintf("%s · %s · %s", sm.Path, sm.Short, sm.State)).FontSize(11)
 		}
 		ui.Row(c).Gap(6).Children(func() {
+			if ui.Button(c, a.t("Add Submodule")).Clicked() {
+				a.openSubmoduleDialog()
+			}
 			if ui.Button(c, a.t("Update")).Clicked() {
 				a.busyRun("submodule", func() error {
 					_, err := a.g.UpdateSubmodules(true)
@@ -1050,13 +1105,23 @@ func (a *nativeApp) repoToolsDialog(c *ui.Context) {
 			}
 		})
 	case 2:
-		ui.Text(c, fmt.Sprintf("Git LFS %s", a.lfs.Version)).FontSize(11)
-		ui.Text(c, fmt.Sprintf("%d tracked files", len(a.lfs.Files))).FontSize(10).TextColor(t.TextMuted)
-		if ui.Button(c, a.t("Pull LFS Files")).Clicked() {
-			a.busyRun("lfs", func() error {
-				_, err := a.g.LFSPull(nil)
-				return err
-			})
+		ui.Text(c, fmt.Sprintf("Git LFS %s · %d tracked files", a.lfs.Version, len(a.lfs.Files))).FontSize(11)
+		if ui.Button(c, a.t("Git LFS")).Clicked() {
+			a.openLFSDialog()
+		}
+	case 3:
+		ui.Row(c).Gap(6).Children(func() {
+			if ui.Button(c, a.t("Manage Shelves")).Clicked() {
+				a.openShelfDialog()
+			}
+		})
+	case 4:
+		if ui.Button(c, a.t("Patches")).Clicked() {
+			a.openPatchDialog()
+		}
+	case 5:
+		if ui.Button(c, a.t("Open Journal")).Clicked() {
+			a.openJournalDialog()
 		}
 	}
 	ui.Row(c).Children(func() {
@@ -1099,7 +1164,7 @@ func (a *nativeApp) openCompareTab(from, to string, files []git.Change) {
 		a.activeTab = i
 		return
 	}
-	tab := &docTab{kind: tabRevisionTree, id: id, title: from + ".." + to, revision: to}
+	tab := &docTab{kind: tabRevisionTree, id: id, title: from + ".." + to, revision: to, from: from}
 	tab.files = nil
 	for _, f := range files {
 		tab.files = append(tab.files, git.RepoFile{Path: f.Path})
@@ -1163,6 +1228,319 @@ func uiContextKey(c *ui.Context, key ui.Key) bool {
 	return c.KeyDown(key)
 }
 
+func (a *nativeApp) showStashFiles(st git.Stash) {
+	go func() {
+		files, err := a.g.StashFiles(st.Index)
+		mygo.RunOnMain(func() {
+			if err != nil {
+				a.fail(err)
+				return
+			}
+			a.dialog = dialogState{kind: dialogStashFiles, stashIndex: st.Index, stashFiles: files, title: fmt.Sprintf("stash@{%d}", st.Index)}
+			a.redraw()
+		})
+	}()
+}
+
+func (a *nativeApp) stashFilesDialog(c *ui.Context) {
+	t := c.Theme()
+	ui.Text(c, fmt.Sprintf("stash@{%d}", a.dialog.stashIndex)).FontSize(10).TextColor(t.TextMuted)
+	ui.Scroll(c).MaxHeight(320).Children(func() {
+		ui.Column(c).Gap(1).Children(func() {
+			for _, f := range a.dialog.stashFiles {
+				f := f
+				row := ui.ButtonBase(c).Padding(3, 8).Radius(4)
+				row.Children(func() {
+					ui.Row(c).Gap(6).Children(func() {
+						ui.Text(c, f.Path).FontSize(11)
+						ui.Spacer(c).Grow(1)
+						ui.Text(c, fmt.Sprintf("+%d −%d", f.Additions, f.Deletions)).FontSize(9).TextColor(t.TextMuted)
+					})
+				})
+				if row.Clicked() {
+					index := a.dialog.stashIndex
+					a.closeDialog()
+					a.openDiff(git.DiffOptions{
+						Path:     f.Path,
+						OldPath:  f.OldPath,
+						Target:   git.DiffRange,
+						From:     fmt.Sprintf("stash@{%d}^", index),
+						Revision: fmt.Sprintf("stash@{%d}", index),
+						Context:  a.settings.DiffContext,
+					})
+				}
+			}
+		})
+	})
+	ui.Row(c).Children(func() {
+		ui.Spacer(c).Grow(1)
+		if ui.Button(c, a.t("Close")).Clicked() {
+			a.closeDialog()
+		}
+	})
+}
+
+func (a *nativeApp) openPatchDialog() {
+	a.dialog = dialogState{kind: dialogPatch, title: a.t("Patches")}
+}
+
+func (a *nativeApp) patchDialog(c *ui.Context) {
+	d := &a.dialog
+	ui.Field(c, a.t("From revision"), func() { ui.TextInput(c, &d.from).Placeholder(a.t("Optional")) })
+	ui.Field(c, a.t("To revision"), func() { ui.TextInput(c, &d.to).Placeholder(a.t("Optional")) })
+	ui.Row(c).Gap(6).Children(func() {
+		if ui.Button(c, a.t("Save Patch")).Clicked() {
+			opts := git.PatchOptions{Staged: d.flag1, From: strings.TrimSpace(d.from), Revision: strings.TrimSpace(d.to)}
+			a.closeDialog()
+			a.busyRun("patch", func() error {
+				_, err := a.g.SavePatch(opts, "changes.patch")
+				return err
+			})
+		}
+		if ui.Button(c, a.t("Apply Patch File")).Clicked() {
+			a.closeDialog()
+			a.busyRun("patch", func() error {
+				_, err := a.g.ApplyPatchFile(false)
+				return err
+			})
+		}
+		if ui.Button(c, a.t("Apply Reverse")).Clicked() {
+			a.closeDialog()
+			a.busyRun("patch", func() error {
+				_, err := a.g.ApplyPatchFile(true)
+				return err
+			})
+		}
+		ui.Spacer(c).Grow(1)
+		if ui.Button(c, a.t("Close")).Clicked() {
+			a.closeDialog()
+		}
+	})
+	ui.Checkbox(c, &d.flag1, a.t("Staged changes only"))
+}
+
+func (a *nativeApp) openShelfDialog() {
+	a.busy++
+	go func() {
+		shelves, err := a.g.Shelves()
+		mygo.RunOnMain(func() {
+			a.busy--
+			if err != nil {
+				a.fail(err)
+				return
+			}
+			a.dialog = dialogState{kind: dialogShelf, shelves: shelves}
+			a.redraw()
+		})
+	}()
+}
+
+func (a *nativeApp) shelfDialog(c *ui.Context) {
+	t := c.Theme()
+	ui.Row(c).Gap(6).Children(func() {
+		if ui.Button(c, a.t("Save Current Changes")).Clicked() {
+			a.dialog = dialogState{kind: dialogPrompt, title: a.t("Save Shelf"), message: a.t("Name"), action: "save-shelf"}
+		}
+		ui.Spacer(c).Grow(1)
+		if ui.Button(c, a.t("Close")).Clicked() {
+			a.closeDialog()
+		}
+	})
+	if len(a.dialog.shelves) == 0 {
+		ui.Text(c, a.t("No shelves")).FontSize(11).TextColor(t.TextMuted)
+	}
+	ui.Scroll(c).MaxHeight(340).Children(func() {
+		ui.Column(c).Gap(1).Children(func() {
+			for _, sh := range a.dialog.shelves {
+				sh := sh
+				row := ui.ButtonBase(c).Padding(3, 8).Radius(4)
+				row.Children(func() {
+					ui.Row(c).Gap(8).Children(func() {
+						ui.Text(c, sh.Name).FontSize(11).FontWeight(600)
+						ui.Text(c, fmt.Sprintf("%d files", sh.Files)).FontSize(9).TextColor(t.TextMuted)
+						ui.Spacer(c).Grow(1)
+						ui.Text(c, a.stamp(sh.Time)).FontSize(9).TextColor(t.TextMuted)
+					})
+				})
+				row.ContextMenu(func(m *ui.Menu) {
+					if m.Item(a.t("Apply")).Chosen() {
+						name := sh.Name
+						a.busyRun("shelf", func() error {
+							_, err := a.g.ApplyShelf(name, false)
+							return err
+						})
+					}
+					if m.Item(a.t("Apply and Drop")).Chosen() {
+						name := sh.Name
+						a.busyRun("shelf", func() error {
+							_, err := a.g.ApplyShelf(name, true)
+							return err
+						})
+					}
+					if m.Item(a.t("Rename")).Chosen() {
+						a.dialog = dialogState{kind: dialogPrompt, title: a.t("Rename Shelf"), message: a.t("Name"), action: "rename-shelf", target: sh.Name, text: sh.Name}
+					}
+					if m.Item(a.t("Drop")).Chosen() {
+						name := sh.Name
+						a.busyRun("shelf", func() error {
+							_, err := a.g.DropShelf(name)
+							return err
+						})
+					}
+				})
+			}
+		})
+	})
+}
+
+func (a *nativeApp) openJournalDialog() {
+	a.busy++
+	go func() {
+		entries, err := a.g.Journal(500)
+		mygo.RunOnMain(func() {
+			a.busy--
+			if err != nil {
+				a.fail(err)
+				return
+			}
+			a.dialog = dialogState{kind: dialogJournal, journal: entries}
+			a.redraw()
+		})
+	}()
+}
+
+func (a *nativeApp) journalDialog(c *ui.Context) {
+	t := c.Theme()
+	ui.Row(c).Gap(6).Children(func() {
+		if ui.Button(c, a.t("Reveal Log File")).Clicked() {
+			if path, err := a.g.JournalFile(); err == nil {
+				_ = a.ws.Reveal(path)
+			}
+		}
+		ui.Spacer(c).Grow(1)
+		if ui.Button(c, a.t("Close")).Clicked() {
+			a.closeDialog()
+		}
+	})
+	ui.Scroll(c).MaxHeight(420).Children(func() {
+		ui.Column(c).Gap(4).Children(func() {
+			for i := len(a.dialog.journal) - 1; i >= 0; i-- {
+				e := a.dialog.journal[i]
+				ui.Column(c).Children(func() {
+					ui.Row(c).Gap(8).Children(func() {
+						ui.Text(c, a.stamp(e.At/1000)).FontSize(9).TextColor(t.TextMuted)
+						ui.Text(c, e.Action).FontSize(10).FontWeight(600)
+						if e.Error != "" {
+							ui.Text(c, e.Error).FontSize(9).TextColor(t.Danger)
+						}
+					})
+					for _, cmd := range e.Commands {
+						ui.Text(c, "$ "+cmd).FontSize(9).Font("monospace").TextColor(t.TextMuted)
+					}
+					if e.Output != "" {
+						ui.Text(c, strings.TrimRight(e.Output, "\n")).FontSize(9).Font("monospace").MaxLines(4)
+					}
+				})
+			}
+		})
+	})
+}
+
+func (a *nativeApp) openWorktreeDialog() {
+	a.dialog = dialogState{kind: dialogWorktree, title: a.t("New Worktree")}
+}
+
+func (a *nativeApp) worktreeDialog(c *ui.Context) {
+	d := &a.dialog
+	ui.Field(c, a.t("Path"), func() { ui.TextInput(c, &d.dirPath).Placeholder(a.t("Folder for the worktree")) })
+	ui.Field(c, a.t("Branch"), func() { ui.TextInput(c, &d.branch) })
+	ui.Checkbox(c, &d.flag1, a.t("Create a new branch"))
+	a.buttons(c, a.t("Create"), func() {
+		path, branch := strings.TrimSpace(d.dirPath), strings.TrimSpace(d.branch)
+		newBranch := d.flag1
+		a.closeDialog()
+		a.busyRun("worktree", func() error {
+			_, err := a.g.AddWorktree(path, branch, newBranch)
+			return err
+		})
+	})
+}
+
+func (a *nativeApp) openSubmoduleDialog() {
+	a.dialog = dialogState{kind: dialogSubmodule, title: a.t("Add Submodule")}
+}
+
+func (a *nativeApp) submoduleDialog(c *ui.Context) {
+	d := &a.dialog
+	ui.Field(c, a.t("URL"), func() { ui.TextInput(c, &d.url) })
+	ui.Field(c, a.t("Path"), func() { ui.TextInput(c, &d.dirPath) })
+	ui.Field(c, a.t("Branch"), func() { ui.TextInput(c, &d.branch).Placeholder(a.t("Optional")) })
+	a.buttons(c, a.t("Add"), func() {
+		url, path, branch := strings.TrimSpace(d.url), strings.TrimSpace(d.dirPath), strings.TrimSpace(d.branch)
+		a.closeDialog()
+		a.busyRun("submodule", func() error {
+			_, err := a.g.AddSubmodule(url, path, branch)
+			return err
+		})
+	})
+}
+
+func (a *nativeApp) openLFSDialog() {
+	a.dialog = dialogState{kind: dialogLFS, title: "Git LFS"}
+}
+
+func (a *nativeApp) lfsDialog(c *ui.Context) {
+	t := c.Theme()
+	ui.Text(c, fmt.Sprintf("Git LFS %s", a.lfs.Version)).FontSize(11)
+	ui.Field(c, a.t("Patterns"), func() {
+		ui.TextInput(c, &a.dialog.patterns).Placeholder("*.psd, *.zip")
+	})
+	ui.Row(c).Gap(6).Children(func() {
+		if ui.Button(c, a.t("Track")).Clicked() {
+			patterns := splitPatterns(a.dialog.patterns)
+			a.busyRun("lfs", func() error {
+				_, err := a.g.LFSTrack(patterns)
+				return err
+			})
+		}
+		if ui.Button(c, a.t("Untrack")).Clicked() {
+			patterns := splitPatterns(a.dialog.patterns)
+			a.busyRun("lfs", func() error {
+				_, err := a.g.LFSUntrack(patterns)
+				return err
+			})
+		}
+		if ui.Button(c, a.t("Pull LFS Files")).Clicked() {
+			a.busyRun("lfs", func() error {
+				_, err := a.g.LFSPull(nil)
+				return err
+			})
+		}
+		ui.Spacer(c).Grow(1)
+		if ui.Button(c, a.t("Close")).Clicked() {
+			a.closeDialog()
+		}
+	})
+	ui.Scroll(c).MaxHeight(260).Children(func() {
+		ui.Column(c).Gap(1).Children(func() {
+			for _, f := range a.lfs.Files {
+				ui.Text(c, f.Path).FontSize(10).TextColor(t.TextMuted)
+			}
+		})
+	})
+}
+
+func splitPatterns(s string) []string {
+	var out []string
+	for _, p := range strings.FieldsFunc(s, func(r rune) bool { return r == ',' || r == ' ' || r == '\n' || r == ';' }) {
+		p = strings.TrimSpace(p)
+		if p != "" {
+			out = append(out, p)
+		}
+	}
+	return out
+}
+
 func (a *nativeApp) promptDialog(c *ui.Context) {
 	d := &a.dialog
 	ui.Text(c, d.message).FontSize(11)
@@ -1185,6 +1563,46 @@ func (a *nativeApp) applyPrompt() {
 	case "new-folder":
 		path := joinRepoPath(d.target, target)
 		a.busyRun("new-folder", func() error { return a.g.CreateDir(path) })
+	case "new-changelist":
+		name := strings.TrimSpace(target)
+		if name != "" {
+			a.busyRun("changelist", func() error {
+				_, err := a.g.CreateChangelist(name, "")
+				return err
+			})
+		}
+	case "rename-changelist":
+		name := strings.TrimSpace(target)
+		id := d.target
+		if name != "" {
+			a.busyRun("changelist", func() error {
+				_, err := a.g.RenameChangelist(id, name, "")
+				return err
+			})
+		}
+	case "stash-branch":
+		branch := strings.TrimSpace(target)
+		index, _ := strconv.Atoi(d.target)
+		if branch != "" {
+			a.busyRun("stash", func() error {
+				_, err := a.g.StashToBranch(index, branch)
+				return err
+			})
+		}
+	case "save-shelf":
+		name := strings.TrimSpace(target)
+		if name != "" {
+			a.busyRun("shelf", func() error {
+				_, err := a.g.SaveShelf(name, git.PatchOptions{})
+				return err
+			})
+		}
+	case "rename-shelf":
+		name := strings.TrimSpace(target)
+		old := d.target
+		if name != "" {
+			a.busyRun("shelf", func() error { return a.g.RenameShelf(old, name) })
+		}
 	case "rename":
 		to := target
 		if !strings.Contains(to, "/") && d.target != "" {

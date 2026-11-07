@@ -587,3 +587,66 @@ func selectedLines(tab *docTab) []int {
 	}
 	return lines
 }
+
+func (a *nativeApp) refreshPushPreview() {
+	d := a.dialog
+	if d.kind != dialogPush {
+		return
+	}
+	remote, branch, remoteBranch := d.remote, d.branch, d.remoteBranch
+	go func() {
+		preview, err := a.g.PushPreview(remote, branch, remoteBranch)
+		mygo.RunOnMain(func() {
+			if err == nil && a.dialog.kind == dialogPush {
+				a.dialog.preview = &preview
+				a.redraw()
+			}
+		})
+	}()
+}
+
+func (a *nativeApp) activeChangelistName() string {
+	for _, cl := range a.snapshot.Changelists.Items {
+		if cl.ID == a.snapshot.Changelists.Active {
+			return cl.Name
+		}
+	}
+	return a.t("Changelist")
+}
+
+func (a *nativeApp) setActiveChangelist(id string) {
+	a.busyRun("changelist", func() error {
+		_, err := a.g.SetActiveChangelist(id)
+		return err
+	})
+}
+
+// wrapCommitMessage wraps each line of a commit message at width columns,
+// keeping paragraphs and bullet indent as they are.
+func wrapCommitMessage(msg string, width int) string {
+	if width <= 0 {
+		return msg
+	}
+	var out []string
+	for _, para := range strings.Split(strings.TrimRight(msg, "\n"), "\n") {
+		if strings.TrimSpace(para) == "" {
+			out = append(out, "")
+			continue
+		}
+		indent := para[:len(para)-len(strings.TrimLeft(para, " \t"))]
+		words := strings.Fields(para)
+		line := indent
+		for _, w := range words {
+			if line == indent {
+				line += w
+			} else if len(line)+1+len(w) <= width {
+				line += " " + w
+			} else {
+				out = append(out, line)
+				line = indent + w
+			}
+		}
+		out = append(out, line)
+	}
+	return strings.Join(out, "\n")
+}

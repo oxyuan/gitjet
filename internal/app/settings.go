@@ -291,6 +291,8 @@ type core struct {
 	// lspOnMessage hears each message a native language-server client
 	// should read, framed JSON without its header. It runs on a goroutine.
 	lspOnMessage func(string)
+	// stream hears the output lines of a running git operation.
+	stream func(string)
 }
 
 func newCore() *core {
@@ -309,6 +311,16 @@ func (c *core) uiLang() lang {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	return resolveLang(c.settings.Language)
+}
+
+// emit hands one line of a running operation to the native console.
+func (c *core) emit(line string) {
+	c.mu.Lock()
+	fn := c.stream
+	c.mu.Unlock()
+	if fn != nil {
+		fn(line)
+	}
 }
 
 // changed tells the native view that what it shows may differ now.

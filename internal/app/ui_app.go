@@ -44,6 +44,7 @@ type docTab struct {
 	title    string
 	path     string
 	revision string
+	from     string
 	opts     git.DiffOptions
 
 	// diff
@@ -148,6 +149,9 @@ type nativeApp struct {
 	logSearch  string
 	logAll     bool
 	favorites  map[string]bool
+	openDirs   map[string]bool
+	journal    []JournalEntry
+	repoTab    int
 
 	// editor
 	tabs      []*docTab
@@ -258,6 +262,7 @@ func newNativeApp() *nativeApp {
 		showStaged: true,
 		sideSplit:  380,
 		favorites:  map[string]bool{},
+		openDirs:   map[string]bool{},
 		logOpts: git.LogOptions{
 			Limit: 300,
 		},
@@ -268,6 +273,7 @@ func newNativeApp() *nativeApp {
 	}
 	a.commitForm.Message = strings.TrimSpace(c.settings.CommitTemplate)
 	c.onChange = func() { mygo.RunOnMain(a.changed) }
+	c.stream = func(line string) { mygo.RunOnMain(func() { a.appendConsole(line) }) }
 	for _, r := range c.settings.Recent {
 		a.favorites[r.Path] = a.favorites[r.Path]
 	}
@@ -519,6 +525,8 @@ func (a *nativeApp) refresh() {
 		submodules, _ := a.g.Submodules()
 		logRes, logErr := a.g.Log(opts)
 		files, _ := a.g.Files("")
+		recentBranches := a.g.RecentBranches()
+		journal, _ := a.g.Journal(300)
 		mygo.RunOnMain(func() {
 			a.reloading.Store(false)
 			if gen != a.reloadGen.Load() {
@@ -536,6 +544,10 @@ func (a *nativeApp) refresh() {
 			a.submodules = submodules
 			if len(files) > 0 {
 				a.files = files
+			}
+			a.recentBr = recentBranches
+			if len(journal) > 0 {
+				a.journal = journal
 			}
 			if logErr == nil {
 				a.log = logRes
@@ -596,25 +608,86 @@ func (a *nativeApp) rebuildFiles() {
 			}
 		}
 	}
-	a.fileTree = flattenFiles(a.files)
+	a.fileTree = flattenFiles(a.files, a.openDirs)
 	if a.fileFilter != "" || len(a.fileTree) == 0 {
 		a.rebuildFileTree()
 	}
 }
 
-func flattenFiles(files []git.RepoFile) []fileRow {
-	sort.Slice(files, func(i, j int) bool { return files[i].Path < files[j].Path })
-	var rows []fileRow
+type fileNode struct {
+	name     string
+	path     string
+	dir      bool
+	children []*fileNode
+}
+
+// flattenFiles builds the rows the file tree shows: folders before files,
+// in name order, and only the children of folders that are open.
+func flattenFiles(files []git.RepoFile, openDirs map[string]bool) []fileRow {
+	root := &fileNode{}
+	dirs := map[string]*fileNode{"": root}
 	for _, f := range files {
-		parts := strings.Split(f.Path, "/")
-		rows = append(rows, fileRow{path: f.Path, name: parts[len(parts)-1]})
+		parts := strings.Split(strings.Trim(f.Path, "/"), "/")
+		cur := root
+		path := ""
+		for i, part := range parts {
+			if part == "" {
+				continue
+			}
+			if path == "" {
+				path = part
+			} else {
+				path += "/" + part
+			}
+			last := i == len(parts)-1
+			next := dirs[path]
+			if next == nil {
+				next = &fileNode{name: part, path: path, dir: !last}
+				dirs[path] = next
+				cur.children = append(cur.children, next)
+			}
+			cur = next
+		}
 	}
-	return rows
+	var out []fileRow
+	var walk func(n *fileNode, depth int)
+	walk = func(n *fileNode, depth int) {
+		sort.SliceStable(n.children, func(i, j int) bool {
+			if n.children[i].dir != n.children[j].dir {
+				return n.children[i].dir
+			}
+			return n.children[i].name < n.children[j].name
+		})
+		for _, ch := range n.children {
+			out = append(out, fileRow{path: ch.path, name: ch.name, depth: depth, dir: ch.dir, open: openDirs[ch.path]})
+			if ch.dir && openDirs[ch.path] {
+				walk(ch, depth+1)
+			}
+		}
+	}
+	walk(root, 0)
+	return out
 }
 
 func (a *nativeApp) rebuildBranches() {
+	order := map[string]int{}
+	for i, name := range a.recentBr {
+		order[name] = i
+	}
+	local := append([]git.RepoRef(nil), a.refs.Local...)
+	sort.SliceStable(local, func(i, j int) bool {
+		ri, iok := order[local[i].Name]
+		rj, jok := order[local[j].Name]
+		if iok != jok {
+			return iok
+		}
+		if iok && jok {
+			return ri < rj
+		}
+		return local[i].Name < local[j].Name
+	})
 	a.branches = a.branches[:0]
-	for _, ref := range a.refs.Local {
+	for _, ref := range local {
 		a.branches = append(a.branches, repoRefRow{ref: ref, group: "local"})
 	}
 	for _, ref := range a.refs.Remote {
@@ -671,6 +744,22 @@ func (a *nativeApp) command(cmd string) {
 		a.openConflictSummary()
 	case cmd == "browse-revision":
 		a.openBrowseRevisionDialog()
+	case cmd == "compare":
+		a.openCompare("", a.snapshot.State.Branch)
+	case cmd == "patches":
+		a.openPatchDialog()
+	case cmd == "shelves":
+		a.openShelfDialog()
+	case cmd == "journal":
+		a.openJournalDialog()
+	case cmd == "worktrees":
+		a.openRepoToolsDialog()
+		a.repoTab = 0
+	case cmd == "submodules":
+		a.openRepoToolsDialog()
+		a.repoTab = 1
+	case cmd == "lfs":
+		a.openLFSDialog()
 	case strings.HasPrefix(cmd, "tab:"):
 		switch strings.TrimPrefix(cmd, "tab:") {
 		case "commit":

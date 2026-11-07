@@ -79,6 +79,13 @@ var messages = map[lang]map[string]string{
 		"dialog.openRepo":        "Open Git Repository",
 		"dialog.openRepoButton":  "Open",
 		"dialog.openRepoMessage": "Choose a folder inside a Git working tree",
+		"menu.compare":           "Compare…",
+		"menu.patches":           "Patches…",
+		"menu.shelves":           "Shelves…",
+		"menu.journal":           "Journal…",
+		"menu.worktrees":         "Worktrees…",
+		"menu.submodules":        "Submodules…",
+		"menu.lfs":               "Git LFS…",
 	},
 	langZH: {
 		"menu.file":              "文件",
@@ -116,6 +123,13 @@ var messages = map[lang]map[string]string{
 		"dialog.openRepo":        "打开 Git 仓库",
 		"dialog.openRepoButton":  "打开",
 		"dialog.openRepoMessage": "选择 Git 工作区所在的文件夹",
+		"menu.compare":           "比较…",
+		"menu.patches":           "补丁…",
+		"menu.shelves":           "搁置…",
+		"menu.journal":           "操作日志…",
+		"menu.worktrees":         "工作树…",
+		"menu.submodules":        "子模块…",
+		"menu.lfs":               "Git LFS…",
 	},
 }
 

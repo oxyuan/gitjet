@@ -126,6 +126,29 @@ func (a *nativeApp) commitPane(c *ui.Context) {
 				}
 				a.unstage(paths)
 			}
+			ui.MenuButton(c, a.activeChangelistName(), func(m *ui.Menu) {
+				if m.Item(a.t("New Changelist")).Chosen() {
+					a.dialog = dialogState{kind: dialogPrompt, title: a.t("New Changelist"), message: a.t("Name"), action: "new-changelist"}
+				}
+				if m.Item(a.t("Rename Changelist")).Chosen() {
+					a.dialog = dialogState{kind: dialogPrompt, title: a.t("Rename Changelist"), message: a.t("Name"), action: "rename-changelist", target: a.snapshot.Changelists.Active, text: a.activeChangelistName()}
+				}
+				if m.Item(a.t("Delete Changelist")).Chosen() {
+					id := a.snapshot.Changelists.Active
+					a.dialog = dialogState{kind: dialogConfirm, title: a.t("Delete Changelist"), message: a.t("Delete the active changelist?"), action: "delete-changelist", target: id}
+				}
+				m.Separator()
+				for _, cl := range a.snapshot.Changelists.Items {
+					label := cl.Name
+					if cl.ID == a.snapshot.Changelists.Active {
+						label = "✓ " + label
+					}
+					id := cl.ID
+					if m.Item(label).Chosen() {
+						a.setActiveChangelist(id)
+					}
+				}
+			})
 			ui.Spacer(c).Grow(1)
 			if ui.Button(c, a.t("Stash")).Clicked() {
 				a.openStashDialog()
@@ -147,6 +170,7 @@ func (a *nativeApp) commitPane(c *ui.Context) {
 		if list.Changed() || list.Submitted() {
 			a.openSelectedChange()
 		}
+		a.stashSection(c)
 		a.commitBox(c)
 	})
 }
@@ -240,6 +264,20 @@ func (a *nativeApp) changeRow(c *ui.Context, i int) {
 		if !ch.Unmerged && m.Item(a.t("Ignore")).Chosen() {
 			a.ignore([]string{ch.Path})
 		}
+		if len(a.snapshot.Changelists.Items) > 0 {
+			path := ch.Path
+			m.Submenu(a.t("Move to Changelist"), func(sm *ui.Menu) {
+				for _, cl := range a.snapshot.Changelists.Items {
+					id := cl.ID
+					if sm.Item(cl.Name).Chosen() {
+						a.busyRun("changelist", func() error {
+							_, err := a.g.MoveToChangelist([]string{path}, id)
+							return err
+						})
+					}
+				}
+			})
+		}
 	})
 }
 
@@ -278,6 +316,68 @@ func statusColor(t *ui.Theme, ch git.Change) ui.Color {
 	return t.Accent
 }
 
+func (a *nativeApp) stashSection(c *ui.Context) {
+	if len(a.snapshot.Stashes) == 0 {
+		return
+	}
+	t := c.Theme()
+	ui.Row(c).Padding(6, 8).Gap(6).AlignItems(ui.Center).Children(func() {
+		ui.Text(c, a.t("Stashes")).FontSize(10).FontWeight(700).TextColor(t.TextMuted)
+		ui.Text(c, fmt.Sprintf("%d", len(a.snapshot.Stashes))).FontSize(9).TextColor(t.TextMuted)
+		ui.Spacer(c).Grow(1)
+		if ui.Button(c, a.t("Clear")).Clicked() {
+			a.busyRun("stash", func() error {
+				_, err := a.g.ClearStashes()
+				return err
+			})
+		}
+	})
+	ui.Scroll(c).MaxHeight(120).Children(func() {
+		ui.Column(c).Gap(1).Children(func() {
+			for _, st := range a.snapshot.Stashes {
+				st := st
+				row := ui.Row(c).Height(22).Padding(2, 8).Gap(6).AlignItems(ui.Center)
+				row.Children(func() {
+					ui.Text(c, st.Message).FontSize(10).MaxLines(1)
+					ui.Spacer(c).Grow(1)
+					ui.Text(c, a.stamp(st.Time)).FontSize(9).TextColor(t.TextMuted)
+				})
+				row.ContextMenu(func(m *ui.Menu) {
+					if m.Item(a.t("Apply")).Chosen() {
+						index := st.Index
+						a.busyRun("stash", func() error {
+							_, err := a.g.StashApply(index, false, true)
+							return err
+						})
+					}
+					if m.Item(a.t("Pop")).Chosen() {
+						index := st.Index
+						a.busyRun("stash", func() error {
+							_, err := a.g.StashApply(index, true, true)
+							return err
+						})
+					}
+					if m.Item(a.t("Show Files")).Chosen() {
+						a.showStashFiles(st)
+					}
+					if m.Item(a.t("Stash to Branch")).Chosen() {
+						index := st.Index
+						a.dialog = dialogState{kind: dialogPrompt, title: a.t("Stash to Branch"), message: a.t("Branch name"), action: "stash-branch", target: fmt.Sprint(index)}
+					}
+					m.Separator()
+					if m.Item(a.t("Drop")).Chosen() {
+						index := st.Index
+						a.busyRun("stash", func() error {
+							_, err := a.g.StashDrop(index)
+							return err
+						})
+					}
+				})
+			}
+		})
+	})
+}
+
 func (a *nativeApp) commitBox(c *ui.Context) {
 	t := c.Theme()
 	ui.Column(c).Padding(8).Gap(6).BorderWidth(1, 0, 0, 0).BorderColor(t.Border).Children(func() {
@@ -290,6 +390,40 @@ func (a *nativeApp) commitBox(c *ui.Context) {
 		ui.Row(c).Gap(6).Children(func() {
 			ui.Checkbox(c, &a.commitForm.AllowEmpty, a.t("Allow empty"))
 			ui.Checkbox(c, &a.commitForm.Sign, a.t("Sign"))
+			ui.Spacer(c).Grow(1)
+			ui.MenuButton(c, a.t("Message"), func(m *ui.Menu) {
+				if m.Item(a.t("Reformat to 72 columns")).Chosen() {
+					a.commitForm.Message = wrapCommitMessage(a.commitForm.Message, 72)
+				}
+				if m.Item(a.t("Last Commit Message")).Chosen() {
+					if msg := a.lastCommitMessage(); msg != "" {
+						a.commitForm.Message = msg
+					}
+				}
+				m.Separator()
+				for _, msg := range a.g.MessageHistory() {
+					msg := msg
+					label := strings.SplitN(msg, "\n", 2)[0]
+					if m.Item(label).Chosen() {
+						a.commitForm.Message = msg
+					}
+				}
+				m.Separator()
+				for _, row := range a.changes {
+					path := row.change.Path
+					if m.Item(a.t("Insert ") + path).Chosen() {
+						if a.commitForm.Message != "" && !strings.HasSuffix(a.commitForm.Message, "\n") {
+							a.commitForm.Message += "\n"
+						}
+						a.commitForm.Message += path
+						break
+					}
+				}
+			})
+		})
+		ui.Row(c).Gap(6).Children(func() {
+			ui.TextInput(c, &a.commitForm.AuthorName).Placeholder(a.t("Author name")).Width(120)
+			ui.TextInput(c, &a.commitForm.AuthorEmail).Placeholder(a.t("Author email")).Width(160)
 		})
 		ui.Row(c).Gap(6).Children(func() {
 			ui.Spacer(c).Grow(1)
@@ -420,6 +554,12 @@ func (a *nativeApp) statusBar(c *ui.Context) {
 		ui.Text(c, fmt.Sprintf("%d changed", st.Changed)).FontSize(11).TextColor(t.TextMuted)
 		if st.Untracked > 0 {
 			ui.Text(c, fmt.Sprintf("%d untracked", st.Untracked)).FontSize(11).TextColor(t.TextMuted)
+		}
+		if a.lsp != nil && a.lsp.ready {
+			ui.Text(c, a.lsp.name).FontSize(10).TextColor(t.TextMuted)
+			if n := a.diagCount(); n > 0 {
+				ui.Text(c, fmt.Sprintf("%d diagnostics", n)).FontSize(10).TextColor(t.Warning)
+			}
 		}
 		if a.busy > 0 {
 			ui.Spinner(c)
@@ -572,7 +712,7 @@ func (a *nativeApp) filesPane(c *ui.Context) {
 				}
 			})
 		}).Grow(1)
-		if list.Submitted() {
+		if list.Changed() || list.Submitted() {
 			if a.fileSel >= 0 && a.fileSel < len(a.fileTree) {
 				f := a.fileTree[a.fileSel]
 				if f.dir {
@@ -586,25 +726,27 @@ func (a *nativeApp) filesPane(c *ui.Context) {
 }
 
 func (a *nativeApp) rebuildFileTree() {
-	files := a.files
 	q := strings.ToLower(strings.TrimSpace(a.fileFilter))
-	if q != "" {
-		var out []git.RepoFile
-		for _, f := range files {
-			if strings.Contains(strings.ToLower(f.Path), q) {
-				out = append(out, f)
-			}
-		}
-		files = out
+	if q == "" {
+		a.fileTree = flattenFiles(a.files, a.openDirs)
+		return
 	}
-	sort.Slice(files, func(i, j int) bool { return files[i].Path < files[j].Path })
-	a.fileTree = flattenFiles(files)
+	var matched []git.RepoFile
+	for _, f := range a.files {
+		if strings.Contains(strings.ToLower(f.Path), q) {
+			matched = append(matched, f)
+		}
+	}
+	sort.Slice(matched, func(i, j int) bool { return matched[i].Path < matched[j].Path })
+	a.fileTree = a.fileTree[:0]
+	for _, f := range matched {
+		a.fileTree = append(a.fileTree, fileRow{path: f.Path, name: f.Path})
+	}
 }
 
 func (a *nativeApp) toggleDir(path string) {
-	// Flattened lists show every path; a folder row toggles nothing yet
-	// unless the tree was folded. Keeping the row list flat matches the
-	// filtered explorer, which always shows the paths that match.
+	a.openDirs[path] = !a.openDirs[path]
+	a.rebuildFileTree()
 }
 
 func (a *nativeApp) changedPath(path string) bool {
@@ -841,11 +983,42 @@ func (a *nativeApp) logPane(c *ui.Context) {
 func (a *nativeApp) consolePane(c *ui.Context) {
 	t := c.Theme()
 	ui.Column(c).Grow(1).MinHeight(0).Children(func() {
-		ui.Tabs(c, &a.consoleTab, a.t("Command"), a.t("Output"))
+		ui.Row(c).Padding(4, 6).Gap(6).Children(func() {
+			ui.Tabs(c, &a.consoleTab, a.t("Command"), a.t("Operations"))
+			ui.Spacer(c).Grow(1)
+			if ui.Button(c, a.t("Clear")).Clicked() {
+				a.consoleLog = nil
+			}
+			if ui.Button(c, a.t("Log File")).Clicked() {
+				if path, err := a.g.JournalFile(); err == nil {
+					_ = a.ws.Reveal(path)
+				}
+			}
+		})
 		ui.Scroll(c).Grow(1).Background(t.Background).Children(func() {
 			ui.Column(c).Padding(6).Children(func() {
-				for _, line := range a.consoleLog {
-					ui.Text(c, line).FontSize(11).Font("monospace")
+				if a.consoleTab == 0 {
+					for _, line := range a.consoleLog {
+						ui.Text(c, line).FontSize(11).Font("monospace")
+					}
+					return
+				}
+				for i := len(a.journal) - 1; i >= 0; i-- {
+					e := a.journal[i]
+					ui.Text(c, a.stamp(e.At/1000)+"  "+e.Action).FontSize(10).FontWeight(600)
+					for _, cmd := range e.Commands {
+						ui.Text(c, "$ "+cmd).FontSize(10).Font("monospace").TextColor(t.TextMuted)
+					}
+					if e.Output != "" {
+						ui.Text(c, strings.TrimRight(e.Output, "\n")).FontSize(10).Font("monospace")
+					}
+					if e.Error != "" {
+						ui.Text(c, e.Error).FontSize(10).TextColor(t.Danger)
+					}
+					ui.Spacer(c).Height(6)
+				}
+				if len(a.journal) == 0 {
+					ui.Text(c, a.t("No operations yet")).FontSize(10).TextColor(t.TextMuted)
 				}
 			})
 		})
