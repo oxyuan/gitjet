@@ -10,6 +10,7 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
+	"strings"
 	"sync"
 	"time"
 
@@ -35,11 +36,16 @@ type Settings struct {
 	ConfirmForcePush bool   `json:"confirmForcePush"`
 	ConfirmRollback  bool   `json:"confirmRollback"`
 	// Commit checks warn before a commit, as IDEA's do.
-	CommitCheckCRLF    bool         `json:"commitCheckCrlf"`
-	CommitCheckLargeMB int          `json:"commitCheckLargeMB"`
-	CommitCheckNames   bool         `json:"commitCheckNames"`
-	CommitCheckHead    bool         `json:"commitCheckHead"`
-	CommitTemplate     string       `json:"commitTemplate"`
+	CommitCheckCRLF    bool   `json:"commitCheckCrlf"`
+	CommitCheckLargeMB int    `json:"commitCheckLargeMB"`
+	CommitCheckNames   bool   `json:"commitCheckNames"`
+	CommitCheckHead    bool   `json:"commitCheckHead"`
+	CommitTemplate     string `json:"commitTemplate"`
+	// ProtectedBranches are name patterns that ask before a commit and
+	// refuse a force-push, like IDEA's protected branches.
+	ProtectedBranches []string `json:"protectedBranches"`
+	// AutoUpdateOnReject offers an update when a push is rejected.
+	AutoUpdateOnReject bool         `json:"autoUpdateOnReject"`
 	OpenInNewWindow    bool         `json:"openInNewWindow"`
 	UIScale            int          `json:"uiScale"` // percent, 100 is the design size
 	Recent             []RecentRepo `json:"recent"`
@@ -62,6 +68,9 @@ type RepoMeta struct {
 	// PushTargets remembers the remote branches this repository pushed to,
 	// newest first, so the push dialog starts where the user left off.
 	PushTargets []string `json:"pushTargets"`
+	// RecentBranches are the branches checked out lately, newest first,
+	// which the branch list shows above the rest.
+	RecentBranches []string `json:"recentBranches"`
 }
 
 // settingsVersion is bumped whenever a stored default has to be rewritten;
@@ -78,6 +87,7 @@ func defaultSettings() Settings {
 		ConfirmRollback:    true,
 		ConfirmForcePush:   true,
 		CommitCheckCRLF:    true,
+		AutoUpdateOnReject: true,
 		CommitCheckLargeMB: 10,
 		CommitCheckNames:   true,
 		CommitCheckHead:    true,
@@ -137,6 +147,14 @@ func (s *Settings) clamp() {
 	if s.CommitCheckLargeMB < 0 || s.CommitCheckLargeMB > 1000 {
 		s.CommitCheckLargeMB = 10
 	}
+	patterns := make([]string, 0, len(s.ProtectedBranches))
+	for _, pattern := range s.ProtectedBranches {
+		pattern = strings.TrimSpace(pattern)
+		if pattern != "" && len(patterns) < 50 {
+			patterns = append(patterns, pattern)
+		}
+	}
+	s.ProtectedBranches = patterns
 }
 
 func saveSettings(s Settings) error {
@@ -176,6 +194,7 @@ func loadRepoMeta(root string) RepoMeta {
 				meta.Assignments = stored.Assignments
 			}
 			meta.Messages = stored.Messages
+			meta.RecentBranches = stored.RecentBranches
 		}
 	}
 	ensureMeta(&meta)

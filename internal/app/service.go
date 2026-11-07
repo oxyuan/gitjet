@@ -875,8 +875,141 @@ func (g *Git) Checkout(ref string) (string, error) {
 		return repo.Checkout(ctx, ref)
 	})
 	g.journalOperation(repo, JournalEntry{Action: "checkout", Commands: *trace, Output: out}, err, started)
+	if err == nil {
+		g.rememberBranch(ref)
+	}
 	g.notify()
 	return appendCommands(out, *trace), err
+}
+
+// rememberBranch puts a checked-out branch at the head of the recent list.
+func (g *Git) rememberBranch(branch string) {
+	branch = strings.TrimSpace(branch)
+	if branch == "" || branch == "HEAD" || strings.HasPrefix(branch, "-") {
+		return
+	}
+	g.c.mu.Lock()
+	branches := []string{branch}
+	for _, b := range g.c.meta.RecentBranches {
+		if b != branch {
+			branches = append(branches, b)
+		}
+	}
+	if len(branches) > 8 {
+		branches = branches[:8]
+	}
+	g.c.meta.RecentBranches = branches
+	g.c.mu.Unlock()
+	_ = g.c.saveMeta()
+}
+
+// RecentBranches lists the branches checked out lately, newest first.
+func (g *Git) RecentBranches() []string {
+	g.c.mu.Lock()
+	defer g.c.mu.Unlock()
+	return append([]string(nil), g.c.meta.RecentBranches...)
+}
+
+// CheckoutAndUpdate checks a branch out and fast-forwards it to its
+// upstream, which is IDEA's "Checkout and Update".
+func (g *Git) CheckoutAndUpdate(ref string) (string, error) {
+	repo, err := g.c.currentRepo()
+	if err != nil {
+		return "", err
+	}
+	ctx, trace := git.WithCommandTrace(context.Background())
+	started := time.Now()
+	out, err := preserveLocalChanges(ctx, repo, "checking out "+ref, func() (string, error) {
+		out, err := repo.Checkout(ctx, ref)
+		if err != nil {
+			return out, err
+		}
+		updated, uerr := repo.UpdateSelected(ctx, ref)
+		if uerr != nil {
+			// The checkout happened; the update is what failed, and its
+			// message says why.
+			return out + "\n" + uerr.Error(), uerr
+		}
+		return out + "\n" + updated, nil
+	})
+	g.journalOperation(repo, JournalEntry{Action: "checkout-update", Commands: *trace, Output: out}, err, started)
+	if err == nil {
+		g.rememberBranch(ref)
+	}
+	g.notify()
+	return appendCommands(out, *trace), err
+}
+
+// UpdateSelected fast-forwards a branch to its upstream without checking it
+// out.
+func (g *Git) UpdateSelected(branch string) (string, error) {
+	repo, err := g.c.currentRepo()
+	if err != nil {
+		return "", err
+	}
+	ctx, trace := git.WithCommandTrace(context.Background())
+	started := time.Now()
+	out, err := preserveLocalChanges(ctx, repo, "updating "+branch, func() (string, error) {
+		return repo.UpdateSelected(ctx, branch)
+	})
+	g.journalOperation(repo, JournalEntry{Action: "update-selected", Commands: *trace, Output: out}, err, started)
+	if err != nil {
+		return out, err
+	}
+	g.notify()
+	return out, nil
+}
+
+// ResetToRemote resets a branch to its upstream after a force-push.
+func (g *Git) ResetToRemote(branch string) (string, error) {
+	repo, err := g.c.currentRepo()
+	if err != nil {
+		return "", err
+	}
+	ctx, trace := git.WithCommandTrace(context.Background())
+	started := time.Now()
+	out, err := repo.ResetToRemote(ctx, branch)
+	g.journalOperation(repo, JournalEntry{Action: "reset-to-remote", Commands: *trace, Output: out}, err, started)
+	if err != nil {
+		return out, err
+	}
+	g.notify()
+	return out, nil
+}
+
+// PushCommits publishes commits up to hash into a remote branch.
+func (g *Git) PushCommits(remote, remoteBranch, hash string) (string, error) {
+	repo, err := g.c.currentRepo()
+	if err != nil {
+		return "", err
+	}
+	ctx, trace := git.WithCommandTrace(context.Background())
+	started := time.Now()
+	out, err := repo.PushCommits(ctx, remote, remoteBranch, hash)
+	g.journalOperation(repo, JournalEntry{Action: "push-commits", Commands: *trace, Output: out}, err, started)
+	if err != nil {
+		return out, err
+	}
+	g.rememberPushTarget(remote, remoteBranch)
+	g.notify()
+	return appendCommands(out, *trace), nil
+}
+
+// PushTag publishes one tag.
+func (g *Git) PushTag(remote, tag string) (string, error) {
+	repo, err := g.c.currentRepo()
+	if err != nil {
+		return "", err
+	}
+	ctx, trace := git.WithCommandTrace(context.Background())
+	started := time.Now()
+	out, err := repo.PushTag(ctx, remote, tag)
+	g.journalOperation(repo, JournalEntry{Action: "push-tag", Commands: *trace, Output: out}, err, started)
+	if err != nil {
+		return out, err
+	}
+	g.notify()
+	return appendCommands(out, *trace), nil
 }
 
 // AddRemote adds a remote and tells the page to refresh.

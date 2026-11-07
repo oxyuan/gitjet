@@ -76,6 +76,7 @@ const T = {
     newTag: "New Tag…",
     cherryPick: "Cherry-Pick",
     revertCommit: "Revert Commit",
+    pushCommits: "Push Commits up to Here…",
     fixupCommit: "Create Fixup Commit",
     squashCommit: "Create Squash Commit",
     resetSoft: "Reset Current Branch to Here — Soft",
@@ -140,6 +141,7 @@ const T = {
     newTag: "新建标签…",
     cherryPick: "Cherry-pick 提交",
     revertCommit: "Revert 提交",
+    pushCommits: "推送提交到此为止…",
     fixupCommit: "创建 Fixup 提交",
     squashCommit: "创建 Squash 提交",
     resetSoft: "将当前分支 Reset 到此处 — Soft",
@@ -224,6 +226,7 @@ export function LogDock({
   onRevert,
   onFixupCommit,
   onSquashCommit,
+  onPushCommits,
   onRewrite,
   onReset,
 }: {
@@ -273,6 +276,7 @@ export function LogDock({
   onRevert: (hashes: string[]) => void;
   onFixupCommit: (hash: string) => void;
   onSquashCommit: (hash: string) => void;
+  onPushCommits: (hash: string) => void;
   onRewrite: (oldest: Commit) => void;
   onReset: (hash: string, mode: "soft" | "mixed" | "hard") => void;
 }) {
@@ -425,6 +429,7 @@ export function LogDock({
     if (target.length > 1) {
       items = [
         { label: t("cherryPickMany", { n: target.length }), icon: "cherry", onClick: () => onCherryPick(hashes) },
+        { label: t("pushCommits"), icon: "push", onClick: () => onPushCommits(oldest.hash) },
         { label: t("revertMany", { n: target.length }), icon: "revert", onClick: () => onRevert(hashes) },
         { separator: true },
         canRewrite
@@ -441,6 +446,7 @@ export function LogDock({
         { separator: true },
         { label: t("cherryPick"), icon: "cherry", onClick: () => onCherryPick(hashes) },
         { label: t("revertCommit"), icon: "revert", onClick: () => onRevert(hashes) },
+        { label: t("pushCommits"), icon: "push", onClick: () => onPushCommits(commit.hash) },
         { label: t("fixupCommit"), icon: "commit", onClick: () => onFixupCommit(hashes[0]!) },
         { label: t("squashCommit"), icon: "commit", onClick: () => onSquashCommit(hashes[0]!) },
         { separator: true },

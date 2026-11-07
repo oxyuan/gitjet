@@ -546,6 +546,13 @@ export interface Settings {
   commitCheckNames: boolean;
   commitCheckHead: boolean;
   commitTemplate: string;
+  /**
+   * ProtectedBranches are name patterns that ask before a commit and
+   * refuse a force-push, like IDEA's protected branches.
+   */
+  protectedBranches: string[];
+  /** AutoUpdateOnReject offers an update when a push is rejected. */
+  autoUpdateOnReject: boolean;
   openInNewWindow: boolean;
   /** percent, 100 is the design size */
   uiScale: number;
@@ -804,6 +811,13 @@ export const Git = {
   checkout(ref: string): Promise<string> {
     return call("Git.Checkout", ref);
   },
+  /**
+   * CheckoutAndUpdate checks a branch out and fast-forwards it to its
+   * upstream, which is IDEA's "Checkout and Update".
+   */
+  checkoutAndUpdate(ref: string): Promise<string> {
+    return call("Git.CheckoutAndUpdate", ref);
+  },
   /** CherryPick applies commits, oldest first. */
   cherryPick(hashes: string[], noCommit: boolean): Promise<string> {
     return call("Git.CherryPick", hashes, noCommit);
@@ -1020,12 +1034,20 @@ export const Git = {
   push(opts: PushOptions, out: Channel<string>): Promise<string> {
     return call("Git.Push", opts, out);
   },
+  /** PushCommits publishes commits up to hash into a remote branch. */
+  pushCommits(remote: string, remoteBranch: string, hash: string): Promise<string> {
+    return call("Git.PushCommits", remote, remoteBranch, hash);
+  },
   /**
    * PushPreview reports what a push would publish, for the confirmation
    * dialog: the commits, the files, and whether the remote branch is new.
    */
   pushPreview(remote: string, branch: string, remoteBranch: string): Promise<PushPreview> {
     return call("Git.PushPreview", remote, branch, remoteBranch);
+  },
+  /** PushTag publishes one tag. */
+  pushTag(remote: string, tag: string): Promise<string> {
+    return call("Git.PushTag", remote, tag);
   },
   /**
    * PushTargets lists the remote branches this repository pushed to, newest
@@ -1040,6 +1062,10 @@ export const Git = {
    */
   rebase(opts: RebaseOptions): Promise<string> {
     return call("Git.Rebase", opts);
+  },
+  /** RecentBranches lists the branches checked out lately, newest first. */
+  recentBranches(): Promise<string[]> {
+    return call("Git.RecentBranches");
   },
   /** Refresh rereads the repository. */
   refresh(): Promise<ChangesSnapshot> {
@@ -1087,6 +1113,10 @@ export const Git = {
    */
   reset(hash: string, mode: string): Promise<string> {
     return call("Git.Reset", hash, mode);
+  },
+  /** ResetToRemote resets a branch to its upstream after a force-push. */
+  resetToRemote(branch: string): Promise<string> {
+    return call("Git.ResetToRemote", branch);
   },
   /** RestoreLocalHistory writes a saved copy back to the working tree. */
   restoreLocalHistory(path: string, digest: string): Promise<void> {
@@ -1231,6 +1261,13 @@ export const Git = {
   /** Unstage removes paths from the index. */
   unstage(paths: string[]): Promise<void> {
     return call("Git.Unstage", paths);
+  },
+  /**
+   * UpdateSelected fast-forwards a branch to its upstream without checking it
+   * out.
+   */
+  updateSelected(branch: string): Promise<string> {
+    return call("Git.UpdateSelected", branch);
   },
   /** UpdateSubmodules checks the submodules out at their recorded commits. */
   updateSubmodules(init: boolean): Promise<string> {

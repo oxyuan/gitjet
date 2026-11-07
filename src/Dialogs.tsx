@@ -110,6 +110,9 @@ const T = {
     "settings.checkLarge": "Warn about files larger than",
     "settings.checkNames": "Warn about names Windows cannot check out",
     "settings.checkHead": "Warn about a detached HEAD",
+    "settings.protected": "Protected branches",
+    "settings.protectedHint": "One pattern per line, * as a wildcard. A commit on these branches asks first and a force-push is refused.",
+    "settings.autoUpdate": "Offer an update when a push is rejected",
     "settings.template": "Commit message template",
     "settings.templateHint": "Put into the empty message box of a new repository window.",
     "settings.updateMethod": "Update method",
@@ -190,6 +193,9 @@ const T = {
     "pull.autostash": "Stash local changes before update (--autostash)",
     "pull.prune": "Prune deleted remote branches",
     "pull.tags": "Fetch tags",
+    "pushCommits.title": "Push commits up to {hash}",
+    "pushCommits.note": "The commit and everything below it is published to the remote branch; nothing is checked out.",
+    "pushCommits.branch": "Remote branch",
     "pull.ffOnly": "Fast-forward only (--ff-only)",
     "pull.noFF": "Always create a merge commit (--no-ff)",
     "pull.squash": "Squash the pulled commits (--squash)",
@@ -370,6 +376,9 @@ const T = {
     "settings.checkLarge": "警告超过此大小的文件",
     "settings.checkNames": "警告 Windows 无法检出的文件名",
     "settings.checkHead": "警告分离的 HEAD",
+    "settings.protected": "受保护分支",
+    "settings.protectedHint": "每行一个模式，支持 * 通配。在这些分支上提交会先确认，强制推送会被拒绝。",
+    "settings.autoUpdate": "Push 被拒绝时提示更新",
     "settings.template": "提交信息模板",
     "settings.templateHint": "新提交框为空时填入这段文字。",
     "settings.updateMethod": "Pull 方式",
@@ -450,6 +459,9 @@ const T = {
     "pull.autostash": "Pull 前 Stash 本地更改（--autostash）",
     "pull.prune": "清理已删除的远程分支",
     "pull.tags": "Fetch 标签",
+    "pushCommits.title": "推送提交到 {hash}",
+    "pushCommits.note": "该提交及其之前的提交会发布到远端分支，不会检出任何内容。",
+    "pushCommits.branch": "远端分支",
     "pull.ffOnly": "仅允许快进（--ff-only）",
     "pull.noFF": "始终创建 Merge 提交（--no-ff）",
     "pull.squash": "Squash 拉取的提交（--squash）",
@@ -626,6 +638,8 @@ const TAB_FIELDS: Record<SettingsTab, (keyof Settings)[]> = {
     "commitCheckNames",
     "commitCheckHead",
     "commitTemplate",
+    "protectedBranches",
+    "autoUpdateOnReject",
   ],
   keys: [],
 };
@@ -1040,6 +1054,28 @@ export function SettingsDialog({
                       checked={draft.commitCheckHead}
                       onChange={(v) => set("commitCheckHead", v)}
                       label={t("settings.checkHead")}
+                    />
+                  </SettingRow>
+                  <SettingRow label={t("settings.protected")} hint={t("settings.protectedHint")}>
+                    <textarea
+                      className="text-input settings-textarea"
+                      value={draft.protectedBranches.join("\n")}
+                      onChange={(e) =>
+                        set(
+                          "protectedBranches",
+                          e.target.value
+                            .split("\n")
+                            .map((line) => line.trim())
+                            .filter(Boolean),
+                        )
+                      }
+                    />
+                  </SettingRow>
+                  <SettingRow hint={t("settings.autoUpdate")}>
+                    <Checkbox
+                      checked={draft.autoUpdateOnReject}
+                      onChange={(v) => set("autoUpdateOnReject", v)}
+                      label={t("settings.autoUpdate")}
                     />
                   </SettingRow>
                   <SettingRow label={t("settings.template")} hint={t("settings.templateHint")}>
@@ -1856,6 +1892,58 @@ function PushFilePreviewDialog({
             </div>
           ) : null}
         </div>
+      </div>
+    </Modal>
+  );
+}
+
+/** PushCommitsDialog publishes history up to one commit into a remote
+ *  branch, without checking anything out. */
+export function PushCommitsDialog({
+  hash,
+  remotes,
+  current,
+  onClose,
+  onSubmit,
+}: {
+  hash: string;
+  remotes: Remote[];
+  current: string;
+  onClose: () => void;
+  onSubmit: (remote: string, branch: string) => void;
+}) {
+  const t = useT(T);
+  const [remote, setRemote] = useState(remotes.find((r) => r.name === "origin")?.name ?? remotes[0]?.name ?? "origin");
+  const [branch, setBranch] = useState(current);
+  return (
+    <Modal
+      title={t("pushCommits.title", { hash: shortHash(hash) })}
+      icon="push"
+      width={460}
+      onClose={onClose}
+      footer={
+        <>
+          <Button onClick={onClose}>{t("common.cancel")}</Button>
+          <Button variant="primary" disabled={!remote || !branch.trim()} onClick={() => onSubmit(remote, branch.trim())}>
+            {t("common.push")}
+          </Button>
+        </>
+      }
+    >
+      <div className="dialog-form">
+        <div className="dialog-note">{t("pushCommits.note")}</div>
+        <Field label={t("push.remote")}>
+          <Select value={remote} onChange={setRemote}>
+            {remotes.map((r) => (
+              <option key={r.name} value={r.name}>
+                {r.name} — {r.url}
+              </option>
+            ))}
+          </Select>
+        </Field>
+        <Field label={t("pushCommits.branch")}>
+          <TextInput value={branch} onChange={setBranch} placeholder="release" />
+        </Field>
       </div>
     </Modal>
   );

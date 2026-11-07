@@ -9098,3 +9098,42 @@ body.resizing-row .log-detail-split::after {
   font-size: 12px;
   white-space: pre;
 }
+
+/* Recent branches */
+.branch-recent {
+  display: flex;
+  gap: 5px;
+  align-items: center;
+  flex-wrap: wrap;
+  padding: 0 10px 8px;
+}
+
+.branch-recent-label {
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--muted);
+}
+
+.branch-recent-chip {
+  border: 1px solid var(--border);
+  background: transparent;
+  color: var(--fg);
+  border-radius: 999px;
+  padding: 1px 8px;
+  font-size: 11px;
+  cursor: pointer;
+  max-width: 130px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.branch-recent-chip:hover {
+  background: var(--selection);
+}
+
+.branch-recent-chip.current {
+  border-color: var(--accent);
+  color: var(--accent);
+}

@@ -26,6 +26,7 @@ import { CommitPanel, type CommitActions, type CommitForm, type FileEntry } from
 import { ConsolePanel } from "./ConsolePanel";
 import { SourceTree } from "./SourceTree";
 import { normalizeTabOrder, type ToolTab, TOOL_TABS, TOOL_TAB_ICONS } from "./tabs";
+import { isProtectedBranch } from "./protected";
 import { DiffView } from "./DiffView";
 import {
   ChangelistDialog,
@@ -34,6 +35,7 @@ import {
   PullDialog,
   PushDialog,
   RebaseDialog,
+  PushCommitsDialog,
   ResetDialog,
   SettingsDialog,
   StashDialog,
@@ -236,6 +238,17 @@ const T = {
     operationFetch: "Fetch",
     operationClone: "Clone",
     commitChecksTitle: "Commit checks",
+    protectedCommitTitle: "Protected branch",
+    protectedCommitMessage: "{branch} is protected. Commit to it anyway?",
+    protectedForcePushTitle: "Protected branch",
+    protectedForcePushMessage: "A force-push to the protected branch {branch} is refused.",
+    pushRejectedTitle: "The push was rejected",
+    pushRejectedMessage: "The remote has commits this branch does not. Update the branch and push again?",
+    branchUpdated: "Branch updated",
+    resetToRemoteTitle: "Reset to the remote branch",
+    resetToRemoteMessage: "Move {branch} to its upstream and discard the commits only it has?",
+    resetToRemote: "Reset to Remote",
+    tagPushed: "Tag pushed",
     clearStashesTitle: "Clear all stashes",
     clearStashes: "Clear all stashes",
     clearStashesMessage: "Every stash entry of this repository is deleted. This cannot be undone.",
@@ -450,6 +463,17 @@ const T = {
     operationFetch: "Fetch",
     operationClone: "克隆",
     commitChecksTitle: "提交检查",
+    protectedCommitTitle: "受保护分支",
+    protectedCommitMessage: "{branch} 是受保护分支，仍要提交吗？",
+    protectedForcePushTitle: "受保护分支",
+    protectedForcePushMessage: "拒绝对受保护分支 {branch} 的强制推送。",
+    pushRejectedTitle: "Push 被拒绝",
+    pushRejectedMessage: "远端有当前分支没有的提交。更新分支后再推送？",
+    branchUpdated: "分支已更新",
+    resetToRemoteTitle: "重置到远端分支",
+    resetToRemoteMessage: "把 {branch} 移到其上游，并丢弃仅它拥有的提交？",
+    resetToRemote: "重置到远端",
+    tagPushed: "标签已推送",
     clearStashesTitle: "清空所有 Stash",
     clearStashes: "清空所有 Stash",
     clearStashesMessage: "该仓库的所有 Stash 条目都会被删除，且无法撤销。",
@@ -573,7 +597,8 @@ type Dialog =
   | { kind: "init" }
   | { kind: "remotes" }
   | { kind: "rebase"; onto: string }
-  | { kind: "localHistory"; path: string };
+  | { kind: "localHistory"; path: string }
+  | { kind: "pushCommits"; hash: string };
 
 interface ConfirmState {
   title: string;
@@ -612,6 +637,7 @@ function AppShell({ onLangChange }: { onLangChange: (lang: Lang) => void }) {
   const [snapshot, setSnapshot] = useState<ChangesSnapshot | null>(null);
   const [refs, setRefs] = useState<RefsSnapshot | null>(null);
   const [remotes, setRemotes] = useState<Remote[]>([]);
+  const [recentBranches, setRecentBranches] = useState<string[]>([]);
   // Tabs were renamed once; keep an old stored "log" pointing at the branch page.
   const [storedTab, setStoredTab] = useStoredState<ToolTab | "log">("gitjet.tab", "commit");
   const tab: ToolTab = storedTab === "log" ? "branch" : storedTab;
@@ -684,6 +710,7 @@ function AppShell({ onLangChange }: { onLangChange: (lang: Lang) => void }) {
   // while a filter is applied.
   const authorCache = useRef<Map<string, AuthorOption>>(new Map());
   const opLines = useRef<string[]>([]);
+  const lastOperationError = useRef("");
   const tRef = useRef(t);
   tRef.current = t;
 
@@ -945,6 +972,7 @@ function AppShell({ onLangChange }: { onLangChange: (lang: Lang) => void }) {
         snapshotRef.current = snap;
         setRefs(r);
         setRemotes(rem);
+        setRecentBranches(await Git.recentBranches().catch(() => []));
         applyCheckedDefaults(snap);
         const active = docsRef.current.find((d) => d.id === activeIdRef.current);
         if (active?.kind === "diff" && (active.opts.target === "worktree" || active.opts.target === "staged")) {
@@ -1028,7 +1056,7 @@ function AppShell({ onLangChange }: { onLangChange: (lang: Lang) => void }) {
         if (b.error) notify("error", tRef.current("reopenRepo"), b.error);
       })
       .catch((err) => {
-        setBoot({ settings: { version: 2, gitPath: "", language: "system", theme: "system", diffContext: -1, ignoreWhitespace: false, showIgnored: false, autoFetch: false, autoFetchMinutes: 15, updateMethod: "merge", confirmForcePush: true, confirmRollback: true, commitCheckCrlf: true, commitCheckLargeMB: 10, commitCheckNames: true, commitCheckHead: true, commitTemplate: "", openInNewWindow: false, uiScale: 100, recent: [] }, repo: null, error: String(err), version: "", platform: "" });
+        setBoot({ settings: { version: 2, gitPath: "", language: "system", theme: "system", diffContext: -1, ignoreWhitespace: false, showIgnored: false, autoFetch: false, autoFetchMinutes: 15, updateMethod: "merge", confirmForcePush: true, confirmRollback: true, commitCheckCrlf: true, commitCheckLargeMB: 10, commitCheckNames: true, commitCheckHead: true, commitTemplate: "", protectedBranches: [], autoUpdateOnReject: true, openInNewWindow: false, uiScale: 100, recent: [] }, repo: null, error: String(err), version: "", platform: "" });
         notify("error", tRef.current("startFailed"), err instanceof Error ? err.message : String(err));
       });
   }, [applyCheckedDefaults, notify, reload]);
@@ -1610,6 +1638,14 @@ function AppShell({ onLangChange }: { onLangChange: (lang: Lang) => void }) {
       notify("error", t("commitNeedsMessage"));
       return;
     }
+    if (isProtectedBranch(branch, settingsRef.current?.protectedBranches ?? [])) {
+      const ok = await ask({
+        title: t("protectedCommitTitle"),
+        message: t("protectedCommitMessage", { branch }),
+        confirmLabel: t("commitAnyway"),
+      });
+      if (!ok) return;
+    }
     const warnings = await Git.commitChecks(paths).catch(() => []);
     if (warnings.length > 0) {
       const ok = await ask({
@@ -1689,6 +1725,7 @@ function AppShell({ onLangChange }: { onLangChange: (lang: Lang) => void }) {
     };
     const channel = new Channel<string>();
     let failed: string | undefined;
+    lastOperationError.current = "";
     try {
       const promise = fn(channel);
       for await (const line of channel) {
@@ -1711,6 +1748,7 @@ function AppShell({ onLangChange }: { onLangChange: (lang: Lang) => void }) {
       update({ running: false, success: command ?? (first || t("done")) });
     } catch (err) {
       failed = err instanceof Error ? err.message : String(err);
+      lastOperationError.current = failed;
     }
     await reload(false);
     // A pull that stops on a conflict is the start of the resolution, not a
@@ -1765,6 +1803,14 @@ function AppShell({ onLangChange }: { onLangChange: (lang: Lang) => void }) {
   };
 
   const push = async (opts: PushOptions) => {
+    const pushedBranch = opts.branch || branch;
+    if (
+      (opts.forceWithLease || opts.forceIfIncludes) &&
+      isProtectedBranch(pushedBranch, settingsRef.current?.protectedBranches ?? [])
+    ) {
+      notify("error", t("protectedForcePushTitle"), t("protectedForcePushMessage", { branch: pushedBranch }));
+      return;
+    }
     if (opts.forceWithLease && (settingsRef.current?.confirmForcePush ?? true)) {
       const ok = await ask({
         title: t("forcePushTitle"),
@@ -1778,7 +1824,35 @@ function AppShell({ onLangChange }: { onLangChange: (lang: Lang) => void }) {
       if (!ok) return;
     }
     setDialog(null);
-    void runOperation(t("operationPush"), "push", (ch) => Git.push(opts, ch));
+    const ok = await runOperation(t("operationPush"), "push", (ch) => Git.push(opts, ch));
+    if (ok) return;
+    const rejected = /rejected|non-fast-forward|fetch first/i.test(lastOperationError.current);
+    if (!rejected || !(settingsRef.current?.autoUpdateOnReject ?? true)) return;
+    const update = await ask({
+      title: t("pushRejectedTitle"),
+      message: t("pushRejectedMessage"),
+      confirmLabel: t("updateProject"),
+    });
+    if (!update) return;
+    const pulled = await runOperation(t("operationPull"), "pull", (ch) =>
+      Git.pull(
+        {
+          remote: "",
+          branch: "",
+          rebase: settingsRef.current?.updateMethod === "rebase",
+          autostash: true,
+          prune: false,
+          tags: false,
+          ffOnly: false,
+          noFF: false,
+          squash: false,
+          noCommit: false,
+        },
+        ch,
+      ),
+    );
+    if (!pulled) return;
+    await runOperation(t("operationPush"), "push", (ch) => Git.push(opts, ch));
   };
 
   const pull = (opts: Parameters<typeof Git.pull>[0]) => {
@@ -1911,6 +1985,45 @@ function AppShell({ onLangChange }: { onLangChange: (lang: Lang) => void }) {
       notify("success", t("branchReset", { mode }));
       await reload(false);
       void loadLog(true);
+    });
+  };
+
+  const checkoutUpdate = async (name: string) => {
+    await withBusy(async () => {
+      await Git.checkoutAndUpdate(name);
+      await reload(false);
+      void loadLog(true);
+    });
+  };
+
+  const updateSelected = async (name: string) => {
+    await withBusy(async () => {
+      const out = await Git.updateSelected(name);
+      notify("success", t("branchUpdated"), out.split("\n")[0]);
+      await reload(false);
+      void loadLog(true);
+    });
+  };
+
+  const resetToRemote = async (name: string) => {
+    const ok = await ask({
+      title: t("resetToRemoteTitle"),
+      message: t("resetToRemoteMessage", { branch: name }),
+      confirmLabel: t("resetToRemote"),
+      danger: true,
+    });
+    if (!ok) return;
+    await withBusy(async () => {
+      await Git.resetToRemote(name);
+      await reload(false);
+      void loadLog(true);
+    });
+  };
+
+  const pushTag = async (name: string) => {
+    await withBusy(async () => {
+      await Git.pushTag("origin", name);
+      notify("success", t("tagPushed"), name);
     });
   };
 
@@ -2587,6 +2700,11 @@ function AppShell({ onLangChange }: { onLangChange: (lang: Lang) => void }) {
                   onPull={(leaf) => pullBranch(leaf)}
                   onPush={(leaf) => pushBranch(leaf)}
                   onCompare={(ref) => setDialog({ kind: "compare", ref })}
+                  recent={recentBranches}
+                  onCheckoutUpdate={(name) => void checkoutUpdate(name)}
+                  onUpdateSelected={(name) => void updateSelected(name)}
+                  onResetToRemote={(name) => void resetToRemote(name)}
+                  onPushTag={(name) => void pushTag(name)}
                 />
               ) : (
                 <NoRepo
@@ -2741,6 +2859,7 @@ function AppShell({ onLangChange }: { onLangChange: (lang: Lang) => void }) {
             onNewBranch={(start) => setDialog({ kind: "newBranch", start })}
             onNewTag={(start) => setDialog({ kind: "tag", start })}
             onCherryPick={(hashes) => void cherryPick(hashes)}
+            onPushCommits={(hash) => setDialog({ kind: "pushCommits", hash })}
             onFixupCommit={(hash) => void commitFixup(hash, false)}
             onSquashCommit={(hash) => void commitFixup(hash, true)}
             onRevert={(hashes) => void revert(hashes)}
@@ -2859,6 +2978,22 @@ function AppShell({ onLangChange }: { onLangChange: (lang: Lang) => void }) {
           onRename={(oldName, newName) => void renameRemote(oldName, newName)}
           onRemove={(name) => void removeRemote(name)}
           onClose={() => setDialog(null)}
+        />
+      )}
+      {dialog?.kind === "pushCommits" && (
+        <PushCommitsDialog
+          hash={dialog.hash}
+          remotes={remotes}
+          current={branch || "HEAD"}
+          onClose={() => setDialog(null)}
+          onSubmit={(remote, remoteBranch) => {
+            setDialog(null);
+            void withBusy(async () => {
+              await Git.pushCommits(remote, remoteBranch, dialog.hash);
+              await reload(false);
+              void loadLog(true);
+            });
+          }}
         />
       )}
       {dialog?.kind === "localHistory" && (

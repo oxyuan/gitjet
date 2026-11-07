@@ -41,6 +41,11 @@ const T = {
     deleteTag: "Delete tag",
     copyName: "Copy branch name",
     copyTagName: "Copy tag name",
+    checkoutUpdate: "Checkout and Update",
+    updateSelected: "Update Selected",
+    resetToRemote: "Reset to Remote Branch",
+    pushTag: "Push Tag to origin",
+    recent: "Recent",
     compare: "Compare with the working branch",
     pullBranch: "Pull",
     pushBranch: "Push",
@@ -74,6 +79,11 @@ const T = {
     deleteTag: "删除标签",
     copyName: "复制分支名",
     copyTagName: "复制标签名",
+    checkoutUpdate: "检出并更新",
+    updateSelected: "更新所选分支",
+    resetToRemote: "重置到远端分支",
+    pushTag: "推送标签到 origin",
+    recent: "最近",
     compare: "与当前分支比较",
     pullBranch: "Pull",
     pushBranch: "Push",
@@ -113,6 +123,11 @@ export function BranchList({
   onPull,
   onPush,
   onCompare,
+  recent,
+  onCheckoutUpdate,
+  onUpdateSelected,
+  onResetToRemote,
+  onPushTag,
 }: {
   refs: RefsSnapshot | null;
   current: string;
@@ -133,6 +148,11 @@ export function BranchList({
   onPull: (leaf: BranchLeaf) => void;
   onPush: (leaf: BranchLeaf) => void;
   onCompare: (ref: string) => void;
+  recent: string[];
+  onCheckoutUpdate: (name: string) => void;
+  onUpdateSelected: (name: string) => void;
+  onResetToRemote: (name: string) => void;
+  onPushTag: (name: string) => void;
 }) {
   const t = useT(T);
   const [query, setQuery] = useState("");
@@ -199,6 +219,17 @@ export function BranchList({
               ? [{ label: t("pullBranch"), icon: "pull", onClick: () => onPull(leaf) } as ContextItem]
               : []),
             { label: t("pushBranch"), icon: "push", onClick: () => onPush(leaf) } as ContextItem,
+            ...(leaf.current
+              ? []
+              : [
+                  {
+                    label: t("checkoutUpdate"),
+                    icon: "pull",
+                    onClick: () => onCheckoutUpdate(leaf.name),
+                  } as ContextItem,
+                ]),
+            { label: t("updateSelected"), icon: "refresh", onClick: () => onUpdateSelected(leaf.name) } as ContextItem,
+            { label: t("resetToRemote"), icon: "reset", danger: true, onClick: () => onResetToRemote(leaf.name) } as ContextItem,
           ])
         : []),
       { separator: true },
@@ -223,6 +254,7 @@ export function BranchList({
         { label: t("compare"), icon: "diff", onClick: () => onCompare(tag.name) },
         { separator: true },
         { label: t("copyTagName"), icon: "copy", onClick: () => onCopy(tag.name) },
+        { label: t("pushTag"), icon: "push", onClick: () => onPushTag(tag.name) },
         { label: t("deleteTag"), icon: "trash", danger: true, onClick: () => onDeleteTag(tag.name) },
       ],
     });
@@ -324,6 +356,22 @@ export function BranchList({
           <IconButton icon="collapse" title={t("collapseAll")} small onClick={() => setAllCollapsed(true)} />
         </span>
       </div>
+      {!searching && recent.length > 0 && (
+        <div className="branch-recent">
+          <span className="branch-recent-label">{t("recent")}</span>
+          {recent.map((name) => (
+            <button
+              key={name}
+              className={cx("branch-recent-chip", name === current && "current")}
+              title={name}
+              onClick={() => onSelect(name)}
+              onDoubleClick={() => onCheckout(name)}
+            >
+              {name}
+            </button>
+          ))}
+        </div>
+      )}
       <div className="picker-scroll branch-scroll" role="tree">
         {visible.map((section) => {
           const all = section.groups.flatMap((group) => group.branches);
