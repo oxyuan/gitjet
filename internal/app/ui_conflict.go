@@ -213,9 +213,17 @@ func (m *mergeWindow) view(c *ui.Context) {
 			return
 		}
 		ui.Row(c).Grow(1).AlignItems(ui.Stretch).Children(func() {
-			m.side(c, m.app.t("Ours"), m.ours, "ours")
+			ours := m.app.snapshot.State.OpOurs
+			if ours == "" {
+				ours = m.app.t("Ours")
+			}
+			theirs := m.app.snapshot.State.OpTheirs
+			if theirs == "" {
+				theirs = m.app.t("Theirs")
+			}
+			m.side(c, ours, m.ours, "ours")
 			m.resultPane(c)
-			m.side(c, m.app.t("Theirs"), m.theirs, "theirs")
+			m.side(c, theirs, m.theirs, "theirs")
 		})
 		ui.Row(c).Height(32).Padding(0, 10).Gap(8).AlignItems(ui.Center).BorderWidth(1, 0, 0, 0).BorderColor(t.Border).Children(func() {
 			unresolved := 0

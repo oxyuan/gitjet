@@ -4,12 +4,12 @@
   "slug": "gitjet",
   "version": "0.1.0",
   "out": "build",
-  "macos": {
-    "icon": "resources/icon.png"
-  },
   "linux": {
     "webview": false,
     "comment": "A Git client for reviewing changes and resolving conflicts",
-    "categories": ["Development", "VersionControl"]
+    "categories": [
+      "Development",
+      "VersionControl"
+    ]
   }
 }

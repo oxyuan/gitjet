@@ -201,6 +201,11 @@ func (a *nativeApp) changeRow(c *ui.Context, i int) {
 		if dir := filepath.Dir(ch.Path); dir != "." && !row.staged {
 			ui.Text(c, dir).FontSize(10).TextColor(t.TextMuted)
 		}
+		if !row.staged {
+			if name := a.changelistName(ch.Path); name != "" {
+				ui.Text(c, name).FontSize(9).TextColor(t.TextMuted)
+			}
+		}
 		ui.Spacer(c).Grow(1)
 		if ch.Additions > 0 {
 			ui.Text(c, fmt.Sprintf("+%d", ch.Additions)).FontSize(10).TextColor(t.Success)
@@ -388,6 +393,7 @@ func (a *nativeApp) commitBox(c *ui.Context) {
 			ui.Checkbox(c, &a.commitForm.NoVerify, a.t("Skip hooks"))
 		})
 		ui.Row(c).Gap(6).Children(func() {
+			ui.Checkbox(c, &a.commitForm.SelectedOnly, a.t("Selected only"))
 			ui.Checkbox(c, &a.commitForm.AllowEmpty, a.t("Allow empty"))
 			ui.Checkbox(c, &a.commitForm.Sign, a.t("Sign"))
 			ui.Spacer(c).Grow(1)
@@ -432,7 +438,22 @@ func (a *nativeApp) commitBox(c *ui.Context) {
 				commit.Disabled(true)
 			}
 			if commit.Clicked() {
+				a.commitForm.PushAfter = false
+				a.commitForm.RebaseAfter = false
 				a.requestCommit()
+			}
+			if ui.Button(c, a.t("Commit and Push")).Clicked() {
+				a.commitForm.PushAfter = true
+				a.commitForm.RebaseAfter = false
+				a.requestCommit()
+			}
+			if ui.Button(c, a.t("Commit and Rebase")).Clicked() {
+				a.commitForm.RebaseAfter = true
+				a.commitForm.PushAfter = false
+				a.requestCommit()
+			}
+			if ui.Button(c, a.t("Undo Commit")).Clicked() {
+				a.undoCommit()
 			}
 		})
 	})
@@ -704,12 +725,7 @@ func (a *nativeApp) filesPane(c *ui.Context) {
 				if m.Item(a.t("Reveal")).Chosen() {
 					_ = a.ws.Reveal(f.path)
 				}
-				if m.Item(a.t("Copy Path")).Chosen() {
-					a.copyText(f.path)
-				}
-				if m.Item(a.t("Copy Absolute Path")).Chosen() {
-					a.copyText(a.absPath(f.path))
-				}
+				a.pathMenu(m, f.path, 0)
 			})
 		}).Grow(1)
 		if list.Changed() || list.Submitted() {
@@ -827,6 +843,12 @@ func (a *nativeApp) branchSection(c *ui.Context, title string, rows []repoRefRow
 			if m.Item(a.t("Compare with Current")).Chosen() {
 				a.openCompare(ref.Name, a.snapshot.State.Branch)
 			}
+			if !ref.Head && m.Item(a.t("Merge into Current")).Chosen() {
+				a.openMergeDialog(ref.Name)
+			}
+			if !ref.Head && m.Item(a.t("Rebase Current onto This")).Chosen() {
+				a.openRebaseDialog(ref.Name)
+			}
 			m.Separator()
 			if m.Item(a.t("New Branch Here")).Chosen() {
 				a.openCreateBranchDialog(ref.Name)
@@ -847,6 +869,20 @@ func (a *nativeApp) branchSection(c *ui.Context, title string, rows []repoRefRow
 				}
 				if m.Item(a.t("Set Upstream")).Chosen() {
 					a.openUpstreamDialog(ref.Name)
+				}
+				if m.Item(a.t("Reset to Remote")).Chosen() {
+					name := ref.Name
+					a.busyRun("reset", func() error {
+						_, err := a.g.ResetToRemote(name)
+						return err
+					})
+				}
+				if m.Item(a.t("Update Selected")).Chosen() {
+					name := ref.Name
+					a.busyRun("update", func() error {
+						_, err := a.g.UpdateSelected(name)
+						return err
+					})
 				}
 			}
 		})
@@ -881,6 +917,17 @@ func (a *nativeApp) tagSection(c *ui.Context) {
 			if m.Item(a.t("Copy Name")).Chosen() {
 				a.copyText(ref.Name)
 			}
+			if m.Item(a.t("Push Tag")).Chosen() {
+				tag := ref.Name
+				remote := ""
+				if len(a.remotes) > 0 {
+					remote = a.remotes[0].Name
+				}
+				a.busyRun("push-tag", func() error {
+					_, err := a.g.PushTag(remote, tag)
+					return err
+				})
+			}
 			if m.Item(a.t("Delete")).Chosen() {
 				a.deleteTag(ref.Name)
 			}
@@ -903,6 +950,34 @@ func (a *nativeApp) logPane(c *ui.Context) {
 				a.refresh()
 			}
 		})
+		ui.Row(c).Padding(0, 8).Gap(6).Children(func() {
+			author := ui.TextInput(c, &a.logAuthor).Placeholder(a.t("Author")).Width(110)
+			if author.Submitted() {
+				a.logOpts.Author = strings.TrimSpace(a.logAuthor)
+				a.refresh()
+			}
+			if ui.Checkbox(c, &a.logRegex, ".*").Changed() {
+				a.logOpts.Regex = a.logRegex
+				a.refresh()
+			}
+			if ui.Checkbox(c, &a.logCase, "Aa").Changed() {
+				a.logOpts.CaseSensitive = a.logCase
+				a.refresh()
+			}
+			since := ui.TextInput(c, &a.logSince).Placeholder("YYYY-MM-DD").Width(100)
+			if since.Submitted() {
+				a.logOpts.Since = parseDay(a.logSince, false)
+				a.refresh()
+			}
+			until := ui.TextInput(c, &a.logUntil).Placeholder("YYYY-MM-DD").Width(100)
+			if until.Submitted() {
+				a.logOpts.Until = parseDay(a.logUntil, true)
+				a.refresh()
+			}
+			if ui.Button(c, "≡").Clicked() {
+				a.markEquivalents()
+			}
+		})
 		if a.logOpts.Path != "" || a.logOpts.Line > 0 {
 			ui.Row(c).Padding(4, 8).Gap(6).Children(func() {
 				label := a.logOpts.Path
@@ -917,9 +992,6 @@ func (a *nativeApp) logPane(c *ui.Context) {
 					a.refresh()
 				}
 			})
-		}
-		if a.logLoading {
-			ui.Row(c).Padding(8).Children(func() { ui.Spinner(c) })
 		}
 		if n := a.logPick.Len(); n > 0 {
 			ui.Row(c).Padding(4, 8).Gap(6).Children(func() {
@@ -953,6 +1025,9 @@ func (a *nativeApp) logPane(c *ui.Context) {
 				a.graphCell(c, i)
 				ui.Text(c, cm.Short).FontSize(10).Font("monospace").TextColor(t.TextMuted)
 				ui.Text(c, cm.Subject).FontSize(11).MaxLines(1)
+				if a.equivalent[cm.Hash] {
+					ui.Text(c, "≡").FontSize(10).TextColor(t.Accent)
+				}
 			})
 			row.ContextMenu(func(m *ui.Menu) {
 				if a.logPick.Len() > 1 && a.logPick.Has(cm.Hash) {
@@ -996,6 +1071,9 @@ func (a *nativeApp) logPane(c *ui.Context) {
 				}
 				if m.Item(a.t("Create Tag")).Chosen() {
 					a.openCreateTagDialog(cm.Hash)
+				}
+				if m.Item(a.t("Edit History")).Chosen() {
+					a.openRewrite(cm.Hash)
 				}
 				if m.Item(a.t("Create Branch")).Chosen() {
 					a.openCreateBranchDialog(cm.Hash)
@@ -1108,6 +1186,17 @@ func (a *nativeApp) consolePane(c *ui.Context) {
 			})
 		})
 		ui.Row(c).Padding(4).Gap(4).Children(func() {
+			ui.MenuButton(c, a.t("History"), func(m *ui.Menu) {
+				for i, line := range a.consoleHis {
+					if i > 20 {
+						break
+					}
+					line := line
+					if m.Item(line).Chosen() {
+						a.consoleIn = line
+					}
+				}
+			})
 			in := ui.TextInput(c, &a.consoleIn).Placeholder(a.t("git status")).Grow(1)
 			if in.Submitted() || ui.Button(c, a.t("Run")).Clicked() {
 				a.runConsole()

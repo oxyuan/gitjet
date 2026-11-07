@@ -46,6 +46,9 @@ const (
 	dialogWorktree
 	dialogSubmodule
 	dialogLFS
+	dialogRewrite
+	dialogMerge
+	dialogRebase
 )
 
 // dialogState is the open dialog and everything it edits.
@@ -97,6 +100,9 @@ type dialogState struct {
 	journal    []JournalEntry
 	dirPath    string
 	patterns   string
+	plan       []git.PlanCommit
+	steps      []git.PlanStep
+	onto       string
 }
 
 func (a *nativeApp) dialogOpen() bool { return a.dialog.kind != dialogNone }
@@ -186,6 +192,12 @@ func (a *nativeApp) dialogCard(c *ui.Context) {
 			a.lfsDialog(c)
 		case dialogPatch:
 			a.patchDialog(c)
+		case dialogRewrite:
+			a.rewriteDialog(c)
+		case dialogMerge:
+			a.mergeDialog(c)
+		case dialogRebase:
+			a.rebaseDialog(c)
 		}
 	})
 }
@@ -446,6 +458,12 @@ func (a *nativeApp) settingsDialog(c *ui.Context) {
 	if a.dialog.text != "" {
 		ui.Text(c, a.dialog.text).FontSize(10).TextColor(c.Theme().Danger)
 	}
+	ui.Row(c).Children(func() {
+		if ui.Button(c, a.t("Restore Defaults")).Clicked() {
+			a.dialog.draft = a.ws.DefaultSettings()
+		}
+		ui.Spacer(c).Grow(1)
+	})
 	a.buttons(c, a.t("Save"), func() {
 		draft := a.dialog.draft
 		a.closeDialog()
@@ -461,6 +479,13 @@ func (a *nativeApp) settingsDialog(c *ui.Context) {
 				a.settings = saved
 				a.lang = resolveLang(saved.Language)
 				applyMenu(saved.Language)
+				for _, tab := range a.tabs {
+					if tab.kind == tabDiff {
+						tab.opts.Context = saved.DiffContext
+						tab.opts.IgnoreWhitespace = saved.IgnoreWhitespace
+						a.loadDiff(tab)
+					}
+				}
 				a.refresh()
 			})
 		}()
@@ -558,6 +583,40 @@ func (a *nativeApp) commitDetailDialog(c *ui.Context) {
 		if ui.Button(c, a.t("New Tag")).Clicked() {
 			hash := d.Hash
 			a.openCreateTagDialog(hash)
+		}
+		if ui.Button(c, a.t("Checkout")).Clicked() {
+			hash := d.Hash
+			a.closeDialog()
+			a.checkout(hash)
+		}
+		ui.MenuButton(c, a.t("Reset"), func(m *ui.Menu) {
+			for _, mode := range []string{"soft", "mixed", "hard"} {
+				mode := mode
+				if m.Item(mode).Chosen() {
+					hash := d.Hash
+					a.closeDialog()
+					a.busyRun("reset", func() error {
+						_, err := a.g.Reset(hash, mode)
+						return err
+					})
+				}
+			}
+		})
+		if ui.Button(c, a.t("Fixup")).Clicked() {
+			hash := d.Hash
+			a.closeDialog()
+			a.busyRun("fixup", func() error {
+				_, err := a.g.CommitFixup(hash, false)
+				return err
+			})
+		}
+		if ui.Button(c, a.t("Squash")).Clicked() {
+			hash := d.Hash
+			a.closeDialog()
+			a.busyRun("squash", func() error {
+				_, err := a.g.CommitFixup(hash, true)
+				return err
+			})
 		}
 		ui.Spacer(c).Grow(1)
 		if ui.Button(c, a.t("Close")).Clicked() {
@@ -799,6 +858,9 @@ func (a *nativeApp) remotesDialog(c *ui.Context) {
 					a.dialog.text = r.Name
 					a.dialog.text2 = r.URL
 				}
+				if ui.Button(c, a.t("Rename")).Clicked() {
+					a.dialog = dialogState{kind: dialogPrompt, title: a.t("Rename Remote"), message: a.t("New name"), action: "rename-remote", target: r.Name, text: r.Name}
+				}
 				if ui.Button(c, a.t("Remove")).Clicked() {
 					name := r.Name
 					a.busyRun("remote", func() error { return a.g.RemoveRemote(name) })
@@ -809,10 +871,21 @@ func (a *nativeApp) remotesDialog(c *ui.Context) {
 	ui.Field(c, a.t("Name"), func() { ui.TextInput(c, &a.dialog.text) })
 	ui.Field(c, a.t("URL"), func() { ui.TextInput(c, &a.dialog.text2) })
 	ui.Row(c).Gap(6).Children(func() {
-		if ui.Button(c, a.t("Add")).Clicked() {
+		if ui.Button(c, a.t("Save")).Clicked() {
 			name, url := strings.TrimSpace(a.dialog.text), strings.TrimSpace(a.dialog.text2)
 			if name != "" && url != "" {
-				a.busyRun("remote", func() error { return a.g.AddRemote(name, url) })
+				exists := false
+				for _, r := range a.remotes {
+					if r.Name == name {
+						exists = true
+						break
+					}
+				}
+				if exists {
+					a.busyRun("remote", func() error { return a.g.SetRemoteURL(name, url) })
+				} else {
+					a.busyRun("remote", func() error { return a.g.AddRemote(name, url) })
+				}
 			}
 		}
 		ui.Spacer(c).Grow(1)
@@ -1009,6 +1082,9 @@ func (a *nativeApp) localHistoryDialog(c *ui.Context) {
 					})
 				})
 				row.ContextMenu(func(m *ui.Menu) {
+					if m.Item(a.t("Label")).Chosen() {
+						a.dialog = dialogState{kind: dialogPrompt, title: a.t("Label This Version"), message: a.t("Label"), action: "label-history", target: e.Path, dirPath: e.Digest}
+					}
 					if m.Item(a.t("Restore")).Chosen() {
 						path, digest := e.Path, e.Digest
 						a.closeDialog()
@@ -1056,6 +1132,13 @@ func (a *nativeApp) repoToolsDialog(c *ui.Context) {
 				ui.Text(c, w.Path).FontSize(11)
 				ui.Text(c, w.Branch).FontSize(10).TextColor(t.TextMuted)
 				ui.Spacer(c).Grow(1)
+				if ui.Button(c, a.t("Open")).Clicked() {
+					_ = a.ws.OpenInWindow(w.Path)
+				}
+				if !w.Locked && ui.Button(c, a.t("Lock")).Clicked() {
+					path := w.Path
+					a.dialog = dialogState{kind: dialogPrompt, title: a.t("Lock Worktree"), message: a.t("Reason"), action: "lock-worktree", target: path}
+				}
 				if !w.Main && ui.Button(c, a.t("Remove")).Clicked() {
 					path := w.Path
 					a.busyRun("worktree", func() error {
@@ -1122,6 +1205,14 @@ func (a *nativeApp) repoToolsDialog(c *ui.Context) {
 	case 5:
 		if ui.Button(c, a.t("Open Journal")).Clicked() {
 			a.openJournalDialog()
+		}
+		if a.snapshot.State.Shallow {
+			if ui.Button(c, a.t("Fetch Full History")).Clicked() {
+				a.busyRun("unshallow", func() error {
+					_, err := a.g.Unshallow(nil)
+					return err
+				})
+			}
 		}
 	}
 	ui.Row(c).Children(func() {
@@ -1317,6 +1408,151 @@ func (a *nativeApp) patchDialog(c *ui.Context) {
 		}
 	})
 	ui.Checkbox(c, &d.flag1, a.t("Staged changes only"))
+}
+
+func (a *nativeApp) openMergeDialog(ref string) {
+	a.dialog = dialogState{kind: dialogMerge, from: ref, title: a.t("Merge")}
+}
+
+func (a *nativeApp) mergeDialog(c *ui.Context) {
+	d := &a.dialog
+	ui.Text(c, d.from).FontSize(12).FontWeight(600)
+	ui.Checkbox(c, &d.flag1, a.t("Fast-forward only"))
+	ui.Checkbox(c, &d.flag2, a.t("No fast-forward"))
+	ui.Checkbox(c, &d.flag3, a.t("Squash"))
+	ui.Checkbox(c, &d.flag4, a.t("No commit"))
+	ui.Checkbox(c, &d.flag5, a.t("Skip hooks"))
+	ui.Checkbox(c, &d.flag6, a.t("Allow unrelated histories"))
+	a.buttons(c, a.t("Merge"), func() {
+		opts := git.MergeOptions{
+			FFOnly:                  d.flag1,
+			NoFF:                    d.flag2,
+			Squash:                  d.flag3,
+			NoCommit:                d.flag4,
+			NoVerify:                d.flag5,
+			AllowUnrelatedHistories: d.flag6,
+		}
+		ref := d.from
+		a.closeDialog()
+		a.busyRun("merge", func() error {
+			_, err := a.g.Merge(ref, opts)
+			return err
+		})
+	})
+}
+
+func (a *nativeApp) openRebaseDialog(onto string) {
+	a.dialog = dialogState{kind: dialogRebase, from: onto, title: a.t("Rebase")}
+}
+
+func (a *nativeApp) rebaseDialog(c *ui.Context) {
+	d := &a.dialog
+	ui.Field(c, a.t("Onto"), func() { ui.TextInput(c, &d.from) })
+	ui.Checkbox(c, &d.flag1, a.t("Autostash"))
+	ui.Checkbox(c, &d.flag2, a.t("Update refs"))
+	ui.Checkbox(c, &d.flag3, a.t("Rebase merges"))
+	ui.Checkbox(c, &d.flag4, a.t("Keep empty commits"))
+	ui.Checkbox(c, &d.flag5, a.t("Rebase the root"))
+	a.buttons(c, a.t("Rebase"), func() {
+		opts := git.RebaseOptions{
+			Onto:         strings.TrimSpace(d.from),
+			Autostash:    d.flag1,
+			UpdateRefs:   d.flag2,
+			RebaseMerges: d.flag3,
+			KeepEmpty:    d.flag4,
+			Root:         d.flag5,
+		}
+		a.closeDialog()
+		a.busyRun("rebase", func() error {
+			_, err := a.g.Rebase(opts)
+			return err
+		})
+	})
+}
+
+func (a *nativeApp) openRewrite(hash string) {
+	if hash == "" {
+		return
+	}
+	a.busy++
+	go func() {
+		detail, err := a.g.ShowCommit(hash)
+		if err != nil {
+			mygo.RunOnMain(func() { a.busy--; a.fail(err) })
+			return
+		}
+		onto := ""
+		if len(detail.Parents) > 0 {
+			onto = detail.Parents[0]
+		}
+		plan, err := a.g.RewritePlan(onto)
+		mygo.RunOnMain(func() {
+			a.busy--
+			if err != nil {
+				a.fail(err)
+				return
+			}
+			steps := make([]git.PlanStep, len(plan))
+			for i, c := range plan {
+				steps[i] = git.PlanStep{Hash: c.Hash, Action: "pick"}
+			}
+			a.dialog = dialogState{kind: dialogRewrite, plan: plan, steps: steps, onto: onto}
+			a.redraw()
+		})
+	}()
+}
+
+func (a *nativeApp) rewriteDialog(c *ui.Context) {
+	t := c.Theme()
+	if len(a.dialog.plan) == 0 {
+		ui.Text(c, a.t("There is nothing to rewrite")).FontSize(11).TextColor(t.TextMuted)
+	}
+	for i := range a.dialog.plan {
+		i := i
+		commit := a.dialog.plan[i]
+		step := &a.dialog.steps[i]
+		ui.Row(c).Gap(6).AlignItems(ui.Center).Children(func() {
+			ui.Text(c, commit.Short).FontSize(10).Font("monospace").TextColor(t.TextMuted)
+			ui.Text(c, commit.Subject).FontSize(11).MaxLines(1).Grow(1)
+			ui.MenuButton(c, step.Action, func(m *ui.Menu) {
+				for _, action := range []string{"pick", "reword", "squash", "fixup", "drop"} {
+					action := action
+					if m.Item(action).Chosen() {
+						step.Action = action
+						if action == "reword" || action == "squash" {
+							step.Message = commit.Message
+						}
+					}
+				}
+			})
+			if ui.Button(c, "↑").Clicked() && i > 0 {
+				a.dialog.plan[i-1], a.dialog.plan[i] = a.dialog.plan[i], a.dialog.plan[i-1]
+				a.dialog.steps[i-1], a.dialog.steps[i] = a.dialog.steps[i], a.dialog.steps[i-1]
+			}
+			if ui.Button(c, "↓").Clicked() && i < len(a.dialog.plan)-1 {
+				a.dialog.plan[i+1], a.dialog.plan[i] = a.dialog.plan[i], a.dialog.plan[i+1]
+				a.dialog.steps[i+1], a.dialog.steps[i] = a.dialog.steps[i], a.dialog.steps[i+1]
+			}
+		})
+		if step.Action == "reword" || step.Action == "squash" {
+			ui.TextArea(c, &step.Message).Height(56)
+		}
+	}
+	ui.Row(c).Gap(6).Children(func() {
+		ui.Spacer(c).Grow(1)
+		if ui.Button(c, a.t("Cancel")).Clicked() {
+			a.closeDialog()
+		}
+		if ui.PrimaryButton(c, a.t("Rewrite")).Clicked() {
+			onto := a.dialog.onto
+			steps := append([]git.PlanStep(nil), a.dialog.steps...)
+			a.closeDialog()
+			a.busyRun("rewrite", func() error {
+				_, err := a.g.Rewrite(onto, steps)
+				return err
+			})
+		}
+	})
 }
 
 func (a *nativeApp) openShelfDialog() {
@@ -1541,6 +1777,24 @@ func splitPatterns(s string) []string {
 	return out
 }
 
+func (a *nativeApp) undoCommit() {
+	a.busy++
+	go func() {
+		res, err := a.g.UndoCommit()
+		mygo.RunOnMain(func() {
+			a.busy--
+			if err != nil {
+				a.fail(err)
+				return
+			}
+			if res.Subject != "" {
+				a.commitForm.Message = res.Subject
+			}
+			a.refresh()
+		})
+	}()
+}
+
 func (a *nativeApp) promptDialog(c *ui.Context) {
 	d := &a.dialog
 	ui.Text(c, d.message).FontSize(11)
@@ -1579,6 +1833,33 @@ func (a *nativeApp) applyPrompt() {
 				_, err := a.g.RenameChangelist(id, name, "")
 				return err
 			})
+		}
+	case "lock-worktree":
+		reason := strings.TrimSpace(target)
+		path := d.target
+		a.busyRun("worktree", func() error {
+			_, err := a.g.LockWorktree(path, reason)
+			return err
+		})
+	case "browse-revision":
+		rev := strings.TrimSpace(target)
+		if rev != "" {
+			a.openRevisionTree(rev)
+		}
+	case "label-history":
+		label := strings.TrimSpace(target)
+		path := d.target
+		digest := d.dirPath
+		if label != "" {
+			if err := a.g.LabelLocalHistory(path, digest, label); err != nil {
+				a.fail(err)
+			}
+		}
+	case "rename-remote":
+		name := strings.TrimSpace(target)
+		old := d.target
+		if name != "" {
+			a.busyRun("remote", func() error { return a.g.RenameRemote(old, name) })
 		}
 	case "stash-branch":
 		branch := strings.TrimSpace(target)

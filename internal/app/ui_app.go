@@ -56,27 +56,27 @@ type docTab struct {
 	diffBlameOn bool
 
 	// source
-	src        *editor.State
-	file       git.SourceFile
-	base       *editor.Buffer
-	blame      []git.BlameLine
-	blameOn    bool
-	image      ui.ImageSource
-	imageOld   ui.ImageSource
-	imageNew   ui.ImageSource
-	imageMode  int
-	imageAlpha float64
-	imageMime  string
-	binary     bool
-	missing    bool
-	truncated  bool
-	fileSize   int64
-	history    []git.LocalHistoryEntry
-	showLocal  bool
-	readOnly   bool
-	saveErr    string
-	lastSaved  uint64
-	sourceLang string
+	src         *editor.State
+	file        git.SourceFile
+	base        *editor.Buffer
+	blame       []git.BlameLine
+	blameOn     bool
+	blameIgnore bool
+	image       ui.ImageSource
+	imageOld    ui.ImageSource
+	imageNew    ui.ImageSource
+	imageMode   int
+	imageAlpha  float64
+	imageMime   string
+	binary      bool
+	missing     bool
+	truncated   bool
+	fileSize    int64
+	history     []git.LocalHistoryEntry
+	readOnly    bool
+	saveErr     string
+	lastSaved   uint64
+	sourceLang  string
 
 	// revision tree
 	files []git.RepoFile
@@ -113,15 +113,16 @@ type nativeApp struct {
 	recent     []RecentRepo
 
 	// sidebar
-	sideTab    int
-	sideSplit  float32
-	changes    []changeRow
-	changeList ui.ListState
-	changeSel  int
-	checked    map[string]bool
-	commitForm commitForm
-	history    []string
-	showStaged bool
+	sideTab     int
+	sideSplit   float32
+	changes     []changeRow
+	changeList  ui.ListState
+	changeSel   int
+	checked     map[string]bool
+	checkedInit bool
+	commitForm  commitForm
+	history     []string
+	showStaged  bool
 
 	files      []git.RepoFile
 	fileTree   []fileRow
@@ -129,27 +130,25 @@ type nativeApp struct {
 	fileSel    int
 	fileFilter string
 
-	branches    []repoRefRow
-	branchList  ui.ListState
-	branchSel   int
-	branchTab   int
-	recentBr    []string
-	tags        []repoRefRow
-	tagSel      int
-	remoteList  []repoRefRow
-	remoteSel   int
-	remotesOpen bool
+	branches   []repoRefRow
+	branchList ui.ListState
+	branchSel  int
+	recentBr   []string
+	tags       []repoRefRow
 
 	log        git.LogResult
 	logList    ui.ListState
 	logPick    ui.Selection[string]
 	logSel     int
 	logOpts    git.LogOptions
-	logDetail  git.CommitDetail
-	logLoading bool
 	logSearch  string
 	logAll     bool
-	favorites  map[string]bool
+	logAuthor  string
+	logRegex   bool
+	logCase    bool
+	logSince   string
+	logUntil   string
+	equivalent map[string]bool
 	openDirs   map[string]bool
 	journal    []JournalEntry
 	graph      []graphRow
@@ -172,15 +171,15 @@ type nativeApp struct {
 	consoleLog  []string
 	consoleIn   string
 	consoleHis  []string
-	consoleAt   int
 
 	dialog dialogState
 
 	lsp         *lspClient
 	lspStarting bool
 
-	reloadGen atomic.Uint64
-	reloading atomic.Bool
+	reloadGen     atomic.Uint64
+	reloading     atomic.Bool
+	reloadPending atomic.Bool
 }
 
 // changeRow is one row of the commit tool window: a path on one side.
@@ -206,14 +205,17 @@ type fileRow struct {
 
 // commitForm is the commit message and its options.
 type commitForm struct {
-	Message     string
-	Amend       bool
-	SignOff     bool
-	NoVerify    bool
-	AllowEmpty  bool
-	Sign        bool
-	AuthorName  string
-	AuthorEmail string
+	Message      string
+	Amend        bool
+	SignOff      bool
+	NoVerify     bool
+	AllowEmpty   bool
+	Sign         bool
+	AuthorName   string
+	AuthorEmail  string
+	SelectedOnly bool
+	PushAfter    bool
+	RebaseAfter  bool
 }
 
 // quickHit is a file or commit in the quick-open list.
@@ -263,7 +265,7 @@ func newNativeApp() *nativeApp {
 		checked:    map[string]bool{},
 		showStaged: true,
 		sideSplit:  380,
-		favorites:  map[string]bool{},
+		equivalent: map[string]bool{},
 		openDirs:   map[string]bool{},
 		logOpts: git.LogOptions{
 			Limit: 300,
@@ -276,9 +278,6 @@ func newNativeApp() *nativeApp {
 	a.commitForm.Message = strings.TrimSpace(c.settings.CommitTemplate)
 	c.onChange = func() { mygo.RunOnMain(a.changed) }
 	c.stream = func(line string) { mygo.RunOnMain(func() { a.appendConsole(line) }) }
-	for _, r := range c.settings.Recent {
-		a.favorites[r.Path] = a.favorites[r.Path]
-	}
 	return a
 }
 
@@ -297,25 +296,6 @@ func (a *nativeApp) ready() {
 		a.openPath(path)
 	} else {
 		a.loadRecent()
-	}
-	if shot := os.Getenv("GITJET_SHOT"); shot != "" {
-		go func() {
-			time.Sleep(3 * time.Second)
-			for i := 0; i < 120; i++ {
-				mygo.RunOnMain(func() { a.win.Focus(); a.win.Invalidate() })
-				time.Sleep(40 * time.Millisecond)
-			}
-			mygo.RunOnMain(func() {
-				if a.win == nil {
-					mygo.App.Quit()
-					return
-				}
-				if png, err := a.win.CapturePage(); err == nil {
-					_ = os.WriteFile(shot, png, 0o644)
-				}
-				mygo.App.Quit()
-			})
-		}()
 	}
 }
 
@@ -364,14 +344,6 @@ func (a *nativeApp) view(c *ui.Context) {
 
 func (a *nativeApp) applyAppearance(c *ui.Context) {
 	s := a.settings
-	if os.Getenv("GITJET_THEME") == "light" {
-		c.SetTheme(ui.LightTheme())
-		return
-	}
-	if os.Getenv("GITJET_THEME") == "dark" {
-		c.SetTheme(ui.DarkTheme())
-		return
-	}
 	switch s.Theme {
 	case "light":
 		c.SetTheme(ui.LightTheme())
@@ -445,6 +417,23 @@ func (a *nativeApp) openPath(path string) {
 	}
 	a.loading = true
 	a.errText = ""
+	if a.repoOpen {
+		_ = a.g.LSPStop()
+		a.ws.Close()
+		a.lsp = nil
+		a.lspStarting = false
+		a.tabs = nil
+		a.activeTab = 0
+		a.snapshot = git.ChangesSnapshot{}
+		a.log = git.LogResult{}
+		a.graph = nil
+		a.checked = map[string]bool{}
+		a.checkedInit = false
+		a.logPick.Clear()
+		a.equivalent = map[string]bool{}
+		a.openDirs = map[string]bool{}
+		a.fileFilter = ""
+	}
 	a.repoOpen = false
 	a.redraw()
 	go func() {
@@ -466,33 +455,6 @@ func (a *nativeApp) openPath(path string) {
 			a.refresh()
 			a.applyWindowTitle()
 			a.ensureLSP()
-			if tab := os.Getenv("GITJET_TAB"); tab != "" {
-				switch tab {
-				case "log":
-					a.sideTab = 3
-				case "files":
-					a.sideTab = 2
-				case "branches":
-					a.sideTab = 1
-				case "console":
-					a.sideTab = 4
-				}
-			}
-			switch os.Getenv("GITJET_DIALOG") {
-			case "settings":
-				a.openSettingsDialog()
-			case "tools":
-				a.openRepoToolsDialog()
-			case "journal":
-				a.openJournalDialog()
-			}
-			if open := os.Getenv("GITJET_OPEN"); open != "" {
-				if strings.HasPrefix(open, "diff:") {
-					a.openDiff(git.DiffOptions{Path: strings.TrimPrefix(open, "diff:"), Target: git.DiffWorkingTree, Context: a.settings.DiffContext})
-				} else {
-					a.openSource(open, "")
-				}
-			}
 		})
 	}()
 }
@@ -531,19 +493,26 @@ func (a *nativeApp) applyWindowTitle() {
 
 // refresh reloads the repository state and the lists built from it.
 func (a *nativeApp) refresh() {
-	if !a.repoOpen || a.reloading.Swap(true) {
+	if !a.repoOpen {
 		return
 	}
+	if a.reloading.Swap(true) {
+		a.reloadPending.Store(true)
+		return
+	}
+	a.reloadPending.Store(false)
 	gen := a.reloadGen.Add(1)
 	opts := a.logOpts
 	opts.All = a.logAll
-	includeIgnored := a.settings.ShowIgnored
 	go func() {
 		snap, err := a.g.Refresh()
 		if err != nil {
 			mygo.RunOnMain(func() {
 				a.reloading.Store(false)
 				a.fail(err)
+				if a.reloadPending.Swap(false) {
+					a.refresh()
+				}
 			})
 			return
 		}
@@ -558,8 +527,11 @@ func (a *nativeApp) refresh() {
 		recentBranches := a.g.RecentBranches()
 		journal, _ := a.g.Journal(300)
 		mygo.RunOnMain(func() {
-			a.reloading.Store(false)
 			if gen != a.reloadGen.Load() {
+				a.reloading.Store(false)
+				if a.reloadPending.Swap(false) {
+					a.refresh()
+				}
 				return
 			}
 			if refsErr != nil {
@@ -586,10 +558,13 @@ func (a *nativeApp) refresh() {
 					a.logSel = len(a.log.Commits) - 1
 				}
 			}
-			_ = includeIgnored
 			a.rebuildRows()
 			a.applyWindowTitle()
 			a.redraw()
+			a.reloading.Store(false)
+			if a.reloadPending.Swap(false) {
+				a.refresh()
+			}
 		})
 	}()
 }
@@ -614,6 +589,19 @@ func (a *nativeApp) rebuildRows() {
 	})
 	if a.changeSel >= len(a.changes) {
 		a.changeSel = len(a.changes) - 1
+	}
+	if !a.checkedInit {
+		for _, row := range a.changes {
+			if row.change.Unmerged || row.change.Kind == "ignored" {
+				continue
+			}
+			key := row.change.Path
+			if row.staged {
+				key = "staged:" + key
+			}
+			a.checked[key] = true
+		}
+		a.checkedInit = true
 	}
 	a.rebuildFiles()
 	a.rebuildBranches()
@@ -725,7 +713,6 @@ func (a *nativeApp) rebuildBranches() {
 		a.branches = append(a.branches, repoRefRow{ref: ref, group: "remote"})
 	}
 	a.tags = a.tags[:0]
-	a.remoteList = a.remoteList[:0]
 	for _, ref := range a.refs.Tags {
 		a.tags = append(a.tags, repoRefRow{ref: ref, group: "tag"})
 	}
@@ -893,13 +880,14 @@ func (a *nativeApp) formatCount() string {
 }
 
 func (a *nativeApp) afterCommit() {
-	a.commitForm.Message = ""
+	a.commitForm.Message = strings.TrimSpace(a.settings.CommitTemplate)
 	a.checked = map[string]bool{}
 	a.commitForm.Amend = false
 	a.commitForm.SignOff = false
 	a.commitForm.NoVerify = false
 	a.commitForm.AllowEmpty = false
 	a.commitForm.Sign = false
+	a.checkedInit = false
 	a.refresh()
 }
 

@@ -1,10 +1,14 @@
 package app
 
 import (
+	"errors"
 	"fmt"
+	"path/filepath"
 	"strings"
+	"time"
 
 	"github.com/egoist/mygo"
+	"github.com/egoist/mygo/ui"
 	"github.com/egoist/mygo/ui/editor"
 
 	"gitjet/internal/git"
@@ -151,17 +155,6 @@ func (a *nativeApp) checkedPaths() []string {
 			}
 		}
 	}
-	if len(out) == 0 {
-		for _, row := range a.changes {
-			if row.change.Unmerged || row.change.Kind == "ignored" {
-				continue
-			}
-			if !seen[row.change.Path] {
-				seen[row.change.Path] = true
-				out = append(out, row.change.Path)
-			}
-		}
-	}
 	return out
 }
 
@@ -207,6 +200,10 @@ func (a *nativeApp) protectedBranch() bool {
 }
 
 func (a *nativeApp) commitNow(paths []string, form commitForm) {
+	if len(paths) == 0 && !form.AllowEmpty && !form.Amend {
+		a.setNotice(a.t("Check the files whose changes should be committed"))
+		return
+	}
 	opts := git.CommitOptions{
 		Message:     form.Message,
 		Paths:       paths,
@@ -221,7 +218,13 @@ func (a *nativeApp) commitNow(paths []string, form commitForm) {
 	a.busy++
 	a.redraw()
 	go func() {
-		res, err := a.g.Commit(opts)
+		var res git.CommitResult
+		var err error
+		if form.SelectedOnly {
+			res, err = a.g.CommitSelected(opts)
+		} else {
+			res, err = a.g.Commit(opts)
+		}
 		mygo.RunOnMain(func() {
 			a.busy--
 			if err != nil {
@@ -230,6 +233,20 @@ func (a *nativeApp) commitNow(paths []string, form commitForm) {
 			}
 			a.committed(res.Subject)
 			a.afterCommit()
+			if form.PushAfter {
+				a.openPushDialog()
+			}
+			if form.RebaseAfter {
+				upstream := a.snapshot.State.Upstream
+				if upstream == "" {
+					a.fail(errNoUpstream)
+					return
+				}
+				a.busyRun("rebase", func() error {
+					_, err := a.g.Rebase(git.RebaseOptions{Onto: upstream, Autostash: true})
+					return err
+				})
+			}
 		})
 	}()
 }
@@ -439,7 +456,6 @@ func (a *nativeApp) runConsole() {
 	}
 	a.consoleIn = ""
 	a.consoleHis = append([]string{line}, a.consoleHis...)
-	a.consoleAt = -1
 	if !strings.HasPrefix(line, "!") && line != "git" && !strings.HasPrefix(line, "git ") {
 		line = "git " + line
 	}
@@ -664,4 +680,78 @@ func (a *nativeApp) pickedHashes() []string {
 		}
 	}
 	return out
+}
+
+var errNoUpstream = errors.New("the branch has no upstream to rebase onto")
+
+func (a *nativeApp) changelistName(path string) string {
+	for _, cl := range a.snapshot.Changelists.Items {
+		for _, p := range cl.Paths {
+			if p == path {
+				return cl.Name
+			}
+		}
+	}
+	return ""
+}
+
+func parseDay(s string, end bool) int64 {
+	s = strings.TrimSpace(s)
+	if s == "" {
+		return 0
+	}
+	t, err := time.ParseInLocation("2006-01-02", s, time.Local)
+	if err != nil {
+		return 0
+	}
+	if end {
+		t = t.Add(24*time.Hour - time.Second)
+	}
+	return t.Unix()
+}
+
+func (a *nativeApp) markEquivalents() {
+	hashes := make([]string, 0, len(a.log.Commits))
+	for _, c := range a.log.Commits {
+		hashes = append(hashes, c.Hash)
+	}
+	a.busy++
+	go func() {
+		found, err := a.g.CherryPicked(hashes)
+		mygo.RunOnMain(func() {
+			a.busy--
+			if err != nil {
+				a.fail(err)
+				return
+			}
+			eq := map[string]bool{}
+			for _, h := range found {
+				eq[h] = true
+			}
+			a.equivalent = eq
+			a.redraw()
+		})
+	}()
+}
+
+// pathMenu adds the ways the app copies a path.
+func (a *nativeApp) pathMenu(m *ui.Menu, path string, line int) {
+	if m.Item(a.t("Copy Path")).Chosen() {
+		a.copyText(path)
+	}
+	if m.Item(a.t("Copy Absolute Path")).Chosen() {
+		a.copyText(a.absPath(path))
+	}
+	if m.Item(a.t("Copy File Name")).Chosen() {
+		a.copyText(filepath.Base(path))
+	}
+	if m.Item(a.t("Copy @ Path")).Chosen() {
+		a.copyText("@" + path)
+	}
+	if m.Item(a.t("Copy Quoted Path")).Chosen() {
+		a.copyText("'" + strings.ReplaceAll(a.absPath(path), "'", `'\\''`) + "'")
+	}
+	if m.Item(a.t("Copy Path with Line")).Chosen() {
+		a.copyText(fmt.Sprintf("%s:%d", path, line))
+	}
 }

@@ -3,7 +3,6 @@ package app
 import (
 	"encoding/base64"
 	"fmt"
-	"os"
 	"path/filepath"
 	"strings"
 
@@ -76,6 +75,12 @@ func (a *nativeApp) closeActiveTab() {
 func (a *nativeApp) openDiff(opts git.DiffOptions) {
 	if strings.TrimSpace(opts.Path) == "" {
 		return
+	}
+	if !opts.IgnoreWhitespace {
+		opts.IgnoreWhitespace = a.settings.IgnoreWhitespace
+	}
+	if opts.Context == 0 {
+		opts.Context = a.settings.DiffContext
 	}
 	id := fmt.Sprintf("diff:%s:%s:%s", opts.Target, opts.Revision, opts.Path)
 	if i := a.findTab(id); i >= 0 {
@@ -349,9 +354,6 @@ func (a *nativeApp) openSource(path, revision string) {
 		return
 	}
 	tab := &docTab{kind: tabSource, id: id, title: path, path: path, revision: revision}
-	if os.Getenv("GITJET_ANNOTATE") != "" {
-		tab.blameOn = true
-	}
 	a.tabs = append(a.tabs, tab)
 	a.activeTab = len(a.tabs) - 1
 	a.loadSource(tab)
@@ -379,16 +381,12 @@ func (a *nativeApp) newSourceState(tab *docTab) *editor.State {
 	st.OnCompletion = func(r editor.CompletionRequest) { a.complete(tab, r) }
 	st.OnGutterClick = func(line int) { a.gutterMenu(tab, line) }
 	st.ContextMenu = func(m *ui.Menu) {
-		if m.Item(a.t("Copy Path")).Chosen() {
-			a.copyText(path)
-		}
-		if m.Item(a.t("Copy Absolute Path")).Chosen() {
-			a.copyText(a.absPath(path))
-		}
+		pos := st.CursorPos()
+		a.pathMenu(m, path, pos.Line+1)
+		m.Separator()
 		if m.Item(a.t("Show History")).Chosen() {
 			a.showFileHistory(path)
 		}
-		m.Separator()
 		m.EditItems()
 	}
 	return st
@@ -457,7 +455,7 @@ func (a *nativeApp) loadBlame(tab *docTab) {
 		return
 	}
 	path, rev := tab.path, tab.revision
-	ignore := a.settings.IgnoreWhitespace
+	ignore := tab.blameIgnore
 	go func() {
 		br, err := a.g.Blame(path, rev, git.BlameOptions{IgnoreWhitespace: ignore})
 		mygoMain(func() {
@@ -760,6 +758,13 @@ func (a *nativeApp) sourceToolbar(c *ui.Context, tab *docTab) {
 		if ui.Checkbox(c, &blame, a.t("Annotate")).Changed() {
 			tab.blameOn = blame
 		}
+		if tab.revision == "" {
+			ignoreWs := tab.blameIgnore
+			if ui.Checkbox(c, &ignoreWs, a.t("Ignore whitespace")).Changed() {
+				tab.blameIgnore = ignoreWs
+				a.loadBlame(tab)
+			}
+		}
 		if ui.Button(c, a.t("History")).Clicked() {
 			a.openLocalHistory(tab)
 		}
@@ -896,11 +901,7 @@ func (a *nativeApp) revisionTreeView(c *ui.Context, tab *docTab) {
 }
 
 func (a *nativeApp) openBrowseRevisionDialog() {
-	rev := a.snapshot.State.Head
-	if rev == "" {
-		return
-	}
-	a.openRevisionTree(rev)
+	a.dialog = dialogState{kind: dialogPrompt, title: a.t("Browse Repository at Revision"), message: a.t("Revision"), action: "browse-revision", text: a.snapshot.State.Head}
 }
 
 func (a *nativeApp) openRevisionTree(rev string) {
