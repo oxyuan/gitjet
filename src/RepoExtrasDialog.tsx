@@ -128,6 +128,11 @@ const T = {
 type RepoTab = "worktrees" | "submodules" | "shelves" | "lfs";
 
 /** submoduleState is the badge git's status prefix stands for. */
+function joinPath(root: string, rel: string): string {
+  if (root === "") return rel;
+  return `${root.replace(/[\\/]+$/, "")}/${rel}`;
+}
+
 function submoduleState(state: string): string {
   switch (state) {
     case "modified":
@@ -145,12 +150,15 @@ function submoduleState(state: string): string {
  *  to a branch: worktrees, submodules and Git LFS. */
 export function RepoExtrasDialog({
   tab: initialTab,
+  root,
   shallow,
   onClose,
   onOpenWorktree,
   onChanged,
 }: {
   tab: RepoTab;
+  /** Absolute repository root, for turning submodule paths absolute. */
+  root: string;
   shallow: boolean;
   onClose: () => void;
   onOpenWorktree: (path: string) => void;
@@ -310,6 +318,7 @@ export function RepoExtrasDialog({
                     <code>{sub.short}</code> · {submoduleState(sub.state)}{sub.url ? ` · ${sub.url}` : ""}
                   </span>
                 </div>
+                <Button onClick={() => onOpenWorktree(joinPath(root, sub.path))}>{t("openWindow")}</Button>
               </div>
             ))}
           </div>

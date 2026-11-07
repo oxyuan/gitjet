@@ -3151,6 +3151,7 @@ function AppShell({ onLangChange }: { onLangChange: (lang: Lang) => void }) {
       {dialog?.kind === "repoTools" && (
         <RepoExtrasDialog
           tab={dialog.tab}
+          root={state?.root ?? ""}
           shallow={state?.shallow ?? false}
           onClose={() => setDialog(null)}
           onOpenWorktree={(path) => void Workspace.openInWindow(path).catch((err) => fail(t("openNewWindow"), err))}
