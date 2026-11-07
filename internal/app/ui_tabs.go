@@ -36,6 +36,9 @@ func (a *nativeApp) closeTab(i int) {
 		return
 	}
 	tab := a.tabs[i]
+	if tab.kind == tabSource && a.lsp != nil {
+		a.lsp.didClose(tab)
+	}
 	if tab.dirty() {
 		a.dialog = dialogState{kind: dialogConfirm, title: a.t("Unsaved changes"), message: a.t("Close without saving?"), tabIndex: i, action: "close-tab"}
 		return
@@ -89,6 +92,9 @@ func (a *nativeApp) loadDiff(tab *docTab) {
 	opts := tab.opts
 	go func() {
 		fd, err := a.g.Diff(opts)
+		if err == nil && !fd.Binary && !a.isImage(fd.Path) {
+			fd = a.fillDiffTexts(fd, opts)
+		}
 		mygoMain(func() {
 			if err != nil {
 				tab.err = err.Error()
@@ -99,6 +105,49 @@ func (a *nativeApp) loadDiff(tab *docTab) {
 			a.redraw()
 		})
 	}()
+}
+
+// fillDiffTexts gives a worktree or index diff the full texts its viewer
+// compares. git's own diff for those targets is a patch only.
+func (a *nativeApp) fillDiffTexts(fd git.FileDiff, opts git.DiffOptions) git.FileDiff {
+	if fd.OldText != "" || fd.NewText != "" {
+		return fd
+	}
+	oldPath := fd.Path
+	if fd.OldPath != "" {
+		oldPath = fd.OldPath
+	}
+	read := func(path, rev string) string {
+		if path == "" || rev == "empty" {
+			return ""
+		}
+		f, err := a.g.File(path, rev)
+		if err != nil || f.Binary || !f.Exists {
+			return ""
+		}
+		return f.Text
+	}
+	switch opts.Target {
+	case git.DiffWorkingTree:
+		fd.OldText = read(oldPath, "INDEX")
+		if fd.OldText == "" {
+			fd.OldText = read(oldPath, "HEAD")
+		}
+		fd.NewText = read(fd.Path, "")
+	case git.DiffStaged:
+		fd.OldText = read(oldPath, "HEAD")
+		fd.NewText = read(fd.Path, "INDEX")
+	case git.DiffHead:
+		fd.OldText = read(oldPath, "HEAD")
+		fd.NewText = read(fd.Path, "")
+	case git.DiffCommit:
+		fd.OldText = read(oldPath, opts.Revision+"^")
+		fd.NewText = read(fd.Path, opts.Revision)
+	case git.DiffRange:
+		fd.OldText = read(oldPath, opts.From)
+		fd.NewText = read(fd.Path, opts.Revision)
+	}
+	return fd
 }
 
 func (a *nativeApp) buildDiff(tab *docTab, fd git.FileDiff) {
@@ -136,8 +185,101 @@ func (a *nativeApp) buildDiff(tab *docTab, fd git.FileDiff) {
 		st.ContextLines = a.settings.DiffContext
 	}
 	st.Theme = editor.DefaultTheme(ui.LightTheme())
+	st.RenderAnnotation = a.renderDiffAnnotation
 	tab.diff = st
 	tab.title = fd.Path
+	a.loadDiffBlame(tab)
+}
+
+type diffBlameKey struct {
+	tab  *docTab
+	old  bool
+	line int
+}
+
+// loadDiffBlame annotates the diff's two sides with the commits that last
+// changed each line: the index and working tree, or the two revisions.
+func (a *nativeApp) loadDiffBlame(tab *docTab) {
+	oldPath := tab.path
+	if tab.opts.OldPath != "" {
+		oldPath = tab.opts.OldPath
+	}
+	oldRev, newRev := "", ""
+	switch tab.opts.Target {
+	case git.DiffWorkingTree:
+		oldRev, newRev = "INDEX", ""
+	case git.DiffStaged:
+		oldRev, newRev = "HEAD", "INDEX"
+	case git.DiffHead:
+		oldRev, newRev = "HEAD", ""
+	case git.DiffCommit:
+		oldRev, newRev = tab.opts.Revision+"^", tab.opts.Revision
+	case git.DiffRange:
+		oldRev, newRev = tab.opts.From, tab.opts.Revision
+	}
+	opts := git.BlameOptions{IgnoreWhitespace: a.settings.IgnoreWhitespace, IgnoreRevsFile: ".git-blame-ignore-revs"}
+	if oldRev != "" {
+		go func() {
+			res, err := a.g.Blame(oldPath, oldRev, opts)
+			if err == nil {
+				mygoMain(func() {
+					tab.blameOld = res.Lines
+					a.redraw()
+				})
+			}
+		}()
+	}
+	go func() {
+		res, err := a.g.Blame(tab.path, newRev, opts)
+		if err == nil {
+			mygoMain(func() {
+				tab.blameNew = res.Lines
+				a.redraw()
+			})
+		}
+	}()
+}
+
+func (a *nativeApp) renderDiffAnnotation(c *ui.Context, ann editor.DiffAnnotation) {
+	key, ok := ann.Key.(diffBlameKey)
+	if !ok || key.tab == nil {
+		return
+	}
+	var line git.BlameLine
+	lines := key.tab.blameNew
+	if key.old {
+		lines = key.tab.blameOld
+	}
+	if key.line < 0 || key.line >= len(lines) {
+		return
+	}
+	line = lines[key.line]
+	t := c.Theme()
+	row := ui.Row(c).Height(ann.Height).Padding(0, 6).Gap(6).AlignItems(ui.Center)
+	row.Children(func() {
+		name := line.Author
+		if line.Uncommitted {
+			name = a.t("You · uncommitted")
+		}
+		ui.Text(c, a.stamp(line.Time)).FontSize(9).TextColor(t.TextMuted)
+		ui.Text(c, name).FontSize(9).TextColor(t.TextMuted).MaxLines(1)
+		ui.Text(c, line.Short).FontSize(9).Font("monospace").TextColor(t.Accent)
+		ui.Text(c, line.Summary).FontSize(9).TextColor(t.TextMuted).MaxLines(1)
+	})
+	row.ContextMenu(func(m *ui.Menu) {
+		if m.Item(a.t("Show Commit")).Chosen() {
+			a.openCommitTab(line.Commit)
+		}
+		if m.Item(a.t("Show File at This Commit")).Chosen() {
+			a.openSource(key.tab.path, line.Commit)
+		}
+		if m.Item(a.t("History of This Line")).Chosen() {
+			a.showLineHistory(key.tab.path, key.line+1)
+		}
+		if m.Item(a.t("Copy Revision Number")).Chosen() {
+			a.copyText(line.Commit)
+		}
+	})
 }
 
 func (a *nativeApp) loadDiffImage(tab *docTab, fd git.FileDiff) {
@@ -189,6 +331,43 @@ func (a *nativeApp) openSource(path, revision string) {
 	a.tabs = append(a.tabs, tab)
 	a.activeTab = len(a.tabs) - 1
 	a.loadSource(tab)
+	if revision == "" {
+		a.ensureLSP()
+	}
+}
+
+func (a *nativeApp) newSourceState(tab *docTab) *editor.State {
+	buf := editor.NewBuffer(tab.file.Text)
+	if lang := editor.LanguageFor(tab.path); lang != nil {
+		buf.SetLanguage(lang)
+	}
+	readOnly := tab.revision != ""
+	st := &editor.State{Buffer: buf, ReadOnly: readOnly, LineHeight: 1.5}
+	if tab.base != nil {
+		if lang := editor.LanguageFor(tab.path); lang != nil {
+			tab.base.SetLanguage(lang)
+		}
+		st.DiffBase = tab.base
+	}
+	path := tab.path
+	st.OnDefinition = func(off int) { a.jumpToDefinition(tab, off) }
+	st.OnHover = func(r editor.HoverRequest) { a.hover(tab, r) }
+	st.OnCompletion = func(r editor.CompletionRequest) { a.complete(tab, r) }
+	st.OnGutterClick = func(line int) { a.gutterMenu(tab, line) }
+	st.ContextMenu = func(m *ui.Menu) {
+		if m.Item(a.t("Copy Path")).Chosen() {
+			a.copyText(path)
+		}
+		if m.Item(a.t("Copy Absolute Path")).Chosen() {
+			a.copyText(a.absPath(path))
+		}
+		if m.Item(a.t("Show History")).Chosen() {
+			a.showFileHistory(path)
+		}
+		m.Separator()
+		m.EditItems()
+	}
+	return st
 }
 
 func (a *nativeApp) loadSource(tab *docTab) {
@@ -221,36 +400,7 @@ func (a *nativeApp) loadSource(tab *docTab) {
 				a.redraw()
 				return
 			}
-			buf := editor.NewBuffer(file.Text)
-			if lang := editor.LanguageFor(path); lang != nil {
-				buf.SetLanguage(lang)
-			}
-			readOnly := rev != ""
-			tab.src = &editor.State{Buffer: buf, ReadOnly: readOnly, LineHeight: 1.5}
 			tab.base = base
-			if base != nil {
-				if lang := editor.LanguageFor(path); lang != nil {
-					base.SetLanguage(lang)
-				}
-				tab.src.DiffBase = base
-			}
-			tab.src.OnDefinition = func(off int) { a.jumpToDefinition(tab, off) }
-			tab.src.OnHover = func(r editor.HoverRequest) { a.hover(tab, r) }
-			tab.src.OnCompletion = func(r editor.CompletionRequest) { a.complete(tab, r) }
-			tab.src.OnGutterClick = func(line int) { a.gutterMenu(tab, line) }
-			tab.src.ContextMenu = func(m *ui.Menu) {
-				if m.Item(a.t("Copy Path")).Chosen() {
-					a.copyText(path)
-				}
-				if m.Item(a.t("Copy Absolute Path")).Chosen() {
-					a.copyText(a.absPath(path))
-				}
-				if m.Item(a.t("Show History")).Chosen() {
-					a.showFileHistory(path)
-				}
-				m.Separator()
-				m.EditItems()
-			}
 			a.loadBlame(tab)
 			a.redraw()
 		})
@@ -329,6 +479,15 @@ func (a *nativeApp) diffView(c *ui.Context, tab *docTab) {
 		}
 		tab.diff.Theme = editor.DefaultTheme(t)
 		tab.diff.Wrap = a.diffWrap(tab)
+		tab.diff.Annotations = tab.diff.Annotations[:0]
+		if tab.diffBlameOn {
+			for i := range tab.blameOld {
+				tab.diff.Annotations = append(tab.diff.Annotations, editor.DiffAnnotation{Side: editor.DiffOld, Line: i, Height: 15, Key: diffBlameKey{tab: tab, old: true, line: i}})
+			}
+			for i := range tab.blameNew {
+				tab.diff.Annotations = append(tab.diff.Annotations, editor.DiffAnnotation{Side: editor.DiffNew, Line: i, Height: 15, Key: diffBlameKey{tab: tab, line: i}})
+			}
+		}
 		editor.DiffView(c, tab.diff).Grow(1).FillWidth()
 	})
 }
@@ -385,21 +544,39 @@ func (a *nativeApp) diffToolbar(c *ui.Context, tab *docTab) {
 		}
 		target := tab.opts.Target
 		if target == git.DiffWorkingTree || target == git.DiffStaged {
-			if ui.Button(c, a.t("Apply File")).Clicked() {
-				a.applyDiffFile(tab)
+			action := a.applyAction(tab)
+			fileLabel, hunkLabel, linesLabel := a.t("Stage File"), a.t("Stage Hunk"), a.t("Stage Lines")
+			if action == "unstage" {
+				fileLabel, hunkLabel, linesLabel = a.t("Unstage File"), a.t("Unstage Hunk"), a.t("Unstage Lines")
+			}
+			if ui.Button(c, fileLabel).Clicked() {
+				a.diffAction(tab, -1, nil, action)
+			}
+			if target == git.DiffWorkingTree && ui.Button(c, a.t("Rollback File")).Clicked() {
+				a.diffAction(tab, -1, nil, "rollback")
 			}
 			if tab.diff != nil {
 				if i, inside := tab.diff.CurrentHunk(); inside {
-					if ui.Button(c, a.t("Apply Hunk")).Clicked() {
-						a.applyDiffHunk(tab, i)
+					if ui.Button(c, hunkLabel).Clicked() {
+						a.diffAction(tab, i, nil, action)
+					}
+					if target == git.DiffWorkingTree && ui.Button(c, a.t("Rollback Hunk")).Clicked() {
+						a.diffAction(tab, i, nil, "rollback")
 					}
 				}
 				if tab.hasSel {
-					if ui.Button(c, a.t("Apply Lines")).Clicked() {
-						a.applyDiffLines(tab)
+					if ui.Button(c, linesLabel).Clicked() {
+						a.diffAction(tab, -1, selectedLines(tab), action)
+					}
+					if target == git.DiffWorkingTree && ui.Button(c, a.t("Rollback Lines")).Clicked() {
+						a.diffAction(tab, -1, selectedLines(tab), "rollback")
 					}
 				}
 			}
+		}
+		blame := tab.diffBlameOn
+		if ui.Checkbox(c, &blame, a.t("Annotate")).Changed() {
+			tab.diffBlameOn = blame
 		}
 		if ui.Button(c, a.t("Open File")).Clicked() {
 			a.openSource(tab.path, tab.revision)
@@ -438,8 +615,18 @@ func (a *nativeApp) sourceView(c *ui.Context, tab *docTab) {
 			return
 		}
 		if tab.src == nil {
-			ui.Row(c).Padding(12).Gap(8).Children(func() { ui.Spinner(c); ui.Text(c, a.t("Loading file")) })
-			return
+			if tab.file.Exists {
+				tab.src = a.newSourceState(tab)
+				if a.lsp != nil {
+					a.lsp.didOpen(tab)
+					if ds := a.lsp.diags[tab.path]; len(ds) > 0 {
+						tab.src.SetDiagnostics(tab.src.Buffer.Version(), ds)
+					}
+				}
+			} else {
+				ui.Row(c).Padding(12).Gap(8).Children(func() { ui.Spinner(c); ui.Text(c, a.t("Loading file")) })
+				return
+			}
 		}
 		if tab.blameOn {
 			ui.Row(c).Fill().AlignItems(ui.Stretch).Children(func() {
@@ -450,6 +637,9 @@ func (a *nativeApp) sourceView(c *ui.Context, tab *docTab) {
 			return
 		}
 		tab.src.Theme = editor.DefaultTheme(t)
+		if a.lsp != nil {
+			a.lsp.sync(tab)
+		}
 		editor.View(c, tab.src).Grow(1).FillWidth()
 	})
 }
@@ -567,6 +757,9 @@ func (a *nativeApp) saveSource(tab *docTab) {
 		return a.g.SaveFile(tab.path, text)
 	})
 	tab.src.Buffer.MarkSaved()
+	if a.lsp != nil {
+		a.lsp.didSave(tab)
+	}
 	tab.title = tab.path
 	a.loadBlame(tab)
 	a.redraw()

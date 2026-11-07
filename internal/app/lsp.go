@@ -47,8 +47,9 @@ type lspSession struct {
 	cmd   *exec.Cmd
 	stdin io.WriteCloser
 
-	mu     sync.Mutex
-	closed bool
+	mu        sync.Mutex
+	closed    bool
+	onMessage func(string)
 }
 
 // write sends one framed message to the server.
@@ -141,7 +142,7 @@ func (g *Git) LSPStart() (LSPInfo, error) {
 	if err := cmd.Start(); err != nil {
 		return LSPInfo{}, err
 	}
-	session := &lspSession{id: newSessionID(), name: server.Name, root: repo.Dir(), cmd: cmd, stdin: stdin}
+	session := &lspSession{id: newSessionID(), name: server.Name, root: repo.Dir(), cmd: cmd, stdin: stdin, onMessage: g.c.lspOnMessage}
 	g.c.lsp = session
 	go pumpLSP(session, stdout)
 	return LSPInfo{ID: session.id, Root: session.root, Name: session.name}, nil
@@ -181,6 +182,9 @@ func pumpLSP(session *lspSession, stdout io.Reader) {
 	err := lsp.ReadFrames(stdout, func(body string) error {
 		payload, _ := json.Marshal(lspEnvelope{ID: session.id, Message: body})
 		LSPMessage.Broadcast(string(payload))
+		if session.onMessage != nil {
+			session.onMessage(body)
+		}
 		return nil
 	})
 	if err != nil && !errors.Is(err, io.EOF) {

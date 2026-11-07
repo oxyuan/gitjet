@@ -576,3 +576,14 @@ func (a *nativeApp) gutterMenu(tab *docTab, line int) {
 	}
 	a.dialog = dialogState{kind: dialogBlame, tab: tab, line: line}
 }
+
+func selectedLines(tab *docTab) []int {
+	if tab == nil || !tab.hasSel {
+		return nil
+	}
+	var lines []int
+	for i := tab.selStart; i <= tab.selEnd; i++ {
+		lines = append(lines, i+1)
+	}
+	return lines
+}

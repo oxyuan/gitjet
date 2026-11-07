@@ -288,6 +288,9 @@ type core struct {
 	// onChange hears that the working tree, the index or HEAD changed, so
 	// the native view reloads what it shows. It may run on any goroutine.
 	onChange func()
+	// lspOnMessage hears each message a native language-server client
+	// should read, framed JSON without its header. It runs on a goroutine.
+	lspOnMessage func(string)
 }
 
 func newCore() *core {

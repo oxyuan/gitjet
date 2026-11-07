@@ -47,13 +47,16 @@ type docTab struct {
 	opts     git.DiffOptions
 
 	// diff
-	diff     *editor.DiffState
-	loaded   bool
-	err      string
-	selStart int
-	selEnd   int
-	selSide  editor.DiffSide
-	hasSel   bool
+	diff        *editor.DiffState
+	loaded      bool
+	err         string
+	selStart    int
+	selEnd      int
+	selSide     editor.DiffSide
+	hasSel      bool
+	blameOld    []git.BlameLine
+	blameNew    []git.BlameLine
+	diffBlameOn bool
 
 	// source
 	src        *editor.State
@@ -166,6 +169,9 @@ type nativeApp struct {
 	consoleAt   int
 
 	dialog dialogState
+
+	lsp         *lspClient
+	lspStarting bool
 
 	reloadGen atomic.Uint64
 	reloading atomic.Bool
@@ -287,6 +293,10 @@ func (a *nativeApp) ready() {
 	if shot := os.Getenv("GITJET_SHOT"); shot != "" {
 		go func() {
 			time.Sleep(3 * time.Second)
+			for i := 0; i < 120; i++ {
+				mygo.RunOnMain(func() { a.win.Focus(); a.win.Invalidate() })
+				time.Sleep(40 * time.Millisecond)
+			}
 			mygo.RunOnMain(func() {
 				if a.win == nil {
 					mygo.App.Quit()
@@ -338,6 +348,14 @@ func (a *nativeApp) view(c *ui.Context) {
 
 func (a *nativeApp) applyAppearance(c *ui.Context) {
 	s := a.settings
+	if os.Getenv("GITJET_THEME") == "light" {
+		c.SetTheme(ui.LightTheme())
+		return
+	}
+	if os.Getenv("GITJET_THEME") == "dark" {
+		c.SetTheme(ui.DarkTheme())
+		return
+	}
 	switch s.Theme {
 	case "light":
 		c.SetTheme(ui.LightTheme())
@@ -423,17 +441,30 @@ func (a *nativeApp) openPath(path string) {
 				return
 			}
 			a.repoOpen = true
+			a.lsp = nil
+			a.lspStarting = false
 			a.snapshot = snap
 			a.commitForm.Message = strings.TrimSpace(a.settings.CommitTemplate)
 			a.pickInitialChange()
 			a.loadRecent()
 			a.refresh()
 			a.applyWindowTitle()
+			a.ensureLSP()
+			if open := os.Getenv("GITJET_OPEN"); open != "" {
+				if strings.HasPrefix(open, "diff:") {
+					a.openDiff(git.DiffOptions{Path: strings.TrimPrefix(open, "diff:"), Target: git.DiffWorkingTree, Context: a.settings.DiffContext})
+				} else {
+					a.openSource(open, "")
+				}
+			}
 		})
 	}()
 }
 
 func (a *nativeApp) closeRepo() {
+	_ = a.g.LSPStop()
+	a.lsp = nil
+	a.lspStarting = false
 	a.ws.Close()
 	a.repoOpen = false
 	a.tabs = nil
