@@ -61,6 +61,9 @@ type Repo struct {
 	// write serializes commands that change the repository, so that two
 	// clicks never race for index.lock.
 	write sync.Mutex
+	// history serializes the local history index, which the poll and the
+	// editor's save both append to.
+	history sync.Mutex
 }
 
 // Open resolves dir to the top of a git working tree and checks that git

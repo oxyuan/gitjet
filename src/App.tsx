@@ -42,6 +42,7 @@ import {
   TagDialog,
   CleanupBranchesDialog,
   ConflictSummaryDialog,
+  LocalHistoryDialog,
 } from "./Dialogs";
 import { EditHistoryDialog } from "./EditHistoryDialog";
 import { CloneDialog, InitDialog, RemotesDialog } from "./RepoSetupDialogs";
@@ -571,7 +572,8 @@ type Dialog =
   | { kind: "clone" }
   | { kind: "init" }
   | { kind: "remotes" }
-  | { kind: "rebase"; onto: string };
+  | { kind: "rebase"; onto: string }
+  | { kind: "localHistory"; path: string };
 
 interface ConfirmState {
   title: string;
@@ -2661,6 +2663,7 @@ function AppShell({ onLangChange }: { onLangChange: (lang: Lang) => void }) {
             onCopyPath={copyText}
             onReveal={(path) => void Workspace.reveal(path).catch((err) => fail(t("revealFailed"), err))}
             onRollbackHunk={(path, hunk) => void rollbackEditorHunk(path, hunk)}
+            onLocalHistory={(path) => setDialog({ kind: "localHistory", path })}
             onSymbol={(word, language) => void lookUpSymbol(word, language)}
             busy={diffBusy}
             reloadKey={reloadKey}
@@ -2856,6 +2859,19 @@ function AppShell({ onLangChange }: { onLangChange: (lang: Lang) => void }) {
           onRename={(oldName, newName) => void renameRemote(oldName, newName)}
           onRemove={(name) => void removeRemote(name)}
           onClose={() => setDialog(null)}
+        />
+      )}
+      {dialog?.kind === "localHistory" && (
+        <LocalHistoryDialog
+          path={dialog.path}
+          onClose={() => setDialog(null)}
+          onRestore={(path, digest) => {
+            setDialog(null);
+            void withBusy(async () => {
+              await Git.restoreLocalHistory(path, digest);
+              await reload(false);
+            });
+          }}
         />
       )}
       {dialog?.kind === "rebase" && (
@@ -3207,6 +3223,7 @@ function RightPane({
   onCopyPath,
   onReveal,
   onRollbackHunk,
+  onLocalHistory,
   onSymbol,
   busy,
   reloadKey,
@@ -3244,6 +3261,7 @@ function RightPane({
   onCopyPath: (text: string) => void;
   onReveal: (path: string) => void;
   onRollbackHunk: (path: string, hunk: number) => void;
+  onLocalHistory: (path: string) => void;
   onSymbol: (word: string, language: string) => void;
   busy: boolean;
   reloadKey: number;
@@ -3447,6 +3465,7 @@ function RightPane({
             onCopyPath={(text) => onCopyPath(text)}
             onReveal={() => onReveal(active.file.path)}
             onRollbackHunk={(hunk) => onRollbackHunk(active.file.path, hunk)}
+            onLocalHistory={() => onLocalHistory(active.file.path)}
             onSymbol={(word) => onSymbol(word, active.file.language)}
             onJump={(word) => onSymbol(word, active.file.language)}
             onReferences={(word) => onSymbol(word, active.file.language)}

@@ -20,6 +20,7 @@ const T = {
     showDiff: "Show this file as a diff",
     diff: "Diff",
 
+    localHistory: "Local History",
     revealInManager: "Reveal in file manager",
     wrap: "Wrap",
     save: "Save",
@@ -43,6 +44,7 @@ const T = {
     showDiff: "以差异方式显示此文件",
     diff: "差异",
 
+    localHistory: "本地历史",
     revealInManager: "在文件管理器中显示",
     wrap: "折行",
     save: "保存",
@@ -83,6 +85,7 @@ export function SourceView({
   onCopyPath,
   onReveal,
   onRollbackHunk,
+  onLocalHistory,
   onSymbol,
   onJump,
   onReferences,
@@ -104,6 +107,7 @@ export function SourceView({
   onCopyPath: (text: string) => void;
   onReveal?: () => void;
   onRollbackHunk?: (hunk: number) => void;
+  onLocalHistory?: () => void;
   onSymbol?: (word: string) => void;
   onJump?: (word: string) => void;
   onReferences?: (word: string) => void;
@@ -190,6 +194,9 @@ export function SourceView({
             <button className="toolbar-text-btn" onClick={onShowDiff} title={t("showDiff")}>
               <Icon name="diff" /> {t("diff")}
             </button>
+          )}
+          {file.revision === "" && onLocalHistory && (
+            <IconButton icon="clock" title={t("localHistory")} small onClick={onLocalHistory} />
           )}
           <PathCopyButton path={file.path} root={root} line={caret} onCopy={onCopyPath} />
           {onReveal && <IconButton icon="external" title={t("revealInManager")} small onClick={onReveal} />}

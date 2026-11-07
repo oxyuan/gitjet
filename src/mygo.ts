@@ -303,6 +303,14 @@ export interface LSPInfo {
   name: string;
 }
 
+export interface LocalHistoryEntry {
+  path: string;
+  time: number;
+  digest: string;
+  size: number;
+  label: string;
+}
+
 export interface LogOptions {
   all: boolean;
   refs: string[];
@@ -954,9 +962,21 @@ export const Git = {
   lspWrite(id: string, message: string): Promise<void> {
     return call("Git.LSPWrite", id, message);
   },
+  /** LabelLocalHistory names one saved copy. */
+  labelLocalHistory(path: string, digest: string, label: string): Promise<void> {
+    return call("Git.LabelLocalHistory", path, digest, label);
+  },
   /** LastCommitMessage returns HEAD's message. */
   lastCommitMessage(): Promise<string> {
     return call("Git.LastCommitMessage");
+  },
+  /** LocalHistory lists the saved copies of a file, newest first. */
+  localHistory(path: string): Promise<LocalHistoryEntry[]> {
+    return call("Git.LocalHistory", path);
+  },
+  /** LocalHistoryContent reads one saved copy. */
+  localHistoryContent(path: string, digest: string): Promise<string> {
+    return call("Git.LocalHistoryContent", path, digest);
   },
   /** Log returns commits. */
   log(opts: LogOptions): Promise<LogResult> {
@@ -1067,6 +1087,10 @@ export const Git = {
    */
   reset(hash: string, mode: string): Promise<string> {
     return call("Git.Reset", hash, mode);
+  },
+  /** RestoreLocalHistory writes a saved copy back to the working tree. */
+  restoreLocalHistory(path: string, digest: string): Promise<void> {
+    return call("Git.RestoreLocalHistory", path, digest);
   },
   /** RevealJournal shows the journal in the file manager and returns its path. */
   revealJournal(): Promise<string> {

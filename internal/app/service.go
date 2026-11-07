@@ -446,6 +446,9 @@ func (c *core) startPolling() {
 			}
 			c.mu.Unlock()
 			if changed {
+				// An edit made outside the app is still worth a history
+				// entry, which is what IDEA records too.
+				repo.SnapshotChanged(ctx, 40)
 				if snap, err := c.snapshot(ctx, c.settings.ShowIgnored); err == nil {
 					RepoChanged.Broadcast(snap.State)
 				}
@@ -565,6 +568,9 @@ func (g *Git) SaveFile(path, text string) error {
 	if err := repo.SaveFile(context.Background(), path, text); err != nil {
 		return err
 	}
+	// Local history keeps what the file looked like at each save, so a
+	// revert is possible without a commit; a failure never blocks the save.
+	_, _, _ = repo.SnapshotLocal(path, "save")
 	g.notify()
 	return nil
 }
@@ -1214,6 +1220,46 @@ func (g *Git) StashDrop(index int) (string, error) {
 	}
 	g.notify()
 	return appendCommands(out, *trace), nil
+}
+
+// LocalHistory lists the saved copies of a file, newest first.
+func (g *Git) LocalHistory(path string) ([]git.LocalHistoryEntry, error) {
+	repo, err := g.c.currentRepo()
+	if err != nil {
+		return nil, err
+	}
+	return repo.LocalHistory(path)
+}
+
+// LocalHistoryContent reads one saved copy.
+func (g *Git) LocalHistoryContent(path, digest string) (string, error) {
+	repo, err := g.c.currentRepo()
+	if err != nil {
+		return "", err
+	}
+	return repo.LocalHistoryContent(path, digest)
+}
+
+// RestoreLocalHistory writes a saved copy back to the working tree.
+func (g *Git) RestoreLocalHistory(path, digest string) error {
+	repo, err := g.c.currentRepo()
+	if err != nil {
+		return err
+	}
+	if err := repo.RestoreLocalHistory(path, digest); err != nil {
+		return err
+	}
+	g.notify()
+	return nil
+}
+
+// LabelLocalHistory names one saved copy.
+func (g *Git) LabelLocalHistory(path, digest, label string) error {
+	repo, err := g.c.currentRepo()
+	if err != nil {
+		return err
+	}
+	return repo.LabelLocalHistory(path, digest, label)
 }
 
 // ClearStashes drops every stash entry.

@@ -23,6 +23,7 @@ import type {
   SourceFile,
   StashFile,
   StashOptions,
+  LocalHistoryEntry,
   TagOptions,
 } from "./mygo";
 import { Icon } from "./icons";
@@ -51,6 +52,7 @@ import { FileIcon } from "./icons";
 const T = {
   en: {
     "common.cancel": "Cancel",
+    "common.close": "Close",
     "common.rebase": "Rebase",
     "common.save": "Save",
     "common.create": "Create",
@@ -254,6 +256,14 @@ const T = {
     "stashd.open": "Open the diff",
     "stashd.pop": "Pop",
     "stashd.apply": "Apply",
+    "localHistory.title": "Local History — {path}",
+    "localHistory.loading": "Reading the local history",
+    "localHistory.empty": "No saved copies of this file yet",
+    "localHistory.unlabelled": "unlabelled",
+    "localHistory.restore": "Restore This Copy",
+    "localHistory.label": "Label",
+    "localHistory.labelPlaceholder": "Name this copy",
+    "localHistory.binary": "This copy cannot be shown as text.",
     "stashd.restoreIndex": "Reinstate the index (--index)",
     "stashd.branch": "Restore on a new branch",
     "stashd.drop": "Drop",
@@ -302,6 +312,7 @@ const T = {
   },
   zh: {
     "common.cancel": "取消",
+    "common.close": "关闭",
     "common.rebase": "Rebase",
     "common.save": "保存",
     "common.create": "创建",
@@ -505,6 +516,14 @@ const T = {
     "stashd.open": "查看差异",
     "stashd.pop": "弹出",
     "stashd.apply": "应用",
+    "localHistory.title": "本地历史 — {path}",
+    "localHistory.loading": "正在读取本地历史",
+    "localHistory.empty": "这个文件还没有历史副本",
+    "localHistory.unlabelled": "未命名",
+    "localHistory.restore": "恢复此副本",
+    "localHistory.label": "标记",
+    "localHistory.labelPlaceholder": "为此副本命名",
+    "localHistory.binary": "此副本无法以文本显示。",
     "stashd.restoreIndex": "还原暂存区（--index）",
     "stashd.branch": "恢复到新分支",
     "stashd.drop": "Stash drop",
@@ -2414,6 +2433,104 @@ export function StashDetailDialog({
           </Button>
         </div>
       </div>
+    </Modal>
+  );
+}
+
+/** LocalHistoryDialog lists the copies IDEA's Local History keeps of one
+ *  file, lets the reader compare them, and restores one. */
+export function LocalHistoryDialog({
+  path,
+  onClose,
+  onRestore,
+}: {
+  path: string;
+  onClose: () => void;
+  onRestore: (path: string, digest: string) => void;
+}) {
+  const t = useT(T);
+  const [entries, setEntries] = useState<LocalHistoryEntry[] | null>(null);
+  const [selected, setSelected] = useState<LocalHistoryEntry | null>(null);
+  const [text, setText] = useState("");
+  const [label, setLabel] = useState("");
+
+  const pick = async (entry: LocalHistoryEntry) => {
+    setSelected(entry);
+    setLabel(entry.label);
+    try {
+      setText(await Git.localHistoryContent(path, entry.digest));
+    } catch {
+      setText("");
+    }
+  };
+  const load = async () => {
+    try {
+      const list = await Git.localHistory(path);
+      setEntries(list);
+      if (list.length > 0) await pick(list[0]!);
+    } catch {
+      setEntries([]);
+    }
+  };
+  useEffect(() => {
+    void load();
+  }, [path]);
+
+  const saveLabel = async () => {
+    if (!selected) return;
+    await Git.labelLocalHistory(path, selected.digest, label).catch(() => {});
+    await load();
+  };
+
+  return (
+    <Modal
+      title={t("localHistory.title", { path })}
+      icon="clock"
+      width={880}
+      onClose={onClose}
+      footer={
+        <>
+          <Button onClick={onClose}>{t("common.close")}</Button>
+          <Button
+            variant="primary"
+            disabled={!selected}
+            onClick={() => selected && onRestore(path, selected.digest)}
+          >
+            {t("localHistory.restore")}
+          </Button>
+        </>
+      }
+    >
+      {entries === null ? (
+        <Spinner label={t("localHistory.loading")} />
+      ) : entries.length === 0 ? (
+        <p className="setting-hint">{t("localHistory.empty")}</p>
+      ) : (
+        <div className="local-history">
+          <div className="local-history-list">
+            {entries.map((entry) => (
+              <button
+                key={entry.digest}
+                className={cx("local-history-row", selected?.digest === entry.digest && "selected")}
+                onClick={() => void pick(entry)}
+              >
+                <span className="local-history-time">{formatWhen(entry.time)}</span>
+                <span className="local-history-label">{entry.label || t("localHistory.unlabelled")}</span>
+                <span className="muted">{entry.size} B</span>
+              </button>
+            ))}
+          </div>
+          <div className="local-history-detail">
+            <div className="row">
+              <TextInput value={label} onChange={setLabel} placeholder={t("localHistory.labelPlaceholder")} />
+              <Button onClick={() => void saveLabel()} disabled={!selected}>
+                {t("localHistory.label")}
+              </Button>
+            </div>
+            <pre className="local-history-preview">{text || t("localHistory.binary")}</pre>
+          </div>
+        </div>
+      )}
     </Modal>
   );
 }
