@@ -2,10 +2,15 @@ import { describe, expect, it } from "bun:test";
 import {
   computeMerge,
   conflictLabels,
+  composeSegments,
+  conflictSegments,
   countConflictMarkers,
   diffHunks,
   hasConflictMarkers,
+  initialConflictBlocks,
+  insertConflictMarkers,
   splitLines,
+  resolveSimpleConflicts,
   tryResolveRange,
   type MergeRange,
 } from "./merge";
@@ -75,14 +80,13 @@ describe("computeMerge", () => {
     const model = computeMerge("a\nb\nc\nd\n", "a\nB\nc\nd\n", "a\nb\nc\nD\n");
     expect(kinds(model.ranges)).toEqual(["modified", "modified"]);
     expect(model.result).toBe("a\nB\nc\nD\n");
-    expect(model.placements).toHaveLength(2);
   });
 
-  it("marks the same line changed on both sides as a conflict", () => {
+  it("shows the local side of an unresolved conflict without markers", () => {
     const model = computeMerge("x\ny\nz\n", "x\nO\nz\n", "x\nT\nz\n");
     expect(kinds(model.ranges)).toEqual(["conflict"]);
-    expect(model.result).toBe("x\n<<<<<<< LOCAL\nO\n=======\nT\n>>>>>>> REMOTE\nz\n");
-    expect(countConflictMarkers(model.result)).toBe(1);
+    expect(model.result).toBe("x\nO\nz\n");
+    expect(countConflictMarkers(model.result)).toBe(0);
   });
 
   it("does not conflict when both sides made the same edit", () => {
@@ -94,7 +98,7 @@ describe("computeMerge", () => {
   it("conflicts when both sides insert different text at one point", () => {
     const model = computeMerge("a\n", "a\nO\n", "a\nT\n");
     expect(kinds(model.ranges)).toEqual(["conflict"]);
-    expect(model.result).toContain("<<<<<<< LOCAL\nO\n=======\nT\n>>>>>>> REMOTE");
+    expect(model.result).toBe("a\nO\n");
   });
 
   it("takes a deletion from one side", () => {
@@ -123,14 +127,7 @@ describe("computeMerge", () => {
     expect(model.result).toBe("1\nTWO\nTHREE\n4\nFIVE\nSIX\n");
   });
 
-  it("places each conflict block on its marker lines", () => {
-    const model = computeMerge("x\ny\nz\n", "x\nO\nz\n", "x\nT\nz\n");
-    const placement = model.placements[0]!;
-    const lines = model.result.split("\n");
-    expect(lines[placement.startLine]).toBe("<<<<<<< LOCAL");
-    expect(lines[placement.endLine - 1]).toBe(">>>>>>> REMOTE");
-    expect(hasConflictMarkers(model.result)).toBe(true);
-  });
+
 
   it("can compare whitespace-insensitively", () => {
     const exact = computeMerge("a\n", "a \n", "a\t\n");
@@ -139,11 +136,12 @@ describe("computeMerge", () => {
     expect(loose.ranges.every((range) => range.kind !== "conflict")).toBe(true);
   });
 
-  it("uses marker labels when they are supplied", () => {
+  it("keeps the supplied labels on the model, not in the result", () => {
     const model = computeMerge("x\n", "O\n", "T\n", {
       labels: { ours: "main", theirs: "feature" },
     });
-    expect(model.result).toBe("<<<<<<< main\nO\n=======\nT\n>>>>>>> feature\n");
+    expect(model.labels).toEqual({ ours: "main", theirs: "feature" });
+    expect(model.result).toBe("O\n");
   });
 
   it("keeps every range aligned through random edits", () => {
@@ -219,6 +217,102 @@ describe("tryResolveRange", () => {
   });
 });
 
+describe("block state", () => {
+  const model = computeMerge("a\nb\nc\n", "a\nOURS\nc\n", "a\nTHEIRS\nc\n");
+  const working = "a\n<<<<<<< HEAD\nOURS\n=======\nTHEIRS\n>>>>>>> dev\nc\n";
+
+  it("keeps the plain text and turns each section into a block", () => {
+    const segments = conflictSegments(working)!;
+    expect(segments.map((segment) => segment.kind)).toEqual(["text", "conflict", "text"]);
+    expect(segments[0]).toEqual({ kind: "text", text: "a\n" });
+    expect(segments[2]).toEqual({ kind: "text", text: "c\n" });
+
+    const blocks = initialConflictBlocks(segments, model);
+    expect(blocks.get(0)).toMatchObject({
+      ours: ["OURS"],
+      theirs: ["THEIRS"],
+      lines: ["OURS"],
+      resolved: false,
+      rangeIndex: 0,
+    });
+    const composed = composeSegments(segments, blocks);
+    expect(composed.text).toBe("a\nOURS\nc\n");
+    expect(composed.spans).toEqual([{ id: 0, from: 2, to: 7 }]);
+  });
+
+  it("shows a saved partial merge as its file, with only open blocks left", () => {
+    // The first conflict was accepted and written as plain text; the second
+    // still has markers.
+    const partial = "a\nOURS\nc\n<<<<<<< HEAD\nX\n=======\nY\n>>>>>>> dev\n";
+    const two = computeMerge("a\nb\nc\nd\n", "a\nOURS\nc\nX\n", "a\nOTHER\nc\nY\n");
+    const segments = conflictSegments(partial)!;
+    const blocks = initialConflictBlocks(segments, two);
+    expect(blocks.size).toBe(1);
+    expect(blocks.get(0)).toMatchObject({ ours: ["X"], theirs: ["Y"], rangeIndex: 1 });
+    expect(composeSegments(segments, blocks).text).toBe("a\nOURS\nc\nX\n");
+  });
+
+  it("round-trips a half-resolved file and keeps the settled block settled", () => {
+    const two = computeMerge("a\nb\nc\nd\n", "a\nX\nc\nZ\n", "a\nY\nc\nW\n");
+    expect(two.ranges.filter((range) => range.kind === "conflict")).toHaveLength(2);
+    const full =
+      "a\n<<<<<<< HEAD\nX\n=======\nY\n>>>>>>> dev\nc\n<<<<<<< HEAD\nZ\n=======\nW\n>>>>>>> dev\n";
+    const segments = conflictSegments(full)!;
+    const blocks = initialConflictBlocks(segments, two);
+    expect([...blocks.values()].map((block) => block.rangeIndex)).toEqual([0, 1]);
+
+    // Accept the local side of the first block, then save with the second open.
+    blocks.set(0, { ...blocks.get(0)!, lines: ["X"], resolved: true });
+    const composed = composeSegments(segments, blocks);
+    expect(composed.text).toBe("a\nX\nc\nZ\n");
+    const open = composed.spans[1]!;
+    const saved = insertConflictMarkers(
+      composed.text,
+      [{ from: open.from, to: open.to, theirs: blocks.get(1)!.theirs }],
+      two.labels,
+    );
+    expect(saved).toBe("a\nX\nc\n<<<<<<< LOCAL\nZ\n=======\nW\n>>>>>>> REMOTE\n");
+
+    // Reopening finds one open block, not two, and keeps the settled text.
+    const reopened = conflictSegments(saved)!;
+    const again = initialConflictBlocks(reopened, two);
+    expect(again.size).toBe(1);
+    expect(again.get(0)).toMatchObject({ lines: ["Z"], resolved: false, rangeIndex: 1 });
+    expect(composeSegments(reopened, again).text).toBe("a\nX\nc\nZ\n");
+  });
+
+  it("writes markers around open blocks and plain text elsewhere", () => {
+    const segments = conflictSegments(working)!;
+    const composed = composeSegments(segments, initialConflictBlocks(segments, model));
+    const marked = insertConflictMarkers(
+      composed.text,
+      [{ from: 2, to: 7, theirs: ["THEIRS"] }],
+      model.labels,
+    );
+    expect(marked).toBe("a\n<<<<<<< LOCAL\nOURS\n=======\nTHEIRS\n>>>>>>> REMOTE\nc\n");
+    expect(conflictSegments(marked)!.filter((segment) => segment.kind === "conflict")).toMatchObject([
+      { ours: ["OURS"], base: null, theirs: ["THEIRS"] },
+    ]);
+  });
+
+  it("keeps the file's newline state at the end", () => {
+    const labels = { ours: "LOCAL", theirs: "REMOTE" };
+    expect(insertConflictMarkers("a\nX", [{ from: 2, to: 3, theirs: ["Y"] }], labels)).toBe(
+      "a\n<<<<<<< LOCAL\nX\n=======\nY\n>>>>>>> REMOTE",
+    );
+    expect(insertConflictMarkers("a\nX\n", [{ from: 2, to: 4, theirs: ["Y"] }], labels)).toBe(
+      "a\n<<<<<<< LOCAL\nX\n=======\nY\n>>>>>>> REMOTE\n",
+    );
+  });
+
+  it("parses diff3 sections and rejects a block without an end marker", () => {
+    expect(conflictSegments("<<<<<<< a\n1\n||||||| base\n2\n=======\n3\n>>>>>>> b\n")).toMatchObject([
+      { kind: "conflict", ours: ["1"], base: ["2"], theirs: ["3"] },
+    ]);
+    expect(conflictSegments("<<<<<<< a\n1\n=======\n2\n")).toBeNull();
+  });
+});
+
 describe("marker helpers", () => {
   it("reads the labels out of a working file", () => {
     expect(conflictLabels("<<<<<<< HEAD\na\n=======\nb\n>>>>>>> feature\n")).toEqual({
@@ -233,5 +327,24 @@ describe("marker helpers", () => {
     expect(hasConflictMarkers("<<<<<<< x\n")).toBe(true);
     expect(hasConflictMarkers(">>>>>>> y\n")).toBe(true);
     expect(hasConflictMarkers("a\n=======\nb\n")).toBe(false);
+  });
+});
+
+describe("resolveSimpleConflicts", () => {
+  it("keeps the side that still has text when the other deleted it", () => {
+    const model = computeMerge("a\nb\nc\n", "a\nB1\nB2\nc\n", "a\nc\n");
+    expect(model.ranges.map((r) => r.kind)).toContain("conflict");
+    const simple = resolveSimpleConflicts(model);
+    expect(simple.remaining).toBe(0);
+    expect(simple.text).toBe("a\nB1\nB2\nc\n");
+  });
+
+  it("leaves a real two-sided conflict marked", () => {
+    const model = computeMerge("a\nc\n", "a\nOURS\nc\n", "a\nTHEIRS\nc\n");
+    const simple = resolveSimpleConflicts(model);
+    expect(simple.remaining).toBe(1);
+    expect(simple.text).toContain("<<<<<<< LOCAL");
+    expect(simple.text).toContain("OURS");
+    expect(simple.text).toContain("THEIRS");
   });
 });

@@ -2281,9 +2281,14 @@ body.col-resizing {
 }
 
 .cm-merge-gutter {
-  width: 18px;
+  width: 36px;
   background: var(--code-bg);
   border-right: 1px solid var(--border);
+}
+
+.cm-merge-gutter.side-after {
+  border-right: none;
+  border-left: 1px solid var(--border);
 }
 
 .cm-merge-gutter .cm-gutterElement {
@@ -8435,4 +8440,225 @@ body.resizing-row .log-detail-split::after {
   background: var(--accent);
   color: var(--accent-fg);
   box-shadow: none;
+}
+
+/* ---------- Merge editor: IDE-shaped chrome ---------- */
+
+.merge3-header {
+  border-bottom: 1px solid var(--border);
+}
+
+.merge3-toolbar {
+  align-items: center;
+}
+
+.merge3-apply-label {
+  color: var(--muted);
+  font-size: 11px;
+  white-space: nowrap;
+}
+
+.merge3-segment {
+  display: inline-flex;
+  height: 22px;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  overflow: hidden;
+}
+
+.merge3-segment button {
+  border: 0;
+  border-right: 1px solid var(--border);
+  background: transparent;
+  color: var(--fg-soft);
+  font: inherit;
+  font-size: 11px;
+  padding: 0 7px;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.merge3-segment button:last-child {
+  border-right: 0;
+}
+
+.merge3-segment button:hover {
+  background: var(--selection);
+  color: var(--fg);
+}
+
+.merge3-pane-head {
+  height: 26px;
+  justify-content: flex-start;
+  gap: 6px;
+  padding: 0 8px;
+  text-transform: none;
+  letter-spacing: 0;
+  font-size: 11.5px;
+  position: relative;
+}
+
+.merge3-pane-head .merge3-version {
+  margin-left: auto;
+}
+
+.merge3-pane-title {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.merge3-details-link {
+  margin-left: auto;
+  border: 0;
+  background: transparent;
+  color: var(--accent);
+  font: inherit;
+  font-size: 11px;
+  padding: 0;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.merge3-details-link:hover {
+  text-decoration: underline;
+}
+
+.merge3-pane-head .merge3-version + .merge3-details-link {
+  margin-left: 8px;
+}
+
+.merge3-details-pop {
+  position: absolute;
+  top: 28px;
+  z-index: 30;
+  width: 280px;
+  padding: 8px 10px 10px;
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  box-shadow: var(--shadow-lg, 0 12px 28px rgb(0 0 0 / 35%));
+  font-size: 11.5px;
+}
+
+.merge3-panes > .merge3-pane:nth-child(1) .merge3-details-pop {
+  left: 8px;
+}
+
+.merge3-panes > .merge3-pane:nth-child(3) .merge3-details-pop {
+  right: 8px;
+}
+
+.merge3-details-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  color: var(--muted);
+  font-size: 11px;
+  margin-bottom: 6px;
+}
+
+.merge3-details-subject {
+  color: var(--fg);
+  font-weight: 600;
+  margin-bottom: 6px;
+  overflow-wrap: anywhere;
+}
+
+.merge3-details-meta {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--muted);
+  margin-top: 3px;
+  overflow-wrap: anywhere;
+}
+
+.merge3-details-empty {
+  color: var(--muted);
+}
+
+/* Two-button inlay in a side pane's gutter: ignore, then apply. */
+.cm-merge-actions {
+  display: inline-flex;
+  align-items: center;
+  gap: 1px;
+}
+
+.cm-merge-action {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 14px;
+  height: 16px;
+  padding: 0 1px;
+  border: 0;
+  border-radius: 3px;
+  background: transparent;
+  color: var(--muted);
+  font-family: var(--font-mono);
+  font-size: 11px;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.cm-merge-action.apply {
+  color: var(--accent);
+  font-weight: 600;
+}
+
+.cm-merge-action.ignore:hover {
+  background: var(--selection);
+  color: var(--fg);
+}
+
+.cm-merge-action.apply:hover {
+  background: var(--selection);
+}
+
+/* ---------- Standalone merge window ---------- */
+
+.merge-window {
+  width: 100vw;
+  height: 100vh;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  background: var(--panel);
+}
+
+.merge-window-error {
+  align-items: center;
+  justify-content: center;
+}
+
+.merge-window-card {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  min-width: 320px;
+  max-width: 560px;
+  padding: 18px 20px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--panel);
+}
+
+.merge-window-title {
+  font-weight: 600;
+}
+
+.merge-window-message {
+  color: var(--muted);
+  font-size: 12.5px;
+  line-height: 1.5;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.merge-window-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
 }

@@ -21,7 +21,7 @@ import {
   type DecorationSet,
   type GutterMarker as GutterMarkerType,
 } from "@codemirror/view";
-import { defaultKeymap, history, historyKeymap } from "@codemirror/commands";
+import { defaultKeymap, history, historyKeymap, redo, undo } from "@codemirror/commands";
 import { codeFolding, foldEffect, syntaxHighlighting, unfoldAll } from "@codemirror/language";
 import { editorHighlightStyle } from "./highlight";
 import { editorSelectionTheme, editorTheme, loadLanguage } from "./editor";
@@ -35,6 +35,8 @@ export interface MergePaneBlock {
   tone: MergePaneTone;
   /** A side pane offers this arrow; the result pane keeps its status dot. */
   apply?: "ours" | "theirs";
+  /** A change the reader can dismiss back to the base text. */
+  ignore?: boolean;
   /** Word-level differences inside a conflicting line. */
   marks?: { from: number; to: number }[];
   title?: string;
@@ -46,6 +48,11 @@ export interface MergePaneOptions {
   language: string;
   blocks?: MergePaneBlock[];
   onApplyBlock?: (id: number) => void;
+  onIgnoreBlock?: (id: number) => void;
+  /** Tooltips for the gutter actions. */
+  actionLabels?: { apply: string; ignore: string };
+  /** Which edge carries the gutter: the inner one faces the result. */
+  side?: "before" | "after";
   onChange?: (doc: string, blocks: MergePaneBlock[]) => void;
   onScroll?: (topLine: number) => void;
   onSelection?: (start: number, end: number, empty: boolean) => void;
@@ -103,8 +110,11 @@ class ApplyMarker extends GutterMarker {
   constructor(
     readonly id: number,
     readonly apply: "ours" | "theirs" | undefined,
+    readonly ignore: boolean,
     readonly tone: MergePaneTone,
     readonly title: string,
+    readonly applyLabel: string,
+    readonly ignoreLabel: string,
   ) {
     super();
   }
@@ -114,34 +124,56 @@ class ApplyMarker extends GutterMarker {
       other instanceof ApplyMarker &&
       other.id === this.id &&
       other.apply === this.apply &&
+      other.ignore === this.ignore &&
       other.tone === this.tone &&
-      other.title === this.title
+      other.title === this.title &&
+      other.applyLabel === this.applyLabel &&
+      other.ignoreLabel === this.ignoreLabel
     );
   }
 
   toDOM() {
     const el = document.createElement("span");
-    el.className = `cm-merge-gutter-mark ${this.tone}${this.apply ? " apply" : ""}`;
+    el.className = `cm-merge-actions ${this.tone}`;
     el.title = this.title;
-    el.textContent = this.apply === "ours" ? "»" : this.apply === "theirs" ? "«" : this.tone === "conflict" ? "!" : "✓";
+    const button = (action: "apply" | "ignore", text: string, title: string, extra: string) => {
+      const b = document.createElement("button");
+      b.type = "button";
+      b.tabIndex = -1;
+      b.className = `cm-merge-action ${extra}`;
+      b.dataset.mergeAction = action;
+      b.title = title;
+      b.textContent = text;
+      el.append(b);
+    };
+    if (this.ignore) button("ignore", "✕", this.ignoreLabel, "ignore");
+    if (this.apply) {
+      button("apply", this.apply === "ours" ? "»" : "«", this.applyLabel, `apply ${this.apply}`);
+    }
+    if (!this.apply && !this.ignore) {
+      el.textContent = this.tone === "conflict" ? "!" : "✓";
+      el.className = `cm-merge-gutter-mark ${this.tone}`;
+    }
     return el;
   }
 }
 
-function buildGutter(view: EditorView, blocks: MergePaneBlock[], labels: { apply: string; status: string }): RangeSet<GutterMarker> {
+function buildGutter(
+  view: EditorView,
+  blocks: MergePaneBlock[],
+  labels: { apply: string; ignore: string; status: string },
+): RangeSet<GutterMarker> {
   const builder = new RangeSetBuilder<GutterMarker>();
   const sorted = [...blocks].sort((a, b) => a.from - b.from);
   for (const block of sorted) {
     const range = lineRange(view, block);
     const line = view.state.doc.line(range.first);
-    const title =
-      block.title ??
-      (block.apply === "ours"
-        ? labels.apply.replace("{side}", "ours")
-        : block.apply === "theirs"
-          ? labels.apply.replace("{side}", "theirs")
-          : labels.status);
-    builder.add(line.from, line.from, new ApplyMarker(block.id, block.apply, block.tone, title));
+    const title = block.title ?? labels.status;
+    builder.add(
+      line.from,
+      line.from,
+      new ApplyMarker(block.id, block.apply, block.ignore === true, block.tone, title, labels.apply, labels.ignore),
+    );
   }
   return builder.finish();
 }
@@ -207,20 +239,32 @@ export class MergePane {
           this.whitespace.of(opts.whitespace ? highlightWhitespace() : []),
           blocksField,
           gutter({
-            class: "cm-merge-gutter",
+            class: this.opts.side === "after" ? "cm-merge-gutter side-after" : "cm-merge-gutter",
+            side: this.opts.side === "after" ? "after" : "before",
             markers: (view) =>
               buildGutter(view, view.state.field(blocksField), {
-                apply: "Apply {side} change",
+                apply: this.opts.actionLabels?.apply ?? "Apply",
+                ignore: this.opts.actionLabels?.ignore ?? "Ignore",
                 status: "Conflict block",
               }),
             domEventHandlers: {
               mousedown: (view, line: BlockInfo, event) => {
-                if (!this.opts.onApplyBlock) return false;
+                const target = (event.target as HTMLElement).closest("[data-merge-action]") as HTMLElement | null;
+                if (!target) return false;
                 const block = blockAtLine(view, view.state.doc.lineAt(line.from).number);
-                if (!block || !block.apply) return false;
-                event.preventDefault();
-                this.opts.onApplyBlock(block.id);
-                return true;
+                if (!block) return false;
+                const action = target.dataset.mergeAction;
+                if (action === "ignore" && this.opts.onIgnoreBlock) {
+                  event.preventDefault();
+                  this.opts.onIgnoreBlock(block.id);
+                  return true;
+                }
+                if (action === "apply" && block.apply && this.opts.onApplyBlock) {
+                  event.preventDefault();
+                  this.opts.onApplyBlock(block.id);
+                  return true;
+                }
+                return false;
               },
             },
           }),
@@ -261,6 +305,14 @@ export class MergePane {
     this.view.scrollDOM.addEventListener("scroll", this.scrollHandler, { passive: true });
     void this.setLanguage(opts.language);
     if (opts.blocks) this.setBlocks(opts.blocks);
+  }
+
+  undo(): boolean {
+    return undo(this.view);
+  }
+
+  redo(): boolean {
+    return redo(this.view);
   }
 
   setBlocks(blocks: MergePaneBlock[]) {
@@ -318,6 +370,14 @@ export class MergePane {
   async setLanguage(language: string) {
     const support = await loadLanguage(language);
     this.view.dispatch({ effects: this.language.reconfigure(support ?? []) });
+  }
+
+  /** Replaces the whole document, used by "resolve using left/right". */
+  replaceAll(text: string) {
+    this.view.dispatch({
+      changes: { from: 0, to: this.view.state.doc.length, insert: text },
+      selection: { anchor: 0 },
+    });
   }
 
   replaceBlock(id: number, text: string): boolean {

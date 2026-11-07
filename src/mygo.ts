@@ -307,10 +307,25 @@ export interface LogResult {
   detached: boolean;
 }
 
+export interface MergeDetails {
+  kind: string;
+  ours: MergeSide;
+  theirs: MergeSide;
+}
+
 export interface MergeOptions {
   noFF: boolean;
   squash: boolean;
   message: string;
+}
+
+export interface MergeSide {
+  branch: string;
+  hash: string;
+  short: string;
+  subject: string;
+  author: string;
+  time: number;
 }
 
 export interface PlanCommit {
@@ -425,6 +440,8 @@ export interface RepoState {
   operation: string;
   opProgress: string;
   opDetail: string;
+  opOurs: string;
+  opTheirs: string;
   changed: number;
   staged: number;
   untracked: number;
@@ -575,6 +592,13 @@ export const Workspace = {
   close(): Promise<void> {
     return call("Workspace.Close");
   },
+  /**
+   * CloseWindow closes the window the call came from. The merge editor calls it
+   * when its file is applied, saved or handed to the next conflict.
+   */
+  closeWindow(): Promise<void> {
+    return call("Workspace.CloseWindow");
+  },
   /** Copy puts text on the system clipboard. */
   copy(text: string): Promise<void> {
     return call("Workspace.Copy", text);
@@ -597,6 +621,14 @@ export const Workspace = {
    */
   openInWindow(path: string): Promise<void> {
     return call("Workspace.OpenInWindow", path);
+  },
+  /**
+   * OpenMergeWindow shows one file's merge editor in its own window. IDEA
+   * resolves a conflict in a window that belongs only to that file; closing it
+   * leaves the repository window exactly as it was.
+   */
+  openMergeWindow(path: string): Promise<void> {
+    return call("Workspace.OpenMergeWindow", path);
   },
   /** OpenURL opens a link in the browser. */
   openURL(url: string): Promise<void> {
@@ -827,6 +859,10 @@ export const Git = {
   merge(ref: string, opts: MergeOptions): Promise<string> {
     return call("Git.Merge", ref, opts);
   },
+  /** MergeDetails describes the commits both sides of the operation point at. */
+  mergeDetails(): Promise<MergeDetails> {
+    return call("Git.MergeDetails");
+  },
   /** MessageHistory returns messages used in this repository. */
   messageHistory(): Promise<string[]> {
     return call("Git.MessageHistory");
@@ -936,9 +972,12 @@ export const Git = {
   saveFile(path: string, text: string): Promise<void> {
     return call("Git.SaveFile", path, text);
   },
-  /** SaveResolution writes and stages a resolved file. */
-  saveResolution(path: string, content: string): Promise<void> {
-    return call("Git.SaveResolution", path, content);
+  /**
+   * SaveResolution writes the result pane and stages the path when the
+   * content no longer has conflict markers.
+   */
+  saveResolution(path: string, content: string, stage: boolean): Promise<void> {
+    return call("Git.SaveResolution", path, content, stage);
   },
   /**
    * SearchSymbol finds a word across the working tree, for jumping to a

@@ -700,8 +700,10 @@ func (r *Repo) Conflict(ctx context.Context, path string) (ConflictContent, erro
 	return c, nil
 }
 
-// SaveResolution writes a resolved file and stages it.
-func (r *Repo) SaveResolution(ctx context.Context, path, content string) error {
+// SaveResolution writes the result pane. It stages the path only when the
+// content has no conflict markers left, which is what the IDE does: saving
+// a half-resolved file keeps it unmerged for git.
+func (r *Repo) SaveResolution(ctx context.Context, path, content string, stage bool) error {
 	clean, err := cleanPath(path)
 	if err != nil {
 		return err
@@ -714,8 +716,23 @@ func (r *Repo) SaveResolution(ctx context.Context, path, content string) error {
 	if err := os.WriteFile(r.AbsPath(clean), []byte(content), 0o644); err != nil {
 		return err
 	}
+	if !stage {
+		return nil
+	}
 	_, err = r.run(ctx, "add", "-A", "--", clean)
 	return err
+}
+
+// CountConflictMarkers counts the conflict blocks a working file still
+// carries, so the conflicts dialog can show 0/3 for an untouched file.
+func CountConflictMarkers(content string) int {
+	n := 0
+	for _, line := range strings.Split(content, "\n") {
+		if strings.HasPrefix(line, "<<<<<<< ") || line == "<<<<<<<" {
+			n++
+		}
+	}
+	return n
 }
 
 // TakeConflictSide checks out ours or theirs for a path and stages it. A

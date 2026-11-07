@@ -5,12 +5,14 @@ import (
 	"errors"
 	"fmt"
 	"log"
+	"net/url"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"runtime"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"gitjet/internal/git"
@@ -94,6 +96,63 @@ func (w *Workspace) OpenInWindow(path string) error {
 	cmd := exec.Command(exe, path)
 	cmd.Dir = path
 	return cmd.Start()
+}
+
+// mergeWindows tracks the separate merge-editor windows, so asking for the
+// same file twice focuses the one already showing it.
+var (
+	mergeMu      sync.Mutex
+	mergeWindows = map[string]*mygo.Window{}
+)
+
+// OpenMergeWindow shows one file's merge editor in its own window. IDEA
+// resolves a conflict in a window that belongs only to that file; closing it
+// leaves the repository window exactly as it was.
+func (w *Workspace) OpenMergeWindow(path string) error {
+	path = strings.TrimSpace(path)
+	if path == "" {
+		return errors.New("no file was given")
+	}
+	mergeMu.Lock()
+	if existing := mergeWindows[path]; existing != nil && !existing.IsDestroyed() {
+		mergeMu.Unlock()
+		existing.Show()
+		existing.Focus()
+		return nil
+	}
+	mergeMu.Unlock()
+	win := mygo.NewWindow(mygo.WindowOptions{
+		Title:           "Merge " + filepath.Base(path),
+		Width:           1240,
+		Height:          800,
+		MinWidth:        900,
+		MinHeight:       560,
+		BackgroundColor: "light-dark(#f5f5f7, #141416)",
+		URL:             "/?merge=" + url.QueryEscape(path),
+	})
+	mergeMu.Lock()
+	mergeWindows[path] = win
+	mergeMu.Unlock()
+	win.OnClosed(func() {
+		mergeMu.Lock()
+		if mergeWindows[path] == win {
+			delete(mergeWindows, path)
+		}
+		mergeMu.Unlock()
+	})
+	win.Focus()
+	return nil
+}
+
+// CloseWindow closes the window the call came from. The merge editor calls it
+// when its file is applied, saved or handed to the next conflict.
+func (w *Workspace) CloseWindow(ctx context.Context) error {
+	win := mygo.CallerWindow(ctx)
+	if win == nil || win.IsDestroyed() {
+		return nil
+	}
+	win.Close()
+	return nil
 }
 
 // ChooseFolder shows the native folder picker and returns the chosen
@@ -1005,17 +1064,27 @@ func (g *Git) Conflict(path string) (git.ConflictContent, error) {
 	return repo.Conflict(context.Background(), path)
 }
 
-// SaveResolution writes and stages a resolved file.
-func (g *Git) SaveResolution(path, content string) error {
+// SaveResolution writes the result pane and stages the path when the
+// content no longer has conflict markers.
+func (g *Git) SaveResolution(path, content string, stage bool) error {
 	repo, err := g.c.currentRepo()
 	if err != nil {
 		return err
 	}
-	if err := repo.SaveResolution(context.Background(), path, content); err != nil {
+	if err := repo.SaveResolution(context.Background(), path, content, stage); err != nil {
 		return err
 	}
 	g.notify()
 	return nil
+}
+
+// MergeDetails describes the commits both sides of the operation point at.
+func (g *Git) MergeDetails() (git.MergeDetails, error) {
+	repo, err := g.c.currentRepo()
+	if err != nil {
+		return git.MergeDetails{}, err
+	}
+	return repo.MergeDetails(context.Background())
 }
 
 // TakeSide takes ours or theirs for a conflict.

@@ -30,14 +30,6 @@ export interface MergeRange {
   theirs: string[];
 }
 
-export interface MergePlacement {
-  rangeIndex: number;
-  /** 0-based first result line, inclusive. */
-  startLine: number;
-  /** 0-based last result line, exclusive. */
-  endLine: number;
-}
-
 export interface MergeLabels {
   ours: string;
   theirs: string;
@@ -48,16 +40,20 @@ export interface MergeModel {
   oursLines: string[];
   theirsLines: string[];
   ranges: MergeRange[];
-  placements: MergePlacement[];
+  /** The result the view starts from: conflicts show their local side. */
   result: string;
   labels: MergeLabels;
   trailingNewline: boolean;
 }
 
+export type WhitespaceMode = "none" | "trim" | "spaces";
+
 export interface MergeOptions {
   labels?: Partial<MergeLabels>;
   trailingNewline?: boolean;
   ignoreWhitespace?: boolean;
+  /** The merge editor's "Ignore differences" setting; overrides the flag. */
+  whitespaceMode?: WhitespaceMode;
 }
 
 type LineEq = (a: string, b: string) => boolean;
@@ -284,6 +280,13 @@ function whitespaceInsensitive(a: string, b: string): boolean {
   return a.replace(/\s+/g, "") === b.replace(/\s+/g, "");
 }
 
+/** whitespaceEq is the line comparison the "Ignore differences" menu picks. */
+export function whitespaceEq(mode: WhitespaceMode): LineEq {
+  if (mode === "spaces") return whitespaceInsensitive;
+  if (mode === "trim") return (a, b) => a.trim() === b.trim();
+  return exact;
+}
+
 function textEqual(a: string[], b: string[], eq: LineEq): boolean {
   if (a.length !== b.length) return false;
   for (let i = 0; i < a.length; i++) if (!eq(a[i]!, b[i]!)) return false;
@@ -298,6 +301,32 @@ function overlaps(hunk: DiffHunk, start: number, end: number): boolean {
   if (hunk.baseStart === hunk.baseEnd) return hunk.baseStart >= start && hunk.baseStart <= end;
   if (start === end) return hunk.baseStart <= start && hunk.baseEnd >= end;
   return hunk.baseStart < end && hunk.baseEnd > start;
+}
+
+function hunksWithEq(base: string[], side: string[], eq: LineEq): DiffHunk[] {
+  const ops = diffOps(base, side, eq);
+  const hunks: DiffHunk[] = [];
+  let current: DiffHunk | null = null;
+  const flush = () => {
+    if (current) hunks.push(current);
+    current = null;
+  };
+  for (const op of ops) {
+    if (op.kind === "equal") {
+      flush();
+      continue;
+    }
+    if (!current) {
+      current = { baseStart: op.aStart, baseEnd: op.aEnd, sideStart: op.bStart, sideEnd: op.bEnd };
+    } else {
+      current.baseStart = Math.min(current.baseStart, op.aStart);
+      current.baseEnd = Math.max(current.baseEnd, op.aEnd);
+      current.sideStart = Math.min(current.sideStart, op.bStart);
+      current.sideEnd = Math.max(current.sideEnd, op.bEnd);
+    }
+  }
+  flush();
+  return hunks;
 }
 
 function buildRanges(
@@ -411,6 +440,10 @@ export function chosenLines(range: MergeRange, eq: LineEq = exact): string[] {
 export function tryResolveRange(range: MergeRange, ignoreWhitespace = false): string[] | null {
   const eq = ignoreWhitespace ? whitespaceInsensitive : exact;
   if (range.kind !== "conflict") return chosenLines(range, eq);
+  // One side deleted the block while the other kept or changed it: the IDE
+  // treats that as simple and keeps the side that still has text.
+  if (range.ours.length === 0 && range.theirs.length > 0) return range.theirs;
+  if (range.theirs.length === 0 && range.ours.length > 0) return range.ours;
   const total = Math.max(range.base.length, range.ours.length, range.theirs.length);
   const out: string[] = [];
   for (let i = 0; i < total; i++) {
@@ -439,36 +472,251 @@ function lineEqual(a: string | undefined, b: string | undefined, eq: LineEq): bo
   return eq(a, b);
 }
 
-function renderResult(
-  baseLines: string[],
-  ranges: MergeRange[],
-  labels: MergeLabels,
-  trailingNewline: boolean,
-  eq: LineEq = exact,
-): { text: string; placements: MergePlacement[] } {
+/** One piece of a working file: text that needs no decision, or a conflict
+ *  section Git wrapped in markers. */
+export type ConflictSegment =
+  | { kind: "text"; text: string }
+  | {
+      kind: "conflict";
+      ours: string[];
+      base: string[] | null;
+      theirs: string[];
+      /** The closing marker line ended with a newline in the file. */
+      newline: boolean;
+    };
+
+/** A conflict section's state in the result pane. `rangeIndex` links it back to
+ *  the three-way model when its content still matches a conflict range. */
+export interface ConflictBlockState {
+  id: number;
+  ours: string[];
+  theirs: string[];
+  base: string[] | null;
+  lines: string[];
+  resolved: boolean;
+  rangeIndex: number | null;
+}
+
+/** Character offsets of the composed result's line starts. */
+function lineStartsOf(text: string): number[] {
+  const starts = [0];
+  for (let i = 0; i < text.length; i++) if (text.charCodeAt(i) === 10) starts.push(i + 1);
+  return starts;
+}
+
+/**
+ * conflictSegments reads the working file into plain text and conflict
+ * sections, keeping the plain text exactly as it is. Null means a block was
+ * malformed, so the caller must not trust the parse.
+ */
+export function conflictSegments(text: string): ConflictSegment[] | null {
+  const lines = text.split("\n");
+  const starts = lineStartsOf(text);
+  const after = (line: number) => starts[line + 1] ?? text.length;
+  const segments: ConflictSegment[] = [];
+  let cursor = 0;
+  let i = 0;
+  while (i < lines.length) {
+    if (!lines[i]!.startsWith("<<<<<<<")) {
+      i++;
+      continue;
+    }
+    const start = i;
+    const ours: string[] = [];
+    const theirs: string[] = [];
+    let base: string[] | null = null;
+    let mode: "ours" | "base" | "theirs" = "ours";
+    let closed = false;
+    for (i++; i < lines.length; i++) {
+      const line = lines[i]!;
+      if (mode === "ours" && line.startsWith("|||||||")) {
+        base = [];
+        mode = "base";
+      } else if (mode !== "theirs" && line === "=======") {
+        mode = "theirs";
+      } else if (mode === "theirs" && line.startsWith(">>>>>>>")) {
+        closed = true;
+        break;
+      } else if (line.startsWith("<<<<<<<")) {
+        return null;
+      } else if (mode === "ours") {
+        ours.push(line);
+      } else if (mode === "base") {
+        base!.push(line);
+      } else {
+        theirs.push(line);
+      }
+    }
+    if (!closed) return null;
+    const blockStart = starts[start]!;
+    if (blockStart > cursor) segments.push({ kind: "text", text: text.slice(cursor, blockStart) });
+    const blockEnd = after(i);
+    segments.push({
+      kind: "conflict",
+      ours,
+      base,
+      theirs,
+      newline: blockEnd > starts[i]! + lines[i]!.length,
+    });
+    cursor = blockEnd;
+    i++;
+  }
+  if (cursor < text.length) segments.push({ kind: "text", text: text.slice(cursor) });
+  return segments;
+}
+
+/**
+ * The result pane's text and block offsets: plain text verbatim, and each
+ * conflict block's current text with no markers.
+ */
+export function composeSegments(
+  segments: ConflictSegment[],
+  blocks: ReadonlyMap<number, ConflictBlockState>,
+): { text: string; spans: { id: number; from: number; to: number }[] } {
+  let text = "";
+  const spans: { id: number; from: number; to: number }[] = [];
+  let id = 0;
+  for (const segment of segments) {
+    if (segment.kind === "text") {
+      text += segment.text;
+      continue;
+    }
+    const lines = blocks.get(id)?.lines ?? segment.ours;
+    const from = text.length;
+    text += lines.join("\n") + (lines.length > 0 && segment.newline ? "\n" : "");
+    spans.push({ id, from, to: text.length });
+    id++;
+  }
+  return { text, spans };
+}
+
+/** Block state for a file: every parsed section is an open conflict until the
+ *  reader decides it. */
+export function initialConflictBlocks(
+  segments: ConflictSegment[],
+  model: Pick<MergeModel, "ranges">,
+): Map<number, ConflictBlockState> {
+  const conflicts = model.ranges.filter((range) => range.kind === "conflict");
+  const blocks = new Map<number, ConflictBlockState>();
+  let id = 0;
+  let next = 0;
+  for (const segment of segments) {
+    if (segment.kind !== "conflict") continue;
+    let matched: number | null = null;
+    for (let i = next; i < conflicts.length; i++) {
+      const range = conflicts[i]!;
+      if (textEqual(range.theirs, segment.theirs, exact) || textEqual(range.ours, segment.ours, exact)) {
+        matched = range.index;
+        next = i + 1;
+        break;
+      }
+    }
+    blocks.set(id, {
+      id,
+      ours: segment.ours,
+      theirs: segment.theirs,
+      base: segment.base,
+      lines: segment.ours,
+      resolved: false,
+      rangeIndex: matched,
+    });
+    id++;
+  }
+  return blocks;
+}
+
+/** Segments for a file the model builds itself, used when the working file has
+ *  no markers left to read. */
+export function modelSegments(model: MergeModel): ConflictSegment[] {
   const lines: string[] = [];
-  const placements: MergePlacement[] = [];
+  const conflicts: { start: number; range: MergeRange }[] = [];
   let b = 0;
-  for (const range of ranges) {
-    for (let i = b; i < range.baseStart; i++) lines.push(baseLines[i]!);
-    const startLine = lines.length;
+  for (const range of model.ranges) {
+    for (let i = b; i < range.baseStart; i++) lines.push(model.baseLines[i]!);
+    if (range.kind === "conflict") conflicts.push({ start: lines.length, range });
+    lines.push(...(range.kind === "conflict" ? range.ours : chosenLines(range)));
+    b = range.baseEnd;
+  }
+  for (let i = b; i < model.baseLines.length; i++) lines.push(model.baseLines[i]!);
+  const text = lines.join("\n") + (model.trailingNewline && lines.length > 0 ? "\n" : "");
+  const starts = lineStartsOf(text);
+  const segments: ConflictSegment[] = [];
+  let cursor = 0;
+  for (const { start, range } of conflicts) {
+    const from = starts[start] ?? text.length;
+    if (from > cursor) segments.push({ kind: "text", text: text.slice(cursor, from) });
+    segments.push({
+      kind: "conflict",
+      ours: range.ours,
+      base: range.base,
+      theirs: range.theirs,
+      newline: true,
+    });
+    cursor = starts[start + range.ours.length] ?? text.length;
+  }
+  if (cursor < text.length) segments.push({ kind: "text", text: text.slice(cursor) });
+  return segments;
+}
+
+/**
+ * renderResolved composes the result from the three-way model alone: every
+ * range contributes its current text, and a conflict contributes the local side
+ * until it is resolved. No markers, so the block model is the only state.
+ */
+export function renderResolved(
+  model: Pick<MergeModel, "baseLines" | "ranges" | "trailingNewline">,
+  resolutions: ReadonlyMap<number, { lines: string[]; resolved: boolean }>,
+  eq: LineEq = exact,
+): string {
+  const lines: string[] = [];
+  let b = 0;
+  for (const range of model.ranges) {
+    for (let i = b; i < range.baseStart; i++) lines.push(model.baseLines[i]!);
     if (range.kind === "conflict") {
-      lines.push(`<<<<<<< ${labels.ours}`);
-      lines.push(...range.ours);
-      lines.push("=======");
-      lines.push(...range.theirs);
-      lines.push(`>>>>>>> ${labels.theirs}`);
+      lines.push(...(resolutions.get(range.index)?.lines ?? range.ours));
     } else {
       lines.push(...chosenLines(range, eq));
     }
-    placements.push({ rangeIndex: range.index, startLine, endLine: lines.length });
     b = range.baseEnd;
   }
-  for (let i = b; i < baseLines.length; i++) lines.push(baseLines[i]!);
-  return {
-    text: lines.join("\n") + (trailingNewline && lines.length > 0 ? "\n" : ""),
-    placements,
-  };
+  for (let i = b; i < model.baseLines.length; i++) lines.push(model.baseLines[i]!);
+  return lines.join("\n") + (model.trailingNewline && lines.length > 0 ? "\n" : "");
+}
+
+/**
+ * Puts Git's markers back around the blocks that are still unresolved, so a
+ * partially resolved file keeps its "unmerged" meaning for Git and every other
+ * tool. `spans` are the unresolved blocks' current character ranges.
+ */
+export function insertConflictMarkers(
+  text: string,
+  spans: { from: number; to: number; theirs: string[] }[],
+  labels: MergeLabels,
+): string {
+  const edits = spans
+    .map((span) => ({
+      from: Math.max(0, Math.min(span.from, text.length)),
+      to: Math.max(span.from, Math.min(span.to, text.length)),
+      theirs: span.theirs,
+    }))
+    .filter((span) => span.to >= span.from)
+    .sort((a, b) => b.from - a.from);
+  let out = text;
+  for (const span of edits) {
+    const body = out.slice(span.from, span.to);
+    const atEof = span.to >= out.length;
+    // The block's last line keeps the file's newline state; the lines before it
+    // always end with one.
+    const endsWithNewline = body.endsWith("\n") || !atEof;
+    const inner = body === "" || body.endsWith("\n") ? body : body + "\n";
+    const theirs = span.theirs.length > 0 ? span.theirs.join("\n") + "\n" : "";
+    const tail = endsWithNewline ? "\n" : "";
+    out =
+      out.slice(0, span.from) +
+      `<<<<<<< ${labels.ours}\n${inner}=======\n${theirs}>>>>>>> ${labels.theirs}${tail}` +
+      out.slice(span.to);
+  }
+  return out;
 }
 
 /** computeMerge is the whole model: diff both sides against the base, join
@@ -482,12 +730,13 @@ export function computeMerge(
   const base = splitLines(baseText);
   const ours = splitLines(oursText);
   const theirs = splitLines(theirsText);
-  const ignoreWhitespace = options.ignoreWhitespace ?? false;
-  const eq = ignoreWhitespace ? whitespaceInsensitive : exact;
+  const mode: WhitespaceMode =
+    options.whitespaceMode ?? (options.ignoreWhitespace ? "spaces" : "none");
+  const eq = whitespaceEq(mode);
   const oursOps = diffOps(base.lines, ours.lines, eq);
   const theirsOps = diffOps(base.lines, theirs.lines, eq);
-  const oursHunks = diffHunks(base.lines, ours.lines, ignoreWhitespace);
-  const theirsHunks = diffHunks(base.lines, theirs.lines, ignoreWhitespace);
+  const oursHunks = hunksWithEq(base.lines, ours.lines, eq);
+  const theirsHunks = hunksWithEq(base.lines, theirs.lines, eq);
   const ranges = buildRanges(
     base.lines,
     ours.lines,
@@ -503,17 +752,16 @@ export function computeMerge(
     theirs: options.labels?.theirs?.trim() || "REMOTE",
   };
   const trailingNewline = options.trailingNewline ?? ours.trailingNewline;
-  const rendered = renderResult(base.lines, ranges, labels, trailingNewline, eq);
-  return {
+  const model: MergeModel = {
     baseLines: base.lines,
     oursLines: ours.lines,
     theirsLines: theirs.lines,
     ranges,
-    placements: rendered.placements,
-    result: rendered.text,
+    result: "",
     labels,
     trailingNewline,
   };
+  return { ...model, result: renderResolved(model, new Map(), eq) };
 }
 
 /** Labels Git wrote into the working file, so the panes say branch names
@@ -534,6 +782,47 @@ export function countConflictMarkers(text: string): number {
   let count = 0;
   for (const line of text.split("\n")) if (line.startsWith("<<<<<<<")) count++;
   return count;
+}
+
+/**
+ * resolveSimpleConflicts renders the result the way "Resolve simple
+ * conflicts" does: every conflict a line attribution can settle is replaced
+ * by that merge, and the rest keep their markers. Unlike the initial result
+ * it does not depend on what the user typed, so a dialog can resolve a file
+ * without opening it.
+ */
+export function resolveSimpleConflicts(
+  model: MergeModel,
+  ignoreWhitespace = false,
+): { text: string; remaining: number } {
+  const eq = ignoreWhitespace ? whitespaceInsensitive : exact;
+  const lines: string[] = [];
+  let remaining = 0;
+  let b = 0;
+  for (const range of model.ranges) {
+    for (let i = b; i < range.baseStart; i++) lines.push(model.baseLines[i]!);
+    if (range.kind === "conflict") {
+      const resolved = tryResolveRange(range, ignoreWhitespace) ?? tryResolveRange(range, true);
+      if (resolved) {
+        lines.push(...resolved);
+      } else {
+        remaining++;
+        lines.push(`<<<<<<< ${model.labels.ours}`);
+        lines.push(...range.ours);
+        lines.push("=======");
+        lines.push(...range.theirs);
+        lines.push(`>>>>>>> ${model.labels.theirs}`);
+      }
+    } else {
+      lines.push(...chosenLines(range, eq));
+    }
+    b = range.baseEnd;
+  }
+  for (let i = b; i < model.baseLines.length; i++) lines.push(model.baseLines[i]!);
+  return {
+    text: lines.join("\n") + (model.trailingNewline && lines.length > 0 ? "\n" : ""),
+    remaining,
+  };
 }
 
 export function hasConflictMarkers(text: string): boolean {

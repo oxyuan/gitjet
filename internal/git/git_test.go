@@ -325,7 +325,7 @@ func TestConflictResolution(t *testing.T) {
 	if conflict.Language != languageOf("a.txt") {
 		t.Fatalf("language = %q, want %q", conflict.Language, languageOf("a.txt"))
 	}
-	if err := repo.SaveResolution(context.Background(), "a.txt", "one\nresolved\n"); err != nil {
+	if err := repo.SaveResolution(context.Background(), "a.txt", "one\nresolved\n", true); err != nil {
 		t.Fatal(err)
 	}
 	st, _ = repo.Status(context.Background(), false)
@@ -404,5 +404,44 @@ func TestSplitCommandLine(t *testing.T) {
 	}
 	if _, err := SplitCommandLine(`commit -m "unclosed`); err == nil {
 		t.Error("unclosed quote should fail")
+	}
+}
+
+func TestSaveResolutionWaitsForCleanResult(t *testing.T) {
+	repo, dir := newTestRepo(t)
+	runGit(t, dir, "checkout", "-q", "-b", "other")
+	writeFile(t, dir, "a.txt", "one\ntheirs\n")
+	runGit(t, dir, "commit", "-q", "-am", "theirs")
+	runGit(t, dir, "checkout", "-q", "main")
+	writeFile(t, dir, "a.txt", "one\nours\n")
+	runGit(t, dir, "commit", "-q", "-am", "ours")
+	if out, err := repo.Merge(context.Background(), "other", MergeOptions{}); err == nil {
+		t.Fatalf("merge should have conflicted: %q", out)
+	}
+	// A half-resolved file is written but stays unmerged.
+	half := "<<<<<<< HEAD\none\nours\n=======\ntheirs\n>>>>>>> other\n"
+	if err := repo.SaveResolution(context.Background(), "a.txt", half, false); err != nil {
+		t.Fatal(err)
+	}
+	st, _ := repo.Status(context.Background(), false)
+	if st.State.Conflicts != 1 {
+		t.Fatalf("conflicts = %d after a partial save", st.State.Conflicts)
+	}
+	detail, err := repo.MergeDetails(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if detail.Kind != "merge" || detail.Ours.Branch != "main" || detail.Theirs.Branch != "other" {
+		t.Fatalf("merge details = %+v", detail)
+	}
+	if got := CountConflictMarkers(half); got != 1 {
+		t.Fatalf("markers = %d, want 1", got)
+	}
+	if err := repo.SaveResolution(context.Background(), "a.txt", "one\nresolved\n", true); err != nil {
+		t.Fatal(err)
+	}
+	st, _ = repo.Status(context.Background(), false)
+	if st.State.Conflicts != 0 {
+		t.Fatalf("conflicts = %d after a clean save", st.State.Conflicts)
 	}
 }

@@ -9,7 +9,6 @@ import {
   type CommitFile,
   type Commit,
   type CommitDetail,
-  type ConflictContent,
   type DiffOptions,
   type FetchOptions,
   type FileDiff,
@@ -24,7 +23,6 @@ import {
   type SymbolHit,
 } from "./mygo";
 import { CommitPanel, type CommitActions, type CommitForm, type FileEntry } from "./CommitPanel";
-import { ConflictView } from "./ConflictView";
 import { ConsolePanel } from "./ConsolePanel";
 import { SourceTree } from "./SourceTree";
 import { normalizeTabOrder, type ToolTab, TOOL_TABS, TOOL_TAB_ICONS } from "./tabs";
@@ -143,7 +141,6 @@ const T = {
     saveSettingsFailed: "Could not save settings",
     lastCommitMessage: "Could not read the last commit message",
     done: "Done",
-    conflictDoc: "Conflict: {path}",
     closeRepoTitle: "Close Repository",
     closeRepoMessage: "Close this repository and return to the welcome screen?",
     close: "Close",
@@ -247,7 +244,6 @@ const T = {
     kindSource: "Source",
     kindMerge: "Merge",
     kindCommit: "Commit",
-    mergeTab: "Merge: {name}",
     copyHash: "Copy hash",
     filesChanged: "{n} files changed",
     openSourceAtCommit: "Open the source file at this commit",
@@ -335,7 +331,6 @@ const T = {
     saveSettingsFailed: "无法保存设置",
     lastCommitMessage: "无法读取上一条提交信息",
     done: "完成",
-    conflictDoc: "冲突：{path}",
     closeRepoTitle: "关闭仓库",
     closeRepoMessage: "关闭此仓库并返回欢迎界面？",
     close: "关闭",
@@ -438,7 +433,6 @@ const T = {
     kindSource: "源码",
     kindMerge: "Merge",
     kindCommit: "提交",
-    mergeTab: "Merge：{name}",
     copyHash: "复制哈希",
     filesChanged: "{n} 个文件已更改",
     openSourceAtCommit: "打开该提交下的源文件",
@@ -502,7 +496,6 @@ function ToolTabs({
 type Doc = { id: string; title: string } & (
   | { kind: "diff"; diff: FileDiff; opts: DiffOptions }
   | { kind: "file"; file: SourceFile; revision: string; line?: number }
-  | { kind: "conflict"; path: string; content: ConflictContent }
   | { kind: "commit"; detail: CommitDetail }
 );
 
@@ -1239,18 +1232,14 @@ function AppShell({ onLangChange }: { onLangChange: (lang: Lang) => void }) {
     }
   };
 
+  // Every merge editor is its own window: the repository window keeps its
+  // docks and tabs, exactly as IDEA leaves them.
   const openConflict = async (path: string) => {
     try {
-      const content = await Git.conflict(path);
-      openDoc({ id: `conflict:${path}`, title: t("conflictDoc", { path }), kind: "conflict", path, content });
+      await Workspace.openMergeWindow(path);
     } catch (err) {
       fail(t("openConflictFailed"), err);
     }
-  };
-
-  const openNextConflict = () => {
-    const remaining = snapshotRef.current?.conflicts ?? [];
-    if (remaining[0]) void openConflict(remaining[0].path);
   };
 
   const openConflictSummary = () => {
@@ -1739,7 +1728,6 @@ function AppShell({ onLangChange }: { onLangChange: (lang: Lang) => void }) {
       await Git.rebase(onto, true);
       notify("success", t("rebaseFinished"));
       await reload(false);
-      openNextConflict();
       void loadLog(true);
     });
   };
@@ -1750,7 +1738,6 @@ function AppShell({ onLangChange }: { onLangChange: (lang: Lang) => void }) {
       const out = await Git.cherryPick(hashes, false);
       notify("success", t("cherryPicked"), out.split("\n")[0]);
       await reload(false);
-      openNextConflict();
       void loadLog(true);
     });
   };
@@ -1770,7 +1757,6 @@ function AppShell({ onLangChange }: { onLangChange: (lang: Lang) => void }) {
       await Git.revert(hashes);
       notify("success", t("reverted"), hashes.map((h) => h.slice(0, 8)).join(", "));
       await reload(false);
-      openNextConflict();
       void loadLog(true);
     });
   };
@@ -1790,7 +1776,6 @@ function AppShell({ onLangChange }: { onLangChange: (lang: Lang) => void }) {
     setDialog(null);
     void runQuiet(t("rewriteTitle"), "commit", () => Git.rewrite(onto, steps)).then((ok) => {
       if (ok) notify("success", t("rewriteFinished"));
-      openNextConflict();
     });
   };
 
@@ -2167,9 +2152,7 @@ function AppShell({ onLangChange }: { onLangChange: (lang: Lang) => void }) {
       ? activeDoc.file.path
       : activeDoc?.kind === "diff"
         ? activeDoc.opts.path
-        : activeDoc?.kind === "conflict"
-          ? activeDoc.path
-          : undefined;
+        : undefined;
 
   const tabHeader = (
     <ToolTabs
@@ -2388,24 +2371,6 @@ function AppShell({ onLangChange }: { onLangChange: (lang: Lang) => void }) {
             busy={diffBusy}
             reloadKey={reloadKey}
             onShowFileHistory={showFileHistory}
-            onSaveConflict={async (path, content) => {
-              await withBusy(async () => {
-                await Git.saveResolution(path, content);
-                notify("success", t("conflictResolved"), path);
-                closeDoc(`conflict:${path}`);
-                await reload(false);
-                openNextConflict();
-              });
-            }}
-            onTakeSide={async (path, side) => {
-              await withBusy(async () => {
-                await Git.takeSide(path, side);
-                notify("success", side === "ours" ? t("tookOurs") : t("tookTheirs"), path);
-                closeDoc(`conflict:${path}`);
-                await reload(false);
-                openNextConflict();
-              });
-            }}
             onOpenRecent={(path) => void openRepo(path)}
             onRemoveRecent={async (path) => {
               await Workspace.removeRecent(path);
@@ -2810,8 +2775,6 @@ function kindLabel(doc: Doc, t: Translate): string {
       return t("kindDiff");
     case "file":
       return t("kindSource");
-    case "conflict":
-      return t("kindMerge");
     case "commit":
       return t("kindCommit");
   }
@@ -2823,8 +2786,6 @@ function docIcon(doc: Doc): "diff" | "file" | "merge" | "user" | "commit" {
       return "diff";
     case "file":
       return "file";
-    case "conflict":
-      return "merge";
     case "commit":
       return "commit";
   }
@@ -2837,8 +2798,6 @@ function docPath(doc: Doc): string {
       return doc.opts.path;
     case "file":
       return doc.file.path;
-    case "conflict":
-      return doc.path;
     case "commit":
       return "";
   }
@@ -2855,8 +2814,6 @@ function tabTitle(doc: Doc, t: Translate): string {
       return baseName(doc.opts.path);
     case "file":
       return baseName(doc.file.path);
-    case "conflict":
-      return t("mergeTab", { name: baseName(doc.path) });
     case "commit":
       return doc.detail.short;
   }
@@ -2892,8 +2849,6 @@ function RightPane({
   busy,
   reloadKey,
   onShowFileHistory,
-  onSaveConflict,
-  onTakeSide,
   onOpenRecent,
   onRemoveRecent,
   recent,
@@ -2930,8 +2885,6 @@ function RightPane({
   busy: boolean;
   reloadKey: number;
   onShowFileHistory: (path: string, line?: number, revision?: string) => void;
-  onSaveConflict: (path: string, content: string) => Promise<void>;
-  onTakeSide: (path: string, side: "ours" | "theirs") => Promise<void>;
   onOpenRecent: (path: string) => void;
   onRemoveRecent: (path: string) => Promise<void>;
   recent: Settings["recent"];
@@ -3115,27 +3068,6 @@ function RightPane({
         <span className="spacer" />
       </div>
       <div className="editor-content">
-        {docs
-          .filter((doc): doc is Extract<Doc, { kind: "conflict" }> => doc.kind === "conflict")
-          .map((doc) => (
-            <div
-              key={"layer:" + doc.id}
-              className="doc-layer"
-              style={{ display: active.id === doc.id ? undefined : "none" }}
-            >
-              <ConflictView
-                key={doc.id}
-                path={doc.path}
-                conflict={doc.content}
-                busy={busy}
-                onSave={(content) => void onSaveConflict(doc.path, content)}
-                onTakeSide={(side) => void onTakeSide(doc.path, side)}
-                onClose={() => onCloseDoc(doc.id)}
-                onDirtyChange={(dirty) => onDocDirty(doc.id, dirty)}
-                visible={active.id === doc.id}
-              />
-            </div>
-          ))}
         {active.kind === "file" && (
           <SourceView
             key={active.id}

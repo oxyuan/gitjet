@@ -3,9 +3,11 @@ package git
 import (
 	"bytes"
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 )
 
@@ -106,6 +108,144 @@ func short(s string) string {
 	}
 	return s
 }
+
+// refName prefers a local branch that points at rev, then the short hash.
+// "dev" tells the user more than "28ccc30".
+func (r *Repo) refName(ctx context.Context, rev string) string {
+	rev = strings.TrimSpace(rev)
+	if rev == "" {
+		return ""
+	}
+	if out, err := r.run(ctx, "for-each-ref", "--points-at", rev, "--format=%(refname:short)", "refs/heads"); err == nil {
+		for _, name := range strings.Fields(out) {
+			if name != "" {
+				return name
+			}
+		}
+	}
+	if out, err := r.run(ctx, "rev-parse", "--short", rev); err == nil {
+		if name := strings.TrimSpace(out); name != "" {
+			return name
+		}
+	}
+	return rev
+}
+
+// operationLabels names both sides of the operation in progress, so the
+// conflict UI can say "Changes from dev" instead of "Theirs".
+func (r *Repo) operationLabels(ctx context.Context) (ours, theirs string) {
+	if r.gitDir == "" {
+		return "", ""
+	}
+	read := func(rel string) string {
+		b, err := os.ReadFile(filepath.Join(r.gitDir, rel))
+		if err != nil {
+			return ""
+		}
+		return strings.TrimSpace(string(b))
+	}
+	head := func() string {
+		if out, err := r.run(ctx, "symbolic-ref", "--short", "-q", "HEAD"); err == nil {
+			if name := strings.TrimSpace(out); name != "" {
+				return name
+			}
+		}
+		return r.refName(ctx, "HEAD")
+	}
+	op, _, _ := r.operation()
+	switch op {
+	case "merge":
+		return head(), r.refName(ctx, "MERGE_HEAD")
+	case "rebase", "rebase-interactive":
+		ours = strings.TrimPrefix(read("rebase-merge/head-name"), "refs/heads/")
+		if ours == "" {
+			ours = strings.TrimPrefix(read("rebase-apply/head-name"), "refs/heads/")
+		}
+		onto := read("rebase-merge/onto")
+		if onto == "" {
+			onto = read("rebase-apply/onto")
+		}
+		return ours, r.refName(ctx, onto)
+	case "cherry-pick":
+		return head(), r.refName(ctx, "CHERRY_PICK_HEAD")
+	case "revert":
+		return head(), r.refName(ctx, "REVERT_HEAD")
+	case "am":
+		return head(), "mail"
+	}
+	return "", ""
+}
+
+// MergeSide is one revision taking part in a merge, shown by the merge
+// editor's "Show details" popup.
+type MergeSide struct {
+	Branch  string `json:"branch"`
+	Hash    string `json:"hash"`
+	Short   string `json:"short"`
+	Subject string `json:"subject"`
+	Author  string `json:"author"`
+	Time    int64  `json:"time"`
+}
+
+// MergeDetails describes both sides of the operation in progress.
+type MergeDetails struct {
+	Kind   string    `json:"kind"`
+	Ours   MergeSide `json:"ours"`
+	Theirs MergeSide `json:"theirs"`
+}
+
+// MergeDetails reads the commits both sides of the conflict point at. A
+// missing side is left zeroed: rebase and am have no second local commit.
+func (r *Repo) MergeDetails(ctx context.Context) (MergeDetails, error) {
+	if r.gitDir == "" {
+		return MergeDetails{}, errors.New("no repository")
+	}
+	read := func(rel string) string {
+		b, err := os.ReadFile(filepath.Join(r.gitDir, rel))
+		if err != nil {
+			return ""
+		}
+		return strings.TrimSpace(string(b))
+	}
+	d := MergeDetails{Kind: r.operationName()}
+	var oursRev, theirsRev string
+	switch d.Kind {
+	case "merge":
+		oursRev, theirsRev = "HEAD", "MERGE_HEAD"
+	case "cherry-pick":
+		oursRev, theirsRev = "HEAD", "CHERRY_PICK_HEAD"
+	case "revert":
+		oursRev, theirsRev = "HEAD", "REVERT_HEAD"
+	case "rebase", "rebase-interactive":
+		oursRev, theirsRev = read("rebase-merge/onto")+read("rebase-apply/onto"), "HEAD"
+	case "am":
+		oursRev = "HEAD"
+	}
+	side := func(rev string) MergeSide {
+		if rev == "" {
+			return MergeSide{}
+		}
+		out, err := r.run(ctx, "show", "-s", "--format=%H%x1f%an%x1f%at%x1f%s", rev)
+		if err != nil {
+			return MergeSide{}
+		}
+		fields := strings.SplitN(strings.TrimRight(out, "\n"), "\x1f", 4)
+		if len(fields) < 4 {
+			return MergeSide{}
+		}
+		s := MergeSide{Branch: r.refName(ctx, rev), Hash: fields[0], Short: short(fields[0]), Author: fields[1], Subject: fields[3]}
+		s.Time, _ = strconv.ParseInt(fields[2], 10, 64)
+		return s
+	}
+	d.Ours, d.Theirs = side(oursRev), side(theirsRev)
+	return d, nil
+}
+
+func (r *Repo) operationName() string {
+	name, _, _ := r.operation()
+	return name
+}
+
 
 func (r *Repo) remoteURL(ctx context.Context) string {
 	for _, remote := range []string{"origin"} {

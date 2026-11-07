@@ -27,6 +27,8 @@ type RepoState struct {
 	Operation  string `json:"operation"`
 	OpProgress string `json:"opProgress"`
 	OpDetail   string `json:"opDetail"`
+	OpOurs     string `json:"opOurs"`
+	OpTheirs   string `json:"opTheirs"`
 	Changed    int    `json:"changed"`
 	Staged     int    `json:"staged"`
 	Untracked  int    `json:"untracked"`
@@ -124,6 +126,7 @@ func (r *Repo) Status(ctx context.Context, includeIgnored bool) (StatusResult, e
 	s.State.RemoteURL = r.remoteURL(ctx)
 	s.State.Shallow = r.isShallow(ctx)
 	s.State.Operation, s.State.OpProgress, s.State.OpDetail = r.operation()
+	s.State.OpOurs, s.State.OpTheirs = r.operationLabels(ctx)
 	if s.State.Detached && s.State.Head != "" {
 		s.State.OpDetail = strings.TrimSpace(s.State.OpDetail)
 	}
