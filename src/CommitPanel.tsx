@@ -1,5 +1,5 @@
-import { useMemo, useState } from "react";
-import { reformatCommitMessage } from "./commitMessage";
+import { useMemo, useRef, useState } from "react";
+import { completeFiles, messageToken, reformatCommitMessage } from "./commitMessage";
 import { buildChangeTree, directoryKeys, splitTracked, treeFiles } from "./changes";
 import { FileTree, type ChangeView } from "./FileTree";
 import { useFileMenu } from "./FileMenu";
@@ -90,6 +90,7 @@ const T = {
     commitCount: "Commit ({n})",
     commitAndPush: "Commit and Push…",
     commitAndRebase: "Commit and Rebase",
+    noFileMatch: "No changed file matches",
     undoCommit: "Undo Commit",
     clearStashes: "Clear all stashes",
     createPatch: "Create Patch…",
@@ -171,6 +172,7 @@ const T = {
     commitCount: "Commit（{n}）",
     commitAndPush: "Commit 并 Push…",
     commitAndRebase: "提交并 Rebase",
+    noFileMatch: "没有匹配的已更改文件",
     undoCommit: "撤销上次提交",
     clearStashes: "清空所有 Stash",
     createPatch: "创建补丁…",
@@ -320,6 +322,9 @@ export function CommitPanel({
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
   const [showOptions, setShowOptions] = useState(false);
   const [showHistory, setShowHistory] = useState(false);
+  // File-name completion in the message box, invoked with Ctrl+Space.
+  const messageRef = useRef<HTMLTextAreaElement | null>(null);
+  const [completion, setCompletion] = useState<{ query: string; start: number; end: number; index: number } | null>(null);
   const fileMenu = useFileMenu({
     root: snapshot.state.root,
     onChanged: actions.onRefresh,
@@ -850,18 +855,83 @@ export function CommitPanel({
       <div className="commit-box">
         <div className="commit-message-wrap">
           <textarea
+            ref={messageRef}
             className="commit-message"
             placeholder={t("commitMessage")}
             value={form.message}
             spellCheck
-            onChange={(e) => actions.onCommitFormChange({ ...form, message: e.target.value })}
+            onChange={(e) => {
+              actions.onCommitFormChange({ ...form, message: e.target.value });
+              if (completion) {
+                const caret = e.target.selectionStart;
+                const query = messageToken(e.target.value, caret);
+                setCompletion({ ...completion, query, start: caret - query.length, end: caret, index: 0 });
+              }
+            }}
             onKeyDown={(e) => {
               if ((e.metaKey || e.ctrlKey) && e.key === "Enter" && !busy) {
                 e.preventDefault();
                 actions.onCommit(false);
+                return;
+              }
+              if ((e.ctrlKey || e.metaKey) && e.key === " ") {
+                e.preventDefault();
+                const area = e.currentTarget;
+                const caret = area.selectionStart;
+                const query = messageToken(area.value, caret);
+                setCompletion({ query, start: caret - query.length, end: caret, index: 0 });
+                return;
+              }
+              if (!completion) return;
+              if (e.key === "Escape") {
+                e.preventDefault();
+                setCompletion(null);
+                return;
+              }
+              const matches = completeFiles(entries.map((x) => x.path), completion.query);
+              if (e.key === "ArrowDown" || e.key === "ArrowUp") {
+                e.preventDefault();
+                const delta = e.key === "ArrowDown" ? 1 : -1;
+                setCompletion({
+                  ...completion,
+                  index: (completion.index + delta + matches.length) % Math.max(matches.length, 1),
+                });
+                return;
+              }
+              if (e.key === "Enter" && matches.length > 0) {
+                e.preventDefault();
+                const path = matches[Math.min(completion.index, matches.length - 1)]!;
+                const next = form.message.slice(0, completion.start) + path + form.message.slice(completion.end);
+                actions.onCommitFormChange({ ...form, message: next });
+                setCompletion(null);
               }
             }}
           />
+          {completion && (
+            <div className="message-completion">
+              {completeFiles(entries.map((x) => x.path), completion.query)
+                .slice(0, 12)
+                .map((path, i) => (
+                  <button
+                    key={path}
+                    className={cx("message-completion-item", i === completion.index && "active")}
+                    onMouseDown={(e) => {
+                      e.preventDefault();
+                      const next =
+                        form.message.slice(0, completion.start) + path + form.message.slice(completion.end);
+                      actions.onCommitFormChange({ ...form, message: next });
+                      setCompletion(null);
+                      messageRef.current?.focus();
+                    }}
+                  >
+                    {path}
+                  </button>
+                ))}
+              {completeFiles(entries.map((x) => x.path), completion.query).length === 0 && (
+                <div className="message-completion-empty">{t("noFileMatch")}</div>
+              )}
+            </div>
+          )}
           <div className="commit-message-tools">
             <button
               className="mini-icon"

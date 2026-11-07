@@ -2116,20 +2116,20 @@ function AppShell({ onLangChange }: { onLangChange: (lang: Lang) => void }) {
     });
   };
 
-  const openCompareFile = async (ref: string, path: string) => {
+  const openCompareFile = async (ref: string, path: string, to = "HEAD") => {
     try {
       const opts: DiffOptions = {
         path,
         target: "range",
         from: ref,
-        revision: "HEAD",
+        revision: to,
         context: settingsRef.current?.diffContext ?? -1,
         ignoreWhitespace: false,
         ignoreWhitespaceEol: false,
         noText: false,
       };
       const diff = await Git.diff(opts);
-      openDoc({ id: `diff:compare:${ref}:${path}`, title: path, kind: "diff", diff, opts });
+      openDoc({ id: `diff:compare:${ref}:${to}:${path}`, title: path, kind: "diff", diff, opts });
     } catch (err) {
       fail(t("gitFailed"), err);
     }
@@ -3198,8 +3198,14 @@ function AppShell({ onLangChange }: { onLangChange: (lang: Lang) => void }) {
       {dialog?.kind === "compare" && (
         <CompareDialog
           from={dialog.ref}
+          refs={[
+            ...(refs?.local.map((r) => r.name) ?? []),
+            ...(refs?.remote.map((r) => r.name) ?? []),
+            ...(refs?.tags.map((r) => r.name) ?? []),
+            "HEAD",
+          ]}
           onClose={() => setDialog(null)}
-          onOpenFile={(path) => void openCompareFile(dialog.ref, path)}
+          onOpenFile={(path, from, to) => void openCompareFile(from, path, to)}
         />
       )}
       {dialog?.kind === "conflicts" && (

@@ -321,6 +321,7 @@ const T = {
     "compare.title": "Compare with the working branch",
     "compare.loading": "Comparing",
     "compare.empty": "No file differs",
+    "compare.swap": "Swap the two revisions",
     "compare.close": "Close",
     "compare.files": "{n} files differ",
   },
@@ -588,6 +589,7 @@ const T = {
     "compare.title": "与当前分支比较",
     "compare.loading": "正在比较",
     "compare.empty": "没有不同的文件",
+    "compare.swap": "交换两个版本",
     "compare.close": "关闭",
     "compare.files": "{n} 个文件不同",
   },
@@ -2933,35 +2935,67 @@ export function ConflictSummaryDialog({
 /** CompareDialog lists the files that differ between a ref and HEAD. */
 export function CompareDialog({
   from,
+  refs,
   onClose,
   onOpenFile,
 }: {
   from: string;
+  refs: string[];
   onClose: () => void;
-  onOpenFile: (path: string) => void;
+  onOpenFile: (path: string, from: string, to: string) => void;
 }) {
   const t = useT(T);
+  const [left, setLeft] = useState(from);
+  const [right, setRight] = useState("HEAD");
   const [files, setFiles] = useState<Change[] | null>(null);
   const [error, setError] = useState("");
 
   useEffect(() => {
     let alive = true;
-    Git.compare(from, "HEAD")
+    setFiles(null);
+    setError("");
+    Git.compare(left, right)
       .then((list) => alive && setFiles(list))
       .catch((err: unknown) => alive && setError(err instanceof Error ? err.message : String(err)));
     return () => {
       alive = false;
     };
-  }, [from]);
+  }, [left, right]);
 
   return (
     <Modal
-      title={`${t("compare.title")} — ${from}`}
+      title={`${t("compare.title")} — ${left} → ${right}`}
       icon="diff"
       width={680}
       onClose={onClose}
       footer={<Button variant="primary" onClick={onClose}>{t("compare.close")}</Button>}
     >
+      <div className="row">
+        <Select value={left} onChange={setLeft}>
+          {[...new Set([left, ...refs])].map((ref) => (
+            <option key={ref} value={ref}>
+              {ref}
+            </option>
+          ))}
+        </Select>
+        <Button
+          onClick={() => {
+            const previousLeft = left;
+            setLeft(right);
+            setRight(previousLeft);
+          }}
+          title={t("compare.swap")}
+        >
+          ⇄
+        </Button>
+        <Select value={right} onChange={setRight}>
+          {[...new Set([right, ...refs])].map((ref) => (
+            <option key={ref} value={ref}>
+              {ref}
+            </option>
+          ))}
+        </Select>
+      </div>
       {error && <p className="dialog-error">{error}</p>}
       {!files && !error && <Spinner label={t("compare.loading")} />}
       {files && files.length === 0 && <p className="setting-hint">{t("compare.empty")}</p>}
@@ -2970,7 +3004,7 @@ export function CompareDialog({
           <p className="setting-hint">{t("compare.files", { n: files.length })}</p>
           <div className="repo-list">
             {files.map((file) => (
-              <button className="repo-row compare-row" key={file.path} onClick={() => onOpenFile(file.path)}>
+              <button className="repo-row compare-row" key={file.path} onClick={() => onOpenFile(file.path, left, right)}>
                 <StatusMark kind={file.kind} />
                 <span className="repo-row-title">{file.path}</span>
                 {file.oldPath && <span className="muted">{file.oldPath}</span>}

@@ -80,3 +80,26 @@ function wrap(text: string, width: number): string[] {
   if (line !== "") lines.push(line);
   return lines;
 }
+
+/** The word a completion would replace: the path-like token before the caret. */
+export function messageToken(text: string, caret: number): string {
+  const before = text.slice(0, caret);
+  const match = before.match(/[\w./-]+$/);
+  return match ? match[0] : "";
+}
+
+/** Changed files whose path contains the typed token, best matches first. */
+export function completeFiles(paths: string[], query: string): string[] {
+  const needle = query.toLowerCase();
+  if (needle === "") return paths.slice(0, 12);
+  const scored: { path: string; score: number }[] = [];
+  for (const path of paths) {
+    const lower = path.toLowerCase();
+    const base = lower.slice(lower.lastIndexOf("/") + 1);
+    if (base.startsWith(needle)) scored.push({ path, score: 0 });
+    else if (base.includes(needle)) scored.push({ path, score: 1 });
+    else if (lower.includes(needle)) scored.push({ path, score: 2 });
+  }
+  scored.sort((a, b) => a.score - b.score || a.path.localeCompare(b.path));
+  return scored.map((entry) => entry.path);
+}
