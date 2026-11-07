@@ -217,7 +217,40 @@ func (m *mergeWindow) view(c *ui.Context) {
 			m.resultPane(c)
 			m.side(c, m.app.t("Theirs"), m.theirs, "theirs")
 		})
+		ui.Row(c).Height(32).Padding(0, 10).Gap(8).AlignItems(ui.Center).BorderWidth(1, 0, 0, 0).BorderColor(t.Border).Children(func() {
+			unresolved := 0
+			for i := range m.blocks {
+				if m.choice[i] == blockUnresolved {
+					unresolved++
+				}
+			}
+			ui.Text(c, fmt.Sprintf("%d of %d blocks unresolved", unresolved, len(m.blocks))).FontSize(10).TextColor(t.TextMuted)
+			ui.Spacer(c).Grow(1)
+			if ui.Button(c, m.app.t("Accept All Ours")).Clicked() {
+				m.acceptAll("ours")
+			}
+			if ui.Button(c, m.app.t("Accept All Theirs")).Clicked() {
+				m.acceptAll("theirs")
+			}
+			if ui.Button(c, m.app.t("Resolve Simple")).Clicked() {
+				m.resolveSimple()
+			}
+		})
 	})
+}
+
+func (m *mergeWindow) resolveSimple() {
+	for i, b := range m.blocks {
+		if text, ok := simpleBlock(b.ours, b.base, b.theirs); ok {
+			if text == b.theirs {
+				m.choice[i] = blockTheirs
+			} else {
+				m.choice[i] = blockOurs
+			}
+		}
+	}
+	m.rebuildResult()
+	m.win.Invalidate()
 }
 
 func (m *mergeWindow) side(c *ui.Context, title string, state *editor.State, side string) {
@@ -326,6 +359,11 @@ func (m *mergeWindow) apply(finish bool) {
 		}
 	}
 	text := m.merged
+	if m.result.Modified() {
+		// An edit in the result is the user's resolution of every block
+		// it touches; saving stages it as it is.
+		unresolved = 0
+	}
 	stage := unresolved == 0
 	if unresolved > 0 {
 		// Keep the markers for the blocks still unresolved, so the file
@@ -345,7 +383,7 @@ func (m *mergeWindow) apply(finish bool) {
 				return
 			}
 			m.app.refresh()
-			if finish || stage {
+			if stage || (finish && unresolved == 0) {
 				m.win.Close()
 			} else {
 				m.win.Invalidate()
@@ -380,4 +418,111 @@ func (m *mergeWindow) withMarkers(unresolved int) string {
 	}
 	out.WriteString(working[last:])
 	return out.String()
+}
+
+// resolveSimpleText resolves the conflict blocks git wrote into working
+// when one side kept the base text, or both sides agree, and leaves the
+// rest marked. It reports how many blocks remain.
+func resolveSimpleText(working string) (string, int) {
+	var out strings.Builder
+	pos := 0
+	remaining := 0
+	for {
+		i := strings.Index(working[pos:], "<<<<<<<")
+		if i < 0 {
+			out.WriteString(working[pos:])
+			break
+		}
+		i += pos
+		out.WriteString(working[pos:i])
+		rest := working[i:]
+		endMarker := strings.Index(rest, ">>>>>>>")
+		if endMarker < 0 {
+			out.WriteString(rest)
+			break
+		}
+		end := i + endMarker + len(">>>>>>>")
+		if nl := strings.IndexByte(working[end:], '\n'); nl >= 0 {
+			end += nl + 1
+		}
+		sections := splitConflict(working[i:end])
+		if lines, ok := simpleBlock(sections[0], sections[1], sections[2]); ok {
+			out.WriteString(lines)
+		} else {
+			remaining++
+			out.WriteString(working[i:end])
+		}
+		pos = end
+	}
+	return out.String(), remaining
+}
+
+// simpleBlock returns one block's text when max one side changed a line
+// from the base, or both changed it the same way.
+func simpleBlock(ours, base, theirs string) (string, bool) {
+	o := conflictLines(ours)
+	b := conflictLines(base)
+	t := conflictLines(theirs)
+	if len(o) == 0 && len(t) > 0 {
+		return theirs, true
+	}
+	if len(t) == 0 && len(o) > 0 {
+		return ours, true
+	}
+	n := len(o)
+	if len(b) > n {
+		n = len(b)
+	}
+	if len(t) > n {
+		n = len(t)
+	}
+	out := make([]string, 0, n)
+	for i := 0; i < n; i++ {
+		ov, ook := lineAt(o, i)
+		bv, bok := lineAt(b, i)
+		tv, tok := lineAt(t, i)
+		oSame := ook == bok && ov == bv
+		tSame := tok == bok && tv == bv
+		switch {
+		case oSame && tSame:
+			if ook {
+				out = append(out, ov)
+			}
+		case !oSame && tSame:
+			if ook {
+				out = append(out, ov)
+			}
+		case oSame && !tSame:
+			if tok {
+				out = append(out, tv)
+			}
+		case ook && tok && ov == tv:
+			out = append(out, ov)
+		default:
+			return "", false
+		}
+	}
+	text := strings.Join(out, "\n")
+	if text != "" && !strings.HasSuffix(text, "\n") {
+		text += "\n"
+	}
+	return text, true
+}
+
+func conflictLines(s string) []string {
+	if s == "" {
+		return nil
+	}
+	s = strings.TrimSuffix(s, "\n")
+	if s == "" {
+		return []string{""}
+	}
+	return strings.Split(s, "\n")
+}
+
+func lineAt(lines []string, i int) (string, bool) {
+	if i < 0 || i >= len(lines) {
+		return "", false
+	}
+	return lines[i], true
 }

@@ -650,3 +650,18 @@ func wrapCommitMessage(msg string, width int) string {
 	}
 	return strings.Join(out, "\n")
 }
+
+// pickedHashes returns the commits chosen in the log, oldest first.
+func (a *nativeApp) pickedHashes() []string {
+	chosen := map[string]bool{}
+	for h := range a.logPick.All() {
+		chosen[h] = true
+	}
+	var out []string
+	for i := len(a.log.Commits) - 1; i >= 0; i-- {
+		if chosen[a.log.Commits[i].Hash] {
+			out = append(out, a.log.Commits[i].Hash)
+		}
+	}
+	return out
+}

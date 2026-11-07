@@ -187,6 +187,7 @@ func buildMenu(l lang) *mygo.Menu {
 			{Role: mygo.RoleOpenRecent},
 			{Label: l.tr("menu.quickOpen"), Accelerator: "CmdOrCtrl+P", Click: send("quickopen")},
 			{Label: l.tr("menu.closeTab"), Accelerator: "CmdOrCtrl+W", Click: send("closetab")},
+			{Label: l.tr("menu.newWindow"), Accelerator: "CmdOrCtrl+Shift+N", Click: send("new-window")},
 			{Label: l.tr("menu.closeRepo"), Accelerator: "CmdOrCtrl+Shift+W", Click: send("close")},
 			mygo.Separator(),
 			{Label: l.tr("menu.settings"), Accelerator: "CmdOrCtrl+,", Click: send("settings")},

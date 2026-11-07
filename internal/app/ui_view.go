@@ -921,6 +921,21 @@ func (a *nativeApp) logPane(c *ui.Context) {
 		if a.logLoading {
 			ui.Row(c).Padding(8).Children(func() { ui.Spinner(c) })
 		}
+		if n := a.logPick.Len(); n > 0 {
+			ui.Row(c).Padding(4, 8).Gap(6).Children(func() {
+				ui.Text(c, fmt.Sprintf("%d selected", n)).FontSize(10).TextColor(t.Accent)
+				if ui.Button(c, a.t("Clear")).Clicked() {
+					a.logPick.Clear()
+				}
+			})
+		}
+		a.logList.Key = func(i int) any {
+			if i < 0 || i >= len(a.log.Commits) {
+				return ""
+			}
+			return a.log.Commits[i].Hash
+		}
+		a.logList.Selection = &a.logPick
 		a.logList.Selected = &a.logSel
 		a.logList.Label = func(i int) string {
 			if i < 0 || i >= len(a.log.Commits) {
@@ -935,10 +950,30 @@ func (a *nativeApp) logPane(c *ui.Context) {
 			cm := a.log.Commits[i]
 			row := ui.Row(c).Height(30).Padding(3, 8).Gap(6).AlignItems(ui.Center)
 			row.Children(func() {
+				a.graphCell(c, i)
 				ui.Text(c, cm.Short).FontSize(10).Font("monospace").TextColor(t.TextMuted)
 				ui.Text(c, cm.Subject).FontSize(11).MaxLines(1)
 			})
 			row.ContextMenu(func(m *ui.Menu) {
+				if a.logPick.Len() > 1 && a.logPick.Has(cm.Hash) {
+					hashes := a.pickedHashes()
+					if m.Item(a.t("Cherry-Pick Selected")).Chosen() {
+						a.busyRun("cherry-pick", func() error {
+							_, err := a.g.CherryPick(hashes, false)
+							return err
+						})
+					}
+					if m.Item(a.t("Revert Selected")).Chosen() {
+						a.busyRun("revert", func() error {
+							_, err := a.g.Revert(hashes)
+							return err
+						})
+					}
+					if m.Item(a.t("Copy Revision Numbers")).Chosen() {
+						a.copyText(strings.Join(hashes, "\n"))
+					}
+					m.Separator()
+				}
 				if m.Item(a.t("Open Commit")).Chosen() {
 					a.openCommitTab(cm.Hash)
 				}
@@ -976,6 +1011,56 @@ func (a *nativeApp) logPane(c *ui.Context) {
 			ui.Text(c, a.t("No commits")).FontSize(11).TextColor(t.TextMuted).Padding(8)
 		}
 	})
+}
+
+func (a *nativeApp) graphCell(c *ui.Context, row int) {
+	if row < 0 || row >= len(a.graph) {
+		ui.Spacer(c).Width(32)
+		return
+	}
+	g := a.graph[row]
+	width := graphWidth(a.graph)
+	if width < 32 {
+		width = 32
+	}
+	box := ui.Box(c).Width(width).Height(30)
+	colors := graphColors(c.Theme())
+	box.Draw(func(p *ui.Painter, r ui.Rect) {
+		mid := r.Y + r.H/2
+		x := func(lane int) float32 { return r.X + 7 + float32(lane)*graphLaneWidth }
+		for lane, hash := range g.before {
+			if hash == "" {
+				continue
+			}
+			c := colors[lane%len(colors)]
+			if lane < len(g.faint) && g.faint[lane] {
+				c = c.Alpha(0.35)
+			}
+			p.Line(x(lane), r.Y, x(lane), mid, 1.5, c)
+		}
+		for lane, hash := range g.after {
+			if hash == "" {
+				continue
+			}
+			p.Line(x(lane), mid, x(lane), r.Y+r.H, 1.5, colors[lane%len(colors)])
+		}
+		for _, target := range g.edges {
+			p.Line(x(g.lane), mid, x(target), r.Y+r.H, 1.5, colors[g.lane%len(colors)])
+		}
+		c := colors[g.lane%len(colors)]
+		p.Fill(ui.Rect{X: x(g.lane) - 3.5, Y: mid - 3.5, W: 7, H: 7}, c, 3.5)
+	})
+}
+
+func graphColors(t *ui.Theme) []ui.Color {
+	return []ui.Color{
+		t.Accent,
+		t.Success,
+		t.Warning,
+		t.Danger,
+		ui.Hex("#a855f7"),
+		ui.Hex("#06b6d4"),
+	}
 }
 
 // ----- console ----------------------------------------------------------

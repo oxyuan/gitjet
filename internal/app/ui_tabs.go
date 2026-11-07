@@ -283,28 +283,48 @@ func (a *nativeApp) renderDiffAnnotation(c *ui.Context, ann editor.DiffAnnotatio
 }
 
 func (a *nativeApp) loadDiffImage(tab *docTab, fd git.FileDiff) {
-	// The working-tree side is the file itself; a deleted file has none.
-	rev := ""
+	oldPath := fd.Path
+	if fd.OldPath != "" {
+		oldPath = fd.OldPath
+	}
+	oldRev, newRev := "", ""
 	switch tab.opts.Target {
+	case git.DiffWorkingTree:
+		oldRev, newRev = "INDEX", ""
 	case git.DiffStaged:
-		rev = "INDEX"
-	case git.DiffCommit, git.DiffRange:
-		rev = tab.opts.Revision
+		oldRev, newRev = "HEAD", "INDEX"
+	case git.DiffHead:
+		oldRev, newRev = "HEAD", ""
+	case git.DiffCommit:
+		oldRev, newRev = tab.opts.Revision+"^", tab.opts.Revision
+	case git.DiffRange:
+		oldRev, newRev = tab.opts.From, tab.opts.Revision
+	}
+	load := func(path, rev string) ui.ImageSource {
+		if rev == "empty" {
+			return nil
+		}
+		img, err := a.g.Image(path, rev)
+		if err != nil {
+			return nil
+		}
+		data, err := base64.StdEncoding.DecodeString(img.Data)
+		if err != nil {
+			return nil
+		}
+		src, _ := ui.DecodeImage(data)
+		return src
 	}
 	go func() {
-		img, err := a.g.Image(fd.Path, rev)
-		var src ui.ImageSource
-		if err == nil {
-			data, decErr := base64.StdEncoding.DecodeString(img.Data)
-			if decErr == nil {
-				src, _ = ui.DecodeImage(data)
-			}
-		}
+		oldSrc := load(oldPath, oldRev)
+		newSrc := load(tab.path, newRev)
 		mygoMain(func() {
-			tab.image = src
-			tab.imageMime = rev
-			if err != nil {
-				tab.err = err.Error()
+			tab.imageOld = oldSrc
+			tab.imageNew = newSrc
+			if newSrc != nil {
+				tab.image = newSrc
+			} else {
+				tab.image = oldSrc
 			}
 			a.redraw()
 		})
@@ -465,12 +485,13 @@ func (a *nativeApp) diffView(c *ui.Context, tab *docTab) {
 			return
 		}
 		if tab.binary {
-			ui.Column(c).Fill().Center().Gap(8).Children(func() {
-				ui.Text(c, a.t("Binary file")).FontSize(14)
-				if tab.image != nil {
-					ui.Image(c, tab.image).Fit(ui.Contain).Grow(1).MaxWidth(700)
-				}
-			})
+			if tab.imageOld != nil || tab.imageNew != nil {
+				a.imageDiffView(c, tab)
+			} else {
+				ui.Column(c).Fill().Center().Children(func() {
+					ui.Text(c, fmt.Sprintf("%s · %d bytes", a.t("Binary file"), tab.fileSize)).FontSize(12).TextColor(t.TextMuted)
+				})
+			}
 			return
 		}
 		if tab.diff == nil || !tab.loaded {
@@ -489,6 +510,53 @@ func (a *nativeApp) diffView(c *ui.Context, tab *docTab) {
 			}
 		}
 		editor.DiffView(c, tab.diff).Grow(1).FillWidth()
+	})
+}
+
+func (a *nativeApp) imageDiffView(c *ui.Context, tab *docTab) {
+	t := c.Theme()
+	ui.Column(c).Fill().Children(func() {
+		ui.Row(c).Padding(6, 10).Gap(8).Children(func() {
+			ui.Segmented(c, &tab.imageMode, a.t("Side by side"), a.t("Overlay"))
+			if tab.imageMode == 1 {
+				ui.Text(c, a.t("Opacity")).FontSize(10).TextColor(t.TextMuted)
+				ui.Slider(c, &tab.imageAlpha, 0, 1).Width(160)
+			}
+			ui.Spacer(c).Grow(1)
+			if tab.imageOld == nil {
+				ui.Text(c, a.t("No image in this version")).FontSize(10).TextColor(t.TextMuted)
+			}
+		})
+		if tab.imageMode == 1 {
+			ui.Box(c).Grow(1).Fill().Children(func() {
+				if tab.imageOld != nil {
+					ui.Image(c, tab.imageOld).Fit(ui.Contain).Grow(1).FillWidth()
+				}
+				if tab.imageNew != nil {
+					img := ui.Image(c, tab.imageNew).Fit(ui.Contain).Absolute().Left(0).Top(0).Fill()
+					img.Opacity(float32(tab.imageAlpha))
+				}
+			})
+			return
+		}
+		ui.Row(c).Grow(1).AlignItems(ui.Stretch).Children(func() {
+			ui.Column(c).Grow(1).BorderWidth(0, 1, 0, 0).BorderColor(t.Border).Children(func() {
+				ui.Text(c, a.t("Before")).FontSize(10).TextColor(t.TextMuted).Padding(6)
+				if tab.imageOld != nil {
+					ui.Image(c, tab.imageOld).Fit(ui.Contain).Grow(1).FillWidth()
+				} else {
+					ui.Spacer(c).Grow(1)
+				}
+			})
+			ui.Column(c).Grow(1).Children(func() {
+				ui.Text(c, a.t("After")).FontSize(10).TextColor(t.TextMuted).Padding(6)
+				if tab.imageNew != nil {
+					ui.Image(c, tab.imageNew).Fit(ui.Contain).Grow(1).FillWidth()
+				} else {
+					ui.Spacer(c).Grow(1)
+				}
+			})
+		})
 	})
 }
 

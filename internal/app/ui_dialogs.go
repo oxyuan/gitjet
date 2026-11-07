@@ -1639,10 +1639,29 @@ func (a *nativeApp) openPreview(text, path string) {
 }
 
 func (a *nativeApp) resolveSimpleConflicts() {
-	paths := make([]string, 0, len(a.snapshot.Conflicts))
-	for _, cf := range a.snapshot.Conflicts {
-		paths = append(paths, cf.Path)
-	}
 	a.closeDialog()
-	a.busyRun("resolve", func() error { return a.g.TakeSideAll(paths, "ours") })
+	a.busy++
+	go func() {
+		resolved, remaining := 0, 0
+		for _, cf := range a.snapshot.Conflicts {
+			content, err := a.g.Conflict(cf.Path)
+			if err != nil || content.Binary {
+				continue
+			}
+			text, left := resolveSimpleText(content.Working)
+			if err := a.g.SaveResolution(cf.Path, text, left == 0); err != nil {
+				continue
+			}
+			if left == 0 {
+				resolved++
+			} else {
+				remaining += left
+			}
+		}
+		mygo.RunOnMain(func() {
+			a.busy--
+			a.setNotice(fmt.Sprintf(a.t("Resolved %d files, %d blocks remain"), resolved, remaining))
+			a.refresh()
+		})
+	}()
 }

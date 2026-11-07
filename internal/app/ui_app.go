@@ -66,6 +66,10 @@ type docTab struct {
 	blame      []git.BlameLine
 	blameOn    bool
 	image      ui.ImageSource
+	imageOld   ui.ImageSource
+	imageNew   ui.ImageSource
+	imageMode  int
+	imageAlpha float64
 	imageMime  string
 	binary     bool
 	missing    bool
@@ -142,6 +146,7 @@ type nativeApp struct {
 
 	log        git.LogResult
 	logList    ui.ListState
+	logPick    ui.Selection[string]
 	logSel     int
 	logOpts    git.LogOptions
 	logDetail  git.CommitDetail
@@ -151,6 +156,7 @@ type nativeApp struct {
 	favorites  map[string]bool
 	openDirs   map[string]bool
 	journal    []JournalEntry
+	graph      []graphRow
 	repoTab    int
 
 	// editor
@@ -341,6 +347,14 @@ func (a *nativeApp) openWindow() {
 // view builds one frame of the window.
 func (a *nativeApp) view(c *ui.Context) {
 	a.applyAppearance(c)
+	c.OnWindowShortcut(ui.Cmd, ui.KeyS, func() {
+		if a.activeTab >= 0 && a.activeTab < len(a.tabs) {
+			tab := a.tabs[a.activeTab]
+			if tab.kind == tabSource && tab.revision == "" {
+				a.saveSource(tab)
+			}
+		}
+	})
 	if a.repoOpen {
 		a.mainView(c)
 	} else {
@@ -551,6 +565,7 @@ func (a *nativeApp) refresh() {
 			}
 			if logErr == nil {
 				a.log = logRes
+				a.graph = computeGraph(logRes.Commits)
 				if a.logSel >= len(a.log.Commits) {
 					a.logSel = len(a.log.Commits) - 1
 				}
@@ -718,6 +733,10 @@ func (a *nativeApp) command(cmd string) {
 		a.openSettingsDialog()
 	case cmd == "close":
 		a.closeRepo()
+	case cmd == "new-window":
+		if a.repoOpen {
+			_ = a.ws.OpenInWindow(a.repoRoot())
+		}
 	case cmd == "closetab":
 		a.closeActiveTab()
 	case cmd == "quickopen":
