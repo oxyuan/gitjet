@@ -94,6 +94,7 @@ const T = {
     clearStashes: "Clear all stashes",
     createPatch: "Create Patch…",
     applyPatch: "Apply Patch…",
+    editGitignore: "Edit .gitignore",
     allowEmpty: "Allow an empty commit",
     signCommit: "Sign the commit (GPG)",
     reformat: "Reflow the message to 72 columns",
@@ -174,6 +175,7 @@ const T = {
     clearStashes: "清空所有 Stash",
     createPatch: "创建补丁…",
     applyPatch: "应用补丁…",
+    editGitignore: "编辑 .gitignore",
     allowEmpty: "允许空提交",
     signCommit: "签名提交（GPG）",
     reformat: "按 72 列重排提交信息",
@@ -212,6 +214,7 @@ export interface CommitActions {
   onOpenSource: (path: string, revision: string) => void;
   onShowHistory: (path: string) => void;
   onCompareHead: (path: string) => void;
+  onEditGitignore: () => void;
   onStage: (paths: string[]) => void;
   onIntentToAdd: (paths: string[]) => void;
   onUnstage: (paths: string[]) => void;
@@ -730,6 +733,11 @@ export function CommitPanel({
                   label: t("applyPatch"),
                   icon: "download",
                   onClick: actions.onApplyPatch,
+                },
+                {
+                  label: t("editGitignore"),
+                  icon: "edit",
+                  onClick: actions.onEditGitignore,
                 },
                 {
                   label: t("stashChanges"),

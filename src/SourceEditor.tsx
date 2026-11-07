@@ -47,6 +47,7 @@ export function SourceEditor({
   labels,
   blameFormat,
   onRollbackHunk,
+  onRollbackLine,
   onSymbol,
   onJump,
   onReferences,
@@ -72,6 +73,7 @@ export function SourceEditor({
   labels?: { addedHere: string; deletedHere: string };
   blameFormat?: (line: BlameLine) => string;
   onRollbackHunk?: (hunk: number) => void;
+  onRollbackLine?: (line: number) => void;
   onSymbol?: (word: string) => void;
   onJump?: (word: string) => void;
   onReferences?: (word: string) => void;
@@ -97,6 +99,7 @@ export function SourceEditor({
   const editor = useRef<Editor | null>(null);
   const actions = useRef({
     onRollbackHunk,
+    onRollbackLine,
     onSymbol,
     onJump,
     onReferences,
@@ -112,6 +115,7 @@ export function SourceEditor({
   });
   actions.current = {
     onRollbackHunk,
+    onRollbackLine,
     onSymbol,
     onJump,
     onReferences,
@@ -199,6 +203,7 @@ export function SourceEditor({
       onDirtyChange: (dirty) => actions.current.onDirtyChange?.(dirty),
       onSaveRequest: editable ? () => void saveLatest.current() : undefined,
       onRollbackHunk: (hunk) => actions.current.onRollbackHunk?.(hunk),
+      onRollbackLine: (line) => actions.current.onRollbackLine?.(line),
       onSymbol: (word) => (actions.current.onSymbol ?? actions.current.onJump)?.(word),
       onJump: (word) => actions.current.onJump?.(word),
       onReferences: (word) => actions.current.onReferences?.(word),

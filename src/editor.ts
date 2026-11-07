@@ -141,7 +141,8 @@ class ChangeMarker extends GutterMarker {
   constructor(
     readonly hunk: number,
     readonly kind: "add" | "del",
-    readonly onClick: (hunk: number, kind: "add" | "del") => void,
+    readonly line: number,
+    readonly onClick: (hunk: number, kind: "add" | "del", line: number, alt: boolean) => void,
     readonly label: string,
   ) {
     super();
@@ -159,7 +160,7 @@ class ChangeMarker extends GutterMarker {
     el.addEventListener("mousedown", (event) => {
       event.preventDefault();
       event.stopPropagation();
-      this.onClick(this.hunk, this.kind);
+      this.onClick(this.hunk, this.kind, this.line, event.altKey);
     });
     return el;
   }
@@ -179,7 +180,10 @@ const changeField = StateField.define<ChangeRange[]>({
 });
 
 /** A gutter column of add/delete bars, clickable per hunk. */
-function changeGutter(onClick: (hunk: number, kind: "add" | "del") => void, labels: { add: string; del: string }): Extension {
+function changeGutter(
+  onClick: (hunk: number, kind: "add" | "del", line: number, alt: boolean) => void,
+  labels: { add: string; del: string },
+): Extension {
   return [
     changeField,
     gutter({
@@ -191,7 +195,11 @@ function changeGutter(onClick: (hunk: number, kind: "add" | "del") => void, labe
         for (const range of ranges) {
           const line = view.state.doc.line(Math.min(Math.max(range.start, 1), view.state.doc.lines));
           const label = range.kind === "add" ? labels.add : labels.del;
-          builder.add(line.from, line.from, new ChangeMarker(range.hunk, range.kind, onClick, label));
+          builder.add(
+            line.from,
+            line.from,
+            new ChangeMarker(range.hunk, range.kind, range.start, onClick, label),
+          );
         }
         return builder.finish();
       },
@@ -635,6 +643,8 @@ export type EditorOptions = {
   changes?: ChangeRange[];
   blame?: BlameLine[] | null;
   onRollbackHunk?: (hunk: number) => void;
+  /** Alt-click on a change bar: roll back only the line that bar covers. */
+  onRollbackLine?: (line: number) => void;
   onSymbol?: (word: string) => void;
   onJump?: (word: string) => void;
   onReferences?: (word: string) => void;
@@ -868,7 +878,10 @@ export class SourceEditor {
           // Both start empty and fill in when the data arrives, so the
           // effects that carry it always have a field to land in.
           changeGutter(
-            (hunk) => opts.onRollbackHunk?.(hunk),
+            (hunk, kind, line, alt) => {
+              if (alt && opts.onRollbackLine) opts.onRollbackLine(line);
+              else opts.onRollbackHunk?.(hunk);
+            },
             { add: opts.labels?.addedHere ?? "Changed here", del: opts.labels?.deletedHere ?? "Deleted here" },
           ),
           blameLine(opts.blameFormat),

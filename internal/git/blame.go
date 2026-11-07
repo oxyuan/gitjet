@@ -64,6 +64,13 @@ func (r *Repo) Blame(ctx context.Context, path, revision string, opts BlameOptio
 		args = append(args, "-w")
 	}
 	ignoreFile := strings.TrimSpace(opts.IgnoreRevsFile)
+	if ignoreFile == "" {
+		// git's own convention: a repository may commit the revisions to
+		// skip, such as formatting commits, in this file.
+		if _, err := os.Stat(r.AbsPath(".git-blame-ignore-revs")); err == nil {
+			ignoreFile = ".git-blame-ignore-revs"
+		}
+	}
 	if ignoreFile != "" {
 		rel, cerr := cleanPath(ignoreFile)
 		if cerr != nil {

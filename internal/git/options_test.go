@@ -103,3 +103,23 @@ func TestBlameIgnoreWhitespaceAttributesTheEarlierCommit(t *testing.T) {
 		t.Fatalf("blame -w = %s, want %s", got, first)
 	}
 }
+
+func TestBlameSkipsTheCommittedIgnoreRevsFile(t *testing.T) {
+	repo, dir := newTestRepo(t)
+	base := runGit(t, dir, "rev-parse", "HEAD")
+	// A reformat moves indentation only, which is what the ignore file is
+	// for: without it, blame names the formatting commit.
+	writeFile(t, dir, "a.txt", "one\n    two\n")
+	runGit(t, dir, "commit", "-q", "-am", "format")
+	format := runGit(t, dir, "rev-parse", "HEAD")
+	writeFile(t, dir, ".git-blame-ignore-revs", format+"\n")
+	runGit(t, dir, "add", ".git-blame-ignore-revs")
+	runGit(t, dir, "commit", "-q", "-m", "ignore the reformat")
+	result, err := repo.Blame(context.Background(), "a.txt", "", BlameOptions{})
+	if err != nil {
+		t.Fatalf("Blame: %v", err)
+	}
+	if got := result.Lines[1].Commit; got != base {
+		t.Fatalf("blame = %s, want %s (the ignored formatting commit)", got, base)
+	}
+}

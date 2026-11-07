@@ -1559,6 +1559,24 @@ function AppShell({ onLangChange }: { onLangChange: (lang: Lang) => void }) {
       }
     });
 
+  /** Alt-click on a change bar: roll back only that line. */
+  const rollbackEditorLine = async (path: string, line: number) => {
+    const opts: DiffOptions = {
+      path,
+      target: "worktree",
+      revision: "",
+      from: "",
+      context: settingsRef.current?.diffContext ?? -1,
+      ignoreWhitespace: settingsRef.current?.ignoreWhitespace ?? false,
+      ignoreWhitespaceEol: false,
+      noText: false,
+    };
+    await withBusy(async () => {
+      await Git.applyLines(opts, [line], "rollback");
+      await reload(false);
+    });
+  };
+
   /** Cmd-click or F12 on a word without a language server: search the
    *  working tree and let the reader pick the declaration. */
   const lookUpSymbol = async (word: string, language: string) => {
@@ -2527,6 +2545,13 @@ function AppShell({ onLangChange }: { onLangChange: (lang: Lang) => void }) {
     onClearStashes: () => void clearStashes(),
     onCreatePatch: (paths) => void createPatch(paths),
     onApplyPatch: () => void applyPatch(),
+    onEditGitignore: () => {
+      void withBusy(async () => {
+        await Git.createFile(".gitignore").catch(() => {});
+        await reload(false);
+        void showFile(".gitignore", "");
+      });
+    },
     onStashDrop: (index) => void stashDrop(index),
   };
 
@@ -2798,6 +2823,7 @@ function AppShell({ onLangChange }: { onLangChange: (lang: Lang) => void }) {
             onCopyPath={copyText}
             onReveal={(path) => void Workspace.reveal(path).catch((err) => fail(t("revealFailed"), err))}
             onRollbackHunk={(path, hunk) => void rollbackEditorHunk(path, hunk)}
+            onRollbackLine={(path, line) => void rollbackEditorLine(path, line)}
             onLocalHistory={(path) => setDialog({ kind: "localHistory", path })}
             onSymbol={(word, language) => void lookUpSymbol(word, language)}
             busy={diffBusy}
@@ -3376,6 +3402,7 @@ function RightPane({
   onCopyPath,
   onReveal,
   onRollbackHunk,
+  onRollbackLine,
   onLocalHistory,
   onSymbol,
   busy,
@@ -3414,6 +3441,7 @@ function RightPane({
   onCopyPath: (text: string) => void;
   onReveal: (path: string) => void;
   onRollbackHunk: (path: string, hunk: number) => void;
+  onRollbackLine: (path: string, line: number) => void;
   onLocalHistory: (path: string) => void;
   onSymbol: (word: string, language: string) => void;
   busy: boolean;
@@ -3618,6 +3646,7 @@ function RightPane({
             onCopyPath={(text) => onCopyPath(text)}
             onReveal={() => onReveal(active.file.path)}
             onRollbackHunk={(hunk) => onRollbackHunk(active.file.path, hunk)}
+            onRollbackLine={(line) => onRollbackLine(active.file.path, line)}
             onLocalHistory={() => onLocalHistory(active.file.path)}
             onSymbol={(word) => onSymbol(word, active.file.language)}
             onJump={(word) => onSymbol(word, active.file.language)}

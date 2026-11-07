@@ -89,6 +89,7 @@ export function SourceView({
   onCopyPath,
   onReveal,
   onRollbackHunk,
+  onRollbackLine,
   onLocalHistory,
   onSymbol,
   onJump,
@@ -111,6 +112,7 @@ export function SourceView({
   onCopyPath: (text: string) => void;
   onReveal?: () => void;
   onRollbackHunk?: (hunk: number) => void;
+  onRollbackLine?: (line: number) => void;
   onLocalHistory?: () => void;
   onSymbol?: (word: string) => void;
   onJump?: (word: string) => void;
@@ -264,6 +266,7 @@ export function SourceView({
               : [blame.author, blame.short, blame.summary, formatWhen(blame.time)].filter(Boolean).join(" · ")
           }
           onRollbackHunk={onRollbackHunk}
+          onRollbackLine={onRollbackLine}
           onSymbol={onSymbol}
           onJump={onJump}
           onReferences={onReferences}
