@@ -7,6 +7,7 @@ import {
   countConflictMarkers,
   diffHunks,
   hasConflictMarkers,
+  ignoreSide,
   initialConflictBlocks,
   insertConflictMarkers,
   splitLines,
@@ -310,6 +311,35 @@ describe("block state", () => {
       { kind: "conflict", ours: ["1"], base: ["2"], theirs: ["3"] },
     ]);
     expect(conflictSegments("<<<<<<< a\n1\n=======\n2\n")).toBeNull();
+  });
+});
+
+describe("ignoreSide", () => {
+  const block = (lines: string[], resolved: boolean) => ({
+    ours: ["O"],
+    theirs: ["T"],
+    lines,
+    resolved,
+  });
+
+  it("keeps the other side, so ignoring after accepting changes nothing", () => {
+    expect(ignoreSide(block(["O"], true), "theirs")).toEqual(["O"]);
+    expect(ignoreSide(block(["O"], false), "theirs")).toEqual(["O"]);
+  });
+
+  it("switches to the other side when the ignored side is the one showing", () => {
+    expect(ignoreSide(block(["O"], false), "ours")).toEqual(["T"]);
+    expect(ignoreSide(block(["O"], true), "ours")).toEqual(["T"]);
+  });
+
+  it("keeps an edited block, whichever side is ignored", () => {
+    expect(ignoreSide(block(["O", "X"], true), "ours")).toEqual(["O", "X"]);
+    expect(ignoreSide(block(["O", "X"], true), "theirs")).toEqual(["O", "X"]);
+  });
+
+  it("ignoring an added side empties the block", () => {
+    const added = { ours: [], theirs: ["T"], lines: ["T"], resolved: false };
+    expect(ignoreSide(added, "theirs")).toEqual([]);
   });
 });
 

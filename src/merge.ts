@@ -491,10 +491,25 @@ export interface ConflictBlockState {
   id: number;
   ours: string[];
   theirs: string[];
-  base: string[] | null;
   lines: string[];
   resolved: boolean;
   rangeIndex: number | null;
+}
+
+/**
+ * The text the result shows after "Ignore" on one side: the other side.
+ * A block that already holds a different decision keeps it, so ignoring a
+ * side never rewrites a decision that is already made: accepting the left
+ * and then ignoring the right leaves the result alone.
+ */
+export function ignoreSide(
+  state: Pick<ConflictBlockState, "lines" | "resolved" | "ours" | "theirs">,
+  side: "ours" | "theirs",
+): string[] {
+  const ignored = side === "ours" ? state.ours : state.theirs;
+  const keep = side === "ours" ? state.theirs : state.ours;
+  if (state.resolved && !textEqual(state.lines, ignored, exact)) return state.lines;
+  return keep;
 }
 
 /** Character offsets of the composed result's line starts. */
@@ -615,7 +630,6 @@ export function initialConflictBlocks(
       id,
       ours: segment.ours,
       theirs: segment.theirs,
-      base: segment.base,
       lines: segment.ours,
       resolved: false,
       rangeIndex: matched,

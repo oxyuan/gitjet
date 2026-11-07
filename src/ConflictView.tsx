@@ -6,6 +6,7 @@ import {
   conflictLabels,
   conflictSegments,
   diffHunks,
+  ignoreSide,
   initialConflictBlocks,
   insertConflictMarkers,
   modelSegments,
@@ -676,18 +677,15 @@ export function ConflictView({
     });
   };
 
-  /** Reverts one change block to the base text, the IDE's "Ignore". */
-  const ignoreRange = useCallback(
-    (id: number) => {
+  /** "Ignore" on a side keeps the other side; a block that is already
+   *  settled differently keeps its decision. */
+  const ignoreBlock = useCallback(
+    (id: number, side: "ours" | "theirs") => {
       const state = blocksRef.current.get(id);
       if (!state) return;
-      const range =
-        state.rangeIndex != null
-          ? ranges.find((candidate) => candidate.index === state.rangeIndex)
-          : undefined;
-      resolveBlock(id, state.base ?? range?.base ?? []);
+      resolveBlock(id, ignoreSide(state, side));
     },
-    [ranges, resolveBlock],
+    [resolveBlock],
   );
 
   /** "Resolve Using Left/Right": the whole result becomes that revision. */
@@ -724,15 +722,15 @@ export function ConflictView({
   );
 
   const ignoreConflict = useCallback(
-    (rangeIndex: number) => {
+    (rangeIndex: number, side: "ours" | "theirs") => {
       for (const state of blocksRef.current.values()) {
         if (state.rangeIndex === rangeIndex) {
-          ignoreRange(state.id);
+          ignoreBlock(state.id, side);
           return;
         }
       }
     },
-    [ignoreRange],
+    [ignoreBlock],
   );
 
   const compareClipboard = useCallback(
@@ -773,11 +771,6 @@ export function ConflictView({
       items.push({ separator: true });
       items.push({ label: t("resolveUsingLocal"), icon: "ours", onClick: () => applyWholeSide("ours") });
       items.push({ label: t("resolveUsingRemote"), icon: "theirs", onClick: () => applyWholeSide("theirs") });
-      items.push({
-        label: t("ignore"),
-        icon: "eye",
-        onClick: () => target && ignoreConflict(target.index),
-      });
     } else {
       items.push({
         label: t("accept"),
@@ -799,7 +792,7 @@ export function ConflictView({
         disabled: selectedRanges.length === 0,
         onClick: () => {
           const first = selectedRanges[0];
-          if (first) ignoreConflict(first.index);
+          if (first) ignoreConflict(first.index, side);
         },
       });
     }
@@ -979,7 +972,7 @@ export function ConflictView({
       wrap,
       whitespace: showWhitespace,
       onApplyBlock: (id) => applyConflict(id, "ours"),
-      onIgnoreBlock: (id) => ignoreConflict(id),
+      onIgnoreBlock: (id) => ignoreConflict(id, "ours"),
       actionLabels: { apply: t("acceptLeft"), ignore: t("ignore") },
       side: "after",
       onScroll: (line) => sync("ours", line),
@@ -1004,7 +997,7 @@ export function ConflictView({
       wrap,
       whitespace: showWhitespace,
       onApplyBlock: (id) => applyConflict(id, "theirs"),
-      onIgnoreBlock: (id) => ignoreConflict(id),
+      onIgnoreBlock: (id) => ignoreConflict(id, "theirs"),
       actionLabels: { apply: t("acceptRight"), ignore: t("ignore") },
       onScroll: (line) => sync("theirs", line),
       onSelection: (start, end, empty) => setSelected({ side: "theirs", start, end, empty }),
