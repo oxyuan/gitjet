@@ -90,6 +90,7 @@ const T = {
     commitCount: "Commit ({n})",
     commitAndPush: "Commit and Push…",
     commitAndRebase: "Commit and Rebase",
+    commitSelected: "Commit Selected Changes Only",
     noFileMatch: "No changed file matches",
     undoCommit: "Undo Commit",
     clearStashes: "Clear all stashes",
@@ -172,6 +173,7 @@ const T = {
     commitCount: "Commit（{n}）",
     commitAndPush: "Commit 并 Push…",
     commitAndRebase: "提交并 Rebase",
+    commitSelected: "只提交选中的更改",
     noFileMatch: "没有匹配的已更改文件",
     undoCommit: "撤销上次提交",
     clearStashes: "清空所有 Stash",
@@ -232,6 +234,7 @@ export interface CommitActions {
   onTakeSide: (path: string, side: "ours" | "theirs") => void;
   onMarkResolved: (paths: string[]) => void;
   onCommit: (push: boolean, rebase?: boolean) => void;
+  onCommitSelected: () => void;
   onUndoCommit: () => void;
   onToggleAmend: (amend: boolean) => void;
   onCommitFormChange: (form: CommitForm) => void;
@@ -1044,6 +1047,13 @@ export function CommitPanel({
                 items: [
                   { label: t("commitAndPush"), icon: "push", onClick: () => actions.onCommit(true) },
                   { label: t("commitAndRebase"), icon: "rebase", onClick: () => actions.onCommit(false, true) },
+                  { separator: true },
+                  {
+                    label: t("commitSelected"),
+                    icon: "commit",
+                    disabled: checked.size === 0,
+                    onClick: actions.onCommitSelected,
+                  },
                 ],
               });
             }}

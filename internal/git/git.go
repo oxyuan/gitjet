@@ -252,6 +252,52 @@ func (r *Repo) run(ctx context.Context, args ...string) (string, error) {
 	return stdout.String(), nil
 }
 
+// runEnv runs git with extra environment variables, which is how a
+// temporary index is used without changing anything else.
+func (r *Repo) runEnv(ctx context.Context, extra []string, args ...string) (string, error) {
+	cmd := r.command(ctx, args...)
+	cmd.Env = append(cmd.Env, extra...)
+	var stdout, stderr bytes.Buffer
+	cmd.Stdout = &stdout
+	cmd.Stderr = &stderr
+	err := cmd.Run()
+	if err != nil {
+		code := -1
+		var exit *exec.ExitError
+		if errors.As(err, &exit) {
+			code = exit.ExitCode()
+		}
+		if ctx.Err() != nil {
+			err = ctx.Err()
+		}
+		return stdout.String(), &Error{Args: args, Stderr: stderr.String(), Stdout: stdout.String(), Code: code, Err: err}
+	}
+	return stdout.String(), nil
+}
+
+// runEnvInput is runEnv with stdin.
+func (r *Repo) runEnvInput(ctx context.Context, extra []string, input string, args ...string) (string, error) {
+	cmd := r.command(ctx, args...)
+	cmd.Env = append(cmd.Env, extra...)
+	cmd.Stdin = strings.NewReader(input)
+	var stdout, stderr bytes.Buffer
+	cmd.Stdout = &stdout
+	cmd.Stderr = &stderr
+	err := cmd.Run()
+	if err != nil {
+		code := -1
+		var exit *exec.ExitError
+		if errors.As(err, &exit) {
+			code = exit.ExitCode()
+		}
+		if ctx.Err() != nil {
+			err = ctx.Err()
+		}
+		return stdout.String(), &Error{Args: args, Stderr: stderr.String(), Stdout: stdout.String(), Code: code, Err: err}
+	}
+	return stdout.String(), nil
+}
+
 // runInput runs git with stdin, for apply and hash-object.
 func (r *Repo) runInput(ctx context.Context, input string, args ...string) (string, error) {
 	cmd := r.command(ctx, args...)

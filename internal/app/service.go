@@ -669,6 +669,24 @@ func (g *Git) ApplyFile(opts git.DiffOptions, action string) error {
 	return nil
 }
 
+// CommitSelected commits the chosen paths without touching the staging of
+// anything else, which is IDEA's in-memory commit.
+func (g *Git) CommitSelected(opts git.CommitOptions) (git.CommitResult, error) {
+	repo, err := g.c.currentRepo()
+	if err != nil {
+		return git.CommitResult{}, err
+	}
+	ctx, trace := git.WithCommandTrace(context.Background())
+	started := time.Now()
+	res, err := repo.CommitSelected(ctx, opts)
+	g.journalOperation(repo, JournalEntry{Action: "commit-selected", Commands: *trace, Output: res.Output}, err, started)
+	if err != nil {
+		return res, err
+	}
+	g.notify()
+	return res, nil
+}
+
 // UndoCommit moves HEAD back one commit, keeping its changes staged.
 func (g *Git) UndoCommit() (git.CommitResult, error) {
 	repo, err := g.c.currentRepo()

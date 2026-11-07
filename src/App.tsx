@@ -238,6 +238,7 @@ const T = {
     operationFetch: "Fetch",
     operationClone: "Clone",
     commitChecksTitle: "Commit checks",
+    commitSelectedNeedsFiles: "Check the files whose changes should be committed.",
     protectedCommitTitle: "Protected branch",
     protectedCommitMessage: "{branch} is protected. Commit to it anyway?",
     protectedForcePushTitle: "Protected branch",
@@ -464,6 +465,7 @@ const T = {
     operationFetch: "Fetch",
     operationClone: "克隆",
     commitChecksTitle: "提交检查",
+    commitSelectedNeedsFiles: "请勾选要提交其更改的文件。",
     protectedCommitTitle: "受保护分支",
     protectedCommitMessage: "{branch} 是受保护分支，仍要提交吗？",
     protectedForcePushTitle: "受保护分支",
@@ -1642,7 +1644,7 @@ function AppShell({ onLangChange }: { onLangChange: (lang: Lang) => void }) {
     });
   };
 
-  const commit = async (pushAfter: boolean, rebaseAfter = false) => {
+  const commit = async (pushAfter: boolean, rebaseAfter = false, selectedOnly = false) => {
     if (!snapshot) return;
     const eligible = new Set<string>();
     for (const c of snapshot.changes) {
@@ -1678,19 +1680,24 @@ function AppShell({ onLangChange }: { onLangChange: (lang: Lang) => void }) {
       });
       if (!ok) return;
     }
+    const options = {
+      message: form.message,
+      paths,
+      amend: form.amend,
+      signOff: form.signOff,
+      noVerify: form.noVerify,
+      allowEmpty: form.allowEmpty,
+      sign: form.sign,
+      authorName: form.authorName,
+      authorEmail: form.authorEmail,
+    };
+    if (selectedOnly && paths.length === 0) {
+      notify("error", t("nothingToCommit"), t("commitSelectedNeedsFiles"));
+      return;
+    }
     const ok = await withBusy(async () => {
-      const result = await Git.commit({
-        message: form.message,
-        paths,
-        amend: form.amend,
-        signOff: form.signOff,
-        noVerify: form.noVerify,
-        allowEmpty: form.allowEmpty,
-        sign: form.sign,
-        authorName: form.authorName,
-        authorEmail: form.authorEmail,
-      });
-      return result;
+      if (selectedOnly) return Git.commitSelected(options);
+      return Git.commit(options);
     }, t("commitFailed"));
     if (!ok) return;
     notify("success", t("committed", { hash: ok.short }), ok.subject);
@@ -2533,6 +2540,7 @@ function AppShell({ onLangChange }: { onLangChange: (lang: Lang) => void }) {
         await reload(false);
       }),
     onCommit: (pushAfter, rebaseAfter) => void commit(pushAfter, rebaseAfter ?? false),
+    onCommitSelected: () => void commit(false, false, true),
     onUndoCommit: () => void undoCommit(),
     onToggleAmend: (amend) => void toggleAmend(amend),
     onCommitFormChange: setForm,

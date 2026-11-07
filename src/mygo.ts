@@ -857,6 +857,13 @@ export const Git = {
   commitFixup(hash: string, squash: boolean): Promise<CommitResult> {
     return call("Git.CommitFixup", hash, squash);
   },
+  /**
+   * CommitSelected commits the chosen paths without touching the staging of
+   * anything else, which is IDEA's in-memory commit.
+   */
+  commitSelected(opts: CommitOptions): Promise<CommitResult> {
+    return call("Git.CommitSelected", opts);
+  },
   /** Compare lists the files that differ between two revisions. */
   compare(from: string, to: string): Promise<Change[]> {
     return call("Git.Compare", from, to);
