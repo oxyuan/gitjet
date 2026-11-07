@@ -27,6 +27,7 @@ const T = {
     unstage: "Unstage",
     rollback: "Rollback…",
     addToVcs: "Add to VCS",
+    intentToAdd: "Stage Without Content",
     delete: "Delete…",
     stage: "Stage",
     newChangelist: "New Changelist…",
@@ -98,6 +99,7 @@ const T = {
     unstage: "Unstage",
     rollback: "回滚…",
     addToVcs: "添加到版本控制",
+    intentToAdd: "暂存但不含内容",
     delete: "删除…",
     stage: "Stage",
     newChangelist: "新建变更列表…",
@@ -190,6 +192,7 @@ export interface CommitActions {
   onOpenSource: (path: string, revision: string) => void;
   onShowHistory: (path: string) => void;
   onStage: (paths: string[]) => void;
+  onIntentToAdd: (paths: string[]) => void;
   onUnstage: (paths: string[]) => void;
   onRollback: (paths: string[]) => void;
   onIgnore: (paths: string[]) => void;
@@ -374,7 +377,10 @@ export function CommitPanel({
       );
     } else {
       if (entry.kind === "untracked") {
-        items.push({ label: t("addToVcs"), icon: "stage", onClick: () => actions.onStage(chosen) });
+        items.push(
+          { label: t("addToVcs"), icon: "stage", onClick: () => actions.onStage(chosen) },
+          { label: t("intentToAdd"), icon: "plus", onClick: () => actions.onIntentToAdd(chosen) },
+        );
       } else {
         items.push(
           { label: t("stage"), icon: "stage", onClick: () => actions.onStage(chosen) },

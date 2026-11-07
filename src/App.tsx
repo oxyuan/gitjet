@@ -1453,6 +1453,19 @@ function AppShell({ onLangChange }: { onLangChange: (lang: Lang) => void }) {
       openDoc({ id: `diff:${opts.target}:${opts.revision}:${opts.path}`, title: opts.path, kind: "diff", diff, opts });
     });
 
+  /** Stage, unstage or roll back only the lines picked in the diff. */
+  const applyLines = (opts: DiffOptions, lines: number[], action: "stage" | "unstage" | "rollback") =>
+    withBusy(async () => {
+      await Git.applyLines(opts, lines, action);
+      await reload(false);
+      try {
+        const diff = await Git.diff(opts);
+        openDoc({ id: `diff:${opts.target}:${opts.revision}:${opts.path}`, title: opts.path, kind: "diff", diff, opts });
+      } catch {
+        closeDoc(`diff:${opts.target}:${opts.revision}:${opts.path}`);
+      }
+    });
+
   /** Cmd-click or F12 on a word without a language server: search the
    *  working tree and let the reader pick the declaration. */
   const lookUpSymbol = async (word: string, language: string) => {
@@ -2201,6 +2214,11 @@ function AppShell({ onLangChange }: { onLangChange: (lang: Lang) => void }) {
     onOpenSource: (path, revision) => void showFile(path, revision),
     onShowHistory: showFileHistory,
     onStage: (paths) => void stage(paths),
+    onIntentToAdd: (paths) =>
+      withBusy(async () => {
+        await Git.stageIntent(paths);
+        await reload(false);
+      }),
     onUnstage: (paths) => void unstage(paths),
     onRollback: (paths) => void rollback(paths),
     onIgnore: (paths) => void ignorePaths(paths),
@@ -2509,6 +2527,10 @@ function AppShell({ onLangChange }: { onLangChange: (lang: Lang) => void }) {
             onApplyFile={(action) => {
               const active = docsRef.current.find((d) => d.id === activeIdRef.current);
               if (active?.kind === "diff") void applyFile(active.opts, action);
+            }}
+            onApplyLines={(lines, action) => {
+              const active = docsRef.current.find((d) => d.id === activeIdRef.current);
+              if (active?.kind === "diff") void applyLines(active.opts, lines, action);
             }}
             onOpenFile={(path, revision) => void showFile(path, revision)}
             onOpenDiff={(path, revision) => void showFileDiff(path, revision)}
@@ -3016,6 +3038,7 @@ function RightPane({
   onToggleWhitespace,
   onApplyHunk,
   onApplyFile,
+  onApplyLines,
   onOpenFile,
   onOpenDiff,
   onCopyPath,
@@ -3052,6 +3075,7 @@ function RightPane({
   onToggleWhitespace: () => void;
   onApplyHunk: (hunk: number, action: "stage" | "unstage" | "rollback") => void;
   onApplyFile: (action: "stage" | "unstage" | "rollback") => void;
+  onApplyLines: (lines: number[], action: "stage" | "unstage" | "rollback") => void;
   onOpenFile: (path: string, revision: string) => void;
   onOpenDiff: (path: string, revision: string) => void;
   onCopyPath: (text: string) => void;
@@ -3364,6 +3388,7 @@ function RightPane({
             onToggleWhitespace={onToggleWhitespace}
             onApply={onApplyHunk}
             onApplyFile={onApplyFile}
+            onApplyLines={onApplyLines}
             onOpenFile={() =>
               onOpenFile(
                 active.opts.path,

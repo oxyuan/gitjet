@@ -49,6 +49,10 @@ const T = {
     stageHunk: "Stage this hunk",
     unstageHunk: "Unstage this hunk",
     rollbackHunk: "Roll back this hunk",
+    linesSelected: "{n} lines selected",
+    stageLines: "Stage lines",
+    unstageLines: "Unstage lines",
+    rollbackLines: "Roll back lines",
     unchangedLines: "{n} unchanged lines",
     local: "local",
   },
@@ -89,6 +93,10 @@ const T = {
     stageHunk: "Stage 此代码块",
     unstageHunk: "Unstage 此代码块",
     rollbackHunk: "还原此代码块",
+    linesSelected: "已选 {n} 行",
+    stageLines: "暂存选中行",
+    unstageLines: "取消暂存选中行",
+    rollbackLines: "还原选中行",
     unchangedLines: "{n} 行未更改",
     local: "本地",
   },
@@ -103,6 +111,7 @@ export function DiffView({
   onToggleWhitespace,
   onApply,
   onApplyFile,
+  onApplyLines,
   onOpenFile,
   onShowFileHistory,
   root,
@@ -120,6 +129,7 @@ export function DiffView({
   onToggleWhitespace: () => void;
   onApply: (hunk: number, action: "stage" | "unstage" | "rollback") => void;
   onApplyFile: (action: "stage" | "unstage" | "rollback") => void;
+  onApplyLines: (lines: number[], action: "stage" | "unstage" | "rollback") => void;
   onOpenFile: () => void;
   /** Line history of one side of the diff, at that side's revision. */
   onShowFileHistory?: (path: string, line: number, revision: string) => void;
@@ -206,6 +216,38 @@ export function DiffView({
   const canApply = opts.target === "worktree" || opts.target === "staged";
   const fileAction = opts.target === "staged" ? "unstage" : "stage";
   const hunkAction = opts.target === "staged" ? "unstage" : "stage";
+  const [selected, setSelected] = useState<Set<number>>(new Set());
+  const [anchor, setAnchor] = useState(-1);
+  useEffect(() => {
+    setSelected(new Set());
+    setAnchor(-1);
+  }, [reloadKey, diff.path]);
+  // A click on a changed line's number selects it; Shift extends from the
+  // last click, the way a range selection reads. Unchanged lines keep the
+  // blame menu, and so does every right-click.
+  const selectLine = (no: number, rowIndex: number, e: React.MouseEvent) => {
+    e.stopPropagation();
+    const shift = e.shiftKey && anchor >= 0;
+    setSelected((prev) => {
+      const next = new Set(prev);
+      if (shift) {
+        const [from, to] = anchor < rowIndex ? [anchor, rowIndex] : [rowIndex, anchor];
+        for (let i = from; i <= to; i++) {
+          const row = rows[i];
+          if (!row || isCollapsed(row)) continue;
+          if (row.left && row.left.kind !== "context") next.add(row.left.no);
+          if (row.right && row.right.kind !== "context") next.add(row.right.no);
+        }
+      } else if (next.has(no)) {
+        next.delete(no);
+      } else {
+        next.add(no);
+      }
+      return next;
+    });
+    setAnchor(rowIndex);
+  };
+  const selectedCount = selected.size;
   const stats = `${diff.additions > 0 ? "+" + diff.additions : ""}${diff.additions > 0 && diff.deletions > 0 ? " " : ""}${diff.deletions > 0 ? "−" + diff.deletions : ""}`;
 
   return (
@@ -286,6 +328,35 @@ export function DiffView({
               )}
             </>
           )}
+          {canApply && selectedCount > 0 && (
+            <>
+              <span className="diff-nav-count">{t("linesSelected", { n: selectedCount })}</span>
+              <button
+                className="toolbar-text-btn"
+                onClick={() => {
+                  onApplyLines([...selected], hunkAction);
+                  setSelected(new Set());
+                }}
+                title={hunkAction === "stage" ? t("stageLines") : t("unstageLines")}
+              >
+                <Icon name={hunkAction === "stage" ? "stage" : "unstage"} />
+                {hunkAction === "stage" ? t("stageLines") : t("unstageLines")}
+              </button>
+              {opts.target === "worktree" && (
+                <button
+                  className="toolbar-text-btn"
+                  onClick={() => {
+                    onApplyLines([...selected], "rollback");
+                    setSelected(new Set());
+                  }}
+                  title={t("rollbackLines")}
+                >
+                  <Icon name="undo" />
+                  {t("rollbackLines")}
+                </button>
+              )}
+            </>
+          )}
         </div>
       </div>
       {diff.binary ? (
@@ -315,6 +386,8 @@ export function DiffView({
               canApply={canApply}
               hunkAction={hunkAction}
               onApply={onApply}
+              selected={selected}
+              onSelect={selectLine}
               currentRow={current >= 0 ? (changeRows[current] ?? -1) : -1}
               annotate={annotate}
               left={beforeIndex}
@@ -333,6 +406,8 @@ export function DiffView({
               canApply={canApply}
               hunkAction={hunkAction}
               onApply={onApply}
+              selected={selected}
+              onSelect={selectLine}
               currentRow={current >= 0 ? (changeRows[current] ?? -1) : -1}
               annotate={annotate}
               left={beforeIndex}
@@ -522,6 +597,8 @@ interface GutterProps {
   right: Map<number, BlameLine>;
   onGutter: (side: Side, line: number, x: number, y: number) => void;
   local: string;
+  selected: Set<number>;
+  onSelect: (line: number, row: number, e: React.MouseEvent) => void;
 }
 
 /** The blame of one line, drawn where the source editor draws it: beside the
@@ -580,6 +657,8 @@ function SplitRows({
   right,
   onGutter,
   local,
+  selected,
+  onSelect,
 }: {
   rows: DiffRows;
   diff: FileDiff;
@@ -621,7 +700,12 @@ function SplitRows({
     const newLine = aligned.right;
     out.push(
       <div
-        className={cx("diff-row", aligned.kind, currentRow === i && "current")}
+        className={cx(
+          "diff-row",
+          aligned.kind,
+          currentRow === i && "current",
+          ((oldLine && selected.has(oldLine.no)) || (newLine && selected.has(newLine.no))) && "selected",
+        )}
         key={i}
         data-row={i}
       >
@@ -636,7 +720,13 @@ function SplitRows({
         )}
         <div
           className={cx("line-no", oldLine?.kind === "del" && "del")}
-          onClick={oldLine ? (e) => onGutter("before", oldLine.no, e.clientX, e.clientY) : undefined}
+          onClick={
+            oldLine
+              ? canApply && oldLine.kind !== "context"
+                ? (e) => onSelect(oldLine.no, i, e)
+                : (e) => onGutter("before", oldLine.no, e.clientX, e.clientY)
+              : undefined
+          }
           onContextMenu={
             oldLine
               ? (e) => {
@@ -671,7 +761,13 @@ function SplitRows({
         )}
         <div
           className={cx("line-no", newLine?.kind === "add" && "add")}
-          onClick={newLine ? (e) => onGutter("after", newLine.no, e.clientX, e.clientY) : undefined}
+          onClick={
+            newLine
+              ? canApply && newLine.kind !== "context"
+                ? (e) => onSelect(newLine.no, i, e)
+                : (e) => onGutter("after", newLine.no, e.clientX, e.clientY)
+              : undefined
+          }
           onContextMenu={
             newLine
               ? (e) => {
@@ -713,6 +809,8 @@ function UnifiedRows({
   right,
   onGutter,
   local,
+  selected,
+  onSelect,
 }: {
   rows: DiffRows;
   diff: FileDiff;
@@ -757,7 +855,12 @@ function UnifiedRows({
       if (!line) return;
       out.push(
         <div
-          className={cx("diff-row unified-row", line.kind, currentRow === i && "current")}
+          className={cx(
+            "diff-row unified-row",
+            line.kind,
+            currentRow === i && "current",
+            selected.has(line.no) && "selected",
+          )}
           key={`${i}-${side}`}
           data-row={`${i}-${side}`}
         >
@@ -772,7 +875,11 @@ function UnifiedRows({
           )}
           <div
             className={cx("line-no", line.kind === "del" && "del", line.kind === "add" && "add")}
-            onClick={(e) => onGutter(side, line.no, e.clientX, e.clientY)}
+            onClick={
+              canApply && line.kind !== "context"
+                ? (e) => onSelect(line.no, i, e)
+                : (e) => onGutter(side, line.no, e.clientX, e.clientY)
+            }
             onContextMenu={(e) => {
               e.preventDefault();
               onGutter(side, line.no, e.clientX, e.clientY);

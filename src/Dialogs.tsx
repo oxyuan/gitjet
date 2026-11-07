@@ -1685,6 +1685,7 @@ function PushFilePreviewDialog({
                 onToggleWhitespace={onToggleWhitespace}
                 onApply={() => {}}
                 onApplyFile={() => {}}
+                onApplyLines={() => {}}
                 onOpenFile={() => setMode("file")}
                 root={root}
                 onCopyPath={onCopyPath}

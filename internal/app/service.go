@@ -650,6 +650,41 @@ func (g *Git) ApplyFile(opts git.DiffOptions, action string) error {
 	return nil
 }
 
+// ApplyLines stages, unstages or rolls back the selected changed lines.
+func (g *Git) ApplyLines(opts git.DiffOptions, lines []int, action string) error {
+	repo, err := g.c.currentRepo()
+	if err != nil {
+		return err
+	}
+	if opts.Context <= 0 {
+		opts.Context = g.c.settings.DiffContext
+	}
+	ctx, trace := git.WithCommandTrace(context.Background())
+	started := time.Now()
+	err = repo.ApplyDiffLines(ctx, opts, lines, action)
+	if err == nil {
+		g.journalOperation(repo, JournalEntry{Action: action + "-lines", Commands: *trace}, nil, started)
+	}
+	if err != nil {
+		return err
+	}
+	g.notify()
+	return nil
+}
+
+// StageIntent marks untracked paths intent-to-add.
+func (g *Git) StageIntent(paths []string) error {
+	repo, err := g.c.currentRepo()
+	if err != nil {
+		return err
+	}
+	if err := repo.StageIntent(context.Background(), paths); err != nil {
+		return err
+	}
+	g.notify()
+	return nil
+}
+
 // Commit commits the selected changes.
 func (g *Git) Commit(opts git.CommitOptions) (git.CommitResult, error) {
 	repo, err := g.c.currentRepo()

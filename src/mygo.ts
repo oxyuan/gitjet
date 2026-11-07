@@ -702,6 +702,10 @@ export const Git = {
   applyHunk(opts: DiffOptions, hunkIndex: number, action: string): Promise<void> {
     return call("Git.ApplyHunk", opts, hunkIndex, action);
   },
+  /** ApplyLines stages, unstages or rolls back the selected changed lines. */
+  applyLines(opts: DiffOptions, lines: number[], action: string): Promise<void> {
+    return call("Git.ApplyLines", opts, lines, action);
+  },
   /**
    * Blame annotates a file at a revision ("" for the working tree, "INDEX" for
    * the staged copy).
@@ -1035,6 +1039,10 @@ export const Git = {
   /** Stage adds paths to the index. */
   stage(paths: string[]): Promise<void> {
     return call("Git.Stage", paths);
+  },
+  /** StageIntent marks untracked paths intent-to-add. */
+  stageIntent(paths: string[]): Promise<void> {
+    return call("Git.StageIntent", paths);
   },
   /** StashApply applies or pops a stash. */
   stashApply(index: number, pop: boolean): Promise<string> {

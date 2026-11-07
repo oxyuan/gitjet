@@ -8973,3 +8973,9 @@ body.resizing-row .log-detail-split::after {
   border-top: 1px solid var(--border);
   margin-top: 4px;
 }
+
+/* Lines picked in a diff for staging */
+.diff-row.selected .line-text,
+.diff-row.selected .line-no {
+  background: var(--selection-strong);
+}
