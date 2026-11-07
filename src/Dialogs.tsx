@@ -243,6 +243,23 @@ const T = {
     "conflicts.abort": "Abort",
     "conflicts.close": "Close",
     "conflicts.empty": "No conflicted files",
+    "conflicts.yoursCol": "Your changes ({name})",
+    "conflicts.theirsCol": "Their changes ({name})",
+    "conflicts.unresolvedGroup": "Unresolved",
+    "conflicts.resolvedGroup": "Resolved",
+    "conflicts.allResolved": "All conflicts resolved",
+    "conflicts.files": "{n} files",
+    "conflicts.solveSimple": "Resolve all simple conflicts",
+    "conflicts.showDirs": "Show directories",
+    "conflicts.accept": "Accept",
+    "conflicts.acceptFinish": "Accept and Finish",
+    "conflicts.manual": "Resolve Manually",
+    "conflicts.modified": "Modified",
+    "conflicts.added": "Added",
+    "conflicts.deleted": "Deleted",
+    "conflicts.merging": "Merging branch {theirs} into branch {ours}",
+    "conflicts.rebasing": "Rebasing {ours} onto {theirs}",
+    "conflicts.operation": "Resolving conflicts",
     "compare.title": "Compare with the working branch",
     "compare.loading": "Comparing",
     "compare.empty": "No file differs",
@@ -444,6 +461,23 @@ const T = {
     "conflicts.abort": "中止",
     "conflicts.close": "关闭",
     "conflicts.empty": "没有冲突文件",
+    "conflicts.yoursCol": "您的更改 ({name})",
+    "conflicts.theirsCol": "他人的更改 ({name})",
+    "conflicts.unresolvedGroup": "未解决",
+    "conflicts.resolvedGroup": "已解决",
+    "conflicts.allResolved": "所有冲突已解决",
+    "conflicts.files": "{n} 文件",
+    "conflicts.solveSimple": "解决所有简单冲突",
+    "conflicts.showDirs": "显示目录",
+    "conflicts.accept": "接受",
+    "conflicts.acceptFinish": "接受并完成",
+    "conflicts.manual": "手动解决",
+    "conflicts.modified": "已修改",
+    "conflicts.added": "已添加",
+    "conflicts.deleted": "已删除",
+    "conflicts.merging": "将分支 {theirs} 合并到分支 {ours}",
+    "conflicts.rebasing": "正在将 {ours} 变基到 {theirs}",
+    "conflicts.operation": "解决冲突",
     "compare.title": "与当前分支比较",
     "compare.loading": "正在比较",
     "compare.empty": "没有不同的文件",
@@ -2185,72 +2219,183 @@ export function CleanupBranchesDialog({
  *  bulk, the way the IDE's conflicts dialog does. */
 export function ConflictSummaryDialog({
   operation,
+  oursLabel,
+  theirsLabel,
   conflicts,
+  totals,
   onClose,
   onOpen,
   onTakeSide,
-  onMarkResolved,
+  onResolveSimple,
   onContinue,
-  onAbort,
 }: {
   operation: string;
+  oursLabel: string;
+  theirsLabel: string;
   conflicts: Conflict[];
+  /** Conflicts each file had when it entered the merge; markers is what is left. */
+  totals: Record<string, number>;
   onClose: () => void;
   onOpen: (path: string) => void;
   onTakeSide: (paths: string[], side: "ours" | "theirs") => void;
-  onMarkResolved: (paths: string[]) => void;
+  onResolveSimple: () => void;
   onContinue: () => void;
-  onAbort: () => void;
 }) {
   const t = useT(T);
-  const paths = conflicts.map((c) => c.path);
+  const [selected, setSelected] = useState("");
+  const [open, setOpen] = useState(true);
+  const [showDirs, setShowDirs] = useState(true);
+  const [menu, setMenu] = useState<{ x: number; y: number; items: ContextItem[] } | null>(null);
+  const current = conflicts.find((c) => c.path === selected) ?? conflicts[0];
+  const stateLabel = (state: string) =>
+    state === "added"
+      ? t("conflicts.added")
+      : state === "deleted"
+        ? t("conflicts.deleted")
+        : state === "modified"
+          ? t("conflicts.modified")
+          : "";
+
+  const ours = oursLabel || "LOCAL";
+  const theirs = theirsLabel || "REMOTE";
+  const subtitle =
+    operation === "merge"
+      ? t("conflicts.merging", { ours, theirs })
+      : operation === "rebase" || operation === "rebase-interactive"
+        ? t("conflicts.rebasing", { ours, theirs })
+        : t("conflicts.operation");
+
+  const row = (c: Conflict) => {
+    const total = totals[c.path] ?? c.markers;
+    const resolved = Math.max(0, total - c.markers);
+    const slash = c.path.lastIndexOf("/");
+    const dir = slash >= 0 ? c.path.slice(0, slash) : "";
+    const name = slash >= 0 ? c.path.slice(slash + 1) : c.path;
+    return (
+      <div
+        key={c.path}
+        className={cx("conflict-row2", current?.path === c.path && "selected")}
+        onClick={() => setSelected(c.path)}
+        onDoubleClick={() => onOpen(c.path)}
+        onContextMenu={(event) => {
+          event.preventDefault();
+          setSelected(c.path);
+          setMenu({
+            x: event.clientX,
+            y: event.clientY,
+            items: [
+              { label: t("conflicts.open"), icon: "merge", onClick: () => onOpen(c.path) },
+              { separator: true },
+              {
+                label: t("conflicts.ours"),
+                icon: "ours",
+                disabled: !c.oursState,
+                onClick: () => onTakeSide([c.path], "ours"),
+              },
+              {
+                label: t("conflicts.theirs"),
+                icon: "theirs",
+                disabled: !c.theirsState,
+                onClick: () => onTakeSide([c.path], "theirs"),
+              },
+            ],
+          });
+        }}
+      >
+        <span className="conflict-file">
+          <FileIcon path={c.path} />
+          <span className="conflict-name">{name}</span>
+          {total > 0 && (
+            <span className="conflict-badge">
+              {resolved}/{total}
+            </span>
+          )}
+          {showDirs && dir !== "" && <span className="conflict-dir">{dir}</span>}
+        </span>
+        <span className="conflict-side">
+          <span className="conflict-side-state">{stateLabel(c.oursState)}</span>
+          {c.oursState !== "" && (
+            <Button size="small" onClick={() => onTakeSide([c.path], "ours")}>
+              {t("conflicts.accept")}
+            </Button>
+          )}
+        </span>
+        <span className="conflict-side">
+          <span className="conflict-side-state">{stateLabel(c.theirsState)}</span>
+          {c.theirsState !== "" && (
+            <Button size="small" onClick={() => onTakeSide([c.path], "theirs")}>
+              {t("conflicts.accept")}
+            </Button>
+          )}
+        </span>
+      </div>
+    );
+  };
+
   return (
     <Modal
-      title={operation ? `${t("conflicts.title")} — ${operation}` : t("conflicts.title")}
+      title={t("conflicts.title")}
       icon="merge"
-      width={720}
+      width={860}
       onClose={onClose}
       footer={
         <>
-          <Button variant="danger" onClick={onAbort}>
-            {t("conflicts.abort")}
-          </Button>
           <Button onClick={onClose}>{t("conflicts.close")}</Button>
-          <Button variant="primary" onClick={onContinue} disabled={conflicts.length > 0 || operation === ""}>
-            {t("conflicts.continue")}
+          <Button disabled={conflicts.length > 0} onClick={onContinue}>
+            {t("conflicts.acceptFinish")}
+          </Button>
+          <Button variant="primary" disabled={!current} onClick={() => current && onOpen(current.path)}>
+            {t("conflicts.manual")}
           </Button>
         </>
       }
     >
-      {conflicts.length === 0 ? (
-        <p className="setting-hint">{t("conflicts.empty")}</p>
-      ) : (
-        <>
-          <div className="conflict-bulk">
-            <Button onClick={() => onTakeSide(paths, "ours")}>{t("conflicts.allOurs")}</Button>
-            <Button onClick={() => onTakeSide(paths, "theirs")}>{t("conflicts.allTheirs")}</Button>
-            <Button onClick={() => onMarkResolved(paths)}>{t("conflicts.markAll")}</Button>
-          </div>
-          <div className="conflict-list">
-            {conflicts.map((c) => (
-              <div className="conflict-row" key={c.path}>
-                <span className="conflict-code">{c.code}</span>
-                <span className="conflict-path" title={c.path}>
-                  {c.path}
-                </span>
-                <Button onClick={() => onOpen(c.path)}>{t("conflicts.open")}</Button>
-                <Button onClick={() => onTakeSide([c.path], "ours")} disabled={!c.ours}>
-                  {t("conflicts.ours")}
-                </Button>
-                <Button onClick={() => onTakeSide([c.path], "theirs")} disabled={!c.theirs}>
-                  {t("conflicts.theirs")}
-                </Button>
-                <Button onClick={() => onMarkResolved([c.path])}>{t("conflicts.mark")}</Button>
-              </div>
-            ))}
-          </div>
-        </>
-      )}
+      <div className="conflict-intro">{subtitle}</div>
+      <div className="conflict-dialog-toolbar">
+        <Button size="small" onClick={onResolveSimple} disabled={conflicts.length === 0}>
+          <Icon name="sparkle" size={12} /> {t("conflicts.solveSimple")}
+        </Button>
+        <IconButton
+          icon="eye"
+          title={t("conflicts.showDirs")}
+          small
+          onClick={(event) => {
+            const rect = event.currentTarget.getBoundingClientRect();
+            setMenu({
+              x: rect.left,
+              y: rect.bottom,
+              items: [
+                {
+                  label: t("conflicts.showDirs"),
+                  checked: showDirs,
+                  onClick: () => setShowDirs((v) => !v),
+                },
+              ],
+            });
+          }}
+        />
+      </div>
+      <div className="conflict-table">
+        <div className="conflict-table-head">
+          <span className="conflict-file" />
+          <span className="conflict-side">{t("conflicts.yoursCol", { name: ours })}</span>
+          <span className="conflict-side">{t("conflicts.theirsCol", { name: theirs })}</span>
+        </div>
+        <div className="conflict-group-head" onClick={() => setOpen((v) => !v)}>
+          <Icon name={open ? "chevronDown" : "chevronRight"} size={12} />
+          <span className={cx("conflict-group-icon", conflicts.length > 0 ? "bad" : "good")}>
+            <Icon name={conflicts.length > 0 ? "error" : "check"} size={13} />
+          </span>
+          <span className="conflict-group-title">
+            {conflicts.length > 0 ? t("conflicts.unresolvedGroup") : t("conflicts.allResolved")}
+          </span>
+          {conflicts.length > 0 && (
+            <span className="conflict-group-count">{t("conflicts.files", { n: conflicts.length })}</span>
+          )}
+        </div>
+        {open && conflicts.map(row)}
+      </div>
+      {menu && <ContextMenu x={menu.x} y={menu.y} items={menu.items} onClose={() => setMenu(null)} />}
     </Modal>
   );
 }

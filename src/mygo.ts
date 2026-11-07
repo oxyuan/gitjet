@@ -166,6 +166,9 @@ export interface Conflict {
   ours: boolean;
   theirs: boolean;
   base: boolean;
+  oursState: string;
+  theirsState: string;
+  markers: number;
 }
 
 export interface ConflictContent {

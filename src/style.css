@@ -8579,6 +8579,146 @@ body.resizing-row .log-detail-split::after {
   color: var(--muted);
 }
 
+.conflict-intro {
+  font-size: 13px;
+  color: var(--fg);
+  margin-bottom: 12px;
+}
+
+.conflict-dialog-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 8px;
+}
+
+.conflict-table {
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  overflow: hidden;
+}
+
+.conflict-table-head,
+.conflict-row2 {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 210px 210px;
+  gap: 10px;
+  align-items: center;
+  padding: 0 12px;
+}
+
+.conflict-table-head {
+  height: 30px;
+  background: var(--panel-2);
+  border-bottom: 1px solid var(--border);
+  color: var(--muted);
+  font-size: 11px;
+}
+
+.conflict-table-head .conflict-file,
+.conflict-table-head .conflict-side {
+  color: var(--muted);
+}
+
+.conflict-group-head {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  padding: 7px 10px;
+  background: var(--panel);
+  border-bottom: 1px solid var(--border);
+  cursor: pointer;
+  user-select: none;
+}
+
+.conflict-group-title {
+  font-weight: 600;
+  font-size: 12px;
+}
+
+.conflict-group-count {
+  color: var(--muted);
+  font-size: 11px;
+}
+
+.conflict-group-icon.bad {
+  color: var(--danger);
+}
+
+.conflict-group-icon.good {
+  color: var(--success);
+}
+
+.conflict-row2 {
+  height: 30px;
+  border-bottom: 1px solid transparent;
+  cursor: default;
+}
+
+.conflict-row2:hover {
+  background: var(--selection);
+}
+
+.conflict-row2.selected {
+  background: var(--selection-strong);
+}
+
+.conflict-file {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  min-width: 0;
+}
+
+.conflict-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.conflict-badge {
+  flex: none;
+  padding: 0 6px;
+  border-radius: 9px;
+  background: var(--panel-2);
+  border: 1px solid var(--border);
+  color: var(--muted);
+  font-size: 10px;
+  font-variant-numeric: tabular-nums;
+}
+
+.conflict-dir {
+  color: var(--muted);
+  font-size: 11px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.conflict-side {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
+.conflict-side .btn-small {
+  opacity: 0;
+  transition: opacity 90ms ease;
+  padding: 1px 10px;
+}
+
+.conflict-row2:hover .conflict-side .btn-small,
+.conflict-row2.selected .conflict-side .btn-small {
+  opacity: 1;
+}
+
+.conflict-side-state {
+  color: var(--muted);
+  font-size: 11.5px;
+  min-width: 44px;
+}
+
 /* Two-button inlay in a side pane's gutter: ignore, then apply. */
 .cm-merge-actions {
   display: inline-flex;

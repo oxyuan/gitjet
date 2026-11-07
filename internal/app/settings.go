@@ -323,6 +323,10 @@ func (c *core) snapshot(ctx context.Context, includeIgnored bool) (git.ChangesSn
 	for _, ch := range status.Changes {
 		if ch.Unmerged {
 			cf := git.Conflict{Path: ch.Path, Code: ch.ConflictCode}
+			cf.OursState, cf.TheirsState = conflictSides(ch.ConflictCode)
+			if b, err := os.ReadFile(repo.AbsPath(ch.Path)); err == nil {
+				cf.Markers = git.CountConflictMarkers(string(b))
+			}
 			switch ch.ConflictCode {
 			case "UU":
 				cf.Base, cf.Ours, cf.Theirs = true, true, true
@@ -440,4 +444,26 @@ func (c *core) setMetaActive(id string) error {
 	}
 	c.meta.Active = id
 	return saveRepoMeta(c.repo.Dir(), c.meta)
+}
+
+// conflictSides maps git's unmerged codes to what each side did, the way
+// the conflicts dialog labels its two columns.
+func conflictSides(code string) (ours, theirs string) {
+	switch code {
+	case "UU":
+		return "modified", "modified"
+	case "AA":
+		return "added", "added"
+	case "AU":
+		return "added", ""
+	case "UA":
+		return "", "added"
+	case "DU":
+		return "deleted", "modified"
+	case "UD":
+		return "modified", "deleted"
+	case "DD":
+		return "deleted", "deleted"
+	}
+	return "", ""
 }

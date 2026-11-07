@@ -47,6 +47,8 @@ import { RepoExtrasDialog } from "./RepoExtrasDialog";
 import { FileIcon, Icon } from "./icons";
 import { useFileMenu } from "./FileMenu";
 import { LangProvider, count, resolveLang, useT, type Lang } from "./i18n";
+import { computeMerge, conflictLabels, resolveSimpleConflicts } from "./merge";
+import { normalizeText } from "./editorText";
 import { LogDock } from "./LogDock";
 import { FileTree, type ChangeView } from "./FileTree";
 import { BranchList } from "./BranchList";
@@ -217,6 +219,9 @@ const T = {
     tookTheirs: "Took theirs",
     settingsSaved: "Settings saved",
     conflictResolved: "Conflict resolved",
+    conflictSaved: "Saved with unresolved conflicts",
+    simpleResolved: "Simple conflicts resolved in {n} files",
+    stillUnresolved: "{n} conflicts still need a decision",
     branchCreated: "Branch created",
     fetchAllRemotes: "Fetch all remotes",
     fetchOrigin: "Fetch origin",
@@ -407,6 +412,9 @@ const T = {
     tookTheirs: "已采用对方",
     settingsSaved: "设置已保存",
     conflictResolved: "冲突已解决",
+    conflictSaved: "已保存，仍有未解决的冲突",
+    simpleResolved: "已在 {n} 个文件中解决简单冲突",
+    stillUnresolved: "还有 {n} 处冲突需要选择",
     branchCreated: "分支已创建",
     fetchAllRemotes: "Fetch 所有远程",
     fetchOrigin: "Fetch origin",
@@ -629,6 +637,17 @@ function AppShell({ onLangChange }: { onLangChange: (lang: Lang) => void }) {
   const repoOpen = !!snapshot;
   const branch = snapshot?.state.branch ?? "";
   const state = snapshot?.state;
+  // Each file's conflict count when the merge started; markers is what is
+  // left, so the dialog can show "1/3" while the file is half resolved.
+  const conflictTotalsRef = useRef<Record<string, number>>({});
+  const conflictTotals = useMemo(() => {
+    const next: Record<string, number> = {};
+    for (const c of snapshot?.conflicts ?? []) {
+      next[c.path] = Math.max(conflictTotalsRef.current[c.path] ?? 0, c.markers);
+    }
+    conflictTotalsRef.current = next;
+    return next;
+  }, [snapshot]);
   // A branch that has never been pushed has no upstream; every commit on it
   // is still local, so push has work to do exactly like an ahead branch.
   const pushTodo =
@@ -1846,13 +1865,33 @@ function AppShell({ onLangChange }: { onLangChange: (lang: Lang) => void }) {
     });
   };
 
-  const markResolvedAll = async (paths: string[]) => {
-    await withBusy(async () => {
-      await Git.markResolved(paths);
-      for (const path of paths) closeDoc(`conflict:${path}`);
+  /** Resolves every conflict a line attribution can settle, across all
+   *  conflicted files, leaving the hard ones marked. */
+  const resolveSimpleConflictsAll = () =>
+    withBusy(async () => {
+      const list = snapshotRef.current?.conflicts ?? [];
+      let done = 0;
+      let remaining = 0;
+      for (const conflict of list) {
+        if (conflict.markers === 0) continue;
+        const content = await Git.conflict(conflict.path);
+        if (content.binary) continue;
+        const labels = conflictLabels(content.working) ?? {};
+        const model = computeMerge(normalizeText(content.base), normalizeText(content.ours), normalizeText(content.theirs), {
+          labels,
+        });
+        const simple = resolveSimpleConflicts(model);
+        await Git.saveResolution(conflict.path, simple.text, simple.remaining === 0);
+        if (simple.remaining === 0) {
+          done++;
+          closeDoc(`conflict:${conflict.path}`);
+        } else {
+          remaining += simple.remaining;
+        }
+      }
+      notify("success", t("simpleResolved", { n: done }), remaining > 0 ? t("stillUnresolved", { n: remaining }) : undefined);
       await reload(false);
     });
-  };
 
   const createTag = async (opts: { name: string; message: string; revision: string; force: boolean }) => {
     setDialog(null);
@@ -2473,7 +2512,11 @@ function AppShell({ onLangChange }: { onLangChange: (lang: Lang) => void }) {
             <Icon name="warning" size={12} />
             <span className="op-name">{operationLabel(state.operation, t)}</span>
             {state.opProgress && <span className="op-progress">{state.opProgress}</span>}
-            {state.opDetail && <span className="op-detail">{state.opDetail}</span>}
+            {(state.operation === "merge" ? state.opTheirs : state.opDetail) && (
+              <span className="op-detail">
+                {state.operation === "merge" ? state.opTheirs : state.opDetail}
+              </span>
+            )}
             <button className="mini-btn" onClick={() => void continueOperation()}>
               {t("continueOp")}
             </button>
@@ -2661,21 +2704,20 @@ function AppShell({ onLangChange }: { onLangChange: (lang: Lang) => void }) {
       {dialog?.kind === "conflicts" && (
         <ConflictSummaryDialog
           operation={state?.operation ?? ""}
+          oursLabel={state?.opOurs ?? ""}
+          theirsLabel={state?.opTheirs ?? ""}
           conflicts={snapshot?.conflicts ?? []}
+          totals={conflictTotals}
           onClose={() => setDialog(null)}
           onOpen={(path) => {
             setDialog(null);
             void openConflict(path);
           }}
           onTakeSide={(paths, side) => void takeSideAll(paths, side)}
-          onMarkResolved={(paths) => void markResolvedAll(paths)}
+          onResolveSimple={() => void resolveSimpleConflictsAll()}
           onContinue={() => {
             setDialog(null);
             void continueOperation();
-          }}
-          onAbort={() => {
-            setDialog(null);
-            void abortOperation();
           }}
         />
       )}

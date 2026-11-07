@@ -63,6 +63,13 @@ type Conflict struct {
 	Ours   bool   `json:"ours"`
 	Theirs bool   `json:"theirs"`
 	Base   bool   `json:"base"`
+	// OursState and TheirsState describe what each side did to the path:
+	// "modified", "added" or "deleted". The conflicts dialog shows them.
+	OursState   string `json:"oursState"`
+	TheirsState string `json:"theirsState"`
+	// Markers is the number of conflict blocks still left in the working
+	// file, so the dialog can show how much of the file is still unresolved.
+	Markers int `json:"markers"`
 }
 
 // Stash is one entry of the stash list.
