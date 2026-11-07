@@ -1147,6 +1147,23 @@ func (g *Git) ContinueOperation() (string, error) {
 	return appendCommands(out, *trace), nil
 }
 
+// SkipOperation drops the conflict-blocking commit and continues.
+func (g *Git) SkipOperation() (string, error) {
+	repo, err := g.c.currentRepo()
+	if err != nil {
+		return "", err
+	}
+	ctx, trace := git.WithCommandTrace(context.Background())
+	started := time.Now()
+	out, err := repo.SkipOperation(ctx)
+	g.journalOperation(repo, JournalEntry{Action: "skip", Commands: *trace, Output: out}, err, started)
+	if err != nil {
+		return out, err
+	}
+	g.notify()
+	return appendCommands(out, *trace), nil
+}
+
 // File reads a file for the source viewer. An empty revision reads the
 // working tree.
 func (g *Git) File(path, revision string) (git.SourceFile, error) {

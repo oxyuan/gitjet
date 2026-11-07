@@ -1001,6 +1001,10 @@ export const Git = {
   showCommit(hash: string): Promise<CommitDetail> {
     return call("Git.ShowCommit", hash);
   },
+  /** SkipOperation drops the conflict-blocking commit and continues. */
+  skipOperation(): Promise<string> {
+    return call("Git.SkipOperation");
+  },
   /** Stage adds paths to the index. */
   stage(paths: string[]): Promise<void> {
     return call("Git.Stage", paths);

@@ -792,8 +792,10 @@ func (r *Repo) AbortOperation(ctx context.Context) (string, error) {
 	switch op {
 	case "merge":
 		args = []string{"merge", "--abort"}
-	case "rebase", "rebase-interactive", "am":
+	case "rebase", "rebase-interactive":
 		args = []string{"rebase", "--abort"}
+	case "am":
+		args = []string{"am", "--abort"}
 	case "cherry-pick":
 		args = []string{"cherry-pick", "--abort"}
 	case "revert":
@@ -835,14 +837,53 @@ func (r *Repo) ContinueOperation(ctx context.Context) (string, error) {
 	case "merge":
 		// A merge is finished by committing the index.
 		args = []string{"commit", "--no-edit"}
-	case "rebase", "rebase-interactive", "am":
+	case "rebase", "rebase-interactive":
 		args = []string{"rebase", "--continue"}
+	case "am":
+		args = []string{"am", "--continue"}
 	case "cherry-pick":
 		args = []string{"cherry-pick", "--continue"}
 	case "revert":
 		args = []string{"revert", "--continue"}
 	default:
 		return "", errors.New("no operation to continue")
+	}
+	return r.run(ctx, args...)
+}
+
+// SkipOperation drops the commit an operation is stopped on and continues
+// with the next one, which is what "Skip Commit" offers during a rebase,
+// an am, a cherry-pick or a revert.
+func (r *Repo) SkipOperation(ctx context.Context) (string, error) {
+	r.write.Lock()
+	defer r.write.Unlock()
+	if plan, hasPlan := r.readPlan(); hasPlan && plan != nil {
+		if _, err := r.run(ctx, "rev-parse", "--verify", "--quiet", "CHERRY_PICK_HEAD"); err != nil {
+			return "", errors.New("nothing to skip")
+		}
+		out, err := r.run(ctx, "cherry-pick", "--skip")
+		if err != nil {
+			return out, err
+		}
+		// The step was dropped, so the plan moves past it.
+		plan.Index++
+		r.savePlan(plan)
+		rest, err := r.resumePlan(ctx, false)
+		return strings.TrimSpace(out + "\n" + rest), err
+	}
+	op, _, _ := r.operation()
+	var args []string
+	switch op {
+	case "rebase", "rebase-interactive":
+		args = []string{"rebase", "--skip"}
+	case "am":
+		args = []string{"am", "--skip"}
+	case "cherry-pick":
+		args = []string{"cherry-pick", "--skip"}
+	case "revert":
+		args = []string{"revert", "--skip"}
+	default:
+		return "", errors.New("nothing to skip")
 	}
 	return r.run(ctx, args...)
 }

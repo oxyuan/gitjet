@@ -109,6 +109,7 @@ const T = {
     staged: "{n} staged",
     untracked: "{n} untracked",
     continueOp: "Continue",
+    skipOp: "Skip Commit",
     abort: "Abort",
     merging: "Merging",
     rebasing: "Rebasing",
@@ -302,6 +303,7 @@ const T = {
     staged: "{n} 项已暂存",
     untracked: "{n} 个未跟踪文件",
     continueOp: "继续",
+    skipOp: "跳过此提交",
     abort: "中止",
     merging: "Merge 中",
     rebasing: "Rebase 中",
@@ -1958,6 +1960,14 @@ function AppShell({ onLangChange }: { onLangChange: (lang: Lang) => void }) {
     });
   };
 
+  const skipOperation = async () => {
+    await withConflicts(async () => {
+      const out = await Git.skipOperation();
+      notify("success", t("operationContinued"), out.split("\n")[0]);
+      await reload(false);
+    });
+  };
+
   const abortOperation = async () => {
     const operation = state?.operation ?? "";
     const ok = await ask({
@@ -2520,6 +2530,11 @@ function AppShell({ onLangChange }: { onLangChange: (lang: Lang) => void }) {
             <button className="mini-btn" onClick={() => void continueOperation()}>
               {t("continueOp")}
             </button>
+            {["rebase", "rebase-interactive", "am", "cherry-pick", "revert"].includes(state.operation) && (
+              <button className="mini-btn" onClick={() => void skipOperation()}>
+                {t("skipOp")}
+              </button>
+            )}
             <button className="mini-btn danger" onClick={() => void abortOperation()}>
               {t("abort")}
             </button>
