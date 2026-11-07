@@ -1960,6 +1960,18 @@ func (g *Git) PushTargets() []string {
 	return append([]string(nil), g.c.meta.PushTargets...)
 }
 
+// CherryPicked marks the commits that already exist elsewhere by patch.
+func (g *Git) CherryPicked(hashes []string) ([]string, error) {
+	repo, err := g.c.currentRepo()
+	if err != nil {
+		return nil, err
+	}
+	if len(hashes) > 500 {
+		hashes = hashes[:500]
+	}
+	return repo.CherryPicked(context.Background(), hashes)
+}
+
 // Compare lists the files that differ between two revisions.
 func (g *Git) Compare(from, to string) ([]git.Change, error) {
 	repo, err := g.c.currentRepo()

@@ -57,6 +57,8 @@ const T = {
     annotateRevision: "Annotate this revision",
     openInTab: "Open as a tab",
     browseRevision: "Browse the repository at this commit",
+    markCherry: "Mark commits that exist elsewhere by patch",
+    cherryPicked: "A patch-equivalent commit exists on another branch",
     closePreview: "Close the preview",
     previewFailed: "The preview could not be loaded",
     goToParent: "Go to the parent commit",
@@ -126,6 +128,8 @@ const T = {
     annotateRevision: "标注此版本",
     openInTab: "在标签页中打开",
     browseRevision: "浏览此提交处的仓库",
+    markCherry: "标记已在别处存在的提交",
+    cherryPicked: "其他分支已有等价补丁的提交",
     closePreview: "关闭预览",
     previewFailed: "无法加载预览",
     goToParent: "转到父提交",
@@ -307,6 +311,8 @@ export function LogDock({
   const [previewBusy, setPreviewBusy] = useState(false);
   const [previewMode, setPreviewMode] = useState<"split" | "unified">("unified");
   const [previewWrap, setPreviewWrap] = useState(false);
+  const [markCherry, setMarkCherry] = useState(false);
+  const [cherry, setCherry] = useState<Set<string>>(new Set());
   // A commit row can be part of a multi-commit selection, which the context
   // menu then acts on as a whole, like a table of commits.
   const [checked, setChecked] = useState<Set<string>>(new Set());
@@ -448,6 +454,25 @@ export function LogDock({
     setPreview(null);
     setPreviewPath("");
   }, [detail?.hash]);
+
+  useEffect(() => {
+    if (!markCherry) {
+      setCherry(new Set());
+      return;
+    }
+    let alive = true;
+    const hashes = (result?.commits ?? []).map((c) => c.hash);
+    Git.cherryPicked(hashes)
+      .then((marked) => {
+        if (alive) setCherry(new Set(marked));
+      })
+      .catch(() => {
+        if (alive) setCherry(new Set());
+      });
+    return () => {
+      alive = false;
+    };
+  }, [markCherry, result?.commits]);
 
   const loadPreview = async (file: CommitFile, commit: CommitDetail) => {
     setPreviewPath(file.path);
@@ -647,6 +672,12 @@ export function LogDock({
             )}
             <span className="spacer" />
             <IconButton
+              icon="cherry"
+              title={t("markCherry")}
+              active={markCherry}
+              onClick={() => setMarkCherry((v) => !v)}
+            />
+            <IconButton
               icon="download"
               title={t("loadMoreCommits")}
               onClick={onLoadMore}
@@ -773,6 +804,11 @@ export function LogDock({
                           +{commit.refs.length - 2}
                         </span>
                       )}
+                    </span>
+                  )}
+                  {cherry.has(commit.hash) && (
+                    <span className="log-cherry" title={t("cherryPicked")}>
+                      <Icon name="cherry" size={11} />
                     </span>
                   )}
                   <span className="log-author" title={commit.author}>

@@ -105,6 +105,12 @@ func (r *Repo) CheckCommit(ctx context.Context, paths []string, opts CommitCheck
 		}
 	}
 	limit := opts.LargeFileMB * 1024 * 1024
+	lfsHint := ""
+	if limit > 0 {
+		if _, err := r.run(ctx, "lfs", "version"); err == nil {
+			lfsHint = "; consider Git LFS"
+		}
+	}
 	for i, path := range clean {
 		if i > 2000 {
 			break
@@ -123,7 +129,7 @@ func (r *Repo) CheckCommit(ctx context.Context, paths []string, opts CommitCheck
 			warnings = append(warnings, CommitWarning{
 				Path:    path,
 				Kind:    "large",
-				Message: fmt.Sprintf("%.1f MB is larger than the %d MB limit", float64(st.Size())/1024/1024, opts.LargeFileMB),
+				Message: fmt.Sprintf("%.1f MB is larger than the %d MB limit%s", float64(st.Size())/1024/1024, opts.LargeFileMB, lfsHint),
 			})
 		}
 		if opts.CRLF && st.Size() <= 4*1024*1024 {

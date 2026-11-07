@@ -9393,3 +9393,11 @@ body.resizing-row .log-detail-split::after {
 .revision-tree-list .repo-row {
   justify-content: flex-start;
 }
+
+.log-cherry {
+  display: inline-flex;
+  align-items: center;
+  color: var(--muted);
+  flex: none;
+  margin-left: 2px;
+}

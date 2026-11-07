@@ -837,6 +837,10 @@ export const Git = {
   cherryPick(hashes: string[], noCommit: boolean): Promise<string> {
     return call("Git.CherryPick", hashes, noCommit);
   },
+  /** CherryPicked marks the commits that already exist elsewhere by patch. */
+  cherryPicked(hashes: string[]): Promise<string[]> {
+    return call("Git.CherryPicked", hashes);
+  },
   /** CleanupCandidates lists branches a cleanup can delete. */
   cleanupCandidates(): Promise<BranchCleanup> {
     return call("Git.CleanupCandidates");
