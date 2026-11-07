@@ -1300,6 +1300,10 @@ export const Git = {
   tree(): Promise<RepoFile[]> {
     return call("Git.Tree");
   },
+  /** TreeAtRevision lists every file one revision contains. */
+  treeAtRevision(revision: string): Promise<RepoFile[]> {
+    return call("Git.TreeAtRevision", revision);
+  },
   /** UndoCommit moves HEAD back one commit, keeping its changes staged. */
   undoCommit(): Promise<CommitResult> {
     return call("Git.UndoCommit");

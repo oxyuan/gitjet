@@ -56,6 +56,7 @@ const T = {
     useRegex: "Match the search as a regular expression",
     annotateRevision: "Annotate this revision",
     openInTab: "Open as a tab",
+    browseRevision: "Browse the repository at this commit",
     closePreview: "Close the preview",
     previewFailed: "The preview could not be loaded",
     goToParent: "Go to the parent commit",
@@ -124,6 +125,7 @@ const T = {
     useRegex: "按正则表达式匹配",
     annotateRevision: "标注此版本",
     openInTab: "在标签页中打开",
+    browseRevision: "浏览此提交处的仓库",
     closePreview: "关闭预览",
     previewFailed: "无法加载预览",
     goToParent: "转到父提交",
@@ -236,6 +238,7 @@ export function LogDock({
   onFixupCommit,
   onSquashCommit,
   onPushCommits,
+  onBrowseRevision,
   onRewrite,
   onReset,
 }: {
@@ -288,6 +291,7 @@ export function LogDock({
   onFixupCommit: (hash: string) => void;
   onSquashCommit: (hash: string) => void;
   onPushCommits: (hash: string) => void;
+  onBrowseRevision: (hash: string) => void;
   onRewrite: (oldest: Commit) => void;
   onReset: (hash: string, mode: "soft" | "mixed" | "hard") => void;
 }) {
@@ -899,6 +903,13 @@ export function LogDock({
               <div className="log-detail-info" style={{ flexBasis: `${infoRatio * 100}%` }}>
                 <div className="log-detail-subject">{detail.subject}</div>
                 <div className="log-detail-meta">
+                  <button
+                    className="mini-icon"
+                    title={t("browseRevision")}
+                    onClick={() => onBrowseRevision(detail.hash)}
+                  >
+                    <Icon name="folder" size={12} />
+                  </button>
                   <button className="hash-copy" title={t("copyHash")} onClick={() => onCopy(detail.hash)}>
                     <Icon name="hash" size={11} />
                     <code>{detail.short}</code>

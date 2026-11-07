@@ -9371,3 +9371,25 @@ body.resizing-row .log-detail-split::after {
   color: var(--muted);
   font-size: 12px;
 }
+
+/* Repository at a revision */
+.revision-tree {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.revision-tree-list {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  padding: 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+
+.revision-tree-list .repo-row {
+  justify-content: flex-start;
+}

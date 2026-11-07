@@ -1738,6 +1738,15 @@ func (g *Git) Files(query string) ([]git.RepoFile, error) {
 	return files, nil
 }
 
+// TreeAtRevision lists every file one revision contains.
+func (g *Git) TreeAtRevision(revision string) ([]git.RepoFile, error) {
+	repo, err := g.c.currentRepo()
+	if err != nil {
+		return nil, err
+	}
+	return repo.TreeAtRevision(context.Background(), revision)
+}
+
 // Tree lists every file in the working tree, for the source explorer.
 func (g *Git) Tree() ([]git.RepoFile, error) {
 	repo, err := g.c.currentRepo()

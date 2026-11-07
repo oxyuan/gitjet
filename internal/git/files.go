@@ -293,3 +293,23 @@ func (r *Repo) listFiles(ctx context.Context) ([]RepoFile, error) {
 	sort.Slice(all, func(i, j int) bool { return all[i].Path < all[j].Path })
 	return all, nil
 }
+
+// TreeAtRevision lists every file a revision contains, which is what the
+// repository browser at that revision shows.
+func (r *Repo) TreeAtRevision(ctx context.Context, revision string) ([]RepoFile, error) {
+	rev := strings.TrimSpace(revision)
+	if rev == "" || strings.HasPrefix(rev, "-") || strings.ContainsAny(rev, " \t\n") {
+		return nil, errors.New("invalid revision")
+	}
+	out, err := r.run(ctx, "ls-tree", "-r", "--name-only", "-z", rev)
+	if err != nil {
+		return nil, err
+	}
+	files := []RepoFile{}
+	for _, path := range strings.Split(out, "\x00") {
+		if path != "" {
+			files = append(files, RepoFile{Path: path, Tracked: true})
+		}
+	}
+	return files, nil
+}

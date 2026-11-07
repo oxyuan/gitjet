@@ -213,6 +213,7 @@ func buildMenu(l lang) *mygo.Menu {
 			{Label: l.tr("menu.remotes"), Click: send("remotes")},
 			{Label: l.tr("menu.cleanupBranches"), Click: send("cleanup-branches")},
 			{Label: l.tr("menu.resolveConflicts"), Click: send("resolve-conflicts")},
+			{Label: l.tr("menu.browseRevision"), Click: send("browse-revision")},
 			mygo.Separator(),
 			{Label: l.tr("menu.showConsole"), Click: send("tab:console")},
 		}},

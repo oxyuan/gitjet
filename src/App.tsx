@@ -77,7 +77,7 @@ import {
   Toast,
   useStoredState,
 } from "./ui";
-import type { BlameResult, RebaseOptions } from "./mygo";
+import type { BlameResult, RebaseOptions, RepoFile } from "./mygo";
 
 const T = {
   en: {
@@ -288,6 +288,10 @@ const T = {
     kindSource: "Source",
     kindMerge: "Merge",
     kindCommit: "Commit",
+    kindTree: "Repository at a revision",
+    treeAtRevision: "Repository at {rev}",
+    treeFileOne: "{n} file",
+    treeFileOther: "{n} files",
     copyHash: "Copy hash",
     filesChanged: "{n} files changed",
     openSourceAtCommit: "Open the source file at this commit",
@@ -514,6 +518,10 @@ const T = {
     kindSource: "源码",
     kindMerge: "Merge",
     kindCommit: "提交",
+    kindTree: "某个版本的仓库",
+    treeAtRevision: "{rev} 处的仓库",
+    treeFileOne: "{n} 个文件",
+    treeFileOther: "{n} 个文件",
     copyHash: "复制哈希",
     filesChanged: "{n} 个文件已更改",
     openSourceAtCommit: "打开该提交下的源文件",
@@ -578,6 +586,7 @@ type Doc = { id: string; title: string } & (
   | { kind: "diff"; diff: FileDiff; opts: DiffOptions }
   | { kind: "file"; file: SourceFile; revision: string; line?: number }
   | { kind: "commit"; detail: CommitDetail }
+  | { kind: "tree"; revision: string; files: RepoFile[] }
 );
 
 type Dialog =
@@ -951,6 +960,15 @@ function AppShell({ onLangChange }: { onLangChange: (lang: Lang) => void }) {
     },
     [fail, openDoc, t],
   );
+
+  const openRevisionTree = async (revision: string) => {
+    try {
+      const files = await Git.treeAtRevision(revision);
+      openDoc({ id: `tree:${revision}`, title: `${revision.slice(0, 8)} @`, kind: "tree", revision, files });
+    } catch (err) {
+      fail(t("gitFailed"), err);
+    }
+  };
 
   const stepCommitFile = (delta: number) => {
     const files = logDetail?.files ?? [];
@@ -2361,6 +2379,11 @@ function AppShell({ onLangChange }: { onLangChange: (lang: Lang) => void }) {
         case "remotes":
           if (repoOpenRef.current) setDialog({ kind: "remotes" });
           break;
+        case "browse-revision": {
+          const hash = selectedCommitRef.current;
+          if (hash) void openRevisionTree(hash);
+          break;
+        }
         case "quickopen":
           if (repoOpenRef.current) setQuickOpen(true);
           break;
@@ -2917,6 +2940,7 @@ function AppShell({ onLangChange }: { onLangChange: (lang: Lang) => void }) {
             onNewTag={(start) => setDialog({ kind: "tag", start })}
             onCherryPick={(hashes) => void cherryPick(hashes)}
             onPushCommits={(hash) => setDialog({ kind: "pushCommits", hash })}
+            onBrowseRevision={(hash) => void openRevisionTree(hash)}
             onFixupCommit={(hash) => void commitFixup(hash, false)}
             onSquashCommit={(hash) => void commitFixup(hash, true)}
             onRevert={(hashes) => void revert(hashes)}
@@ -3353,10 +3377,12 @@ function kindLabel(doc: Doc, t: Translate): string {
       return t("kindSource");
     case "commit":
       return t("kindCommit");
+    case "tree":
+      return t("kindTree");
   }
 }
 
-function docIcon(doc: Doc): "diff" | "file" | "merge" | "user" | "commit" {
+function docIcon(doc: Doc): "diff" | "file" | "merge" | "user" | "commit" | "folder" {
   switch (doc.kind) {
     case "diff":
       return "diff";
@@ -3364,6 +3390,8 @@ function docIcon(doc: Doc): "diff" | "file" | "merge" | "user" | "commit" {
       return "file";
     case "commit":
       return "commit";
+    case "tree":
+      return "folder";
   }
 }
 
@@ -3375,6 +3403,8 @@ function docPath(doc: Doc): string {
     case "file":
       return doc.file.path;
     case "commit":
+      return "";
+    case "tree":
       return "";
   }
 }
@@ -3392,6 +3422,8 @@ function tabTitle(doc: Doc, t: Translate): string {
       return baseName(doc.file.path);
     case "commit":
       return doc.detail.short;
+    case "tree":
+      return `${doc.revision.slice(0, 8)} @`;
   }
 }
 
@@ -3761,6 +3793,32 @@ function RightPane({
                 </div>
                 )}
               />
+            </div>
+          </div>
+        )}
+        {active.kind === "tree" && (
+          <div className="revision-tree">
+            <div className="diff-header">
+              <div className="diff-title-row">
+                <Icon name="folder" />
+                <span className="diff-path">
+                  {t("treeAtRevision", { rev: active.revision.slice(0, 8) })}
+                </span>
+                <span className="muted">{count(active.files.length, t("treeFileOne"), t("treeFileOther", { n: active.files.length }))}</span>
+              </div>
+            </div>
+            <div className="revision-tree-list">
+              {active.files.map((file) => (
+                <button
+                  key={file.path}
+                  className="repo-row"
+                  onClick={() => onOpenFile(file.path, active.revision)}
+                  title={file.path}
+                >
+                  <FileIcon path={file.path} size={14} />
+                  <span className="repo-row-title">{file.path}</span>
+                </button>
+              ))}
             </div>
           </div>
         )}
