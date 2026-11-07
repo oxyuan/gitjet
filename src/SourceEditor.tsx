@@ -58,6 +58,7 @@ export function SourceEditor({
   onSave,
   onDraftChange,
   saveRef,
+  navRef,
 }: {
   file: SourceFile;
   line?: number;
@@ -87,6 +88,8 @@ export function SourceEditor({
   onDraftChange?: (text: string) => void;
   /** Lets the header's Save button invoke the same write as Ctrl/Cmd-S. */
   saveRef?: { current: (() => Promise<boolean>) | null };
+  /** Lets the header's change arrows step through the gutter's ranges. */
+  navRef?: { current: ((delta: number) => void) | null };
 }) {
   const t = useT(T);
   const lang = useLang();
@@ -123,6 +126,7 @@ export function SourceEditor({
     onDraftChange,
   };
   const saving = useRef(false);
+  const caretLine = useRef(1);
   const save = async (): Promise<boolean> => {
     const current = editor.current;
     const write = actions.current.onSave;
@@ -153,6 +157,25 @@ export function SourceEditor({
     };
   }, [saveRef]);
   const [changes, setChanges] = useState<ChangeRange[]>([]);
+  // The header's prev/next change buttons reach the ranges this pane drew.
+  const changeNav = useRef<(delta: number) => void>(() => {});
+  changeNav.current = (delta: number) => {
+    if (changes.length === 0) return;
+    const sorted = [...changes].sort((a, b) => a.start - b.start);
+    const here = caretLine.current;
+    const target =
+      delta > 0
+        ? sorted.find((range) => range.start > here) ?? sorted[0]
+        : [...sorted].reverse().find((range) => range.start < here) ?? sorted[sorted.length - 1];
+    if (target) editor.current?.revealLine(target.start);
+  };
+  useEffect(() => {
+    if (!navRef) return;
+    navRef.current = (delta: number) => changeNav.current(delta);
+    return () => {
+      navRef.current = null;
+    };
+  }, [navRef]);
   const [blame, setBlame] = useState<BlameLine[] | null>(null);
   const [menu, setMenu] = useState<{ x: number; y: number; line: number } | null>(null);
   const [annotate, setAnnotate] = useStoredState<boolean>("gitjet.annotate", false);
@@ -179,7 +202,10 @@ export function SourceEditor({
       onSymbol: (word) => (actions.current.onSymbol ?? actions.current.onJump)?.(word),
       onJump: (word) => actions.current.onJump?.(word),
       onReferences: (word) => actions.current.onReferences?.(word),
-      onCaret: (n) => actions.current.onCaret?.(n),
+      onCaret: (n) => {
+        caretLine.current = n;
+        actions.current.onCaret?.(n);
+      },
       onGutterContext: (n, x, y) => setMenu({ x, y, line: n }),
       annotate,
       annotateFormat: (blame) =>

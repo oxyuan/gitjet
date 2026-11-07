@@ -765,6 +765,10 @@ export const Git = {
   addRemote(name: string, url: string): Promise<void> {
     return call("Git.AddRemote", name, url);
   },
+  /** AddSubmodule registers a submodule. */
+  addSubmodule(url: string, path: string, branch: string): Promise<string> {
+    return call("Git.AddSubmodule", url, path, branch);
+  },
   /** AddWorktree checks a branch out in a new folder. */
   addWorktree(path: string, branch: string, newBranch: boolean): Promise<string> {
     return call("Git.AddWorktree", path, branch, newBranch);
@@ -954,6 +958,18 @@ export const Git = {
   lfs(): Promise<LFSStatus> {
     return call("Git.LFS");
   },
+  /** LFSPull downloads LFS objects. */
+  lfsPull(out: Channel<string>): Promise<string> {
+    return call("Git.LFSPull", out);
+  },
+  /** LFSTrack stores files matching the patterns in Git LFS. */
+  lfsTrack(patterns: string[]): Promise<string> {
+    return call("Git.LFSTrack", patterns);
+  },
+  /** LFSUntrack stops tracking files matching the patterns. */
+  lfsUntrack(patterns: string[]): Promise<string> {
+    return call("Git.LFSUntrack", patterns);
+  },
   /**
    * LSPProbe reports which language server this repository wants, and whether
    * it is installed. Nothing is started.
@@ -991,6 +1007,10 @@ export const Git = {
   /** LocalHistoryContent reads one saved copy. */
   localHistoryContent(path: string, digest: string): Promise<string> {
     return call("Git.LocalHistoryContent", path, digest);
+  },
+  /** LockWorktree locks a working tree so prune cannot remove it. */
+  lockWorktree(path: string, reason: string): Promise<string> {
+    return call("Git.LockWorktree", path, reason);
   },
   /** Log returns commits. */
   log(opts: LogOptions): Promise<LogResult> {
@@ -1238,6 +1258,10 @@ export const Git = {
   submodules(): Promise<Submodule[]> {
     return call("Git.Submodules");
   },
+  /** SyncSubmodules copies .gitmodules into the config. */
+  syncSubmodules(): Promise<string> {
+    return call("Git.SyncSubmodules");
+  },
   /** TakeSide takes ours or theirs for a conflict. */
   takeSide(path: string, side: string): Promise<void> {
     return call("Git.TakeSide", path, side);
@@ -1253,6 +1277,10 @@ export const Git = {
   /** UndoCommit moves HEAD back one commit, keeping its changes staged. */
   undoCommit(): Promise<CommitResult> {
     return call("Git.UndoCommit");
+  },
+  /** UnlockWorktree unlocks a working tree. */
+  unlockWorktree(path: string): Promise<string> {
+    return call("Git.UnlockWorktree", path);
   },
   /** Unshallow fetches the full history of a shallow clone. */
   unshallow(out: Channel<string>): Promise<string> {

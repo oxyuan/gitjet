@@ -17,6 +17,18 @@ const T = {
     shelfName: "Shelf name",
     shelveChanges: "Shelve changes",
     applyPatchFile: "Apply patch file…",
+    lock: "Lock",
+    unlock: "Unlock",
+    subAddTitle: "Add a submodule",
+    subUrl: "Repository URL",
+    subPath: "Path in this repository",
+    subBranch: "Branch (optional)",
+    subAdd: "Add submodule",
+    syncSubs: "Sync URLs",
+    lfsPatterns: "Patterns",
+    lfsTrack: "Track",
+    lfsUntrack: "Untrack",
+    lfsPull: "Pull objects",
     apply: "Apply",
     pop: "Apply and Drop",
     drop: "Drop",
@@ -63,6 +75,18 @@ const T = {
     shelfName: "搁置名称",
     shelveChanges: "搁置当前更改",
     applyPatchFile: "应用补丁文件…",
+    lock: "锁定",
+    unlock: "解锁",
+    subAddTitle: "添加子模块",
+    subUrl: "仓库地址",
+    subPath: "在本仓库中的路径",
+    subBranch: "分支（可选）",
+    subAdd: "添加子模块",
+    syncSubs: "同步地址",
+    lfsPatterns: "匹配模式",
+    lfsTrack: "跟踪",
+    lfsUntrack: "取消跟踪",
+    lfsPull: "拉取对象",
     apply: "应用",
     pop: "应用并删除",
     drop: "删除",
@@ -139,6 +163,10 @@ export function RepoExtrasDialog({
   const [lfs, setLfs] = useState<LFSStatus | null>(null);
   const [shelves, setShelves] = useState<Shelf[] | null>(null);
   const [shelfName, setShelfName] = useState("");
+  const [subUrl, setSubUrl] = useState("");
+  const [subPath, setSubPath] = useState("");
+  const [subBranch, setSubBranch] = useState("");
+  const [lfsPattern, setLfsPattern] = useState("");
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
   const [path, setPath] = useState("");
@@ -236,6 +264,11 @@ export function RepoExtrasDialog({
                   </span>
                 </div>
                 <Button onClick={() => onOpenWorktree(tree.path)}>{t("openWindow")}</Button>
+                {tree.locked ? (
+                  <Button onClick={() => void act(() => Git.unlockWorktree(tree.path))}>{t("unlock")}</Button>
+                ) : (
+                  <Button onClick={() => void act(() => Git.lockWorktree(tree.path, ""))}>{t("lock")}</Button>
+                )}
                 {!tree.main && (
                   <Button variant="danger" onClick={() => void act(() => Git.removeWorktree(tree.path, false))}>
                     {t("remove")}
@@ -283,6 +316,33 @@ export function RepoExtrasDialog({
           <div className="repo-actions">
             <Button onClick={() => void act(() => Git.updateSubmodules(true))}>{t("initUpdate")}</Button>
             <Button onClick={() => void act(() => Git.updateSubmodules(false))}>{t("update")}</Button>
+            <Button onClick={() => void act(() => Git.syncSubmodules())}>{t("syncSubs")}</Button>
+          </div>
+          <div className="dialog-form repo-add">
+            <div className="repo-add-title">{t("subAddTitle")}</div>
+            <Field label={t("subUrl")}>
+              <TextInput value={subUrl} onChange={setSubUrl} placeholder="https://host/lib.git" />
+            </Field>
+            <Field label={t("subPath")}>
+              <TextInput value={subPath} onChange={setSubPath} placeholder="vendor/lib" />
+            </Field>
+            <Field label={t("subBranch")}>
+              <TextInput value={subBranch} onChange={setSubBranch} placeholder="main" />
+            </Field>
+            <Button
+              variant="primary"
+              disabled={!subUrl.trim() || !subPath.trim()}
+              onClick={() =>
+                void act(async () => {
+                  await Git.addSubmodule(subUrl.trim(), subPath.trim(), subBranch.trim());
+                  setSubUrl("");
+                  setSubPath("");
+                  setSubBranch("");
+                })
+              }
+            >
+              {t("subAdd")}
+            </Button>
           </div>
         </div>
       )}
@@ -349,6 +409,48 @@ export function RepoExtrasDialog({
                 <span className="muted">
                   {lfs.version ? `git lfs ${lfs.version}` : "git lfs"} · {t("lfsTracked", { n: lfs.files.length })}
                 </span>
+                <Button
+                  onClick={() =>
+                    void act(async () => {
+                      const channel = new Channel<string>();
+                      const promise = Git.lfsPull(channel);
+                      for await (const line of channel) {
+                        void line;
+                      }
+                      await promise;
+                    })
+                  }
+                >
+                  {t("lfsPull")}
+                </Button>
+              </div>
+              <div className="dialog-form repo-add">
+                <div className="repo-add-title">{t("lfsPatterns")}</div>
+                <TextInput value={lfsPattern} onChange={setLfsPattern} placeholder="*.psd" />
+                <div className="repo-actions">
+                  <Button
+                    disabled={!lfsPattern.trim()}
+                    onClick={() =>
+                      void act(async () => {
+                        await Git.lfsTrack([lfsPattern.trim()]);
+                        setLfsPattern("");
+                      })
+                    }
+                  >
+                    {t("lfsTrack")}
+                  </Button>
+                  <Button
+                    disabled={!lfsPattern.trim()}
+                    onClick={() =>
+                      void act(async () => {
+                        await Git.lfsUntrack([lfsPattern.trim()]);
+                        setLfsPattern("");
+                      })
+                    }
+                  >
+                    {t("lfsUntrack")}
+                  </Button>
+                </div>
               </div>
               {lfs.files.length === 0 ? (
                 <p className="setting-hint">{t("lfsNone")}</p>

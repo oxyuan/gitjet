@@ -109,7 +109,69 @@ func (r *Repo) AddWorktree(ctx context.Context, path, branch string, newBranch b
 	if branch != "" && !newBranch {
 		args = append(args, branch)
 	}
-	return r.writeRun(ctx, args...)
+	out, err := r.writeRun(ctx, args...)
+	if err == nil {
+		// .worktreeinclude lists the folders a new worktree copies from
+		// this one, which is how an IDE keeps its per-project settings.
+		copyWorktreeIncludes(r.dir, path)
+	}
+	return out, err
+}
+
+// copyWorktreeIncludes copies the paths named in .worktreeinclude into a
+// new working tree, best effort: a missing source or a read-only target
+// leaves the worktree usable.
+func copyWorktreeIncludes(from, to string) {
+	data, err := os.ReadFile(filepath.Join(from, ".worktreeinclude"))
+	if err != nil {
+		return
+	}
+	for _, line := range strings.Split(string(data), "\n") {
+		rel := strings.TrimSpace(line)
+		if rel == "" || strings.HasPrefix(rel, "#") {
+			continue
+		}
+		rel = filepath.Clean(rel)
+		if filepath.IsAbs(rel) || rel == "." || strings.HasPrefix(rel, "..") {
+			continue
+		}
+		src := filepath.Join(from, rel)
+		dst := filepath.Join(to, rel)
+		if _, err := os.Stat(dst); err == nil {
+			continue
+		}
+		_ = copyTree(src, dst)
+	}
+}
+
+func copyTree(src, dst string) error {
+	info, err := os.Stat(src)
+	if err != nil {
+		return err
+	}
+	if !info.IsDir() {
+		data, err := os.ReadFile(src)
+		if err != nil {
+			return err
+		}
+		if err := os.MkdirAll(filepath.Dir(dst), 0o755); err != nil {
+			return err
+		}
+		return os.WriteFile(dst, data, info.Mode().Perm())
+	}
+	entries, err := os.ReadDir(src)
+	if err != nil {
+		return err
+	}
+	if err := os.MkdirAll(dst, info.Mode().Perm()); err != nil {
+		return err
+	}
+	for _, entry := range entries {
+		if err := copyTree(filepath.Join(src, entry.Name()), filepath.Join(dst, entry.Name())); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 // RemoveWorktree deletes a working tree. Uncommitted changes stop it unless
@@ -128,6 +190,34 @@ func (r *Repo) RemoveWorktree(ctx context.Context, path string, force bool) (str
 	}
 	args = append(args, path)
 	return r.writeRun(ctx, args...)
+}
+
+// LockWorktree marks a working tree as not removable, with a reason that
+// `git worktree list` shows. It is how a worktree on a removable disk is
+// protected from prune.
+func (r *Repo) LockWorktree(ctx context.Context, path, reason string) (string, error) {
+	path = strings.TrimSpace(path)
+	if path == "" || strings.HasPrefix(path, "-") || !filepath.IsAbs(path) {
+		return "", errors.New("invalid worktree path")
+	}
+	args := []string{"worktree", "lock"}
+	if reason = strings.TrimSpace(reason); reason != "" {
+		if strings.ContainsAny(reason, "\n\r") {
+			return "", errors.New("the reason cannot contain a line break")
+		}
+		args = append(args, "--reason", reason)
+	}
+	args = append(args, path)
+	return r.writeRun(ctx, args...)
+}
+
+// UnlockWorktree makes a locked working tree removable again.
+func (r *Repo) UnlockWorktree(ctx context.Context, path string) (string, error) {
+	path = strings.TrimSpace(path)
+	if path == "" || strings.HasPrefix(path, "-") || !filepath.IsAbs(path) {
+		return "", errors.New("invalid worktree path")
+	}
+	return r.writeRun(ctx, "worktree", "unlock", path)
 }
 
 // PruneWorktrees forgets working trees whose folder is gone.
@@ -387,6 +477,38 @@ func (r *Repo) Submodules(ctx context.Context) ([]Submodule, error) {
 	return subs, nil
 }
 
+// AddSubmodule registers a submodule at path, optionally following branch.
+func (r *Repo) AddSubmodule(ctx context.Context, url, path, branch string) (string, error) {
+	url = strings.TrimSpace(url)
+	path = strings.TrimSpace(path)
+	branch = strings.TrimSpace(branch)
+	if url == "" || strings.HasPrefix(url, "-") {
+		return "", errors.New("a submodule needs a URL")
+	}
+	if path == "" || filepath.IsAbs(path) {
+		return "", errors.New("a submodule needs a repository-relative path")
+	}
+	clean, err := cleanPath(path)
+	if err != nil {
+		return "", err
+	}
+	args := []string{"submodule", "add"}
+	if branch != "" {
+		if strings.HasPrefix(branch, "-") {
+			return "", errors.New("invalid branch")
+		}
+		args = append(args, "-b", branch)
+	}
+	args = append(args, "--", url, clean)
+	return r.writeRun(ctx, args...)
+}
+
+// SyncSubmodules copies the URLs from .gitmodules into the config, which is
+// what changes when a submodule moves to another host.
+func (r *Repo) SyncSubmodules(ctx context.Context) (string, error) {
+	return r.writeRun(ctx, "submodule", "sync", "--recursive")
+}
+
 // UpdateSubmodules checks the submodules out at the recorded commits.
 func (r *Repo) UpdateSubmodules(ctx context.Context, init bool) (string, error) {
 	args := []string{"submodule", "update", "--recursive"}
@@ -429,6 +551,44 @@ func (r *Repo) LFS(ctx context.Context) LFSStatus {
 		}
 	}
 	return status
+}
+
+// LFSTrack tells Git LFS to store files matching the patterns.
+func (r *Repo) LFSTrack(ctx context.Context, patterns []string) (string, error) {
+	args, err := lfsPatternArgs("track", patterns)
+	if err != nil {
+		return "", err
+	}
+	return r.writeRun(ctx, args...)
+}
+
+// LFSUntrack stops tracking files matching the patterns.
+func (r *Repo) LFSUntrack(ctx context.Context, patterns []string) (string, error) {
+	args, err := lfsPatternArgs("untrack", patterns)
+	if err != nil {
+		return "", err
+	}
+	return r.writeRun(ctx, args...)
+}
+
+func lfsPatternArgs(verb string, patterns []string) ([]string, error) {
+	clean := make([]string, 0, len(patterns))
+	for _, pattern := range patterns {
+		pattern = strings.TrimSpace(pattern)
+		if pattern == "" || strings.HasPrefix(pattern, "-") {
+			continue
+		}
+		clean = append(clean, pattern)
+	}
+	if len(clean) == 0 {
+		return nil, errors.New("a pattern is required")
+	}
+	return append([]string{"lfs", verb}, clean...), nil
+}
+
+// LFSPull downloads the LFS objects the checkout refers to.
+func (r *Repo) LFSPull(ctx context.Context, emit func(string)) (string, error) {
+	return r.stream(ctx, emit, "lfs", "pull")
 }
 
 // IsShallow reports whether the clone has truncated history.

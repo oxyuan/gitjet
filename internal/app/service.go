@@ -2022,6 +2022,93 @@ func (g *Git) PruneWorktrees() (string, error) {
 
 // ---- stash details ----
 
+// LockWorktree locks a working tree so prune cannot remove it.
+func (g *Git) LockWorktree(path, reason string) (string, error) {
+	repo, err := g.c.currentRepo()
+	if err != nil {
+		return "", err
+	}
+	out, err := repo.LockWorktree(context.Background(), path, reason)
+	if err == nil {
+		g.notify()
+	}
+	return out, err
+}
+
+// UnlockWorktree unlocks a working tree.
+func (g *Git) UnlockWorktree(path string) (string, error) {
+	repo, err := g.c.currentRepo()
+	if err != nil {
+		return "", err
+	}
+	out, err := repo.UnlockWorktree(context.Background(), path)
+	if err == nil {
+		g.notify()
+	}
+	return out, err
+}
+
+// AddSubmodule registers a submodule.
+func (g *Git) AddSubmodule(url, path, branch string) (string, error) {
+	repo, err := g.c.currentRepo()
+	if err != nil {
+		return "", err
+	}
+	out, err := repo.AddSubmodule(context.Background(), url, path, branch)
+	if err == nil {
+		g.notify()
+	}
+	return out, err
+}
+
+// SyncSubmodules copies .gitmodules into the config.
+func (g *Git) SyncSubmodules() (string, error) {
+	repo, err := g.c.currentRepo()
+	if err != nil {
+		return "", err
+	}
+	out, err := repo.SyncSubmodules(context.Background())
+	if err == nil {
+		g.notify()
+	}
+	return out, err
+}
+
+// LFSTrack stores files matching the patterns in Git LFS.
+func (g *Git) LFSTrack(patterns []string) (string, error) {
+	repo, err := g.c.currentRepo()
+	if err != nil {
+		return "", err
+	}
+	out, err := repo.LFSTrack(context.Background(), patterns)
+	if err == nil {
+		g.notify()
+	}
+	return out, err
+}
+
+// LFSUntrack stops tracking files matching the patterns.
+func (g *Git) LFSUntrack(patterns []string) (string, error) {
+	repo, err := g.c.currentRepo()
+	if err != nil {
+		return "", err
+	}
+	out, err := repo.LFSUntrack(context.Background(), patterns)
+	if err == nil {
+		g.notify()
+	}
+	return out, err
+}
+
+// LFSPull downloads LFS objects.
+func (g *Git) LFSPull(out *mygo.Channel[string]) (string, error) {
+	repo, err := g.c.currentRepo()
+	if err != nil {
+		return "", err
+	}
+	return repo.LFSPull(context.Background(), func(line string) { _ = out.Send(line) })
+}
+
 // StashFiles lists the paths a stash entry touches.
 func (g *Git) StashFiles(index int) ([]git.StashFile, error) {
 	repo, err := g.c.currentRepo()

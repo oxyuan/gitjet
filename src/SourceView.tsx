@@ -21,6 +21,8 @@ const T = {
     diff: "Diff",
 
     localHistory: "Local History",
+    previousChange: "Previous change",
+    nextChange: "Next change",
     revealInManager: "Reveal in file manager",
     wrap: "Wrap",
     save: "Save",
@@ -45,6 +47,8 @@ const T = {
     diff: "差异",
 
     localHistory: "本地历史",
+    previousChange: "上一处更改",
+    nextChange: "下一处更改",
     revealInManager: "在文件管理器中显示",
     wrap: "折行",
     save: "保存",
@@ -125,6 +129,7 @@ export function SourceView({
 }) {
   const t = useT(T);
   const [wrap, setWrap] = useState(false);
+  const navRef = useRef<((delta: number) => void) | null>(null);
   const saveRef = useRef<(() => Promise<boolean>) | null>(null);
   const [dirty, setDirty] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -215,6 +220,18 @@ export function SourceView({
               <Icon name="save" /> {t("save")}
             </button>
           )}
+          <IconButton
+            icon="prevDiff"
+            title={t("previousChange")}
+            small
+            onClick={() => navRef.current?.(-1)}
+          />
+          <IconButton
+            icon="nextDiff"
+            title={t("nextChange")}
+            small
+            onClick={() => navRef.current?.(1)}
+          />
           <span className="toolbar-sep" />
           <span className="muted">UTF-8</span>
           <span className="spacer" />
@@ -258,6 +275,7 @@ export function SourceView({
           onSave={onSave}
           onDraftChange={onDraftChange}
           saveRef={saveRef}
+          navRef={navRef}
         />
       )}
     </div>
