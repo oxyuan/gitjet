@@ -317,7 +317,7 @@ func (a *nativeApp) openPullDialog() {
 		remote = r.Name
 		break
 	}
-	a.dialog = dialogState{kind: dialogPull, remote: remote, branch: branch}
+	a.dialog = dialogState{kind: dialogPull, remote: remote, branch: branch, flag1: a.settings.UpdateMethod == "rebase"}
 }
 
 func (a *nativeApp) pull(opts git.PullOptions) {
@@ -348,7 +348,13 @@ func (a *nativeApp) openPushDialog() {
 		remote = r.Name
 		break
 	}
-	a.dialog = dialogState{kind: dialogPush, remote: remote, branch: branch, remoteBranch: branch}
+	remoteBranch := branch
+	if targets := a.g.PushTargets(); len(targets) > 0 {
+		if i := strings.IndexByte(targets[0], '/'); i > 0 {
+			remote, remoteBranch = targets[0][:i], targets[0][i+1:]
+		}
+	}
+	a.dialog = dialogState{kind: dialogPush, remote: remote, branch: branch, remoteBranch: remoteBranch}
 	go func() {
 		preview, err := a.g.PushPreview(remote, branch, branch)
 		mygo.RunOnMain(func() {
@@ -362,6 +368,19 @@ func (a *nativeApp) openPushDialog() {
 			}
 		})
 	}()
+}
+
+func (a *nativeApp) openPushDialogForHash(hash string) {
+	if !a.repoOpen || hash == "" {
+		return
+	}
+	branch := a.snapshot.State.Branch
+	remote := ""
+	for _, r := range a.remotes {
+		remote = r.Name
+		break
+	}
+	a.dialog = dialogState{kind: dialogPush, remote: remote, branch: branch, remoteBranch: branch, pushHash: hash}
 }
 
 func (a *nativeApp) push(opts git.PushOptions) {
@@ -754,4 +773,34 @@ func (a *nativeApp) pathMenu(m *ui.Menu, path string, line int) {
 	if m.Item(a.t("Copy Path with Line")).Chosen() {
 		a.copyText(fmt.Sprintf("%s:%d", path, line))
 	}
+}
+
+func (a *nativeApp) completeConsole() {
+	prefix := strings.TrimSpace(a.consoleIn)
+	if prefix == "" {
+		return
+	}
+	go func() {
+		comps, err := a.g.Completions(prefix)
+		mygo.RunOnMain(func() {
+			if err == nil {
+				a.consoleComp = comps
+				a.redraw()
+			}
+		})
+	}()
+}
+
+func (a *nativeApp) editGitignore() {
+	path := ".gitignore"
+	go func() {
+		file, err := a.g.File(path, "")
+		missing := err != nil || !file.Exists
+		mygo.RunOnMain(func() {
+			if missing {
+				_ = a.g.CreateFile(path)
+			}
+			a.openSource(path, "")
+		})
+	}()
 }

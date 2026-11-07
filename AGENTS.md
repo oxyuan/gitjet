@@ -122,7 +122,9 @@ Go: stdlib `testing` only. A real `git` on PATH is required; no skip guard.
 `newTestRepo(t)` isolates `GIT_CONFIG_GLOBAL`/`GIT_CONFIG_SYSTEM` and the
 author identity. Because it calls `t.Setenv`, do not add `t.Parallel`.
 Name tests `Test<Situation><Expectation>`; table tests only for pure parsers.
-`internal/app` has no tests today; the UI is exercised by running it.
+`internal/app` tests its pure helpers (`ui_logic_test.go`: graph lanes, file
+tree flattening, conflict simplification, commit-message wrapping, LSP
+offsets); the window itself is exercised by running it.
 
 Gate before finishing:
 

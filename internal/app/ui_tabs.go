@@ -566,6 +566,18 @@ func (a *nativeApp) diffToolbar(c *ui.Context, tab *docTab) {
 	t := c.Theme()
 	ui.Row(c).Padding(6, 10).Gap(8).AlignItems(ui.Center).BorderWidth(0, 0, 1, 0).BorderColor(t.Border).Children(func() {
 		ui.Text(c, filepath.Base(tab.path)).FontSize(12).FontWeight(600)
+		switch tab.opts.Target {
+		case git.DiffWorkingTree, git.DiffStaged, git.DiffHead:
+			if ui.Button(c, a.t("Index ↔ Worktree")).Clicked() {
+				a.openDiff(git.DiffOptions{Path: tab.path, OldPath: tab.opts.OldPath, Target: git.DiffWorkingTree, Context: a.settings.DiffContext})
+			}
+			if ui.Button(c, a.t("HEAD ↔ Index")).Clicked() {
+				a.openDiff(git.DiffOptions{Path: tab.path, OldPath: tab.opts.OldPath, Target: git.DiffStaged, Context: a.settings.DiffContext})
+			}
+			if ui.Button(c, a.t("HEAD ↔ Worktree")).Clicked() {
+				a.openDiff(git.DiffOptions{Path: tab.path, OldPath: tab.opts.OldPath, Target: git.DiffHead, Context: a.settings.DiffContext})
+			}
+		}
 		if tab.opts.OldPath != "" && tab.opts.OldPath != tab.path {
 			ui.Text(c, "← "+tab.opts.OldPath).FontSize(10).TextColor(t.TextMuted)
 		}
@@ -744,6 +756,14 @@ func (a *nativeApp) sourceToolbar(c *ui.Context, tab *docTab) {
 			wrap := tab.src.SoftWrap
 			if ui.Checkbox(c, &wrap, a.t("Wrap")).Changed() {
 				tab.src.SoftWrap = wrap
+			}
+		}
+		if tab.src != nil {
+			if ui.Button(c, "↑").Clicked() {
+				tab.src.Run(editor.PreviousHunk)
+			}
+			if ui.Button(c, "↓").Clicked() {
+				tab.src.Run(editor.NextHunk)
 			}
 		}
 		if tab.revision == "" {

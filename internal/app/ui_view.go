@@ -725,6 +725,12 @@ func (a *nativeApp) filesPane(c *ui.Context) {
 				if m.Item(a.t("Reveal")).Chosen() {
 					_ = a.ws.Reveal(f.path)
 				}
+				if !f.dir && m.Item(a.t("Ignore")).Chosen() {
+					a.ignore([]string{f.path})
+				}
+				if m.Item(a.t("Edit .gitignore")).Chosen() {
+					a.editGitignore()
+				}
 				a.pathMenu(m, f.path, 0)
 			})
 		}).Grow(1)
@@ -1028,6 +1034,12 @@ func (a *nativeApp) logPane(c *ui.Context) {
 				if a.equivalent[cm.Hash] {
 					ui.Text(c, "≡").FontSize(10).TextColor(t.Accent)
 				}
+				for i, ref := range cm.Refs {
+					if i >= 3 {
+						break
+					}
+					ui.Text(c, ref.Name).FontSize(9).TextColor(t.Accent)
+				}
 			})
 			row.ContextMenu(func(m *ui.Menu) {
 				if a.logPick.Len() > 1 && a.logPick.Has(cm.Hash) {
@@ -1185,6 +1197,22 @@ func (a *nativeApp) consolePane(c *ui.Context) {
 				}
 			})
 		})
+		if len(a.consoleComp) > 0 {
+			ui.Scroll(c).MaxHeight(120).Children(func() {
+				ui.Column(c).Gap(1).Children(func() {
+					for _, comp := range a.consoleComp {
+						comp := comp
+						if ui.ButtonBase(c).Padding(2, 8).Radius(4).Label(comp.Text).Clicked() {
+							if a.consoleIn != "" && !strings.HasSuffix(a.consoleIn, " ") {
+								a.consoleIn += " "
+							}
+							a.consoleIn += comp.Text
+							a.consoleComp = nil
+						}
+					}
+				})
+			})
+		}
 		ui.Row(c).Padding(4).Gap(4).Children(func() {
 			ui.MenuButton(c, a.t("History"), func(m *ui.Menu) {
 				for i, line := range a.consoleHis {
@@ -1200,6 +1228,9 @@ func (a *nativeApp) consolePane(c *ui.Context) {
 			in := ui.TextInput(c, &a.consoleIn).Placeholder(a.t("git status")).Grow(1)
 			if in.Submitted() || ui.Button(c, a.t("Run")).Clicked() {
 				a.runConsole()
+			}
+			if ui.Button(c, a.t("Complete")).Clicked() {
+				a.completeConsole()
 			}
 		})
 	})

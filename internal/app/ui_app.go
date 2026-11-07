@@ -1,12 +1,9 @@
 package app
 
 import (
-	"context"
 	"errors"
-	"fmt"
 	"os"
 	"path/filepath"
-	"runtime"
 	"sort"
 	"strings"
 	"sync/atomic"
@@ -171,6 +168,7 @@ type nativeApp struct {
 	consoleLog  []string
 	consoleIn   string
 	consoleHis  []string
+	consoleComp []git.Completion
 
 	dialog dialogState
 
@@ -814,9 +812,6 @@ func (a *nativeApp) chooseAndOpen() {
 }
 
 // updateTitle keeps the window title and the recent documents list current.
-func (a *nativeApp) rememberRecent() {
-	a.loadRecent()
-}
 
 func (a *nativeApp) copyText(text string) {
 	if text == "" {
@@ -850,14 +845,6 @@ func (a *nativeApp) openURL(url string) {
 	_ = a.ws.OpenURL(url)
 }
 
-func (a *nativeApp) platformName() string {
-	return runtime.GOOS + "/" + runtime.GOARCH
-}
-
-func (a *nativeApp) contextWithWindow() context.Context {
-	return context.Background()
-}
-
 var errNoRepo = errors.New("no repository is open")
 
 func (a *nativeApp) requireRepo() error {
@@ -869,14 +856,6 @@ func (a *nativeApp) requireRepo() error {
 
 func (a *nativeApp) changedCount() int {
 	return a.snapshot.State.Changed + a.snapshot.State.Untracked + a.snapshot.State.Conflicts
-}
-
-func (a *nativeApp) formatCount() string {
-	st := a.snapshot.State
-	if st.Changed == 0 && st.Untracked == 0 {
-		return a.t("clean")
-	}
-	return fmt.Sprintf("%d changed", st.Changed)
 }
 
 func (a *nativeApp) afterCommit() {

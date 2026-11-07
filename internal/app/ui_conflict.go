@@ -30,6 +30,7 @@ type mergeWindow struct {
 	blocks   []mergeBlock
 	choice   []mergeChoice
 	selected int
+	details  git.MergeDetails
 }
 
 type mergeChoice uint8
@@ -74,6 +75,15 @@ func openMergeEditor(a *nativeApp, path string) {
 		}
 	})
 	m.load()
+	go func() {
+		details, err := m.app.g.MergeDetails()
+		if err == nil {
+			mygo.RunOnMain(func() {
+				m.details = details
+				m.win.Invalidate()
+			})
+		}
+	}()
 }
 
 func (m *mergeWindow) load() {
@@ -178,6 +188,12 @@ func (m *mergeWindow) view(c *ui.Context) {
 	ui.Column(c).Fill().Background(t.Background).Children(func() {
 		ui.Row(c).Height(46).Padding(0, 12).Gap(8).AlignItems(ui.Center).BorderWidth(0, 0, 1, 0).BorderColor(t.Border).Children(func() {
 			ui.Text(c, "Merge "+m.path).FontSize(13).FontWeight(600)
+			st := m.app.snapshot.State
+			if m.details.Ours.Branch != "" || m.details.Theirs.Branch != "" {
+				ui.Text(c, m.details.Ours.Branch+" → "+m.details.Theirs.Branch).FontSize(10).TextColor(t.TextMuted)
+			} else if st.OpOurs != "" || st.OpTheirs != "" {
+				ui.Text(c, st.OpOurs+" → "+st.OpTheirs).FontSize(10).TextColor(t.TextMuted)
+			}
 			ui.Spacer(c).Grow(1)
 			if m.err != "" {
 				ui.Text(c, m.err).FontSize(10).TextColor(t.Danger)
