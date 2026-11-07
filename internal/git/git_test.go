@@ -255,7 +255,7 @@ func TestBranchesStashAndRefs(t *testing.T) {
 	if st.State.Changed != 0 {
 		t.Fatalf("working tree not clean after stash: %+v", st.Changes)
 	}
-	if _, err := repo.StashApply(context.Background(), 0, true); err != nil {
+	if _, err := repo.StashApply(context.Background(), 0, true, false); err != nil {
 		t.Fatalf("StashApply: %v", err)
 	}
 	st, _ = repo.Status(context.Background(), false)

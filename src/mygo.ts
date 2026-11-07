@@ -353,6 +353,13 @@ export interface MergeSide {
   time: number;
 }
 
+export interface PatchOptions {
+  paths: string[];
+  staged: boolean;
+  revision: string;
+  from: string;
+}
+
 export interface PlanCommit {
   hash: string;
   short: string;
@@ -535,6 +542,16 @@ export interface Settings {
   /** percent, 100 is the design size */
   uiScale: number;
   recent: RecentRepo[];
+}
+
+export interface Shelf {
+  name: string;
+  time: number;
+  label: string;
+  path: string;
+  size: number;
+  files: number;
+  preview: string;
 }
 
 export interface SourceFile {
@@ -749,6 +766,18 @@ export const Git = {
   applyLines(opts: DiffOptions, lines: number[], action: string): Promise<void> {
     return call("Git.ApplyLines", opts, lines, action);
   },
+  /** ApplyPatch applies patch text to the working tree. */
+  applyPatch(patch: string, reverse: boolean): Promise<string> {
+    return call("Git.ApplyPatch", patch, reverse);
+  },
+  /** ApplyPatchFile reads a patch file chosen by the user and applies it. */
+  applyPatchFile(reverse: boolean): Promise<string> {
+    return call("Git.ApplyPatchFile", reverse);
+  },
+  /** ApplyShelf applies a shelf, optionally dropping it. */
+  applyShelf(name: string, drop: boolean): Promise<string> {
+    return call("Git.ApplyShelf", name, drop);
+  },
   /**
    * Blame annotates a file at a revision ("" for the working tree, "INDEX" for
    * the staged copy).
@@ -774,6 +803,10 @@ export const Git = {
   /** CleanupCandidates lists branches a cleanup can delete. */
   cleanupCandidates(): Promise<BranchCleanup> {
     return call("Git.CleanupCandidates");
+  },
+  /** ClearStashes drops every stash entry. */
+  clearStashes(): Promise<string> {
+    return call("Git.ClearStashes");
   },
   /** Commit commits the selected changes. */
   commit(opts: CommitOptions): Promise<CommitResult> {
@@ -823,6 +856,10 @@ export const Git = {
   createFile(path: string): Promise<void> {
     return call("Git.CreateFile", path);
   },
+  /** CreatePatch returns the selected changes as a unified patch. */
+  createPatch(opts: PatchOptions): Promise<string> {
+    return call("Git.CreatePatch", opts);
+  },
   /** CreateTag creates a tag. */
   createTag(opts: TagOptions): Promise<void> {
     return call("Git.CreateTag", opts);
@@ -853,6 +890,10 @@ export const Git = {
   /** Diff returns one file's diff. */
   diff(opts: DiffOptions): Promise<FileDiff> {
     return call("Git.Diff", opts);
+  },
+  /** DropShelf removes a shelf. */
+  dropShelf(name: string): Promise<string> {
+    return call("Git.DropShelf", name);
   },
   /** Fetch fetches and streams git's output. */
   fetch(opts: FetchOptions, out: Channel<string>): Promise<string> {
@@ -1016,6 +1057,10 @@ export const Git = {
   renameRemote(oldName: string, newName: string): Promise<void> {
     return call("Git.RenameRemote", oldName, newName);
   },
+  /** RenameShelf renames a shelf. */
+  renameShelf(name: string, newName: string): Promise<void> {
+    return call("Git.RenameShelf", name, newName);
+  },
   /**
    * Reset moves the current branch. It deliberately does not stash: a hard
    * reset is asked for to throw local changes away.
@@ -1053,12 +1098,20 @@ export const Git = {
   saveFile(path: string, text: string): Promise<void> {
     return call("Git.SaveFile", path, text);
   },
+  /** SavePatch asks for a file and writes the patch there. */
+  savePatch(opts: PatchOptions, name: string): Promise<string> {
+    return call("Git.SavePatch", opts, name);
+  },
   /**
    * SaveResolution writes the result pane and stages the path when the
    * content no longer has conflict markers.
    */
   saveResolution(path: string, content: string, stage: boolean): Promise<void> {
     return call("Git.SaveResolution", path, content, stage);
+  },
+  /** SaveShelf saves and discards the selected changes. */
+  saveShelf(name: string, opts: PatchOptions): Promise<Shelf> {
+    return call("Git.SaveShelf", name, opts);
   },
   /**
    * SearchSymbol finds a word across the working tree, for jumping to a
@@ -1079,6 +1132,14 @@ export const Git = {
   setUpstream(branch: string, upstream: string): Promise<void> {
     return call("Git.SetUpstream", branch, upstream);
   },
+  /** ShelfPatch reads one shelf's patch, for the viewer. */
+  shelfPatch(name: string): Promise<string> {
+    return call("Git.ShelfPatch", name);
+  },
+  /** Shelves lists saved shelves. */
+  shelves(): Promise<Shelf[]> {
+    return call("Git.Shelves");
+  },
   /** ShowCommit returns a commit and its files. */
   showCommit(hash: string): Promise<CommitDetail> {
     return call("Git.ShowCommit", hash);
@@ -1096,8 +1157,8 @@ export const Git = {
     return call("Git.StageIntent", paths);
   },
   /** StashApply applies or pops a stash. */
-  stashApply(index: number, pop: boolean): Promise<string> {
-    return call("Git.StashApply", index, pop);
+  stashApply(index: number, pop: boolean, restoreIndex: boolean): Promise<string> {
+    return call("Git.StashApply", index, pop, restoreIndex);
   },
   /** StashDrop drops a stash. */
   stashDrop(index: number): Promise<string> {

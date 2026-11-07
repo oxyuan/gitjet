@@ -235,6 +235,11 @@ const T = {
     operationFetch: "Fetch",
     operationClone: "Clone",
     commitChecksTitle: "Commit checks",
+    clearStashesTitle: "Clear all stashes",
+    clearStashes: "Clear all stashes",
+    clearStashesMessage: "Every stash entry of this repository is deleted. This cannot be undone.",
+    patchSaved: "Patch saved",
+    patchApplied: "Patch applied",
     commitChecksMessage: "{n} problems were found. Commit anyway?",
     commitAnyway: "Commit Anyway",
     commitRebaseNoUpstream: "The branch has no upstream to rebase onto.",
@@ -444,6 +449,11 @@ const T = {
     operationFetch: "Fetch",
     operationClone: "克隆",
     commitChecksTitle: "提交检查",
+    clearStashesTitle: "清空所有 Stash",
+    clearStashes: "清空所有 Stash",
+    clearStashesMessage: "该仓库的所有 Stash 条目都会被删除，且无法撤销。",
+    patchSaved: "补丁已保存",
+    patchApplied: "补丁已应用",
     commitChecksMessage: "发现 {n} 个问题，仍要提交吗？",
     commitAnyway: "仍然提交",
     commitRebaseNoUpstream: "当前分支没有可 Rebase 的上游。",
@@ -554,7 +564,7 @@ type Dialog =
   | { kind: "merge"; refs: string[] }
   | { kind: "editHistory"; onto: string }
   | { kind: "stashDetail"; index: number; refName: string }
-  | { kind: "repoTools"; tab: "worktrees" | "submodules" | "lfs" }
+  | { kind: "repoTools"; tab: "worktrees" | "submodules" | "shelves" | "lfs" }
   | { kind: "cleanupBranches" }
   | { kind: "conflicts" }
   | { kind: "compare"; ref: string }
@@ -2082,9 +2092,9 @@ function AppShell({ onLangChange }: { onLangChange: (lang: Lang) => void }) {
     });
   };
 
-  const stashApply = async (index: number, pop: boolean) => {
+  const stashApply = async (index: number, pop: boolean, restoreIndex: boolean) => {
     await withBusy(async () => {
-      await Git.stashApply(index, pop);
+      await Git.stashApply(index, pop, restoreIndex);
       notify("success", pop ? t("stashPopped") : t("stashApplied"));
       await reload(false);
     });
@@ -2100,6 +2110,38 @@ function AppShell({ onLangChange }: { onLangChange: (lang: Lang) => void }) {
     if (!ok) return;
     await withBusy(async () => {
       await Git.stashDrop(index);
+      await reload(false);
+    });
+  };
+
+  const clearStashes = async () => {
+    const ok = await ask({
+      title: t("clearStashesTitle"),
+      message: t("clearStashesMessage"),
+      confirmLabel: t("clearStashes"),
+      danger: true,
+    });
+    if (!ok) return;
+    await withBusy(async () => {
+      await Git.clearStashes();
+      await reload(false);
+    });
+  };
+
+  const createPatch = async (paths: string[]) => {
+    await withBusy(async () => {
+      const target = await Git.savePatch(
+        { paths, staged: false, revision: "", from: "" },
+        "changes.patch",
+      );
+      if (target) notify("success", t("patchSaved"), target);
+    });
+  };
+
+  const applyPatch = async () => {
+    await withBusy(async () => {
+      const out = await Git.applyPatchFile(false);
+      if (out) notify("success", t("patchApplied"), out.split("\n")[0]);
       await reload(false);
     });
   };
@@ -2349,7 +2391,10 @@ function AppShell({ onLangChange }: { onLangChange: (lang: Lang) => void }) {
     },
     onResolveConflicts: () => setDialog({ kind: "conflicts" }),
     onStashPush: () => setDialog({ kind: "stash" }),
-    onStashApply: (index, pop) => void stashApply(index, pop),
+    onStashApply: (index, pop, restoreIndex) => void stashApply(index, pop, restoreIndex),
+    onClearStashes: () => void clearStashes(),
+    onCreatePatch: (paths) => void createPatch(paths),
+    onApplyPatch: () => void applyPatch(),
     onStashDrop: (index) => void stashDrop(index),
   };
 
@@ -2924,9 +2969,9 @@ function AppShell({ onLangChange }: { onLangChange: (lang: Lang) => void }) {
           refName={dialog.refName}
           onClose={() => setDialog(null)}
           onOpenDiff={(index, path) => void openStashDiff(index, path)}
-          onApply={(index, pop) => {
+          onApply={(index, pop, restoreIndex) => {
             setDialog(null);
-            void stashApply(index, pop);
+            void stashApply(index, pop, restoreIndex);
           }}
           onDrop={(index) => {
             setDialog(null);

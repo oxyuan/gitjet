@@ -728,7 +728,7 @@ func (r *Repo) Stashes(ctx context.Context) ([]Stash, error) {
 }
 
 // StashApply applies a stash, keeping it, or pops it.
-func (r *Repo) StashApply(ctx context.Context, index int, pop bool) (string, error) {
+func (r *Repo) StashApply(ctx context.Context, index int, pop, restoreIndex bool) (string, error) {
 	if index < 0 {
 		return "", errors.New("invalid stash")
 	}
@@ -736,7 +736,12 @@ func (r *Repo) StashApply(ctx context.Context, index int, pop bool) (string, err
 	if pop {
 		action = "pop"
 	}
-	return r.writeRun(ctx, "stash", action, "stash@{"+strconv.Itoa(index)+"}")
+	args := []string{"stash", action}
+	if restoreIndex {
+		args = append(args, "--index")
+	}
+	args = append(args, "stash@{"+strconv.Itoa(index)+"}")
+	return r.writeRun(ctx, args...)
 }
 
 // StashRestore pops a stash and restores what was staged, which is how the

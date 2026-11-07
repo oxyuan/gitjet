@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { Channel } from "mygo-runtime";
 import { Git } from "./mygo";
-import type { LFSStatus, Submodule, Worktree } from "./mygo";
+import type { LFSStatus, Shelf, Submodule, Worktree } from "./mygo";
 import { Icon } from "./icons";
 import { useT } from "./i18n";
 import { Button, Checkbox, Field, Modal, Spinner, TextInput, cx } from "./ui";
@@ -11,6 +11,15 @@ const T = {
     title: "Repository Tools",
     worktrees: "Worktrees",
     submodules: "Submodules",
+    shelves: "Shelves",
+    shelfEmpty: "No shelves",
+    shelfFiles: "{n} files",
+    shelfName: "Shelf name",
+    shelveChanges: "Shelve changes",
+    applyPatchFile: "Apply patch file…",
+    apply: "Apply",
+    pop: "Apply and Drop",
+    drop: "Drop",
     lfs: "Git LFS",
     close: "Close",
     loading: "Loading",
@@ -48,6 +57,15 @@ const T = {
     title: "仓库工具",
     worktrees: "工作树",
     submodules: "子模块",
+    shelves: "搁置",
+    shelfEmpty: "没有搁置内容",
+    shelfFiles: "{n} 个文件",
+    shelfName: "搁置名称",
+    shelveChanges: "搁置当前更改",
+    applyPatchFile: "应用补丁文件…",
+    apply: "应用",
+    pop: "应用并删除",
+    drop: "删除",
     lfs: "Git LFS",
     close: "关闭",
     loading: "加载中",
@@ -83,7 +101,7 @@ const T = {
   },
 } as const;
 
-type RepoTab = "worktrees" | "submodules" | "lfs";
+type RepoTab = "worktrees" | "submodules" | "shelves" | "lfs";
 
 /** submoduleState is the badge git's status prefix stands for. */
 function submoduleState(state: string): string {
@@ -119,6 +137,8 @@ export function RepoExtrasDialog({
   const [trees, setTrees] = useState<Worktree[] | null>(null);
   const [subs, setSubs] = useState<Submodule[] | null>(null);
   const [lfs, setLfs] = useState<LFSStatus | null>(null);
+  const [shelves, setShelves] = useState<Shelf[] | null>(null);
+  const [shelfName, setShelfName] = useState("");
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
   const [path, setPath] = useState("");
@@ -130,6 +150,7 @@ export function RepoExtrasDialog({
     try {
       if (tab === "worktrees") setTrees(await Git.worktrees());
       else if (tab === "submodules") setSubs(await Git.submodules());
+      else if (tab === "shelves") setShelves(await Git.shelves());
       else setLfs(await Git.lfs());
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
@@ -179,7 +200,7 @@ export function RepoExtrasDialog({
       }
     >
       <div className="tabs repo-tabs" role="tablist">
-        {(["worktrees", "submodules", "lfs"] as const).map((key) => (
+        {(["worktrees", "submodules", "shelves", "lfs"] as const).map((key) => (
           <button
             key={key}
             role="tab"
@@ -262,6 +283,58 @@ export function RepoExtrasDialog({
           <div className="repo-actions">
             <Button onClick={() => void act(() => Git.updateSubmodules(true))}>{t("initUpdate")}</Button>
             <Button onClick={() => void act(() => Git.updateSubmodules(false))}>{t("update")}</Button>
+          </div>
+        </div>
+      )}
+
+      {tab === "shelves" && (
+        <div className="repo-panel">
+          {!shelves && !error && <Spinner label={t("loading")} />}
+          {shelves?.length === 0 && <p className="setting-hint">{t("shelfEmpty")}</p>}
+          <div className="repo-list">
+            {shelves?.map((shelf) => (
+              <div className="repo-row" key={shelf.name}>
+                <Icon name="stash" size={14} />
+                <div className="repo-row-main">
+                  <span className="repo-row-title">{shelf.name}</span>
+                  <span className="muted repo-row-sub">
+                    {t("shelfFiles", { n: shelf.files })}
+                    {shelf.preview ? ` · ${shelf.preview}` : ""}
+                  </span>
+                </div>
+                <Button onClick={() => void act(() => Git.applyShelf(shelf.name, false))}>{t("apply")}</Button>
+                <Button onClick={() => void act(() => Git.applyShelf(shelf.name, true))}>{t("pop")}</Button>
+                <Button variant="danger" onClick={() => void act(() => Git.dropShelf(shelf.name))}>
+                  {t("drop")}
+                </Button>
+              </div>
+            ))}
+          </div>
+          <div className="dialog-form repo-add">
+            <div className="repo-add-title">{t("shelveChanges")}</div>
+            <Field label={t("shelfName")}>
+              <TextInput value={shelfName} onChange={setShelfName} placeholder="work in progress" />
+            </Field>
+            <div className="repo-actions">
+              <Button
+                variant="primary"
+                disabled={!shelfName.trim()}
+                onClick={() =>
+                  void act(async () => {
+                    await Git.saveShelf(shelfName.trim(), {
+                      paths: [],
+                      staged: false,
+                      revision: "",
+                      from: "",
+                    });
+                    setShelfName("");
+                  })
+                }
+              >
+                {t("shelveChanges")}
+              </Button>
+              <Button onClick={() => void act(() => Git.applyPatchFile(false))}>{t("applyPatchFile")}</Button>
+            </div>
           </div>
         </div>
       )}

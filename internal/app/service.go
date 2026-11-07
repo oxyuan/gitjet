@@ -1179,14 +1179,14 @@ func (g *Git) StashPush(opts git.StashOptions) (string, error) {
 }
 
 // StashApply applies or pops a stash.
-func (g *Git) StashApply(index int, pop bool) (string, error) {
+func (g *Git) StashApply(index int, pop, restoreIndex bool) (string, error) {
 	repo, err := g.c.currentRepo()
 	if err != nil {
 		return "", err
 	}
 	ctx, trace := git.WithCommandTrace(context.Background())
 	started := time.Now()
-	out, err := repo.StashApply(ctx, index, pop)
+	out, err := repo.StashApply(ctx, index, pop, restoreIndex)
 	action := "stash-apply"
 	if pop {
 		action = "stash-pop"
@@ -1214,6 +1214,172 @@ func (g *Git) StashDrop(index int) (string, error) {
 	}
 	g.notify()
 	return appendCommands(out, *trace), nil
+}
+
+// ClearStashes drops every stash entry.
+func (g *Git) ClearStashes() (string, error) {
+	repo, err := g.c.currentRepo()
+	if err != nil {
+		return "", err
+	}
+	out, err := repo.ClearStashes(context.Background())
+	if err == nil {
+		g.notify()
+	}
+	return out, err
+}
+
+// CreatePatch returns the selected changes as a unified patch.
+func (g *Git) CreatePatch(opts git.PatchOptions) (string, error) {
+	repo, err := g.c.currentRepo()
+	if err != nil {
+		return "", err
+	}
+	return repo.CreatePatch(context.Background(), opts)
+}
+
+// SavePatch asks for a file and writes the patch there.
+func (g *Git) SavePatch(opts git.PatchOptions, name string) (string, error) {
+	repo, err := g.c.currentRepo()
+	if err != nil {
+		return "", err
+	}
+	patch, err := repo.CreatePatch(context.Background(), opts)
+	if err != nil {
+		return "", err
+	}
+	if strings.TrimSpace(patch) == "" {
+		return "", errors.New("there are no changes for the patch")
+	}
+	win := mygo.CallerWindow(context.Background())
+	chosen, err := mygo.Dialog.Save(mygo.SaveDialogOptions{
+		Parent:      win,
+		Title:       g.c.uiLang().tr("dialog.savePatch"),
+		DefaultPath: filepath.Join(repo.Dir(), name),
+		ButtonLabel: g.c.uiLang().tr("dialog.save"),
+		Filters:     []mygo.FileFilter{{Name: "Patch", Extensions: []string{"patch", "diff"}}},
+	})
+	if err != nil || chosen == "" {
+		return "", err
+	}
+	if err := os.WriteFile(chosen, []byte(patch), 0o644); err != nil {
+		return "", err
+	}
+	return chosen, nil
+}
+
+// ApplyPatch applies patch text to the working tree.
+func (g *Git) ApplyPatch(patch string, reverse bool) (string, error) {
+	repo, err := g.c.currentRepo()
+	if err != nil {
+		return "", err
+	}
+	out, err := repo.ApplyPatch(context.Background(), patch, reverse, false)
+	if err != nil {
+		return out, err
+	}
+	g.notify()
+	return out, nil
+}
+
+// ApplyPatchFile reads a patch file chosen by the user and applies it.
+func (g *Git) ApplyPatchFile(reverse bool) (string, error) {
+	repo, err := g.c.currentRepo()
+	if err != nil {
+		return "", err
+	}
+	win := mygo.CallerWindow(context.Background())
+	paths, err := mygo.Dialog.Open(mygo.OpenDialogOptions{
+		Parent:  win,
+		Title:   g.c.uiLang().tr("dialog.openPatch"),
+		Filters: []mygo.FileFilter{{Name: "Patch", Extensions: []string{"patch", "diff"}}},
+	})
+	if err != nil || len(paths) == 0 {
+		return "", err
+	}
+	data, err := os.ReadFile(paths[0])
+	if err != nil {
+		return "", err
+	}
+	out, err := repo.ApplyPatch(context.Background(), string(data), reverse, false)
+	if err != nil {
+		return out, err
+	}
+	g.notify()
+	return out, nil
+}
+
+// Shelves lists saved shelves.
+func (g *Git) Shelves() ([]git.Shelf, error) {
+	repo, err := g.c.currentRepo()
+	if err != nil {
+		return nil, err
+	}
+	return repo.Shelves(context.Background())
+}
+
+// SaveShelf saves and discards the selected changes.
+func (g *Git) SaveShelf(name string, opts git.PatchOptions) (git.Shelf, error) {
+	repo, err := g.c.currentRepo()
+	if err != nil {
+		return git.Shelf{}, err
+	}
+	shelf, err := repo.SaveShelf(context.Background(), name, opts)
+	if err != nil {
+		return git.Shelf{}, err
+	}
+	g.notify()
+	return shelf, nil
+}
+
+// ApplyShelf applies a shelf, optionally dropping it.
+func (g *Git) ApplyShelf(name string, drop bool) (string, error) {
+	repo, err := g.c.currentRepo()
+	if err != nil {
+		return "", err
+	}
+	out, err := repo.ApplyShelf(context.Background(), name, drop)
+	if err != nil {
+		return out, err
+	}
+	g.notify()
+	return out, nil
+}
+
+// ShelfPatch reads one shelf's patch, for the viewer.
+func (g *Git) ShelfPatch(name string) (string, error) {
+	repo, err := g.c.currentRepo()
+	if err != nil {
+		return "", err
+	}
+	return repo.ShelfPatch(context.Background(), name)
+}
+
+// DropShelf removes a shelf.
+func (g *Git) DropShelf(name string) (string, error) {
+	repo, err := g.c.currentRepo()
+	if err != nil {
+		return "", err
+	}
+	out, err := repo.DropShelf(context.Background(), name)
+	if err != nil {
+		return out, err
+	}
+	g.notify()
+	return out, nil
+}
+
+// RenameShelf renames a shelf.
+func (g *Git) RenameShelf(name, newName string) error {
+	repo, err := g.c.currentRepo()
+	if err != nil {
+		return err
+	}
+	if err := repo.RenameShelf(context.Background(), name, newName); err != nil {
+		return err
+	}
+	g.notify()
+	return nil
 }
 
 // Conflict reads the stages of an unmerged path.

@@ -254,6 +254,7 @@ const T = {
     "stashd.open": "Open the diff",
     "stashd.pop": "Pop",
     "stashd.apply": "Apply",
+    "stashd.restoreIndex": "Reinstate the index (--index)",
     "stashd.branch": "Restore on a new branch",
     "stashd.drop": "Drop",
     "stashd.branchPlaceholder": "branch name",
@@ -504,6 +505,7 @@ const T = {
     "stashd.open": "查看差异",
     "stashd.pop": "弹出",
     "stashd.apply": "应用",
+    "stashd.restoreIndex": "还原暂存区（--index）",
     "stashd.branch": "恢复到新分支",
     "stashd.drop": "Stash drop",
     "stashd.branchPlaceholder": "分支名",
@@ -2326,7 +2328,7 @@ export function StashDetailDialog({
   refName: string;
   onClose: () => void;
   onOpenDiff: (index: number, path: string) => void;
-  onApply: (index: number, pop: boolean) => void;
+  onApply: (index: number, pop: boolean, restoreIndex: boolean) => void;
   onDrop: (index: number) => void;
   onBranch: (index: number, branch: string) => void;
 }) {
@@ -2334,6 +2336,7 @@ export function StashDetailDialog({
   const [files, setFiles] = useState<StashFile[]>([]);
   const [loading, setLoading] = useState(true);
   const [branch, setBranch] = useState(`stash-${index}`);
+  const [restoreIndex, setRestoreIndex] = useState(false);
 
   useEffect(() => {
     let alive = true;
@@ -2356,8 +2359,8 @@ export function StashDetailDialog({
       footer={
         <>
           <Button onClick={onClose}>{t("stashd.cancel")}</Button>
-          <Button onClick={() => onApply(index, false)}>{t("stashd.apply")}</Button>
-          <Button variant="primary" onClick={() => onApply(index, true)}>
+          <Button onClick={() => onApply(index, false, restoreIndex)}>{t("stashd.apply")}</Button>
+          <Button variant="primary" onClick={() => onApply(index, true, restoreIndex)}>
             {t("stashd.pop")}
           </Button>
         </>
@@ -2393,6 +2396,11 @@ export function StashDetailDialog({
           ))}
         </div>
       )}
+      <Checkbox
+        checked={restoreIndex}
+        onChange={setRestoreIndex}
+        label={t("stashd.restoreIndex")}
+      />
       <div className="dialog-form stashd-branch">
         <Field label={t("stashd.branch")}>
           <TextInput value={branch} onChange={setBranch} placeholder={t("stashd.branchPlaceholder")} />

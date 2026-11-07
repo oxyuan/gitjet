@@ -90,6 +90,9 @@ const T = {
     commitAndPush: "Commit and Push…",
     commitAndRebase: "Commit and Rebase",
     undoCommit: "Undo Commit",
+    clearStashes: "Clear all stashes",
+    createPatch: "Create Patch…",
+    applyPatch: "Apply Patch…",
     allowEmpty: "Allow an empty commit",
     signCommit: "Sign the commit (GPG)",
     reformat: "Reflow the message to 72 columns",
@@ -167,6 +170,9 @@ const T = {
     commitAndPush: "Commit 并 Push…",
     commitAndRebase: "提交并 Rebase",
     undoCommit: "撤销上次提交",
+    clearStashes: "清空所有 Stash",
+    createPatch: "创建补丁…",
+    applyPatch: "应用补丁…",
     allowEmpty: "允许空提交",
     signCommit: "签名提交（GPG）",
     reformat: "按 72 列重排提交信息",
@@ -226,8 +232,11 @@ export interface CommitActions {
   onShowStashDetail: (index: number) => void;
   onResolveConflicts: () => void;
   onStashPush: () => void;
-  onStashApply: (index: number, pop: boolean) => void;
+  onStashApply: (index: number, pop: boolean, restoreIndex: boolean) => void;
   onStashDrop: (index: number) => void;
+  onClearStashes: () => void;
+  onCreatePatch: (paths: string[]) => void;
+  onApplyPatch: () => void;
 }
 
 export function entriesFor(snapshot: ChangesSnapshot): FileEntry[] {
@@ -709,6 +718,17 @@ export function CommitPanel({
                   onClick: actions.onUndoCommit,
                 },
                 {
+                  label: t("createPatch"),
+                  icon: "file",
+                  disabled: entries.length === 0,
+                  onClick: () => actions.onCreatePatch([...selected]),
+                },
+                {
+                  label: t("applyPatch"),
+                  icon: "download",
+                  onClick: actions.onApplyPatch,
+                },
+                {
                   label: t("stashChanges"),
                   icon: "stash",
                   disabled: entries.length === 0,
@@ -772,6 +792,7 @@ export function CommitPanel({
               <span className="section-title">{t("stashes")}</span>
               <span className="section-count">{snapshot.stashes.length}</span>
               <span className="spacer" />
+              <IconButton icon="trash" title={t("clearStashes")} small onClick={actions.onClearStashes} />
               <IconButton icon="plus" title={t("stashChanges")} small onClick={actions.onStashPush} />
             </div>
             {snapshot.stashes.map((s) => (
@@ -784,10 +805,10 @@ export function CommitPanel({
                 <span className="stash-ref">stash@{"{" + s.index + "}"}</span>
                 <span className="tree-name">{s.message}</span>
                 <span className="stash-actions" onClick={(e) => e.stopPropagation()}>
-                  <button className="mini-btn" onClick={() => actions.onStashApply(s.index, true)} title={t("popStash")}>
+                  <button className="mini-btn" onClick={() => actions.onStashApply(s.index, true, false)} title={t("popStash")}>
                     {t("pop")}
                   </button>
-                  <button className="mini-btn" onClick={() => actions.onStashApply(s.index, false)} title={t("applyStash")}>
+                  <button className="mini-btn" onClick={() => actions.onStashApply(s.index, false, false)} title={t("applyStash")}>
                     {t("apply")}
                   </button>
                   <button className="mini-btn danger" onClick={() => actions.onStashDrop(s.index)} title={t("dropStash")}>
