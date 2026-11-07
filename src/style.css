@@ -8933,3 +8933,43 @@ body.resizing-row .log-detail-split::after {
 .find-bar button:focus-visible {
   outline: none;
 }
+
+/* Repository setup and remotes */
+.no-repo-actions {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  flex-wrap: wrap;
+  justify-content: center;
+}
+
+.remote-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.remote-row {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+}
+
+.remote-row > .text-input {
+  flex: 1 1 0;
+  min-width: 0;
+}
+
+.remote-name {
+  flex: 0 0 110px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-weight: 600;
+}
+
+.remote-add {
+  padding-top: 8px;
+  border-top: 1px solid var(--border);
+  margin-top: 4px;
+}

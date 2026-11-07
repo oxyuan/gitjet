@@ -43,6 +43,7 @@ import {
   ConflictSummaryDialog,
 } from "./Dialogs";
 import { EditHistoryDialog } from "./EditHistoryDialog";
+import { CloneDialog, InitDialog, RemotesDialog } from "./RepoSetupDialogs";
 import { RepoExtrasDialog } from "./RepoExtrasDialog";
 import { FileIcon, Icon } from "./icons";
 import { useFileMenu } from "./FileMenu";
@@ -231,8 +232,15 @@ const T = {
     operationPush: "Push",
     operationPull: "Update Project",
     operationFetch: "Fetch",
+    operationClone: "Clone",
+    operationInit: "Create Repository",
+    removeRemoteTitle: "Remove remote",
+    removeRemoteMessage: "Remove {name} and its remote-tracking refs?",
+    remoteAdded: "Remote added",
     noRepoMessage: "Open a Git repository to get started.",
     openRepoEllipsis: "Open Repository…",
+    cloneRepoEllipsis: "Clone…",
+    createRepoEllipsis: "Create Repository…",
     welcomeHeadline: "Git, with a clearer view.",
     welcomeTagline:
       "Review changes, follow every branch, and resolve conflicts line by line — then land a clean commit without leaving the window.",
@@ -425,8 +433,15 @@ const T = {
     operationPush: "Push",
     operationPull: "Pull",
     operationFetch: "Fetch",
+    operationClone: "克隆",
+    operationInit: "新建仓库",
+    removeRemoteTitle: "删除远端",
+    removeRemoteMessage: "删除 {name} 及其远程跟踪引用？",
+    remoteAdded: "远端已添加",
     noRepoMessage: "打开一个 Git 仓库以开始使用。",
     openRepoEllipsis: "打开仓库…",
+    cloneRepoEllipsis: "克隆…",
+    createRepoEllipsis: "新建仓库…",
     welcomeHeadline: "Git，看得更清楚。",
     welcomeTagline: "审查更改、跟踪每个分支、逐行解决冲突，然后不离开窗口就能完成一次干净的提交。",
     openRepository: "打开仓库",
@@ -525,7 +540,10 @@ type Dialog =
   | { kind: "repoTools"; tab: "worktrees" | "submodules" | "lfs" }
   | { kind: "cleanupBranches" }
   | { kind: "conflicts" }
-  | { kind: "compare"; ref: string };
+  | { kind: "compare"; ref: string }
+  | { kind: "clone" }
+  | { kind: "init" }
+  | { kind: "remotes" };
 
 interface ConfirmState {
   title: string;
@@ -1161,6 +1179,65 @@ function AppShell({ onLangChange }: { onLangChange: (lang: Lang) => void }) {
     }
   };
 
+  // openNewRepo shows a repository the app just created: another window
+  // when one is already open, so nothing unsaved here is dropped.
+  const openNewRepo = async (dir: string) => {
+    if (repoOpenRef.current) {
+      try {
+        await Workspace.openInWindow(dir);
+      } catch (err) {
+        fail(t("openRepoFailed"), err);
+      }
+      return;
+    }
+    await openRepo(dir);
+  };
+
+  const cloneRepo = async (url: string, dir: string) => {
+    setDialog(null);
+    const ok = await runOperation(t("operationClone"), "fetch", (channel) => Workspace.clone(url, dir, channel));
+    if (ok) await openNewRepo(dir);
+  };
+
+  const initRepo = async (dir: string, branch: string) => {
+    setDialog(null);
+    const ok = await runOperation(t("operationInit"), "commit", () => Workspace.init(dir, branch));
+    if (ok) await openNewRepo(dir);
+  };
+
+  const addRemote = async (name: string, url: string) =>
+    withBusy(async () => {
+      await Git.addRemote(name, url);
+      notify("success", t("remoteAdded"), name);
+      await reload(false);
+    });
+
+  const saveRemoteURL = async (name: string, url: string) =>
+    withBusy(async () => {
+      await Git.setRemoteURL(name, url);
+      await reload(false);
+    });
+
+  const renameRemote = async (oldName: string, newName: string) =>
+    withBusy(async () => {
+      await Git.renameRemote(oldName, newName);
+      await reload(false);
+    });
+
+  const removeRemote = async (name: string) => {
+    const ok = await ask({
+      title: t("removeRemoteTitle"),
+      message: t("removeRemoteMessage", { name }),
+      confirmLabel: t("removeRemoteTitle"),
+      danger: true,
+    });
+    if (!ok) return;
+    await withBusy(async () => {
+      await Git.removeRemote(name);
+      await reload(false);
+    });
+  };
+
   const closeRepo = async () => {
     const ok = await ask({
       title: t("closeRepoTitle"),
@@ -1498,7 +1575,7 @@ function AppShell({ onLangChange }: { onLangChange: (lang: Lang) => void }) {
     title: string,
     icon: OperationState["icon"],
     fn: (channel: Channel<string>) => Promise<string>,
-  ) => {
+  ): Promise<boolean> => {
     opLines.current = [];
     setOp({ title, icon, lines: [], running: true, startedAt: Date.now() });
     setOpOpen(false);
@@ -1542,6 +1619,7 @@ function AppShell({ onLangChange }: { onLangChange: (lang: Lang) => void }) {
       }
     }
     void loadLog(true);
+    return failed === undefined;
   };
 
   // runQuiet shows the output of a quick operation, including the git
@@ -1997,6 +2075,15 @@ function AppShell({ onLangChange }: { onLangChange: (lang: Lang) => void }) {
         case "open":
           void openRepo();
           break;
+        case "clone":
+          setDialog({ kind: "clone" });
+          break;
+        case "init":
+          setDialog({ kind: "init" });
+          break;
+        case "remotes":
+          if (repoOpenRef.current) setDialog({ kind: "remotes" });
+          break;
         case "quickopen":
           if (repoOpenRef.current) setQuickOpen(true);
           break;
@@ -2325,7 +2412,11 @@ function AppShell({ onLangChange }: { onLangChange: (lang: Lang) => void }) {
               onToggleStashes={() => setShowStashes(!showStashes)}
                 />
               ) : (
-                <NoRepo onOpen={() => void openRepo()} />
+                <NoRepo
+                  onOpen={() => void openRepo()}
+                  onClone={() => setDialog({ kind: "clone" })}
+                  onInit={() => setDialog({ kind: "init" })}
+                />
               ))}
             {tab === "branch" &&
               (snapshot ? (
@@ -2354,7 +2445,11 @@ function AppShell({ onLangChange }: { onLangChange: (lang: Lang) => void }) {
                   onCompare={(ref) => setDialog({ kind: "compare", ref })}
                 />
               ) : (
-                <NoRepo onOpen={() => void openRepo()} />
+                <NoRepo
+                  onOpen={() => void openRepo()}
+                  onClone={() => setDialog({ kind: "clone" })}
+                  onInit={() => setDialog({ kind: "init" })}
+                />
               ))}
             {tab === "files" &&
               (repoOpen ? (
@@ -2369,7 +2464,11 @@ function AppShell({ onLangChange }: { onLangChange: (lang: Lang) => void }) {
                   onIgnore={(paths) => void ignorePaths(paths)}
                 />
               ) : (
-                <NoRepo onOpen={() => void openRepo()} />
+                <NoRepo
+                  onOpen={() => void openRepo()}
+                  onClone={() => setDialog({ kind: "clone" })}
+                  onInit={() => setDialog({ kind: "init" })}
+                />
               ))}
             {tab === "console" && (
               <ConsolePanel
@@ -2581,6 +2680,22 @@ function AppShell({ onLangChange }: { onLangChange: (lang: Lang) => void }) {
         />
       )}
 
+      {dialog?.kind === "clone" && (
+        <CloneDialog onClose={() => setDialog(null)} onSubmit={(url, dir) => void cloneRepo(url, dir)} />
+      )}
+      {dialog?.kind === "init" && (
+        <InitDialog onClose={() => setDialog(null)} onSubmit={(dir, branch) => void initRepo(dir, branch)} />
+      )}
+      {dialog?.kind === "remotes" && (
+        <RemotesDialog
+          remotes={remotes}
+          onAdd={(name, url) => void addRemote(name, url)}
+          onSaveURL={(name, url) => void saveRemoteURL(name, url)}
+          onRename={(oldName, newName) => void renameRemote(oldName, newName)}
+          onRemove={(name) => void removeRemote(name)}
+          onClose={() => setDialog(null)}
+        />
+      )}
       {dialog?.kind === "settings" && (
         <SettingsDialog
           settings={settings}
@@ -2811,15 +2926,19 @@ function operationLabel(op: string, t: Translate): string {
   }
 }
 
-function NoRepo({ onOpen }: { onOpen: () => void }) {
+function NoRepo({ onOpen, onClone, onInit }: { onOpen: () => void; onClone: () => void; onInit: () => void }) {
   const t = useT(T);
   return (
     <div className="no-repo">
       <Icon name="git" size={26} />
       <div>{t("noRepoMessage")}</div>
-      <Button variant="primary" onClick={onOpen}>
-        {t("openRepoEllipsis")}
-      </Button>
+      <div className="no-repo-actions">
+        <Button variant="primary" onClick={onOpen}>
+          {t("openRepoEllipsis")}
+        </Button>
+        <Button onClick={onClone}>{t("cloneRepoEllipsis")}</Button>
+        <Button onClick={onInit}>{t("createRepoEllipsis")}</Button>
+      </div>
     </div>
   );
 }

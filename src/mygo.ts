@@ -591,6 +591,13 @@ export const Workspace = {
   chooseFolder(): Promise<string> {
     return call("Workspace.ChooseFolder");
   },
+  /**
+   * Clone clones url into dir, streaming git's progress. The page opens the
+   * new repository when the call succeeds.
+   */
+  clone(url: string, dir: string, out: Channel<string>): Promise<string> {
+    return call("Workspace.Clone", url, dir, out);
+  },
   /** Close closes the open repository. */
   close(): Promise<void> {
     return call("Workspace.Close");
@@ -612,6 +619,10 @@ export const Workspace = {
    */
   defaultSettings(): Promise<Settings> {
     return call("Workspace.DefaultSettings");
+  },
+  /** Init creates a repository in dir; the page opens it afterwards. */
+  init(dir: string, branch: string): Promise<string> {
+    return call("Workspace.Init", dir, branch);
   },
   /** Open opens a repository and returns its local changes. */
   open(path: string): Promise<ChangesSnapshot> {
@@ -674,6 +685,10 @@ export const Git = {
   /** AbortOperation aborts the merge or rebase in progress. */
   abortOperation(): Promise<string> {
     return call("Git.AbortOperation");
+  },
+  /** AddRemote adds a remote and tells the page to refresh. */
+  addRemote(name: string, url: string): Promise<void> {
+    return call("Git.AddRemote", name, url);
   },
   /** AddWorktree checks a branch out in a new folder. */
   addWorktree(path: string, branch: string, newBranch: boolean): Promise<string> {
@@ -922,6 +937,10 @@ export const Git = {
   remotes(): Promise<Remote[]> {
     return call("Git.Remotes");
   },
+  /** RemoveRemote deletes a remote. */
+  removeRemote(name: string): Promise<void> {
+    return call("Git.RemoveRemote", name);
+  },
   /** RemoveWorktree deletes a working tree. */
   removeWorktree(path: string, force: boolean): Promise<string> {
     return call("Git.RemoveWorktree", path, force);
@@ -937,6 +956,10 @@ export const Git = {
   /** RenamePath moves a file or directory. */
   renamePath(from: string, to: string): Promise<void> {
     return call("Git.RenamePath", from, to);
+  },
+  /** RenameRemote renames a remote. */
+  renameRemote(oldName: string, newName: string): Promise<void> {
+    return call("Git.RenameRemote", oldName, newName);
   },
   /**
    * Reset moves the current branch. It deliberately does not stash: a hard
@@ -992,6 +1015,10 @@ export const Git = {
   /** SetActiveChangelist makes a changelist active. */
   setActiveChangelist(id: string): Promise<Changelists> {
     return call("Git.SetActiveChangelist", id);
+  },
+  /** SetRemoteURL points an existing remote at another URL. */
+  setRemoteURL(name: string, url: string): Promise<void> {
+    return call("Git.SetRemoteURL", name, url);
   },
   /** SetUpstream sets a branch's upstream. */
   setUpstream(branch: string, upstream: string): Promise<void> {

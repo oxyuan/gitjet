@@ -214,6 +214,27 @@ func (w *Workspace) Open(path string) (git.ChangesSnapshot, error) {
 	return snap, nil
 }
 
+// Clone clones url into dir, streaming git's progress. The page opens the
+// new repository when the call succeeds.
+func (w *Workspace) Clone(url, dir string, out *mygo.Channel[string]) (string, error) {
+	w.c.mu.Lock()
+	gitPath := w.c.settings.GitPath
+	w.c.mu.Unlock()
+	ctx, trace := git.WithCommandTrace(context.Background())
+	text, err := git.Clone(ctx, gitPath, url, dir, func(line string) { _ = out.Send(line) })
+	return appendCommands(text, *trace), err
+}
+
+// Init creates a repository in dir; the page opens it afterwards.
+func (w *Workspace) Init(dir, branch string) (string, error) {
+	w.c.mu.Lock()
+	gitPath := w.c.settings.GitPath
+	w.c.mu.Unlock()
+	ctx, trace := git.WithCommandTrace(context.Background())
+	text, err := git.InitRepo(ctx, gitPath, dir, branch)
+	return appendCommands(text, *trace), err
+}
+
 // Close closes the open repository.
 func (w *Workspace) Close() {
 	w.c.stopPolling()
@@ -766,6 +787,58 @@ func (g *Git) Checkout(ref string) (string, error) {
 	g.journalOperation(repo, JournalEntry{Action: "checkout", Commands: *trace, Output: out}, err, started)
 	g.notify()
 	return appendCommands(out, *trace), err
+}
+
+// AddRemote adds a remote and tells the page to refresh.
+func (g *Git) AddRemote(name, url string) error {
+	repo, err := g.c.currentRepo()
+	if err != nil {
+		return err
+	}
+	if err := repo.RemoteAdd(context.Background(), name, url); err != nil {
+		return err
+	}
+	g.notify()
+	return nil
+}
+
+// SetRemoteURL points an existing remote at another URL.
+func (g *Git) SetRemoteURL(name, url string) error {
+	repo, err := g.c.currentRepo()
+	if err != nil {
+		return err
+	}
+	if err := repo.RemoteSetURL(context.Background(), name, url); err != nil {
+		return err
+	}
+	g.notify()
+	return nil
+}
+
+// RemoveRemote deletes a remote.
+func (g *Git) RemoveRemote(name string) error {
+	repo, err := g.c.currentRepo()
+	if err != nil {
+		return err
+	}
+	if err := repo.RemoteRemove(context.Background(), name); err != nil {
+		return err
+	}
+	g.notify()
+	return nil
+}
+
+// RenameRemote renames a remote.
+func (g *Git) RenameRemote(oldName, newName string) error {
+	repo, err := g.c.currentRepo()
+	if err != nil {
+		return err
+	}
+	if err := repo.RemoteRename(context.Background(), oldName, newName); err != nil {
+		return err
+	}
+	g.notify()
+	return nil
 }
 
 // CreateBranch creates a branch and optionally checks it out.

@@ -172,6 +172,8 @@ func buildMenu(l lang) *mygo.Menu {
 		{Role: mygo.RoleAppMenu},
 		{Label: l.tr("menu.file"), Submenu: []*mygo.MenuItem{
 			{Label: l.tr("menu.openRepo"), Accelerator: "CmdOrCtrl+O", Click: send("open")},
+			{Label: l.tr("menu.clone"), Click: send("clone")},
+			{Label: l.tr("menu.init"), Click: send("init")},
 			// The repositories the app opened lately, as the system lists
 			// them in the Dock menu and the jump list; choosing one comes
 			// back through App.OnOpenFile.
@@ -208,6 +210,7 @@ func buildMenu(l lang) *mygo.Menu {
 			{Label: l.tr("menu.stash"), Accelerator: "CmdOrCtrl+Shift+S", Click: send("stash")},
 			mygo.Separator(),
 			{Label: l.tr("menu.repoTools"), Click: send("repo-tools")},
+			{Label: l.tr("menu.remotes"), Click: send("remotes")},
 			{Label: l.tr("menu.cleanupBranches"), Click: send("cleanup-branches")},
 			{Label: l.tr("menu.resolveConflicts"), Click: send("resolve-conflicts")},
 			mygo.Separator(),
