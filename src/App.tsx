@@ -2846,6 +2846,7 @@ function AppShell({ onLangChange }: { onLangChange: (lang: Lang) => void }) {
           />
         {snapshot && (
           <LogDock
+            root={state?.root ?? ""}
             result={logResult}
             detail={logDetail}
             loading={logLoading}

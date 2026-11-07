@@ -1,8 +1,10 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import type { Commit, CommitDetail, CommitFile, LogResult } from "./mygo";
+import { Git } from "./mygo";
+import type { Commit, CommitDetail, CommitFile, DiffOptions, FileDiff, LogResult } from "./mygo";
 import { computeGraph, graphWidth } from "./graph";
 import { FileIcon, Icon } from "./icons";
 import { useT } from "./i18n";
+import { DiffView } from "./DiffView";
 import { count } from "./i18n";
 import {
   ContextMenu,
@@ -53,6 +55,9 @@ const T = {
     selectCommit: "Select a commit to see its details",
     useRegex: "Match the search as a regular expression",
     annotateRevision: "Annotate this revision",
+    openInTab: "Open as a tab",
+    closePreview: "Close the preview",
+    previewFailed: "The preview could not be loaded",
     goToParent: "Go to the parent commit",
     goToChild: "Go to the child commit",
     inTagsOne: "In {n} tag",
@@ -118,6 +123,9 @@ const T = {
     selectCommit: "选择一个提交以查看详情",
     useRegex: "按正则表达式匹配",
     annotateRevision: "标注此版本",
+    openInTab: "在标签页中打开",
+    closePreview: "关闭预览",
+    previewFailed: "无法加载预览",
     goToParent: "转到父提交",
     goToChild: "转到子提交",
     inTagsOne: "位于 {n} 个标签",
@@ -184,6 +192,7 @@ export interface LogFilters {
 
 /** Commit history on the left and the selected commit on the right. */
 export function LogDock({
+  root,
   result,
   detail,
   loading,
@@ -230,6 +239,8 @@ export function LogDock({
   onRewrite,
   onReset,
 }: {
+  /** Absolute repository root, for the preview's path menu. */
+  root: string;
   result: LogResult | null;
   detail: CommitDetail | null;
   loading: boolean;
@@ -282,7 +293,16 @@ export function LogDock({
 }) {
   const t = useT(T);
   const [menu, setMenu] = useState<{ x: number; y: number; items: ContextItem[] } | null>(null);
+
   const [showFilters, setShowFilters] = useState(false);
+  // The selected file's diff, drawn in the detail pane; double-clicking the
+  // file opens it as its own tab instead.
+  const [preview, setPreview] = useState<FileDiff | null>(null);
+  const [previewOpts, setPreviewOpts] = useState<DiffOptions | null>(null);
+  const [previewPath, setPreviewPath] = useState("");
+  const [previewBusy, setPreviewBusy] = useState(false);
+  const [previewMode, setPreviewMode] = useState<"split" | "unified">("unified");
+  const [previewWrap, setPreviewWrap] = useState(false);
   // A commit row can be part of a multi-commit selection, which the context
   // menu then acts on as a whole, like a table of commits.
   const [checked, setChecked] = useState<Set<string>>(new Set());
@@ -419,6 +439,37 @@ export function LogDock({
   // A commit's child among the loaded rows: the graph only knows the
   // commits that are on screen, which is what "go to child" can mean.
   const child = detail ? commits.find((c) => c.parents.includes(detail.hash)) : undefined;
+
+  useEffect(() => {
+    setPreview(null);
+    setPreviewPath("");
+  }, [detail?.hash]);
+
+  const loadPreview = async (file: CommitFile, commit: CommitDetail) => {
+    setPreviewPath(file.path);
+    setPreviewBusy(true);
+    setPreview(null);
+    const opts: DiffOptions = {
+      path: file.path,
+      oldPath: file.oldPath ?? "",
+      target: "commit",
+      revision: commit.hash,
+      from: "",
+      context: -1,
+      ignoreWhitespace: false,
+      ignoreWhitespaceEol: false,
+      noText: false,
+    };
+    setPreviewOpts(opts);
+    try {
+      const diff = await Git.diff(opts);
+      setPreview(diff);
+    } catch {
+      setPreview(null);
+    } finally {
+      setPreviewBusy(false);
+    }
+  };
 
   const commitMenu = (commit: Commit, x: number, y: number) => {
     const target = checked.has(commit.hash) && chosenOldestFirst.length > 1 ? chosenOldestFirst : [commit];
@@ -788,8 +839,9 @@ export function LogDock({
                       <div
                         ref={selectedFile === file.path ? fileRowRef : undefined}
                         style={{ marginLeft: depth * 12 }}
-                        className={cx("details-file", selectedFile === file.path && "selected")}
-                        onClick={() => onSelectFile(file)}
+                        className={cx("details-file", previewPath === file.path && "selected")}
+                        onClick={() => void loadPreview(file, detail)}
+                        onDoubleClick={() => onSelectFile(file)}
                         title={file.oldPath ? `${file.oldPath} → ${file.path}` : file.path}
                       >
                       <StatusMark kind={file.status} />
@@ -933,6 +985,63 @@ export function LogDock({
                 )}
                 {detail.body && <pre className="details-body">{detail.body}</pre>}
               </div>
+              {previewPath !== "" && (
+                <div className="log-preview">
+                  <div className="log-preview-head">
+                    <FileIcon path={previewPath} size={13} />
+                    <span className="log-preview-path" title={previewPath}>
+                      {previewPath}
+                    </span>
+                    <span className="spacer" />
+                    <IconButton
+                      icon="external"
+                      title={t("openInTab")}
+                      small
+                      onClick={() => {
+                        const file = detail.files.find((f) => f.path === previewPath);
+                        if (file) onSelectFile(file);
+                      }}
+                    />
+                    <IconButton
+                      icon="close"
+                      title={t("closePreview")}
+                      small
+                      onClick={() => {
+                        setPreviewPath("");
+                        setPreview(null);
+                      }}
+                    />
+                  </div>
+                  <div className="log-preview-body">
+                    {previewBusy ? (
+                      <Spinner />
+                    ) : preview && previewOpts ? (
+                      <DiffView
+                        diff={preview}
+                        opts={previewOpts}
+                        mode={previewMode}
+                        setMode={setPreviewMode}
+                        ignoreWhitespace={false}
+                        onToggleWhitespace={() => {}}
+                        onApply={() => {}}
+                        onApplyFile={() => {}}
+                        onApplyLines={() => {}}
+                        onOpenFile={() => onOpenSource(previewPath, detail.hash)}
+                        onExternalDiff={() => {
+                          void Git.externalDiff(previewOpts).catch(() => {});
+                        }}
+                        root={root}
+                        onCopyPath={onCopy}
+                        reloadKey={0}
+                        wrap={previewWrap}
+                        onToggleWrap={() => setPreviewWrap(!previewWrap)}
+                      />
+                    ) : (
+                      <div className="log-preview-empty">{t("previewFailed")}</div>
+                    )}
+                  </div>
+                </div>
+              )}
               <div className="log-detail-foot">
                 <span>{t("stepFiles")}</span>
               </div>
