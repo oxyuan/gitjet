@@ -16,6 +16,7 @@ import type {
   PullOptions,
   PushOptions,
   PushPreview,
+  RebaseOptions,
   Conflict,
   Remote,
   Settings,
@@ -50,6 +51,7 @@ import { FileIcon } from "./icons";
 const T = {
   en: {
     "common.cancel": "Cancel",
+    "common.rebase": "Rebase",
     "common.save": "Save",
     "common.create": "Create",
     "common.rename": "Rename",
@@ -179,6 +181,23 @@ const T = {
     "pull.autostash": "Stash local changes before update (--autostash)",
     "pull.prune": "Prune deleted remote branches",
     "pull.tags": "Fetch tags",
+    "pull.ffOnly": "Fast-forward only (--ff-only)",
+    "pull.noFF": "Always create a merge commit (--no-ff)",
+    "pull.squash": "Squash the pulled commits (--squash)",
+    "pull.noCommit": "Integrate without committing (--no-commit)",
+    "rebase.title": "Rebase",
+    "rebase.current": "Rebasing {branch}",
+    "rebase.onto": "New base",
+    "rebase.branch": "Branch to rebase",
+    "rebase.autostash": "Stash local changes (--autostash)",
+    "rebase.updateRefs": "Update branches pointing into the range (--update-refs)",
+    "rebase.merges": "Recreate merge commits (--rebase-merges)",
+    "rebase.keepEmpty": "Keep commits that become empty (--keep-empty)",
+    "rebase.root": "Rebase the whole branch (--root)",
+    "rebase.autosquash": "Autosquash",
+    "rebase.autosquashConfig": "Follow git config",
+    "rebase.autosquashOn": "Squash fixup!/squash! commits",
+    "rebase.autosquashOff": "Leave them alone",
     "reset.title": "Reset Current Branch",
     "reset.note": "Move {hash} to this commit, along with the current branch.",
     "reset.noteSubject": "Move {hash} (“{subject}”) to this commit, along with the current branch.",
@@ -188,6 +207,8 @@ const T = {
     "reset.mixedHint": "Keep local changes in the working tree, unstaged.",
     "reset.hard": "Hard",
     "reset.hardHint": "Discard all local changes. This cannot be undone.",
+    "reset.keep": "Keep local changes",
+    "reset.keepHint": "Move HEAD and update the files that differ, but keep local changes that would not be lost.",
     "tag.title": "New Tag",
     "tag.tagging": "Tagging {hash}",
     "tag.name": "Tag name",
@@ -211,7 +232,12 @@ const T = {
     "merge.into": "Merge into",
     "merge.branch": "Branch",
     "merge.noFF": "Create a merge commit (--no-ff)",
+    "merge.ffOnly": "Fast-forward only (--ff-only)",
     "merge.squash": "Squash commits (--squash)",
+    "merge.noCommit": "Do not commit the merge result (--no-commit)",
+    "merge.noVerify": "Bypass the hooks (--no-verify)",
+    "merge.unrelated": "Allow unrelated histories (--allow-unrelated-histories)",
+    "merge.message": "Merge message",
     "push.diverged": "The remote branch has commits you do not have (tip {tip}). Pushing overwrites them.",
     "push.forceIfIncludes": "Refuse the force if the remote moved (--force-if-includes)",
     "stashd.title": "Stash {ref}",
@@ -268,6 +294,7 @@ const T = {
   },
   zh: {
     "common.cancel": "取消",
+    "common.rebase": "Rebase",
     "common.save": "保存",
     "common.create": "创建",
     "common.rename": "重命名",
@@ -397,6 +424,23 @@ const T = {
     "pull.autostash": "Pull 前 Stash 本地更改（--autostash）",
     "pull.prune": "清理已删除的远程分支",
     "pull.tags": "Fetch 标签",
+    "pull.ffOnly": "仅允许快进（--ff-only）",
+    "pull.noFF": "始终创建 Merge 提交（--no-ff）",
+    "pull.squash": "Squash 拉取的提交（--squash）",
+    "pull.noCommit": "整合但不提交（--no-commit）",
+    "rebase.title": "Rebase",
+    "rebase.current": "正在 Rebase {branch}",
+    "rebase.onto": "新基点",
+    "rebase.branch": "要 Rebase 的分支",
+    "rebase.autostash": "Stash 本地更改（--autostash）",
+    "rebase.updateRefs": "更新指向该区间的分支（--update-refs）",
+    "rebase.merges": "重建 Merge 提交（--rebase-merges）",
+    "rebase.keepEmpty": "保留变为空的提交（--keep-empty）",
+    "rebase.root": "Rebase 整个分支（--root）",
+    "rebase.autosquash": "自动合并",
+    "rebase.autosquashConfig": "跟随 Git 配置",
+    "rebase.autosquashOn": "合并 fixup!/squash! 提交",
+    "rebase.autosquashOff": "不自动合并",
     "reset.title": "Reset 当前分支",
     "reset.note": "将当前分支与 {hash} 一起移动到该提交。",
     "reset.noteSubject": "将当前分支与 {hash}（“{subject}”）一起移动到该提交。",
@@ -406,6 +450,8 @@ const T = {
     "reset.mixedHint": "保留本地更改，但取消暂存。",
     "reset.hard": "Hard Reset",
     "reset.hardHint": "丢弃所有本地更改，且无法撤销。",
+    "reset.keep": "保留本地更改",
+    "reset.keepHint": "移动 HEAD 并更新有差异的文件，但保留不会被丢弃的本地更改。",
     "tag.title": "新建标签",
     "tag.tagging": "为 {hash} 创建标签",
     "tag.name": "标签名",
@@ -429,7 +475,12 @@ const T = {
     "merge.into": "Merge 到",
     "merge.branch": "分支",
     "merge.noFF": "创建 Merge 提交（--no-ff）",
+    "merge.ffOnly": "仅允许快进（--ff-only）",
     "merge.squash": "Squash 提交（--squash）",
+    "merge.noCommit": "不提交 Merge 结果（--no-commit）",
+    "merge.noVerify": "跳过 hooks（--no-verify）",
+    "merge.unrelated": "允许无共同历史（--allow-unrelated-histories）",
+    "merge.message": "Merge 提交信息",
     "push.diverged": "远端分支有本地没有的提交（{tip}），Push 会覆盖它。",
     "push.forceIfIncludes": "远端有新提交时拒绝强推（--force-if-includes）",
     "stashd.title": "Stash {ref}",
@@ -1739,6 +1790,10 @@ export function PullDialog({
   const [autostash, setAutostash] = useState(true);
   const [prune, setPrune] = useState(false);
   const [tags, setTags] = useState(false);
+  const [ffOnly, setFFOnly] = useState(false);
+  const [noFF, setNoFF] = useState(false);
+  const [squash, setSquash] = useState(false);
+  const [noCommit, setNoCommit] = useState(false);
   return (
     <Modal
       title={t("pull.title")}
@@ -1748,7 +1803,9 @@ export function PullDialog({
       footer={
         <>
           <Button onClick={onClose}>{t("common.cancel")}</Button>
-          <Button variant="primary" onClick={() => onSubmit({ remote, branch: "", rebase, autostash, prune, tags })}>
+          <Button variant="primary" onClick={() =>
+            onSubmit({ remote, branch: "", rebase, autostash, prune, tags, ffOnly, noFF, squash, noCommit })
+          }>
             {t("common.pull")}
           </Button>
         </>
@@ -1778,9 +1835,121 @@ export function PullDialog({
           </div>
         </Field>
         <div className="dialog-checks">
+          <Checkbox
+            checked={ffOnly}
+            onChange={(v) => {
+              setFFOnly(v);
+              if (v) setNoFF(false);
+            }}
+            label={t("pull.ffOnly")}
+          />
+          <Checkbox
+            checked={noFF}
+            onChange={(v) => {
+              setNoFF(v);
+              if (v) setFFOnly(false);
+            }}
+            label={t("pull.noFF")}
+          />
+          <Checkbox checked={squash} onChange={setSquash} label={t("pull.squash")} />
+          <Checkbox checked={noCommit} onChange={setNoCommit} label={t("pull.noCommit")} />
           <Checkbox checked={autostash} onChange={setAutostash} label={t("pull.autostash")} />
           <Checkbox checked={prune} onChange={setPrune} label={t("pull.prune")} />
           <Checkbox checked={tags} onChange={setTags} label={t("pull.tags")} />
+        </div>
+      </div>
+    </Modal>
+  );
+}
+
+export function RebaseDialog({
+  onto,
+  current,
+  refs,
+  onClose,
+  onSubmit,
+}: {
+  onto: string;
+  current: string;
+  refs: string[];
+  onClose: () => void;
+  onSubmit: (opts: RebaseOptions) => void;
+}) {
+  const t = useT(T);
+  const [base, setBase] = useState(onto);
+  const [branch, setBranch] = useState("");
+  const [autostash, setAutostash] = useState(true);
+  const [updateRefs, setUpdateRefs] = useState(false);
+  const [rebaseMerges, setRebaseMerges] = useState(false);
+  const [keepEmpty, setKeepEmpty] = useState(false);
+  const [root, setRoot] = useState(false);
+  const [autoSquash, setAutoSquash] = useState("");
+  const ready = root || base.trim() !== "";
+  return (
+    <Modal
+      title={t("rebase.title")}
+      icon="rebase"
+      width={520}
+      onClose={onClose}
+      footer={
+        <>
+          <Button onClick={onClose}>{t("common.cancel")}</Button>
+          <Button
+            variant="primary"
+            disabled={!ready}
+            onClick={() =>
+              onSubmit({
+                onto: base.trim(),
+                branch,
+                autostash,
+                updateRefs,
+                rebaseMerges,
+                keepEmpty,
+                root,
+                autoSquash,
+              })
+            }
+          >
+            {t("common.rebase")}
+          </Button>
+        </>
+      }
+    >
+      <div className="dialog-form">
+        <div className="dialog-note">{t("rebase.current", { branch: current })}</div>
+        <Field label={t("rebase.onto")}>
+          <TextInput value={base} onChange={setBase} disabled={root} placeholder="origin/main" />
+        </Field>
+        <Field label={t("rebase.branch")}>
+          <Select value={branch} onChange={setBranch}>
+            <option value="">{current}</option>
+            {refs.filter((r) => r !== current).map((r) => (
+              <option key={r} value={r}>
+                {r}
+              </option>
+            ))}
+          </Select>
+        </Field>
+        <Field label={t("rebase.autosquash")}>
+          <Select value={autoSquash} onChange={setAutoSquash}>
+            <option value="">{t("rebase.autosquashConfig")}</option>
+            <option value="true">{t("rebase.autosquashOn")}</option>
+            <option value="false">{t("rebase.autosquashOff")}</option>
+          </Select>
+        </Field>
+        <div className="dialog-checks">
+          <Checkbox checked={autostash} onChange={setAutostash} label={t("rebase.autostash")} />
+          <Checkbox checked={updateRefs} onChange={setUpdateRefs} label={t("rebase.updateRefs")} />
+          <Checkbox checked={rebaseMerges} onChange={setRebaseMerges} label={t("rebase.merges")} />
+          <Checkbox checked={keepEmpty} onChange={setKeepEmpty} label={t("rebase.keepEmpty")} />
+          <Checkbox
+            checked={root}
+            onChange={(v) => {
+              setRoot(v);
+              if (v) setBase("");
+            }}
+            label={t("rebase.root")}
+          />
         </div>
       </div>
     </Modal>
@@ -1796,10 +1965,10 @@ export function ResetDialog({
   hash: string;
   subject: string;
   onClose: () => void;
-  onSubmit: (mode: "soft" | "mixed" | "hard") => void;
+  onSubmit: (mode: "soft" | "mixed" | "hard" | "keep") => void;
 }) {
   const t = useT(T);
-  const [mode, setMode] = useState<"soft" | "mixed" | "hard">("mixed");
+  const [mode, setMode] = useState<"soft" | "mixed" | "hard" | "keep">("mixed");
   return (
     <Modal
       title={t("reset.title")}
@@ -1833,6 +2002,13 @@ export function ResetDialog({
           <span>
             <b>{t("reset.mixed")}</b>
             <small>{t("reset.mixedHint")}</small>
+          </span>
+        </label>
+        <label className="radio-card">
+          <input type="radio" checked={mode === "keep"} onChange={() => setMode("keep")} />
+          <span>
+            <b>{t("reset.keep")}</b>
+            <small>{t("reset.keepHint")}</small>
           </span>
         </label>
         <label className="radio-card">
@@ -1987,7 +2163,12 @@ export function MergeDialog({
   const t = useT(T);
   const [ref, setRef] = useState(refs[0] ?? "");
   const [noFF, setNoFF] = useState(false);
+  const [ffOnly, setFFOnly] = useState(false);
   const [squash, setSquash] = useState(false);
+  const [noCommit, setNoCommit] = useState(false);
+  const [noVerify, setNoVerify] = useState(false);
+  const [unrelated, setUnrelated] = useState(false);
+  const [message, setMessage] = useState("");
   return (
     <Modal
       title={t("merge.title")}
@@ -1997,7 +2178,11 @@ export function MergeDialog({
       footer={
         <>
           <Button onClick={onClose}>{t("common.cancel")}</Button>
-          <Button variant="primary" onClick={() => onSubmit(ref, { noFF, squash, message: "" })} disabled={!ref}>
+          <Button
+            variant="primary"
+            onClick={() => onSubmit(ref, { noFF, ffOnly, squash, message, noCommit, noVerify, allowUnrelatedHistories: unrelated })}
+            disabled={!ref}
+          >
             {t("common.merge")}
           </Button>
         </>
@@ -2016,8 +2201,31 @@ export function MergeDialog({
             ))}
           </Select>
         </Field>
-        <Checkbox checked={noFF} onChange={setNoFF} label={t("merge.noFF")} />
-        <Checkbox checked={squash} onChange={setSquash} label={t("merge.squash")} />
+        <div className="dialog-checks">
+          <Checkbox
+            checked={noFF}
+            onChange={(v) => {
+              setNoFF(v);
+              if (v) setFFOnly(false);
+            }}
+            label={t("merge.noFF")}
+          />
+          <Checkbox
+            checked={ffOnly}
+            onChange={(v) => {
+              setFFOnly(v);
+              if (v) setNoFF(false);
+            }}
+            label={t("merge.ffOnly")}
+          />
+          <Checkbox checked={squash} onChange={setSquash} label={t("merge.squash")} />
+          <Checkbox checked={noCommit} onChange={setNoCommit} label={t("merge.noCommit")} />
+          <Checkbox checked={noVerify} onChange={setNoVerify} label={t("merge.noVerify")} />
+          <Checkbox checked={unrelated} onChange={setUnrelated} label={t("merge.unrelated")} />
+        </div>
+        <Field label={t("merge.message")}>
+          <TextInput value={message} onChange={setMessage} placeholder="" />
+        </Field>
       </div>
     </Modal>
   );

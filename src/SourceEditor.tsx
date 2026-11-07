@@ -15,6 +15,8 @@ const T = {
     copyHash: "Copy commit hash",
     uncommitted: "Uncommitted changes",
     annotateWithBlame: "Annotate with Git Blame",
+    ignoreWhitespaceBlame: "Ignore whitespace changes",
+    keepWhitespaceBlame: "Attribute whitespace changes",
     closeAnnotations: "Close Annotations",
     annotateLocal: "local",
   },
@@ -24,6 +26,8 @@ const T = {
     copyHash: "复制提交哈希",
     uncommitted: "未提交的更改",
     annotateWithBlame: "使用 Git Blame 标注",
+    ignoreWhitespaceBlame: "忽略空白改动",
+    keepWhitespaceBlame: "归属空白改动",
     closeAnnotations: "关闭 Blame",
     annotateLocal: "本地",
   },
@@ -152,6 +156,7 @@ export function SourceEditor({
   const [blame, setBlame] = useState<BlameLine[] | null>(null);
   const [menu, setMenu] = useState<{ x: number; y: number; line: number } | null>(null);
   const [annotate, setAnnotate] = useStoredState<boolean>("gitjet.annotate", false);
+  const [ignoreWs, setIgnoreWs] = useStoredState<boolean>("gitjet.blameIgnoreWhitespace", false);
   // Change bars belong to the working tree; blame belongs to whichever
   // version of the file this pane shows.
   const workingTree = file.revision === "";
@@ -241,7 +246,7 @@ export function SourceEditor({
     } else {
       setChanges([]);
     }
-    Git.blame(file.path, file.revision)
+    Git.blame(file.path, file.revision, { ignoreWhitespace: ignoreWs, ignoreRevsFile: "" })
       .then((result) => {
         if (!cancelled) setBlame(result.lines);
       })
@@ -249,7 +254,7 @@ export function SourceEditor({
     return () => {
       cancelled = true;
     };
-  }, [workingTree, file.binary, file.exists, file.path, file.revision, file.text]);
+  }, [workingTree, file.binary, file.exists, file.path, file.revision, file.text, ignoreWs]);
 
   useEffect(() => {
     editor.current?.setChanges(changes);
@@ -294,9 +299,13 @@ export function SourceEditor({
           copyHash: t("copyHash"),
           annotate: t("annotateWithBlame"),
           closeAnnotations: t("closeAnnotations"),
+          ignoreWhitespace: t("ignoreWhitespaceBlame"),
+          keepWhitespace: t("keepWhitespaceBlame"),
         },
         annotate,
         onToggleAnnotate: () => setAnnotate(!annotate),
+        ignoreWhitespace: ignoreWs,
+        onToggleIgnoreWhitespace: () => setIgnoreWs(!ignoreWs),
         onLineHistory,
         onCommitDiff,
         onCopy,

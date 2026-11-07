@@ -33,6 +33,7 @@ import {
   NewBranchDialog,
   PullDialog,
   PushDialog,
+  RebaseDialog,
   ResetDialog,
   SettingsDialog,
   StashDialog,
@@ -73,7 +74,7 @@ import {
   Toast,
   useStoredState,
 } from "./ui";
-import type { BlameResult } from "./mygo";
+import type { BlameResult, RebaseOptions } from "./mygo";
 
 const T = {
   en: {
@@ -543,7 +544,8 @@ type Dialog =
   | { kind: "compare"; ref: string }
   | { kind: "clone" }
   | { kind: "init" }
-  | { kind: "remotes" };
+  | { kind: "remotes" }
+  | { kind: "rebase"; onto: string };
 
 interface ConfirmState {
   title: string;
@@ -1730,6 +1732,10 @@ function AppShell({ onLangChange }: { onLangChange: (lang: Lang) => void }) {
       autostash: true,
       prune: false,
       tags: false,
+      ffOnly: false,
+      noFF: false,
+      squash: false,
+      noCommit: false,
     });
   };
 
@@ -1798,7 +1804,7 @@ function AppShell({ onLangChange }: { onLangChange: (lang: Lang) => void }) {
     }
   };
 
-  const reset = async (hash: string, mode: "soft" | "mixed" | "hard") => {
+  const reset = async (hash: string, mode: "soft" | "mixed" | "hard" | "keep") => {
     setDialog(null);
     if (mode === "hard") {
       const ok = await ask({
@@ -1828,16 +1834,10 @@ function AppShell({ onLangChange }: { onLangChange: (lang: Lang) => void }) {
     });
   };
 
-  const rebase = async (onto: string) => {
-    const ok = await ask({
-      title: t("rebaseTitle"),
-      message: t("rebaseMessage", { branch: branch || "HEAD", onto }),
-      detail: t("rebaseDetail"),
-      confirmLabel: t("rebase"),
-    });
-    if (!ok) return;
+  const rebase = async (opts: RebaseOptions) => {
+    setDialog(null);
     await withConflicts(async () => {
-      await Git.rebase(onto, true);
+      await Git.rebase(opts);
       notify("success", t("rebaseFinished"));
       await reload(false);
       void loadLog(true);
@@ -2453,7 +2453,7 @@ function AppShell({ onLangChange }: { onLangChange: (lang: Lang) => void }) {
                   onToggleFavorite={toggleFavorite}
                   onNewBranch={(start) => setDialog({ kind: "newBranch", start })}
                   onMerge={(name) => setDialog({ kind: "merge", refs: [name] })}
-                  onRebase={(name) => void rebase(name)}
+                  onRebase={(name) => setDialog({ kind: "rebase", onto: name })}
                   onDelete={(name) => void deleteBranch(name)}
                   onDeleteTag={(name) => void deleteTag(name)}
                   onNewTag={(start) => setDialog({ kind: "tag", start })}
@@ -2716,6 +2716,15 @@ function AppShell({ onLangChange }: { onLangChange: (lang: Lang) => void }) {
           onRename={(oldName, newName) => void renameRemote(oldName, newName)}
           onRemove={(name) => void removeRemote(name)}
           onClose={() => setDialog(null)}
+        />
+      )}
+      {dialog?.kind === "rebase" && (
+        <RebaseDialog
+          onto={dialog.onto}
+          current={branch || "HEAD"}
+          refs={refs?.local.map((b) => b.name) ?? []}
+          onClose={() => setDialog(null)}
+          onSubmit={(opts) => void rebase(opts)}
         />
       )}
       {dialog?.kind === "settings" && (

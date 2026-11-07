@@ -14,7 +14,7 @@ func TestBlameAnnotatesEachLineWithItsCommit(t *testing.T) {
 	runGit(t, dir, "commit", "-qm", "edit f")
 	second := runGit(t, dir, "rev-parse", "HEAD")
 
-	result, err := repo.Blame(t.Context(), "f.txt", "")
+	result, err := repo.Blame(t.Context(), "f.txt", "", BlameOptions{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -45,7 +45,7 @@ func TestBlameReportsUncommittedLines(t *testing.T) {
 	runGit(t, dir, "commit", "-qm", "add f")
 	writeFile(t, dir, "f.txt", "committed\nlocal\n")
 
-	result, err := repo.Blame(t.Context(), "f.txt", "")
+	result, err := repo.Blame(t.Context(), "f.txt", "", BlameOptions{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -68,7 +68,7 @@ func TestBlameAtRevisionUsesThatRevision(t *testing.T) {
 	runGit(t, dir, "add", "f.txt")
 	runGit(t, dir, "commit", "-qm", "edit f")
 
-	result, err := repo.Blame(t.Context(), "f.txt", first)
+	result, err := repo.Blame(t.Context(), "f.txt", first, BlameOptions{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -96,7 +96,7 @@ func TestBlameIndexReadsTheStagedCopy(t *testing.T) {
 	// read the wrong text.
 	writeFile(t, dir, "f.txt", "one\nworktree only\n")
 
-	result, err := repo.Blame(t.Context(), "f.txt", "INDEX")
+	result, err := repo.Blame(t.Context(), "f.txt", "INDEX", BlameOptions{})
 	if err != nil {
 		t.Fatal(err)
 	}

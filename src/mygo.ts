@@ -18,6 +18,11 @@ export interface BlameLine {
   uncommitted: boolean;
 }
 
+export interface BlameOptions {
+  ignoreWhitespace: boolean;
+  ignoreRevsFile: string;
+}
+
 export interface BlameResult {
   path: string;
   lines: BlameLine[];
@@ -318,8 +323,12 @@ export interface MergeDetails {
 
 export interface MergeOptions {
   noFF: boolean;
+  ffOnly: boolean;
   squash: boolean;
   message: string;
+  noCommit: boolean;
+  noVerify: boolean;
+  allowUnrelatedHistories: boolean;
 }
 
 export interface MergeSide {
@@ -354,6 +363,10 @@ export interface PullOptions {
   autostash: boolean;
   prune: boolean;
   tags: boolean;
+  ffOnly: boolean;
+  noFF: boolean;
+  squash: boolean;
+  noCommit: boolean;
 }
 
 export interface PushOptions {
@@ -382,6 +395,17 @@ export interface PushPreview {
   commits: Commit[];
   files: CommitFile[];
   truncated: boolean;
+}
+
+export interface RebaseOptions {
+  onto: string;
+  branch: string;
+  autostash: boolean;
+  updateRefs: boolean;
+  rebaseMerges: boolean;
+  keepEmpty: boolean;
+  root: boolean;
+  autoSquash: string;
 }
 
 /** RecentRepo is a repository the user opened before. */
@@ -710,8 +734,8 @@ export const Git = {
    * Blame annotates a file at a revision ("" for the working tree, "INDEX" for
    * the staged copy).
    */
-  blame(path: string, revision: string): Promise<BlameResult> {
-    return call("Git.Blame", path, revision);
+  blame(path: string, revision: string, opts: BlameOptions): Promise<BlameResult> {
+    return call("Git.Blame", path, revision, opts);
   },
   /** Changes returns the local changes, stashes and changelists. */
   changes(includeIgnored: boolean): Promise<ChangesSnapshot> {
@@ -926,8 +950,8 @@ export const Git = {
    * Rebase rebases onto a ref. Local changes are stashed and restored around
    * it, in addition to git's own --autostash.
    */
-  rebase(onto: string, autostash: boolean): Promise<string> {
-    return call("Git.Rebase", onto, autostash);
+  rebase(opts: RebaseOptions): Promise<string> {
+    return call("Git.Rebase", opts);
   },
   /** Refresh rereads the repository. */
   refresh(): Promise<ChangesSnapshot> {

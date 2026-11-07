@@ -53,6 +53,13 @@ type PullOptions struct {
 	Autostash bool   `json:"autostash"`
 	Prune     bool   `json:"prune"`
 	Tags      bool   `json:"tags"`
+	// FFOnly refuses a merge commit; NoFF always creates one.
+	FFOnly bool `json:"ffOnly"`
+	NoFF   bool `json:"noFF"`
+	// Squash applies the incoming changes without integrating the history.
+	Squash bool `json:"squash"`
+	// NoCommit leaves the merge result in the index.
+	NoCommit bool `json:"noCommit"`
 }
 
 // FetchOptions selects what to fetch.
@@ -66,8 +73,15 @@ type FetchOptions struct {
 // MergeOptions selects how to merge.
 type MergeOptions struct {
 	NoFF    bool   `json:"noFF"`
+	FFOnly  bool   `json:"ffOnly"`
 	Squash  bool   `json:"squash"`
 	Message string `json:"message"`
+	// NoCommit leaves the merge result in the index.
+	NoCommit bool `json:"noCommit"`
+	// NoVerify skips the pre-merge and commit-message hooks.
+	NoVerify bool `json:"noVerify"`
+	// AllowUnrelatedHistories merges a branch that shares no ancestor.
+	AllowUnrelatedHistories bool `json:"allowUnrelatedHistories"`
 }
 
 // StashOptions selects what to stash.
@@ -364,12 +378,27 @@ func (r *Repo) Merge(ctx context.Context, ref string, opts MergeOptions) (string
 	if ref == "" || strings.HasPrefix(ref, "-") {
 		return "", errors.New("invalid branch")
 	}
+	if opts.NoFF && opts.FFOnly {
+		return "", errors.New("a merge cannot both require and forbid a fast-forward")
+	}
 	args := []string{"merge", "--no-edit"}
 	if opts.NoFF {
 		args = append(args, "--no-ff")
 	}
+	if opts.FFOnly {
+		args = append(args, "--ff-only")
+	}
 	if opts.Squash {
 		args = append(args, "--squash")
+	}
+	if opts.NoCommit {
+		args = append(args, "--no-commit")
+	}
+	if opts.NoVerify {
+		args = append(args, "--no-verify")
+	}
+	if opts.AllowUnrelatedHistories {
+		args = append(args, "--allow-unrelated-histories")
 	}
 	if opts.Message != "" {
 		args = append(args, "-m", opts.Message)
@@ -378,17 +407,76 @@ func (r *Repo) Merge(ctx context.Context, ref string, opts MergeOptions) (string
 	return r.writeRun(ctx, args...)
 }
 
-// Rebase rebases the current branch onto ref.
-func (r *Repo) Rebase(ctx context.Context, onto string, autostash bool) (string, error) {
-	onto = strings.TrimSpace(onto)
-	if onto == "" || strings.HasPrefix(onto, "-") {
-		return "", errors.New("invalid branch")
+// RebaseOptions selects how a rebase replays commits.
+type RebaseOptions struct {
+	// Onto is the new base: a branch, a commit, or the range to replay.
+	Onto string `json:"onto"`
+	// Branch rebases another branch instead of the checked-out one.
+	Branch    string `json:"branch"`
+	Autostash bool   `json:"autostash"`
+	// UpdateRefs moves branches that point into the rebased range.
+	UpdateRefs bool `json:"updateRefs"`
+	// RebaseMerges recreates merge commits instead of flattening them.
+	RebaseMerges bool `json:"rebaseMerges"`
+	// KeepEmpty keeps commits that become empty.
+	KeepEmpty bool `json:"keepEmpty"`
+	// Root rebases every commit of the branch, not only those after onto.
+	Root bool `json:"root"`
+	// AutoSquash is tri-state: "" leaves the git config in charge, "true"
+	// adds --autosquash and "false" adds --no-autosquash.
+	AutoSquash string `json:"autoSquash"`
+}
+
+// Rebase replays the current branch (or opts.Branch) onto a new base.
+func (r *Repo) Rebase(ctx context.Context, opts RebaseOptions) (string, error) {
+	onto := strings.TrimSpace(opts.Onto)
+	if opts.Root {
+		onto = ""
+	}
+	if opts.Branch != "" {
+		if onto == "" && !opts.Root {
+			return "", errors.New("a rebase needs a new base")
+		}
+	} else if onto == "" && !opts.Root {
+		return "", errors.New("a rebase needs a new base")
+	}
+	for _, value := range []string{onto, opts.Branch} {
+		if strings.HasPrefix(value, "-") {
+			return "", errors.New("invalid branch")
+		}
+	}
+	switch opts.AutoSquash {
+	case "", "true", "false":
+	default:
+		return "", errors.New("autosquash must be true, false or unset")
 	}
 	args := []string{"rebase"}
-	if autostash {
+	if opts.Root {
+		args = append(args, "--root")
+	}
+	if opts.Autostash {
 		args = append(args, "--autostash")
 	}
-	args = append(args, onto)
+	if opts.UpdateRefs {
+		args = append(args, "--update-refs")
+	}
+	if opts.RebaseMerges {
+		args = append(args, "--rebase-merges")
+	}
+	if opts.KeepEmpty {
+		args = append(args, "--keep-empty")
+	}
+	if opts.AutoSquash == "true" {
+		args = append(args, "--autosquash")
+	} else if opts.AutoSquash == "false" {
+		args = append(args, "--no-autosquash")
+	}
+	if onto != "" {
+		args = append(args, onto)
+	}
+	if opts.Branch != "" {
+		args = append(args, opts.Branch)
+	}
 	return r.writeRun(ctx, args...)
 }
 
@@ -445,6 +533,8 @@ func (r *Repo) Reset(ctx context.Context, hash, mode string) (string, error) {
 		flag = "--mixed"
 	case "hard":
 		flag = "--hard"
+	case "keep":
+		flag = "--keep"
 	default:
 		return "", fmt.Errorf("unknown reset mode %q", mode)
 	}

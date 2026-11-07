@@ -3,6 +3,8 @@ package git
 import (
 	"context"
 	"errors"
+	"fmt"
+	"os"
 	"strings"
 )
 
@@ -29,12 +31,22 @@ type BlameResult struct {
 	MaxTime int64 `json:"maxTime"`
 }
 
+// BlameOptions selects what an annotation disregards.
+type BlameOptions struct {
+	// IgnoreWhitespace attributes whitespace-only changes to the commit
+	// that wrote the line's content.
+	IgnoreWhitespace bool `json:"ignoreWhitespace"`
+	// IgnoreRevsFile is a repository-relative file of revisions to skip,
+	// the format of git's .git-blame-ignore-revs.
+	IgnoreRevsFile string `json:"ignoreRevsFile"`
+}
+
 // Blame annotates every line of a file with the commit that last changed
 // it, including uncommitted changes. Revision "" blames the working tree,
 // "INDEX" the staged copy, and anything else the file as that revision left
 // it, so every source view — not only the working tree — can answer who
 // wrote a line.
-func (r *Repo) Blame(ctx context.Context, path, revision string) (BlameResult, error) {
+func (r *Repo) Blame(ctx context.Context, path, revision string, opts BlameOptions) (BlameResult, error) {
 	clean, err := cleanPath(path)
 	if err != nil {
 		return BlameResult{}, err
@@ -47,10 +59,25 @@ func (r *Repo) Blame(ctx context.Context, path, revision string) (BlameResult, e
 	}
 	// --line-porcelain is already colourless; git 2.54 refuses --no-color
 	// here because it means either --no-color-lines or --no-color-by-age.
+	args := []string{"blame", "--line-porcelain"}
+	if opts.IgnoreWhitespace {
+		args = append(args, "-w")
+	}
+	ignoreFile := strings.TrimSpace(opts.IgnoreRevsFile)
+	if ignoreFile != "" {
+		rel, cerr := cleanPath(ignoreFile)
+		if cerr != nil {
+			return BlameResult{}, cerr
+		}
+		if _, serr := os.Stat(r.AbsPath(rel)); serr != nil {
+			return BlameResult{}, fmt.Errorf("%s does not exist", rel)
+		}
+		args = append(args, "--ignore-revs-file="+rel)
+	}
 	var out string
 	switch rev {
 	case "", "WORKTREE":
-		out, err = r.run(ctx, "blame", "--line-porcelain", "--", clean)
+		out, err = r.run(ctx, append(args, "--", clean)...)
 	case "INDEX":
 		// Blame has no --cached: feed the index blob as the contents to
 		// annotate, so staged lines still come back uncommitted.
@@ -58,9 +85,9 @@ func (r *Repo) Blame(ctx context.Context, path, revision string) (BlameResult, e
 		if serr != nil {
 			return BlameResult{}, serr
 		}
-		out, err = r.runInput(ctx, staged, "blame", "--line-porcelain", "--contents", "-", "--", clean)
+		out, err = r.runInput(ctx, staged, append(args, "--contents", "-", "--", clean)...)
 	default:
-		out, err = r.run(ctx, "blame", "--line-porcelain", rev, "--", clean)
+		out, err = r.run(ctx, append(args, rev, "--", clean)...)
 	}
 	if err != nil {
 		return BlameResult{}, err

@@ -38,6 +38,8 @@ const T = {
     lineHistory: "Show history of this line",
     copyHash: "Copy commit hash",
     annotateWithBlame: "Annotate with Git Blame",
+    ignoreWhitespaceBlame: "Ignore whitespace changes",
+    keepWhitespaceBlame: "Attribute whitespace changes",
     closeAnnotations: "Close Annotations",
     binaryDiff: "Binary file — no textual diff to show",
     noDifferences: "No differences",
@@ -82,6 +84,8 @@ const T = {
     lineHistory: "查看该行的历史",
     copyHash: "复制提交哈希",
     annotateWithBlame: "使用 Git Blame 标注",
+    ignoreWhitespaceBlame: "忽略空白改动",
+    keepWhitespaceBlame: "归属空白改动",
     closeAnnotations: "关闭 Blame",
     binaryDiff: "二进制文件 — 无文本差异可显示",
     noDifferences: "无差异",
@@ -152,11 +156,12 @@ export function DiffView({
   // One annotation preference for every viewer: the source pane and the diff
   // gutter answer the same way.
   const [annotate, setAnnotate] = useStoredState<boolean>("gitjet.annotate", false);
+  const [ignoreWs, setIgnoreWs] = useStoredState<boolean>("gitjet.blameIgnoreWhitespace", false);
   const [menu, setMenu] = useState<{ x: number; y: number; side: Side; line: number } | null>(null);
   const revisions = useMemo(() => blameRevisions(opts), [opts.target, opts.revision, opts.from]);
   const beforePath = opts.oldPath || opts.path;
-  const before = useBlame(beforePath, revisions.before, !diff.binary && (annotate || menu?.side === "before"));
-  const after = useBlame(diff.path, revisions.after, !diff.binary && (annotate || menu?.side === "after"));
+  const before = useBlame(beforePath, revisions.before, !diff.binary && (annotate || menu?.side === "before"), ignoreWs);
+  const after = useBlame(diff.path, revisions.after, !diff.binary && (annotate || menu?.side === "after"), ignoreWs);
   const beforeIndex = useMemo(() => indexBlame(before), [before]);
   const afterIndex = useMemo(() => indexBlame(after), [after]);
 
@@ -172,9 +177,13 @@ export function DiffView({
           copyHash: t("copyHash"),
           annotate: t("annotateWithBlame"),
           closeAnnotations: t("closeAnnotations"),
+          ignoreWhitespace: t("ignoreWhitespaceBlame"),
+          keepWhitespace: t("keepWhitespaceBlame"),
         },
         annotate,
         onToggleAnnotate: () => setAnnotate(!annotate),
+        ignoreWhitespace: ignoreWs,
+        onToggleIgnoreWhitespace: () => setIgnoreWs(!ignoreWs),
         onLineHistory:
           onShowFileHistory && (menu.side === "before" ? revisions.before : revisions.after) !== "INDEX"
             ? (line) =>
@@ -473,13 +482,13 @@ function indexBlame(lines: BlameLine[] | null): Map<number, BlameLine> {
 
 /** Blame loads when a gutter asks for it or the column is on, and stays for
  *  the life of this diff so a second click is instant. */
-function useBlame(path: string, revision: string, enabled: boolean): BlameLine[] | null {
+function useBlame(path: string, revision: string, enabled: boolean, ignoreWhitespace: boolean): BlameLine[] | null {
   const [lines, setLines] = useState<BlameLine[] | null>(null);
   useEffect(() => {
     if (!enabled) return;
     let alive = true;
     setLines(null);
-    Git.blame(path, revision)
+    Git.blame(path, revision, { ignoreWhitespace, ignoreRevsFile: "" })
       .then((result) => {
         if (alive) setLines(result.lines);
       })
@@ -489,7 +498,7 @@ function useBlame(path: string, revision: string, enabled: boolean): BlameLine[]
     return () => {
       alive = false;
     };
-  }, [path, revision, enabled]);
+  }, [path, revision, enabled, ignoreWhitespace]);
   return lines;
 }
 

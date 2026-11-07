@@ -10,6 +10,8 @@ export interface BlameMenuLabels {
   closeAnnotations: string;
   /** Offered only where the reader is not already looking at the diff. */
   commitFileDiff?: string;
+  ignoreWhitespace: string;
+  keepWhitespace: string;
 }
 
 /** The Git menu a gutter opens: the line's blame, where to go next, and the
@@ -21,6 +23,8 @@ export function blameMenuItems({
   labels,
   annotate,
   onToggleAnnotate,
+  ignoreWhitespace,
+  onToggleIgnoreWhitespace,
   onLineHistory,
   onCommitDiff,
   onCopy,
@@ -30,6 +34,8 @@ export function blameMenuItems({
   labels: BlameMenuLabels;
   annotate: boolean;
   onToggleAnnotate?: () => void;
+  ignoreWhitespace: boolean;
+  onToggleIgnoreWhitespace?: () => void;
   onLineHistory?: (line: number) => void;
   onCommitDiff?: (hash: string) => void;
   onCopy?: (text: string) => void;
@@ -69,6 +75,13 @@ export function blameMenuItems({
     });
   }
   items.push({ separator: true });
+  items.push({
+    label: ignoreWhitespace ? labels.keepWhitespace : labels.ignoreWhitespace,
+    icon: "eye",
+    checked: ignoreWhitespace,
+    disabled: !onToggleIgnoreWhitespace,
+    onClick: () => onToggleIgnoreWhitespace?.(),
+  });
   items.push({
     label: annotate ? labels.closeAnnotations : labels.annotate,
     icon: "user",

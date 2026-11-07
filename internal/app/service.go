@@ -947,15 +947,19 @@ func (g *Git) Merge(ref string, opts git.MergeOptions) (string, error) {
 
 // Rebase rebases onto a ref. Local changes are stashed and restored around
 // it, in addition to git's own --autostash.
-func (g *Git) Rebase(onto string, autostash bool) (string, error) {
+func (g *Git) Rebase(opts git.RebaseOptions) (string, error) {
 	repo, err := g.c.currentRepo()
 	if err != nil {
 		return "", err
 	}
 	ctx, trace := git.WithCommandTrace(context.Background())
 	started := time.Now()
-	out, err := preserveLocalChanges(ctx, repo, "rebasing onto "+onto, func() (string, error) {
-		return repo.Rebase(ctx, onto, autostash)
+	where := opts.Onto
+	if opts.Root {
+		where = "the root"
+	}
+	out, err := preserveLocalChanges(ctx, repo, "rebasing onto "+where, func() (string, error) {
+		return repo.Rebase(ctx, opts)
 	})
 	g.journalOperation(repo, JournalEntry{Action: "rebase", Commands: *trace, Output: out}, err, started)
 	g.notify()
@@ -1316,12 +1320,12 @@ func (g *Git) Tree() ([]git.RepoFile, error) {
 
 // Blame annotates a file at a revision ("" for the working tree, "INDEX" for
 // the staged copy).
-func (g *Git) Blame(path, revision string) (git.BlameResult, error) {
+func (g *Git) Blame(path, revision string, opts git.BlameOptions) (git.BlameResult, error) {
 	repo, err := g.c.currentRepo()
 	if err != nil {
 		return git.BlameResult{}, err
 	}
-	return repo.Blame(context.Background(), path, revision)
+	return repo.Blame(context.Background(), path, revision, opts)
 }
 
 // Console runs a command from the Git console and streams its output.
