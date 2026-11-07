@@ -17,6 +17,9 @@ type CommitOptions struct {
 	Amend       bool     `json:"amend"`
 	SignOff     bool     `json:"signOff"`
 	NoVerify    bool     `json:"noVerify"`
+	AllowEmpty  bool     `json:"allowEmpty"`
+	// Sign adds -S, signing this commit with the configured GPG key.
+	Sign        bool     `json:"sign"`
 	AuthorName  string   `json:"authorName"`
 	AuthorEmail string   `json:"authorEmail"`
 }
@@ -211,6 +214,12 @@ func (r *Repo) Commit(ctx context.Context, opts CommitOptions) (CommitResult, er
 		if strings.TrimSpace(opts.Message) == "" {
 			args = append(args, "--no-edit")
 		}
+	}
+	if opts.AllowEmpty {
+		args = append(args, "--allow-empty")
+	}
+	if opts.Sign {
+		args = append(args, "-S")
 	}
 	if opts.SignOff {
 		args = append(args, "--signoff")

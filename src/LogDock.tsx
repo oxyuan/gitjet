@@ -65,6 +65,8 @@ const T = {
     newTag: "New Tag…",
     cherryPick: "Cherry-Pick",
     revertCommit: "Revert Commit",
+    fixupCommit: "Create Fixup Commit",
+    squashCommit: "Create Squash Commit",
     resetSoft: "Reset Current Branch to Here — Soft",
     resetMixed: "Reset Current Branch to Here — Mixed",
     resetHard: "Reset Current Branch to Here — Hard",
@@ -116,6 +118,8 @@ const T = {
     newTag: "新建标签…",
     cherryPick: "Cherry-pick 提交",
     revertCommit: "Revert 提交",
+    fixupCommit: "创建 Fixup 提交",
+    squashCommit: "创建 Squash 提交",
     resetSoft: "将当前分支 Reset 到此处 — Soft",
     resetMixed: "将当前分支 Reset 到此处 — Mixed",
     resetHard: "将当前分支 Reset 到此处 — Hard",
@@ -186,6 +190,8 @@ export function LogDock({
   onNewTag,
   onCherryPick,
   onRevert,
+  onFixupCommit,
+  onSquashCommit,
   onRewrite,
   onReset,
 }: {
@@ -230,6 +236,8 @@ export function LogDock({
   onNewTag: (start: string) => void;
   onCherryPick: (hashes: string[]) => void;
   onRevert: (hashes: string[]) => void;
+  onFixupCommit: (hash: string) => void;
+  onSquashCommit: (hash: string) => void;
   onRewrite: (oldest: Commit) => void;
   onReset: (hash: string, mode: "soft" | "mixed" | "hard") => void;
 }) {
@@ -393,6 +401,8 @@ export function LogDock({
         { separator: true },
         { label: t("cherryPick"), icon: "cherry", onClick: () => onCherryPick(hashes) },
         { label: t("revertCommit"), icon: "revert", onClick: () => onRevert(hashes) },
+        { label: t("fixupCommit"), icon: "commit", onClick: () => onFixupCommit(hashes[0]!) },
+        { label: t("squashCommit"), icon: "commit", onClick: () => onSquashCommit(hashes[0]!) },
         { separator: true },
         { label: t("rewriteHistory"), icon: "commit", onClick: () => onRewrite(oldest) },
         { separator: true },

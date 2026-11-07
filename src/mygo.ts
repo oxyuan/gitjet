@@ -136,6 +136,8 @@ export interface CommitOptions {
   amend: boolean;
   signOff: boolean;
   noVerify: boolean;
+  allowEmpty: boolean;
+  sign: boolean;
   authorName: string;
   authorEmail: string;
 }
@@ -157,6 +159,12 @@ export interface CommitStats {
   additions: number;
   deletions: number;
   files: number;
+}
+
+export interface CommitWarning {
+  path: string;
+  kind: string;
+  message: string;
 }
 
 export interface Completion {
@@ -512,6 +520,12 @@ export interface Settings {
   updateMethod: string;
   confirmForcePush: boolean;
   confirmRollback: boolean;
+  /** Commit checks warn before a commit, as IDEA's do. */
+  commitCheckCrlf: boolean;
+  commitCheckLargeMB: number;
+  commitCheckNames: boolean;
+  commitCheckHead: boolean;
+  commitTemplate: string;
   openInNewWindow: boolean;
   /** percent, 100 is the design size */
   uiScale: number;
@@ -759,6 +773,14 @@ export const Git = {
   /** Commit commits the selected changes. */
   commit(opts: CommitOptions): Promise<CommitResult> {
     return call("Git.Commit", opts);
+  },
+  /** CommitChecks reports what the settings ask to warn about before a commit. */
+  commitChecks(paths: string[]): Promise<CommitWarning[]> {
+    return call("Git.CommitChecks", paths);
+  },
+  /** CommitFixup records the staged changes as a fixup or squash commit. */
+  commitFixup(hash: string, squash: boolean): Promise<CommitResult> {
+    return call("Git.CommitFixup", hash, squash);
   },
   /** Compare lists the files that differ between two revisions. */
   compare(from: string, to: string): Promise<Change[]> {
@@ -1107,6 +1129,10 @@ export const Git = {
   /** Tree lists every file in the working tree, for the source explorer. */
   tree(): Promise<RepoFile[]> {
     return call("Git.Tree");
+  },
+  /** UndoCommit moves HEAD back one commit, keeping its changes staged. */
+  undoCommit(): Promise<CommitResult> {
+    return call("Git.UndoCommit");
   },
   /** Unshallow fetches the full history of a shallow clone. */
   unshallow(out: Channel<string>): Promise<string> {

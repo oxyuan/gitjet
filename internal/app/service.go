@@ -650,6 +650,55 @@ func (g *Git) ApplyFile(opts git.DiffOptions, action string) error {
 	return nil
 }
 
+// UndoCommit moves HEAD back one commit, keeping its changes staged.
+func (g *Git) UndoCommit() (git.CommitResult, error) {
+	repo, err := g.c.currentRepo()
+	if err != nil {
+		return git.CommitResult{}, err
+	}
+	ctx, trace := git.WithCommandTrace(context.Background())
+	started := time.Now()
+	res, err := repo.UndoCommit(ctx)
+	g.journalOperation(repo, JournalEntry{Action: "undo-commit", Commands: *trace, Output: res.Output}, err, started)
+	if err != nil {
+		return res, err
+	}
+	g.notify()
+	return res, nil
+}
+
+// CommitFixup records the staged changes as a fixup or squash commit.
+func (g *Git) CommitFixup(hash string, squash bool) (git.CommitResult, error) {
+	repo, err := g.c.currentRepo()
+	if err != nil {
+		return git.CommitResult{}, err
+	}
+	ctx, trace := git.WithCommandTrace(context.Background())
+	started := time.Now()
+	res, err := repo.CommitFixup(ctx, hash, squash)
+	g.journalOperation(repo, JournalEntry{Action: "commit-fixup", Commands: *trace, Output: res.Output}, err, started)
+	if err != nil {
+		return res, err
+	}
+	g.notify()
+	return res, nil
+}
+
+// CommitChecks reports what the settings ask to warn about before a commit.
+func (g *Git) CommitChecks(paths []string) ([]git.CommitWarning, error) {
+	repo, err := g.c.currentRepo()
+	if err != nil {
+		return nil, err
+	}
+	opts := git.CommitCheckOptions{
+		CRLF:        g.c.settings.CommitCheckCRLF,
+		LargeFileMB: g.c.settings.CommitCheckLargeMB,
+		BadNames:    g.c.settings.CommitCheckNames,
+		Detached:    g.c.settings.CommitCheckHead,
+	}
+	return repo.CheckCommit(context.Background(), paths, opts)
+}
+
 // ApplyLines stages, unstages or rolls back the selected changed lines.
 func (g *Git) ApplyLines(opts git.DiffOptions, lines []int, action string) error {
 	repo, err := g.c.currentRepo()

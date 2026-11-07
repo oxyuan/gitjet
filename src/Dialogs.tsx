@@ -76,6 +76,7 @@ const T = {
     "settings.panelGitPath": "Git executable",
     "settings.panelDiff": "Diff settings",
     "settings.panelSync": "Sync and update",
+    "settings.panelCommit": "Commit",
     "settings.panelDanger": "Confirmations",
     "settings.language": "Language",
     "settings.languageSystem": "Use system language",
@@ -103,6 +104,12 @@ const T = {
     "settings.ignoreWhitespaceHint": "Changes that only add, remove or reindent spaces are left out of the comparison.",
     "settings.showIgnored": "Show ignored files in the commit panel",
     "settings.showIgnoredHint": "Files matched by .gitignore stay in the change list instead of disappearing from it.",
+    "settings.checkCrlf": "Warn about CRLF line separators",
+    "settings.checkLarge": "Warn about files larger than",
+    "settings.checkNames": "Warn about names Windows cannot check out",
+    "settings.checkHead": "Warn about a detached HEAD",
+    "settings.template": "Commit message template",
+    "settings.templateHint": "Put into the empty message box of a new repository window.",
     "settings.updateMethod": "Update method",
     "settings.updateMethodHint": "Merge keeps the branches' histories and adds a merge commit; rebase replays your local commits on top of the incoming ones, leaving a straight line.",
     "settings.merge": "Merge",
@@ -319,6 +326,7 @@ const T = {
     "settings.panelGitPath": "Git 基础配置",
     "settings.panelDiff": "差异对比设置",
     "settings.panelSync": "同步 Pull 设置",
+    "settings.panelCommit": "提交",
     "settings.panelDanger": "危险操作确认",
     "settings.language": "界面语言",
     "settings.languageSystem": "跟随系统",
@@ -346,6 +354,12 @@ const T = {
     "settings.ignoreWhitespaceHint": "对比代码时，忽略仅空格、缩进或换行上的变动。",
     "settings.showIgnored": "在提交面板中显示被忽略的文件",
     "settings.showIgnoredHint": "被 .gitignore 忽略的文件依然列在更改列表里，而不是直接消失。",
+    "settings.checkCrlf": "提交时警告 CRLF 换行",
+    "settings.checkLarge": "警告超过此大小的文件",
+    "settings.checkNames": "警告 Windows 无法检出的文件名",
+    "settings.checkHead": "警告分离的 HEAD",
+    "settings.template": "提交信息模板",
+    "settings.templateHint": "新提交框为空时填入这段文字。",
     "settings.updateMethod": "Pull 方式",
     "settings.updateMethodHint": "Merge 保留两条历史并产生一个 merge 提交；Rebase 把你的本地提交重放到远端提交之上，历史是一条直线。",
     "settings.merge": "Merge",
@@ -565,6 +579,7 @@ const PANELS: { id: string; title: TKey; open: boolean; tone?: "warning" }[] = [
   { id: "gitPath", title: "settings.panelGitPath", open: true },
   { id: "diff", title: "settings.panelDiff", open: false },
   { id: "sync", title: "settings.panelSync", open: true },
+  { id: "commit", title: "settings.panelCommit", open: false },
   { id: "danger", title: "settings.panelDanger", open: true, tone: "warning" },
 ];
 
@@ -585,6 +600,11 @@ const TAB_FIELDS: Record<SettingsTab, (keyof Settings)[]> = {
     "autoFetchMinutes",
     "confirmRollback",
     "confirmForcePush",
+    "commitCheckCrlf",
+    "commitCheckLargeMB",
+    "commitCheckNames",
+    "commitCheckHead",
+    "commitTemplate",
   ],
   keys: [],
 };
@@ -960,6 +980,53 @@ export function SettingsDialog({
                       />
                       <span className="setting-unit">{t("settings.minutes")}</span>
                     </div>
+                  </SettingRow>
+                </>,
+              )}
+
+              {panel(
+                "commit",
+                <>
+                  <SettingRow hint={t("settings.checkCrlf")}>
+                    <Checkbox
+                      checked={draft.commitCheckCrlf}
+                      onChange={(v) => set("commitCheckCrlf", v)}
+                      label={t("settings.checkCrlf")}
+                    />
+                  </SettingRow>
+                  <SettingRow label={t("settings.checkLarge")}>
+                    <div className="setting-inline">
+                      <input
+                        className="text-input number"
+                        type="number"
+                        min={0}
+                        max={1000}
+                        value={draft.commitCheckLargeMB}
+                        onChange={(e) => set("commitCheckLargeMB", Number(e.target.value) || 0)}
+                      />
+                      <span className="setting-unit">MB</span>
+                    </div>
+                  </SettingRow>
+                  <SettingRow hint={t("settings.checkNames")}>
+                    <Checkbox
+                      checked={draft.commitCheckNames}
+                      onChange={(v) => set("commitCheckNames", v)}
+                      label={t("settings.checkNames")}
+                    />
+                  </SettingRow>
+                  <SettingRow hint={t("settings.checkHead")}>
+                    <Checkbox
+                      checked={draft.commitCheckHead}
+                      onChange={(v) => set("commitCheckHead", v)}
+                      label={t("settings.checkHead")}
+                    />
+                  </SettingRow>
+                  <SettingRow label={t("settings.template")} hint={t("settings.templateHint")}>
+                    <textarea
+                      className="text-input settings-textarea"
+                      value={draft.commitTemplate}
+                      onChange={(e) => set("commitTemplate", e.target.value)}
+                    />
                   </SettingRow>
                 </>,
               )}

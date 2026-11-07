@@ -22,21 +22,27 @@ import (
 type Settings struct {
 	// Version is the schema of this file, so a default that later changes
 	// can be migrated once instead of guessed at forever.
-	Version          int          `json:"version"`
-	GitPath          string       `json:"gitPath"`
-	Language         string       `json:"language"` // system, en, zh
-	Theme            string       `json:"theme"`    // system, light, dark
-	DiffContext      int          `json:"diffContext"`
-	IgnoreWhitespace bool         `json:"ignoreWhitespace"`
-	ShowIgnored      bool         `json:"showIgnored"`
-	AutoFetch        bool         `json:"autoFetch"`
-	AutoFetchMinutes int          `json:"autoFetchMinutes"`
-	UpdateMethod     string       `json:"updateMethod"` // merge, rebase
-	ConfirmForcePush bool         `json:"confirmForcePush"`
-	ConfirmRollback  bool         `json:"confirmRollback"`
-	OpenInNewWindow  bool         `json:"openInNewWindow"`
-	UIScale          int          `json:"uiScale"` // percent, 100 is the design size
-	Recent           []RecentRepo `json:"recent"`
+	Version          int    `json:"version"`
+	GitPath          string `json:"gitPath"`
+	Language         string `json:"language"` // system, en, zh
+	Theme            string `json:"theme"`    // system, light, dark
+	DiffContext      int    `json:"diffContext"`
+	IgnoreWhitespace bool   `json:"ignoreWhitespace"`
+	ShowIgnored      bool   `json:"showIgnored"`
+	AutoFetch        bool   `json:"autoFetch"`
+	AutoFetchMinutes int    `json:"autoFetchMinutes"`
+	UpdateMethod     string `json:"updateMethod"` // merge, rebase
+	ConfirmForcePush bool   `json:"confirmForcePush"`
+	ConfirmRollback  bool   `json:"confirmRollback"`
+	// Commit checks warn before a commit, as IDEA's do.
+	CommitCheckCRLF    bool         `json:"commitCheckCrlf"`
+	CommitCheckLargeMB int          `json:"commitCheckLargeMB"`
+	CommitCheckNames   bool         `json:"commitCheckNames"`
+	CommitCheckHead    bool         `json:"commitCheckHead"`
+	CommitTemplate     string       `json:"commitTemplate"`
+	OpenInNewWindow    bool         `json:"openInNewWindow"`
+	UIScale            int          `json:"uiScale"` // percent, 100 is the design size
+	Recent             []RecentRepo `json:"recent"`
 }
 
 // RecentRepo is a repository the user opened before.
@@ -64,15 +70,19 @@ const settingsVersion = 2
 
 func defaultSettings() Settings {
 	return Settings{
-		Version:          settingsVersion,
-		Language:         "system",
-		Theme:            "system",
-		DiffContext:      -1,
-		UpdateMethod:     "merge",
-		ConfirmRollback:  true,
-		ConfirmForcePush: true,
-		AutoFetchMinutes: 15,
-		UIScale:          100,
+		Version:            settingsVersion,
+		Language:           "system",
+		Theme:              "system",
+		DiffContext:        -1,
+		UpdateMethod:       "merge",
+		ConfirmRollback:    true,
+		ConfirmForcePush:   true,
+		CommitCheckCRLF:    true,
+		CommitCheckLargeMB: 10,
+		CommitCheckNames:   true,
+		CommitCheckHead:    true,
+		AutoFetchMinutes:   15,
+		UIScale:            100,
 	}
 }
 
@@ -123,6 +133,9 @@ func (s *Settings) clamp() {
 	}
 	if s.UIScale < 70 || s.UIScale > 160 {
 		s.UIScale = 100
+	}
+	if s.CommitCheckLargeMB < 0 || s.CommitCheckLargeMB > 1000 {
+		s.CommitCheckLargeMB = 10
 	}
 }
 

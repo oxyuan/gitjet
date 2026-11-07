@@ -8979,3 +8979,10 @@ body.resizing-row .log-detail-split::after {
 .diff-row.selected .line-no {
   background: var(--selection-strong);
 }
+
+.settings-textarea {
+  min-height: 88px;
+  resize: vertical;
+  font-family: var(--font-mono);
+  font-size: 12px;
+}

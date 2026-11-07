@@ -1,4 +1,5 @@
 import { useMemo, useState } from "react";
+import { reformatCommitMessage } from "./commitMessage";
 import { buildChangeTree, directoryKeys, splitTracked, treeFiles } from "./changes";
 import { FileTree, type ChangeView } from "./FileTree";
 import { useFileMenu } from "./FileMenu";
@@ -87,6 +88,11 @@ const T = {
     commit: "Commit",
     commitCount: "Commit ({n})",
     commitAndPush: "Commit and Push…",
+    commitAndRebase: "Commit and Rebase",
+    undoCommit: "Undo Commit",
+    allowEmpty: "Allow an empty commit",
+    signCommit: "Sign the commit (GPG)",
+    reformat: "Reflow the message to 72 columns",
   },
   zh: {
     showDiff: "显示差异",
@@ -159,6 +165,11 @@ const T = {
     commit: "Commit",
     commitCount: "Commit（{n}）",
     commitAndPush: "Commit 并 Push…",
+    commitAndRebase: "提交并 Rebase",
+    undoCommit: "撤销上次提交",
+    allowEmpty: "允许空提交",
+    signCommit: "签名提交（GPG）",
+    reformat: "按 72 列重排提交信息",
   },
 } as const;
 
@@ -179,6 +190,8 @@ export interface CommitForm {
   amend: boolean;
   signOff: boolean;
   noVerify: boolean;
+  allowEmpty: boolean;
+  sign: boolean;
   authorName: string;
   authorEmail: string;
 }
@@ -205,7 +218,8 @@ export interface CommitActions {
   onSetActiveChangelist: (id: string) => void;
   onTakeSide: (path: string, side: "ours" | "theirs") => void;
   onMarkResolved: (paths: string[]) => void;
-  onCommit: (push: boolean) => void;
+  onCommit: (push: boolean, rebase?: boolean) => void;
+  onUndoCommit: () => void;
   onToggleAmend: (amend: boolean) => void;
   onCommitFormChange: (form: CommitForm) => void;
   onRequestPush: () => void;
@@ -690,6 +704,11 @@ export function CommitPanel({
                 },
                 { separator: true },
                 {
+                  label: t("undoCommit"),
+                  icon: "undo",
+                  onClick: actions.onUndoCommit,
+                },
+                {
                   label: t("stashChanges"),
                   icon: "stash",
                   disabled: entries.length === 0,
@@ -835,6 +854,15 @@ export function CommitPanel({
                 ))}
               </div>
             )}
+            <button
+              className="mini-icon"
+              title={t("reformat")}
+              onClick={() =>
+                actions.onCommitFormChange({ ...form, message: reformatCommitMessage(form.message) })
+              }
+            >
+              <Icon name="rows" size={13} />
+            </button>
           </div>
         </div>
         <div className="commit-options">
@@ -847,7 +875,9 @@ export function CommitPanel({
           <button className="commit-options-btn" onClick={() => setShowOptions((v) => !v)} title={t("commitOptions")}>
             <Icon name="settings" size={13} />
             {t("options")}
-            {(form.signOff || form.noVerify || form.authorName) && <span className="dot-badge" />}
+            {(form.signOff || form.noVerify || form.allowEmpty || form.sign || form.authorName) && (
+              <span className="dot-badge" />
+            )}
           </button>
           {showOptions && (
             <div className="options-popover" onMouseLeave={() => setShowOptions(false)}>
@@ -860,6 +890,16 @@ export function CommitPanel({
                 checked={form.noVerify}
                 onChange={(v) => actions.onCommitFormChange({ ...form, noVerify: v })}
                 label={t("skipHooks")}
+              />
+              <Checkbox
+                checked={form.allowEmpty}
+                onChange={(v) => actions.onCommitFormChange({ ...form, allowEmpty: v })}
+                label={t("allowEmpty")}
+              />
+              <Checkbox
+                checked={form.sign}
+                onChange={(v) => actions.onCommitFormChange({ ...form, sign: v })}
+                label={t("signCommit")}
               />
               <label className="field field-inline">
                 <span className="field-label">{t("author")}</span>
@@ -894,7 +934,17 @@ export function CommitPanel({
           </button>
           <button
             className="btn btn-primary split-arrow"
-            onClick={() => actions.onRequestPush()}
+            onClick={(e) => {
+              const rect = (e.currentTarget as HTMLElement).getBoundingClientRect();
+              setMenu({
+                x: rect.right - 180,
+                y: rect.bottom,
+                items: [
+                  { label: t("commitAndPush"), icon: "push", onClick: () => actions.onCommit(true) },
+                  { label: t("commitAndRebase"), icon: "rebase", onClick: () => actions.onCommit(false, true) },
+                ],
+              });
+            }}
             disabled={busy || !canCommit}
             title={t("commitAndPush")}
           >

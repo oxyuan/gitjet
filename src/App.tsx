@@ -234,6 +234,14 @@ const T = {
     operationPull: "Update Project",
     operationFetch: "Fetch",
     operationClone: "Clone",
+    commitChecksTitle: "Commit checks",
+    commitChecksMessage: "{n} problems were found. Commit anyway?",
+    commitAnyway: "Commit Anyway",
+    commitRebaseNoUpstream: "The branch has no upstream to rebase onto.",
+    undoCommitTitle: "Undo the last commit",
+    undoCommitMessage: "HEAD moves back one commit and its changes stay staged.",
+    undoCommit: "Undo Commit",
+    commitUndone: "Commit undone",
     operationInit: "Create Repository",
     removeRemoteTitle: "Remove remote",
     removeRemoteMessage: "Remove {name} and its remote-tracking refs?",
@@ -435,6 +443,14 @@ const T = {
     operationPull: "Pull",
     operationFetch: "Fetch",
     operationClone: "克隆",
+    commitChecksTitle: "提交检查",
+    commitChecksMessage: "发现 {n} 个问题，仍要提交吗？",
+    commitAnyway: "仍然提交",
+    commitRebaseNoUpstream: "当前分支没有可 Rebase 的上游。",
+    undoCommitTitle: "撤销上次提交",
+    undoCommitMessage: "HEAD 回退一次提交，其更改保留在暂存区。",
+    undoCommit: "撤销提交",
+    commitUndone: "已撤销提交",
     operationInit: "新建仓库",
     removeRemoteTitle: "删除远端",
     removeRemoteMessage: "删除 {name} 及其远程跟踪引用？",
@@ -562,6 +578,8 @@ const emptyForm: CommitForm = {
   amend: false,
   signOff: false,
   noVerify: false,
+  allowEmpty: false,
+  sign: false,
   authorName: "",
   authorEmail: "",
 };
@@ -993,7 +1011,7 @@ function AppShell({ onLangChange }: { onLangChange: (lang: Lang) => void }) {
         if (b.error) notify("error", tRef.current("reopenRepo"), b.error);
       })
       .catch((err) => {
-        setBoot({ settings: { version: 2, gitPath: "", language: "system", theme: "system", diffContext: -1, ignoreWhitespace: false, showIgnored: false, autoFetch: false, autoFetchMinutes: 15, updateMethod: "merge", confirmForcePush: true, confirmRollback: true, openInNewWindow: false, uiScale: 100, recent: [] }, repo: null, error: String(err), version: "", platform: "" });
+        setBoot({ settings: { version: 2, gitPath: "", language: "system", theme: "system", diffContext: -1, ignoreWhitespace: false, showIgnored: false, autoFetch: false, autoFetchMinutes: 15, updateMethod: "merge", confirmForcePush: true, confirmRollback: true, commitCheckCrlf: true, commitCheckLargeMB: 10, commitCheckNames: true, commitCheckHead: true, commitTemplate: "", openInNewWindow: false, uiScale: 100, recent: [] }, repo: null, error: String(err), version: "", platform: "" });
         notify("error", tRef.current("startFailed"), err instanceof Error ? err.message : String(err));
       });
   }, [applyCheckedDefaults, notify, reload]);
@@ -1159,7 +1177,7 @@ function AppShell({ onLangChange }: { onLangChange: (lang: Lang) => void }) {
       setDocs([]);
       setActiveId(null);
       setDirtyDocs(new Set());
-      setForm(emptyForm);
+      setForm({ ...emptyForm, message: freshSettings.commitTemplate });
       setLogResult(null);
       setSelectedCommit(null);
       setLogDetail(null);
@@ -1455,6 +1473,34 @@ function AppShell({ onLangChange }: { onLangChange: (lang: Lang) => void }) {
       openDoc({ id: `diff:${opts.target}:${opts.revision}:${opts.path}`, title: opts.path, kind: "diff", diff, opts });
     });
 
+  /** A fixup! or squash! commit for hash, folded in by an autosquash rebase. */
+  const commitFixup = async (hash: string, squash: boolean) => {
+    await withBusy(async () => {
+      const result = await Git.commitFixup(hash, squash);
+      notify("success", t("committed", { hash: result.short }), result.subject);
+      await reload(false);
+      void loadLog(true);
+    });
+  };
+
+  /** Undo Commit: HEAD moves back one commit and its changes stay staged. */
+  const undoCommit = async () => {
+    const ok = await ask({
+      title: t("undoCommitTitle"),
+      message: t("undoCommitMessage"),
+      confirmLabel: t("undoCommit"),
+    });
+    if (!ok) return;
+    await withBusy(async () => {
+      const result = await Git.undoCommit();
+      setForm((f) => ({ ...f, message: result.output || f.message, amend: false }));
+      setHistory(await Git.messageHistory().catch(() => []));
+      notify("success", t("commitUndone"), result.subject);
+      await reload(false);
+      void loadLog(true);
+    });
+  };
+
   /** Stage, unstage or roll back only the lines picked in the diff. */
   const applyLines = (opts: DiffOptions, lines: number[], action: "stage" | "unstage" | "rollback") =>
     withBusy(async () => {
@@ -1531,7 +1577,7 @@ function AppShell({ onLangChange }: { onLangChange: (lang: Lang) => void }) {
     });
   };
 
-  const commit = async (pushAfter: boolean) => {
+  const commit = async (pushAfter: boolean, rebaseAfter = false) => {
     if (!snapshot) return;
     const eligible = new Set<string>();
     for (const c of snapshot.changes) {
@@ -1539,13 +1585,25 @@ function AppShell({ onLangChange }: { onLangChange: (lang: Lang) => void }) {
       eligible.add(c.path);
     }
     const paths = [...checked].filter((p) => eligible.has(p));
-    if (paths.length === 0 && !form.amend) {
+    if (paths.length === 0 && !form.amend && !form.allowEmpty) {
       notify("error", t("nothingToCommit"), t("nothingToCommitMessage"));
       return;
     }
     if (form.message.trim() === "" && !form.amend) {
       notify("error", t("commitNeedsMessage"));
       return;
+    }
+    const warnings = await Git.commitChecks(paths).catch(() => []);
+    if (warnings.length > 0) {
+      const ok = await ask({
+        title: t("commitChecksTitle"),
+        message: t("commitChecksMessage", { n: warnings.length }),
+        detail: warnings
+          .map((w) => (w.path ? `${w.path}: ${w.message}` : w.message))
+          .join("\n"),
+        confirmLabel: t("commitAnyway"),
+      });
+      if (!ok) return;
     }
     const ok = await withBusy(async () => {
       const result = await Git.commit({
@@ -1554,6 +1612,8 @@ function AppShell({ onLangChange }: { onLangChange: (lang: Lang) => void }) {
         amend: form.amend,
         signOff: form.signOff,
         noVerify: form.noVerify,
+        allowEmpty: form.allowEmpty,
+        sign: form.sign,
         authorName: form.authorName,
         authorEmail: form.authorEmail,
       });
@@ -1561,11 +1621,24 @@ function AppShell({ onLangChange }: { onLangChange: (lang: Lang) => void }) {
     }, t("commitFailed"));
     if (!ok) return;
     notify("success", t("committed", { hash: ok.short }), ok.subject);
-    setForm((f) => ({ ...f, message: "", amend: false }));
+    setForm((f) => ({ ...f, message: settingsRef.current?.commitTemplate ?? "", amend: false }));
     amendBackup.current = "";
     setHistory(await Git.messageHistory().catch(() => []));
     await reload(false);
     void loadLog(true);
+    if (rebaseAfter) {
+      const upstream = snapshotRef.current?.state.upstream ?? "";
+      if (upstream === "") {
+        notify("error", t("rebaseFinished"), t("commitRebaseNoUpstream"));
+        return;
+      }
+      await withConflicts(async () => {
+        await Git.rebase({ onto: upstream, branch: "", autostash: true, updateRefs: false, rebaseMerges: false, keepEmpty: false, root: false, autoSquash: "" });
+        notify("success", t("rebaseFinished"));
+        await reload(false);
+      });
+      return;
+    }
     if (pushAfter) {
       setDialog({ kind: "push", setUpstream: !snapshot.state.upstream });
     }
@@ -2260,7 +2333,8 @@ function AppShell({ onLangChange }: { onLangChange: (lang: Lang) => void }) {
         await Git.markResolved(paths);
         await reload(false);
       }),
-    onCommit: (pushAfter) => void commit(pushAfter),
+    onCommit: (pushAfter, rebaseAfter) => void commit(pushAfter, rebaseAfter ?? false),
+    onUndoCommit: () => void undoCommit(),
     onToggleAmend: (amend) => void toggleAmend(amend),
     onCommitFormChange: setForm,
     onRequestPush: () => void commit(true),
@@ -2600,6 +2674,8 @@ function AppShell({ onLangChange }: { onLangChange: (lang: Lang) => void }) {
             onNewBranch={(start) => setDialog({ kind: "newBranch", start })}
             onNewTag={(start) => setDialog({ kind: "tag", start })}
             onCherryPick={(hashes) => void cherryPick(hashes)}
+            onFixupCommit={(hash) => void commitFixup(hash, false)}
+            onSquashCommit={(hash) => void commitFixup(hash, true)}
             onRevert={(hashes) => void revert(hashes)}
             onRewrite={(oldest) => rewriteFrom(oldest)}
             onReset={(hash) => {
