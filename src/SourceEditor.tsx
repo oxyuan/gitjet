@@ -5,7 +5,7 @@ import { annotateDate, changeRanges, type ChangeRange } from "./annotate";
 import { connectLSP, lspServes, registerView, unregisterView, toUri } from "./lsp";
 import { blameMenuItems } from "./blameMenu";
 import { ContextMenu, useStoredState, type ContextItem } from "./ui";
-import { useT } from "./i18n";
+import { useLang, useT } from "./i18n";
 import { withLineEnding, type LineEnding } from "./editorText";
 
 const T = {
@@ -85,6 +85,7 @@ export function SourceEditor({
   saveRef?: { current: (() => Promise<boolean>) | null };
 }) {
   const t = useT(T);
+  const lang = useLang();
   const host = useRef<HTMLDivElement | null>(null);
   const editor = useRef<Editor | null>(null);
   const actions = useRef({
@@ -164,6 +165,7 @@ export function SourceEditor({
       language: file.language,
       wrap,
       editable,
+      lang,
       labels,
       blameFormat,
       onDirtyChange: (dirty) => actions.current.onDirtyChange?.(dirty),

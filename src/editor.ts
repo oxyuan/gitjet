@@ -22,11 +22,25 @@ import {
   lineNumbers,
   type BlockInfo,
   type DecorationSet,
+  type Panel,
   type ViewUpdate,
 } from "@codemirror/view";
 import { defaultKeymap, history, historyKeymap } from "@codemirror/commands";
 import { bracketMatching, indentOnInput, syntaxHighlighting, type LanguageSupport } from "@codemirror/language";
-import { highlightSelectionMatches, search, searchKeymap } from "@codemirror/search";
+import {
+  SearchQuery,
+  closeSearchPanel,
+  findNext,
+  findPrevious,
+  getSearchQuery,
+  highlightSelectionMatches,
+  replaceAll,
+  replaceNext,
+  search,
+  searchKeymap,
+  selectMatches,
+  setSearchQuery,
+} from "@codemirror/search";
 import { closeBrackets } from "@codemirror/autocomplete";
 import { languages } from "@codemirror/language-data";
 import { findReferences, jumpToDefinition } from "@codemirror/lsp-client";
@@ -268,10 +282,344 @@ const blameLine = (format?: EditorOptions["blameFormat"]): Extension => [
   ),
 ];
 
+/** Copy for the find bar, in the reader's language. */
+const findLabels = {
+  en: {
+    find: "Find",
+    replace: "Replace",
+    next: "Next match",
+    previous: "Previous match",
+    selectAll: "Select all matches",
+    selectAllShort: "All",
+    close: "Close",
+    matchCase: "Match case",
+    wholeWord: "Whole word",
+    regexp: "Regular expression",
+    replaceAll: "Replace all",
+    none: "No results",
+    of: "{index} / {total}",
+    total: "{total} matches",
+    totalOne: "{total} match",
+  },
+  zh: {
+    find: "查找",
+    replace: "替换",
+    next: "下一处",
+    previous: "上一处",
+    selectAll: "选择全部匹配项",
+    selectAllShort: "全选",
+    close: "关闭",
+    matchCase: "区分大小写",
+    wholeWord: "全词匹配",
+    regexp: "正则表达式",
+    replaceAll: "全部替换",
+    none: "无结果",
+    of: "{index} / {total}",
+    total: "共 {total} 个",
+    totalOne: "共 {total} 个",
+  },
+} as const;
+
+type FindLabels = Record<keyof (typeof findLabels)["en"], string>;
+
+function fill(text: string, vars: Record<string, string | number>): string {
+  let out = text;
+  for (const [name, value] of Object.entries(vars)) out = out.split(`{${name}}`).join(String(value));
+  return out;
+}
+
+/** At most this many matches are counted; past it the bar says "2000+"
+ *  instead of walking a whole file on every keystroke. */
+const matchCountCap = 2000;
+
+const el = <K extends keyof HTMLElementTagNameMap>(
+  tag: K,
+  props: Record<string, unknown> = {},
+  children: (Node | string)[] = [],
+): HTMLElementTagNameMap[K] => {
+  const node = document.createElement(tag);
+  for (const [key, value] of Object.entries(props)) {
+    if (key.startsWith("on")) node.addEventListener(key.slice(2), value as EventListener);
+    else if (value === true) node.setAttribute(key, "");
+    else if (value !== false && value != null) node.setAttribute(key, String(value));
+  }
+  for (const child of children) node.append(child);
+  return node;
+};
+
+/** The find and replace bar: a compact card floating at the top-right of the
+ *  text, the way an IDE docks it, instead of CodeMirror's default strip of
+ *  text buttons. It drives the same commands the default panel does, so the
+ *  keymap, highlighting and announcements keep working. */
+class FindBar implements Panel {
+  readonly dom: HTMLElement;
+  /** Docked to the top of the text, where the panel group puts it. */
+  readonly top = true;
+  readonly pos = 80;
+  private searchField: HTMLInputElement;
+  private replaceField: HTMLInputElement | null = null;
+  private count: HTMLElement;
+  private toggles: HTMLButtonElement[];
+  /** The field the caret came from; buttons hand the focus back to it. */
+  private lastField: HTMLInputElement | null = null;
+  private caseSensitive: boolean;
+  private wholeWord: boolean;
+  private regexp: boolean;
+  private query: SearchQuery;
+
+  constructor(
+    private view: EditorView,
+    private labels: FindLabels,
+  ) {
+    const current = getSearchQuery(view.state);
+    this.query = current;
+    this.caseSensitive = current.caseSensitive;
+    this.wholeWord = current.wholeWord;
+    this.regexp = current.regexp;
+
+    this.searchField = el("input", {
+      class: "find-input",
+      "main-field": true,
+      type: "text",
+      placeholder: labels.find,
+      "aria-label": labels.find,
+      spellcheck: "false",
+      autocorrect: "off",
+      autocapitalize: "off",
+      autocomplete: "off",
+    });
+    this.searchField.value = current.search;
+    this.searchField.addEventListener("focus", () => (this.lastField = this.searchField));
+    this.count = el("span", { class: "find-count" });
+
+    const icon = (title: string, text: string) =>
+      el("button", {
+        class: "find-icon",
+        type: "button",
+        title,
+        "aria-label": title,
+        tabindex: "-1",
+      }, [text]);
+
+    const toggle = (title: string, text: string, on: boolean, flip: () => void) => {
+      const button = el("button", {
+        class: "find-toggle" + (on ? " active" : ""),
+        type: "button",
+        title,
+        "aria-label": title,
+        "aria-pressed": on ? "true" : "false",
+        tabindex: "-1",
+      }, [text]);
+      this.press(button, () => {
+        flip();
+        this.commit();
+      });
+      return button;
+    };
+
+    const first = el("div", { class: "find-row" }, [
+      this.searchField,
+      this.count,
+      this.press(icon(labels.previous, "↑"), () => findPrevious(this.view)),
+      this.press(icon(labels.next, "↓"), () => findNext(this.view)),
+      this.press(icon(labels.close, "✕"), () => closeSearchPanel(this.view)),
+    ]);
+
+    const caseToggle = toggle(labels.matchCase, "Aa", this.caseSensitive, () => {
+      this.caseSensitive = !this.caseSensitive;
+    });
+    const wordToggle = toggle(labels.wholeWord, "ab", this.wholeWord, () => {
+      this.wholeWord = !this.wholeWord;
+    });
+    const reToggle = toggle(labels.regexp, ".*", this.regexp, () => {
+      this.regexp = !this.regexp;
+    });
+    this.toggles = [caseToggle, wordToggle, reToggle];
+    const selectAll = el("button", {
+      class: "find-text-btn",
+      type: "button",
+      title: labels.selectAll,
+      tabindex: "-1",
+    }, [labels.selectAllShort]);
+    this.press(selectAll, () => {
+      this.commit();
+      selectMatches(this.view);
+    });
+    const second = el("div", { class: "find-row find-options" }, [caseToggle, wordToggle, reToggle, selectAll]);
+
+    const rows = [first, second];
+    if (!view.state.readOnly) {
+      this.replaceField = el("input", {
+        class: "find-input",
+        type: "text",
+        placeholder: labels.replace,
+        "aria-label": labels.replace,
+        spellcheck: "false",
+        autocorrect: "off",
+        autocapitalize: "off",
+        autocomplete: "off",
+      });
+      this.replaceField.value = current.replace;
+      this.replaceField.addEventListener("focus", () => (this.lastField = this.replaceField));
+      const replace = el("button", {
+        class: "find-text-btn",
+        type: "button",
+        tabindex: "-1",
+      }, [labels.replace]);
+      this.press(replace, () => {
+        this.commit();
+        replaceNext(this.view);
+      });
+      const replaceAllBtn = el("button", {
+        class: "find-text-btn",
+        type: "button",
+        tabindex: "-1",
+      }, [labels.replaceAll]);
+      this.press(replaceAllBtn, () => {
+        this.commit();
+        replaceAll(this.view);
+      });
+      rows.push(el("div", { class: "find-row" }, [this.replaceField, replace, replaceAllBtn]));
+    }
+
+    this.dom = el("div", { class: "find-bar", role: "search" }, rows);
+    this.dom.addEventListener("input", () => this.commit());
+    this.dom.addEventListener("keydown", (event) => this.keydown(event as KeyboardEvent));
+    this.refresh();
+  }
+
+  mount() {
+    this.searchField.select();
+  }
+
+  update(update: ViewUpdate) {
+    const query = getSearchQuery(update.state);
+    if (!query.eq(this.query)) {
+      this.query = query;
+      this.searchField.value = query.search;
+      if (this.replaceField) this.replaceField.value = query.replace;
+      this.syncToggles(query);
+    }
+    this.refresh();
+  }
+
+  /**
+   * A button acts on the press, not on the click. Pressing first moves the
+   * caret out of the text field, and WebKit spends a press that also clears
+   * the field's selection: the toggle only answered the second click and the
+   * caret jumped around. Preventing the press keeps the field focused, and
+   * the click it would have produced is ignored; keyboard activation still
+   * arrives as a plain click.
+   */
+  private press(button: HTMLElement, action: () => void): HTMLElement {
+    let pressed = false;
+    button.addEventListener("mousedown", (event) => {
+      if ((event as MouseEvent).button !== 0) return;
+      event.preventDefault();
+      pressed = true;
+      action();
+    });
+    // The click from this press arrives before a zero-delay timer can run;
+    // a press that ends elsewhere fires no click and clears the flag anyway.
+    button.addEventListener("mouseup", () => window.setTimeout(() => (pressed = false), 0));
+    button.addEventListener("click", (event) => {
+      if (pressed) {
+        event.preventDefault();
+        return;
+      }
+      action();
+      this.lastField?.focus();
+    });
+    return button;
+  }
+
+  private syncToggles(query: SearchQuery) {
+    const states = [query.caseSensitive, query.wholeWord, query.regexp];
+    this.toggles.forEach((toggle, i) => {
+      const on = !!states[i];
+      toggle.classList.toggle("active", on);
+      toggle.setAttribute("aria-pressed", on ? "true" : "false");
+    });
+  }
+
+  private commit() {
+    const query = new SearchQuery({
+      search: this.searchField.value,
+      replace: this.replaceField?.value ?? "",
+      caseSensitive: this.caseSensitive,
+      wholeWord: this.wholeWord,
+      regexp: this.regexp,
+    });
+    if (query.eq(this.query)) return;
+    this.query = query;
+    this.syncToggles(query);
+    this.view.dispatch({ effects: setSearchQuery.of(query) });
+    this.refresh();
+  }
+
+  /** Writes the match count in the bar: the selected one when the caret sits
+   *  on a match, the total otherwise. */
+  private refresh() {
+    const state = this.view.state;
+    const query = this.query;
+    if (!query.search) {
+      this.count.textContent = "";
+      this.count.classList.remove("none");
+      return;
+    }
+    let total = 0;
+    let index = 0;
+    try {
+      const selection = state.selection.main;
+      const cursor = query.getCursor(state);
+      for (let match = cursor.next(); !match.done; match = cursor.next()) {
+        total++;
+        const { from, to } = match.value;
+        if (!selection.empty && from === selection.from && to === selection.to) index = total;
+        if (total >= matchCountCap) break;
+      }
+    } catch {
+      this.count.textContent = this.labels.none;
+      this.count.classList.add("none");
+      return;
+    }
+    this.count.classList.toggle("none", total === 0);
+    if (total === 0) {
+      this.count.textContent = this.labels.none;
+    } else if (total >= matchCountCap) {
+      this.count.textContent = `${matchCountCap}+`;
+    } else {
+      this.count.textContent = index
+        ? fill(this.labels.of, { index, total })
+        : fill(total === 1 ? this.labels.totalOne : this.labels.total, { total });
+    }
+  }
+
+  private keydown(event: KeyboardEvent) {
+    if (event.key === "Escape") {
+      event.preventDefault();
+      event.stopPropagation();
+      closeSearchPanel(this.view);
+      return;
+    }
+    if (event.key !== "Enter") return;
+    event.preventDefault();
+    const target = event.target as HTMLElement;
+    if (target === this.searchField) {
+      (event.shiftKey ? findPrevious : findNext)(this.view);
+    } else if (target === this.replaceField) {
+      this.commit();
+      replaceNext(this.view);
+    }
+  }
+}
+
 export type EditorOptions = {
   doc: string;
   language: string;
   wrap: boolean;
+  /** The reader's language, for the find bar's copy. */
+  lang?: "en" | "zh";
   /** Working-tree files are editable; the index and historical revisions are
    *  read-only. Read-only still leaves the DOM focusable. */
   editable?: boolean;
@@ -435,7 +783,7 @@ export class SourceEditor {
           bracketMatching(),
           closeBrackets(),
           indentOnInput(),
-          search({ top: true }),
+          search({ top: true, createPanel: (view) => new FindBar(view, findLabels[opts.lang ?? "en"]) }),
           highlightSelectionMatches(),
           history(),
           keymap.of([

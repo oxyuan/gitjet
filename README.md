@@ -164,6 +164,7 @@ go test ./... && go vet ./... && bun run typecheck && bun run test:web && bun ru
 | `⌘/Ctrl+,` | 设置 |
 | `⌘/Ctrl+B` / `⌘/Ctrl+Shift+B` | 跳到定义 / 列出引用（源码视图） |
 | `⌘/Ctrl+S` | 保存当前源码 / 应用冲突结果 |
+| `⌘/Ctrl+F` | 当前源码的查找与替换（浮动在右上角，`Aa`/`ab`/`.*` 切换大小写、全词、正则） |
 | `F7` / `Shift+F7` | 下一处 / 上一处变更（冲突视图） |
 | `Alt+←` / `Alt+→` | 采用本地 / 远程版本（冲突视图） |
 | `⌘⌃←` / `⌘⌃→`（macOS）、`Ctrl+Alt+←` / `Ctrl+Alt+→` | 接受右侧 / 接受左侧（冲突视图） |
