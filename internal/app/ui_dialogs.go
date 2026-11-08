@@ -286,6 +286,8 @@ func (a *nativeApp) confirmDialog(c *ui.Context) {
 			a.busyRun("delete-branch", func() error { return a.g.DeleteBranch(d.text, true) })
 		case "delete-path":
 			a.busyRun("delete-path", func() error { return a.g.DeletePath(d.text) })
+		case "close-repo":
+			a.closeRepo()
 		case "hard-reset":
 			hash := d.target
 			a.busyRun("reset", func() error {

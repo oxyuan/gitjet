@@ -766,6 +766,17 @@ func (a *nativeApp) command(cmd string) {
 	case cmd == "settings":
 		a.openSettingsDialog()
 	case cmd == "close":
+		dirty := false
+		for _, tab := range a.tabs {
+			if tab.dirty() {
+				dirty = true
+				break
+			}
+		}
+		if dirty {
+			a.dialog = dialogState{kind: dialogConfirm, title: a.t("Unsaved changes"), message: a.t("Close the repository without saving?"), action: "close-repo"}
+			return
+		}
 		a.closeRepo()
 	case cmd == "new-window":
 		if a.repoOpen {
@@ -824,6 +835,8 @@ func (a *nativeApp) command(cmd string) {
 			a.sideTab = 1
 		case "files":
 			a.sideTab = 2
+		case "log":
+			a.sideTab = 3
 		case "console":
 			a.sideTab = 4
 			a.consoleOpen = true
