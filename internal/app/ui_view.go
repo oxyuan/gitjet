@@ -182,16 +182,32 @@ func (a *nativeApp) commitPane(c *ui.Context) {
 			}
 			toolbarRule(c)
 			if _, clicked := a.iconButton(c, "expand", a.t("Expand all"), false); clicked {
-				a.showStaged = true
-				a.rebuildRows()
+				a.changeClosed = map[string]bool{}
+				for path := range a.openDirs {
+					a.openDirs[path] = true
+				}
 			}
 			if _, clicked := a.iconButton(c, "collapse", a.t("Collapse all"), false); clicked {
-				a.showStaged = false
-				a.rebuildRows()
+				a.changeClosed = map[string]bool{}
+				for _, cl := range a.snapshot.Changelists.Items {
+					a.changeClosed["cl:"+cl.ID] = true
+				}
+				a.changeClosed["staged"] = true
+				a.changeClosed["conflicts"] = true
+				a.changeClosed["ignored"] = true
+				a.openDirs = map[string]bool{}
 			}
 			ui.Spacer(c).Grow(1)
-			if _, clicked := a.iconButton(c, "files", a.t("Show files"), false); clicked {
-				a.sideTab = 2
+			viewIcon, viewTip := "list", a.t("View Flat")
+			if a.changeView == "flat" {
+				viewIcon, viewTip = "folder", a.t("View Tree")
+			}
+			if _, clicked := a.iconButton(c, viewIcon, viewTip, false); clicked {
+				if a.changeView == "tree" {
+					a.changeView = "flat"
+				} else {
+					a.changeView = "tree"
+				}
 			}
 			more := ui.ButtonBase(c).Size(26, 26).Radius(4).Center().Tooltip(a.t("More actions"))
 			if more.Hovered() {
@@ -229,191 +245,404 @@ func (a *nativeApp) commitPane(c *ui.Context) {
 				}
 			})
 		})
-		// The changelist row.
-		changelist := a.activeChangelistName()
-		ui.Row(c).Height(27).Padding(0, 8, 0, 6).Gap(5).AlignItems(ui.Center).Children(func() {
-			ui.Row(c).TextColor(ui.Hex(p.muted)).Center().Children(func() {
-				a.icon(c, "check", 13)
-			})
-			ui.Text(c, strings.ToUpper(changelist)).FontSize(11).FontWeight(650).
-				TextColor(ui.Hex(p.fgSoft)).MaxLines(1)
-			ui.Text(c, "("+a.t("active")+")").FontSize(10).TextColor(ui.Hex(p.muted2))
-			ui.Text(c, fmtInt(len(a.changes))).FontSize(10.5).TextColor(ui.Hex(p.muted2))
-			ui.Spacer(c).Grow(1)
-			if _, clicked := a.smallIconButton(c, "plus", a.t("New Changelist"), false); clicked {
-				a.dialog = dialogState{kind: dialogPrompt, title: a.t("New Changelist"), message: a.t("Name"), action: "new-changelist"}
-			}
-			more := ui.ButtonBase(c).Size(22, 22).Radius(4).Center().Tooltip(a.t("Changelist actions"))
-			if more.Hovered() {
-				more.Background(ui.Hex(p.hover))
-			}
-			more.Children(func() {
-				ui.Row(c).TextColor(ui.Hex(p.muted)).Center().Children(func() {
-					a.icon(c, "more", 13)
-				})
-			})
-			more.PopoverMenuButton(func(m *ui.Menu) {
-				if m.Item(a.t("Rename Changelist")).Chosen() {
-					a.dialog = dialogState{kind: dialogPrompt, title: a.t("Rename Changelist"), message: a.t("Name"), action: "rename-changelist", target: a.snapshot.Changelists.Active, text: a.activeChangelistName()}
-				}
-				if m.Item(a.t("Delete Changelist")).Chosen() {
-					id := a.snapshot.Changelists.Active
-					a.dialog = dialogState{kind: dialogConfirm, title: a.t("Delete Changelist"), message: a.t("Delete the active changelist?"), action: "delete-changelist", target: id}
-				}
-				m.Separator()
-				for _, cl := range a.snapshot.Changelists.Items {
-					label := cl.Name
-					if cl.ID == a.snapshot.Changelists.Active {
-						label = "✓ " + label
-					}
-					id := cl.ID
-					if m.Item(label).Chosen() {
-						a.setActiveChangelist(id)
+		// The change list: staged and conflicted files first, then one
+		// section per changelist, as the page groups them.
+		ui.Scroll(c).Grow(1).MinHeight(0).Children(func() {
+			ui.Column(c).Gap(1).Padding(6, 8, 12, 8).Children(func() {
+				staged, conflicts, changed, untracked, ignored := 0, 0, 0, 0, 0
+				for _, row := range a.changes {
+					switch {
+					case row.staged:
+						staged++
+					case row.change.Unmerged:
+						conflicts++
+					case row.change.Kind == "untracked":
+						untracked++
+					case row.change.Kind == "ignored":
+						ignored++
+					default:
+						changed++
 					}
 				}
-			})
-		})
-		// Section heading and the list.
-		ui.Row(c).Height(24).PaddingX(8).Gap(5).AlignItems(ui.Center).Children(func() {
-			ui.Text(c, a.t("Changed files")).FontSize(11.5).FontWeight(600).TextColor(ui.Hex(p.fg))
-			ui.Text(c, fmtInt(len(a.changes))).FontSize(10.5).TextColor(ui.Hex(p.muted2))
-			ui.Spacer(c).Grow(1)
-			allChecked := true
-			for _, row := range a.changes {
-				key := row.change.Path
-				if row.staged {
-					key = "staged:" + key
-				}
-				if !a.checked[key] {
-					allChecked = false
-					break
-				}
-			}
-			if len(a.changes) > 0 {
-				if ui.Checkbox(c, &allChecked, "").Changed() {
-					for _, row := range a.changes {
-						key := row.change.Path
-						if row.staged {
-							key = "staged:" + key
-						}
-						a.checked[key] = allChecked
-					}
-				}
-			}
-		})
-		if len(a.changes) == 0 {
-			ui.Column(c).Grow(1).MinHeight(0).Center().Gap(8).Padding(28, 20).Children(func() {
-				ui.Row(c).TextColor(ui.Hex(p.success)).Center().Children(func() {
-					a.icon(c, "check", 20)
-				})
-				ui.Text(c, a.t("No local changes")).FontSize(12).TextColor(ui.Hex(p.muted))
-				ui.Text(c, a.t("The working tree is clean.")).FontSize(11).TextColor(ui.Hex(p.muted2))
-			})
-		} else {
-			ui.Scroll(c).Grow(1).MinHeight(0).Children(func() {
-				ui.Column(c).Gap(1).Padding(2, 0, 8, 0).Children(func() {
-					staged, changed, untracked := 0, 0, 0
-					for _, row := range a.changes {
-						switch {
-						case row.staged:
-							staged++
-						case row.change.Kind == "untracked":
-							untracked++
-						case row.change.Kind == "ignored":
-						default:
-							changed++
-						}
-					}
-					if staged > 0 {
-						a.changeSection(c, a.t("Staged Changes"), staged, "stage")
-					}
-					for i, row := range a.changes {
-						if row.staged {
-							a.changeRow(c, i)
-						}
-					}
-					if changed > 0 {
-						a.changeSection(c, a.t("Changed files"), changed, "file")
-					}
-					for i, row := range a.changes {
-						if row.staged || row.change.Kind == "untracked" || row.change.Kind == "ignored" || row.change.Unmerged {
-							continue
-						}
-						a.changeRow(c, i)
-					}
-					conflicts := 0
-					for _, row := range a.changes {
-						if row.change.Unmerged {
-							conflicts++
-						}
-					}
-					if conflicts > 0 {
-						a.changeSection(c, a.t("Merge Conflicts"), conflicts, "warning")
-					}
-					for i, row := range a.changes {
-						if row.change.Unmerged {
-							a.changeRow(c, i)
-						}
-					}
-					if untracked > 0 {
-						a.changeSection(c, a.t("Untracked files"), untracked, "file")
-					}
-					for i, row := range a.changes {
-						if row.change.Kind != "untracked" {
-							continue
-						}
-						a.changeRow(c, i)
-					}
-					if a.settings.ShowIgnored {
-						ignored := 0
-						for _, row := range a.changes {
-							if row.change.Kind == "ignored" {
-								ignored++
-							}
-						}
-						if ignored > 0 {
-							a.changeSection(c, a.t("Ignored Files"), ignored, "eye")
-							for i, row := range a.changes {
-								if row.change.Kind == "ignored" {
-									a.changeRow(c, i)
+				if a.showStaged && staged > 0 {
+					a.changeSection(c, "staged", a.t("Staged Changes"), "stage", staged, func() {
+						if _, clicked := a.smallIconButton(c, "unstage", a.t("Unstage all"), false); clicked {
+							var paths []string
+							for _, row := range a.changes {
+								if row.staged {
+									paths = append(paths, row.change.Path)
 								}
 							}
+							a.unstage(paths)
+						}
+					})
+					if a.sectionOpen("staged") {
+						var rows []int
+						for i, row := range a.changes {
+							if row.staged {
+								rows = append(rows, i)
+							}
+						}
+						a.changeRows(c, rows)
+					}
+				}
+				if conflicts > 0 {
+					a.changeSection(c, "conflicts", a.t("Merge Conflicts"), "warning", conflicts, func() {
+						if _, clicked := a.smallIconButton(c, "merge", a.t("Resolve Conflicts"), false); clicked {
+							a.dialog = dialogState{kind: dialogConflicts}
+						}
+					})
+					if a.sectionOpen("conflicts") {
+						var rows []int
+						for i, row := range a.changes {
+							if row.change.Unmerged {
+								rows = append(rows, i)
+							}
+						}
+						a.changeRows(c, rows)
+					}
+				}
+				for _, cl := range a.snapshot.Changelists.Items {
+					cl := cl
+					var rows []int
+					for i, row := range a.changes {
+						if row.staged || row.change.Unmerged || row.change.Kind == "ignored" {
+							continue
+						}
+						if len(cl.Paths) > 0 && !containsString(cl.Paths, row.change.Path) {
+							continue
+						}
+						rows = append(rows, i)
+					}
+					if len(a.snapshot.Changelists.Items) == 1 && len(rows) == 0 {
+						// Keep the one section for the empty state below.
+					}
+					title := cl.Name
+					if cl.ID == a.snapshot.Changelists.Active {
+						title = a.t("active") + ": " + cl.Name
+					}
+					key := "cl:" + cl.ID
+					a.changeSection(c, key, title, map[bool]string{true: "check", false: "list"}[cl.ID == a.snapshot.Changelists.Active], len(rows), func() {
+						if _, clicked := a.smallIconButton(c, "plus", a.t("New Changelist"), false); clicked {
+							a.dialog = dialogState{kind: dialogPrompt, title: a.t("New Changelist"), message: a.t("Name"), action: "new-changelist"}
+						}
+						more, _ := a.kitIconButton(c, "more", a.t("Changelist actions"), 24, 13, false, false, false)
+						more.PopoverMenuButton(func(m *ui.Menu) {
+							if m.Item(a.t("Rename Changelist")).Chosen() {
+								a.dialog = dialogState{kind: dialogPrompt, title: a.t("Rename Changelist"), message: a.t("Name"), action: "rename-changelist", target: cl.ID, text: cl.Name}
+							}
+							if m.Item(a.t("Delete Changelist")).Chosen() {
+								a.dialog = dialogState{kind: dialogConfirm, title: a.t("Delete Changelist"), message: a.t("Delete the active changelist?"), action: "delete-changelist", target: cl.ID}
+							}
+							m.Separator()
+							for _, item := range a.snapshot.Changelists.Items {
+								label := item.Name
+								if item.ID == a.snapshot.Changelists.Active {
+									label = "✓ " + label
+								}
+								id := item.ID
+								if m.Item(label).Chosen() {
+									a.setActiveChangelist(id)
+								}
+							}
+						})
+					})
+					if !a.sectionOpen(key) {
+						continue
+					}
+					var trackedRows, untrackedRows []int
+					for _, i := range rows {
+						if a.changes[i].change.Kind == "untracked" {
+							untrackedRows = append(untrackedRows, i)
+						} else {
+							trackedRows = append(trackedRows, i)
 						}
 					}
-				})
+					if len(trackedRows) > 0 && len(untrackedRows) > 0 {
+						a.changeSubgroup(c, a.t("Changed files"), changed)
+					}
+					a.changeRows(c, trackedRows)
+					if len(untrackedRows) > 0 {
+						if len(trackedRows) > 0 {
+							a.changeSubgroup(c, a.t("Untracked files"), untracked)
+						}
+						a.changeRows(c, untrackedRows)
+					}
+					if len(rows) == 0 && len(a.changes) > 0 {
+						ui.Text(c, a.t("No changes")).FontSize(11.5).TextColor(ui.Hex(p.muted2)).Padding(6, 10, 8, 36)
+					}
+				}
+				if a.settings.ShowIgnored && ignored > 0 {
+					a.changeSection(c, "ignored", a.t("Ignored Files"), "eye", ignored, nil)
+					if a.sectionOpen("ignored") {
+						var rows []int
+						for i, row := range a.changes {
+							if row.change.Kind == "ignored" {
+								rows = append(rows, i)
+							}
+						}
+						a.changeRows(c, rows)
+					}
+				}
+				if len(a.changes) == 0 {
+					ui.Column(c).Grow(1).MinHeight(0).Center().Gap(8).Padding(28, 20).Children(func() {
+						ui.Row(c).TextColor(ui.Hex(p.success)).Center().Children(func() {
+							a.icon(c, "check", 20)
+						})
+						ui.Text(c, a.t("No local changes")).FontSize(12).TextColor(ui.Hex(p.muted))
+						ui.Text(c, a.t("The working tree is clean.")).FontSize(11).TextColor(ui.Hex(p.muted2))
+					})
+				}
 			})
-		}
+		})
 		a.stashSection(c)
 		a.commitBox(c)
 	})
 }
 
-func (a *nativeApp) changeSection(c *ui.Context, title string, count int, icon string) {
-	p := palette(c.Theme())
-	ui.Row(c).Height(25).Padding(0, 8, 0, 6).Gap(5).AlignItems(ui.Center).Background(ui.Hex(p.panel)).Children(func() {
-		ui.Row(c).TextColor(ui.Hex(p.muted)).Center().Children(func() {
-			a.icon(c, icon, 13)
+type changeNode struct {
+	name     string
+	path     string
+	dir      bool
+	row      int
+	children []*changeNode
+}
+
+func buildChangeTree(rows []int, changes []changeRow) []*changeNode {
+	root := &changeNode{}
+	dirs := map[string]*changeNode{"": root}
+	for _, i := range rows {
+		path := changes[i].change.Path
+		parts := strings.Split(path, "/")
+		parent := root
+		prefix := ""
+		for _, part := range parts[:len(parts)-1] {
+			if prefix == "" {
+				prefix = part
+			} else {
+				prefix += "/" + part
+			}
+			dir := dirs[prefix]
+			if dir == nil {
+				dir = &changeNode{name: part, path: prefix, dir: true}
+				dirs[prefix] = dir
+				parent.children = append(parent.children, dir)
+			}
+			parent = dir
+		}
+		parent.children = append(parent.children, &changeNode{name: parts[len(parts)-1], path: path, row: i})
+	}
+	var fold func(*changeNode) *changeNode
+	fold = func(n *changeNode) *changeNode {
+		if !n.dir {
+			return n
+		}
+		children := n.children
+		name := n.name
+		for len(children) == 1 && children[0].dir {
+			name += "/" + children[0].name
+			children = children[0].children
+		}
+		sort.SliceStable(children, func(i, j int) bool {
+			if children[i].dir != children[j].dir {
+				return children[i].dir
+			}
+			return strings.ToLower(children[i].name) < strings.ToLower(children[j].name)
 		})
-		ui.Text(c, title).FontSize(12).FontWeight(600).TextColor(ui.Hex(p.fg))
-		ui.Text(c, fmt.Sprintf("%d %s", count, a.t("files"))).FontSize(10.5).TextColor(ui.Hex(p.muted2))
+		out := &changeNode{name: name, path: n.path, dir: true}
+		for _, child := range children {
+			out.children = append(out.children, fold(child))
+		}
+		return out
+	}
+	sort.SliceStable(root.children, func(i, j int) bool {
+		if root.children[i].dir != root.children[j].dir {
+			return root.children[i].dir
+		}
+		return strings.ToLower(root.children[i].name) < strings.ToLower(root.children[j].name)
+	})
+	out := make([]*changeNode, 0, len(root.children))
+	for _, child := range root.children {
+		out = append(out, fold(child))
+	}
+	return out
+}
+
+func (a *nativeApp) changeRows(c *ui.Context, rows []int) {
+	if a.changeView != "tree" {
+		for _, i := range rows {
+			a.changeRowAt(c, i, 0)
+		}
+		return
+	}
+	a.changeTree(c, buildChangeTree(rows, a.changes), 0)
+}
+
+func (a *nativeApp) changeTree(c *ui.Context, nodes []*changeNode, depth int) {
+	p := palette(c.Theme())
+	for _, node := range nodes {
+		node := node
+		if !node.dir {
+			a.changeRowAt(c, node.row, depth)
+			continue
+		}
+		row := a.kitRow(c, 28, 6+float32(depth)*12, 10, 6, false)
+		row.Radius(6)
+		open := a.openDirs[node.path]
+		row.Children(func() {
+			ui.Row(c).TextColor(ui.Hex(p.muted2)).Center().Children(func() {
+				if open {
+					a.icon(c, "chevronDown", 12)
+				} else {
+					a.icon(c, "chevronRight", 12)
+				}
+			})
+			files, additions, deletions := changeNodeTotals(node, a.changes)
+			state := ui.CheckOff
+			checked := 0
+			for _, i := range files {
+				ch := a.changes[i]
+				if ch.change.Unmerged || ch.change.Kind == "ignored" {
+					continue
+				}
+				key := ch.change.Path
+				if ch.staged {
+					key = "staged:" + key
+				}
+				if a.checked[key] {
+					checked++
+				}
+			}
+			if checked == len(files) && len(files) > 0 {
+				state = ui.CheckOn
+			} else if checked > 0 {
+				state = ui.CheckMixed
+			}
+			cb := ui.CheckboxState(c, &state, "")
+			if cb.Changed() {
+				on := state == ui.CheckOn
+				for _, i := range files {
+					ch := a.changes[i]
+					key := ch.change.Path
+					if ch.staged {
+						key = "staged:" + key
+					}
+					a.checked[key] = on
+				}
+			}
+			ui.Row(c).TextColor(ui.Hex(p.accent).Alpha(0.72)).Center().Children(func() {
+				a.icon(c, "folder", 14)
+			})
+			ui.Text(c, node.name).FontSize(12.5).FontWeight(550).TextColor(ui.Hex(p.fgSoft)).MaxLines(1)
+			ui.Text(c, fmtInt(len(files))).FontSize(10.5).TextColor(ui.Hex(p.muted2))
+			ui.Spacer(c).Grow(1)
+			if additions > 0 {
+				ui.Text(c, fmt.Sprintf("+%d", additions)).FontSize(10).Font("monospace").TextColor(ui.Hex(p.added))
+			}
+			if deletions > 0 {
+				ui.Text(c, fmt.Sprintf("−%d", deletions)).FontSize(10).Font("monospace").TextColor(ui.Hex(p.deleted))
+			}
+		})
+		if row.Clicked() {
+			a.openDirs[node.path] = !open
+		}
+		if open {
+			a.changeTree(c, node.children, depth+1)
+		}
+	}
+}
+
+func changeNodeTotals(node *changeNode, changes []changeRow) (files []int, additions, deletions int) {
+	if !node.dir {
+		ch := changes[node.row].change
+		return []int{node.row}, ch.Additions, ch.Deletions
+	}
+	for _, child := range node.children {
+		f, a, d := changeNodeTotals(child, changes)
+		files = append(files, f...)
+		additions += a
+		deletions += d
+	}
+	return files, additions, deletions
+}
+
+func (a *nativeApp) changeSubgroup(c *ui.Context, title string, count int) {
+	p := palette(c.Theme())
+	ui.Row(c).Padding(7, 8, 3, 10).Gap(6).AlignItems(ui.Center).Children(func() {
+		ui.Text(c, title).FontSize(11.5).FontWeight(600).TextColor(ui.Hex(p.fgSoft))
+		ui.Text(c, fmtInt(count)).FontSize(10.5).TextColor(ui.Hex(p.muted2))
 	})
 }
 
+func containsString(list []string, s string) bool {
+	for _, item := range list {
+		if item == s {
+			return true
+		}
+	}
+	return false
+}
+
+func (a *nativeApp) sectionOpen(key string) bool {
+	return !a.changeClosed[key]
+}
+
+func (a *nativeApp) changeSection(c *ui.Context, key, title, icon string, count int, extra func()) {
+	p := palette(c.Theme())
+	closed := !a.sectionOpen(key)
+	header := ui.ButtonBase(c).Height(30).PaddingX(8).Radius(6).Gap(6).
+		AlignItems(ui.Center).FillWidth().Justify(ui.Start)
+	bg := ui.Transparent
+	if header.Hovered() {
+		bg = ui.Hex(p.hover)
+	}
+	header.Background(motionColor(header, "kit-section-bg", bg))
+	header.Children(func() {
+		ui.Row(c).TextColor(ui.Hex(p.muted2)).Center().Children(func() {
+			if closed {
+				a.icon(c, "chevronRight", 12)
+			} else {
+				a.icon(c, "chevronDown", 12)
+			}
+		})
+		ui.Row(c).TextColor(ui.Hex(p.muted2)).Center().Children(func() {
+			a.icon(c, icon, 13)
+		})
+		ui.Text(c, strings.ToUpper(title)).FontSize(10.5).FontWeight(650).
+			LetterSpacing(0.045).TextColor(ui.Hex(p.muted)).MaxLines(1)
+		ui.Box(c).Height(18).PaddingX(5).Radius(9).Background(ui.Hex(p.hover)).Center().Children(func() {
+			ui.Text(c, fmtInt(count)).FontSize(9.5).FontWeight(650).TextColor(ui.Hex(p.muted2))
+		})
+		ui.Spacer(c).Grow(1)
+		if extra != nil {
+			extra()
+		}
+	})
+	motionPressPose(header, header.Pressed(), 0.995)
+	if header.Clicked() {
+		a.changeClosed[key] = !a.changeClosed[key]
+	}
+}
+
 func (a *nativeApp) changeRow(c *ui.Context, i int) {
+	a.changeRowAt(c, i, 0)
+}
+
+func (a *nativeApp) changeRowAt(c *ui.Context, i, depth int) {
 	if i < 0 || i >= len(a.changes) {
 		return
 	}
 	p := palette(c.Theme())
 	row := a.changes[i]
 	ch := row.change
-	line := ui.Row(c).Height(23).PaddingX(8).Gap(5).AlignItems(ui.Center)
-	bg := ui.Transparent
-	if i == a.changeSel {
-		bg = ui.Hex(p.selection)
-	} else if line.Hovered() {
-		bg = ui.Hex(p.hover)
+	selected := i == a.changeSel
+	line := a.kitRow(c, 28, 6+float32(depth)*12, 10, 6, selected)
+	line.Radius(6)
+	if selected {
+		line.DrawOver(func(pt *ui.Painter, r ui.Rect) {
+			pt.Stroke(ui.Rect{X: r.X + 0.5, Y: r.Y + 0.5, W: r.W - 1, H: r.H - 1}, ui.Hex(p.accent).Alpha(0.16), 6, 1)
+		})
 	}
-	line.Background(motionColor(line, "kit-change-bg", bg))
 	if line.Clicked() {
 		a.changeSel = i
 	}
@@ -422,33 +651,35 @@ func (a *nativeApp) changeRow(c *ui.Context, i int) {
 		a.openSelectedChange()
 	}
 	line.Children(func() {
+		ui.Spacer(c).Width(14)
+		key := ch.Path
+		if row.staged {
+			key = "staged:" + key
+		}
 		if !ch.Unmerged && ch.Kind != "ignored" {
-			key := ch.Path
-			if row.staged {
-				key = "staged:" + key
-			}
 			v := a.checked[key]
 			if ui.Checkbox(c, &v, "").Changed() {
 				a.checked[key] = v
 			}
+		} else {
+			ui.Spacer(c).Width(14)
 		}
-		mark := statusLetter(ch)
-		ui.Text(c, mark).FontSize(10.5).Font("monospace").FontWeight(700).Width(13).
+		if row.staged {
+			ui.Box(c).Size(5, 5).Radius(3).Background(ui.Hex(p.accent))
+		}
+		ui.Text(c, statusLetter(ch)).FontSize(10).Font("monospace").FontWeight(700).Width(13).
 			TextColor(statusColor(c.Theme(), ch))
-		a.kitFileBadge(c, ch.Path, 16)
-		ui.Text(c, filepath.Base(ch.Path)).FontSize(12.5).TextColor(ui.Hex(p.fgSoft)).MaxLines(1)
+		a.kitFileBadge(c, ch.Path, 14)
+		ui.Text(c, filepath.Base(ch.Path)).FontSize(12.5).FontWeight(450).TextColor(ui.Hex(p.fgSoft)).MaxLines(1)
 		if dir := filepath.Dir(ch.Path); dir != "." && !row.staged {
 			ui.Text(c, dir+"/").FontSize(10.5).TextColor(ui.Hex(p.muted2)).MaxLines(1)
 		}
 		ui.Spacer(c).Grow(1)
 		if ch.Additions > 0 {
-			ui.Text(c, fmt.Sprintf("+%d", ch.Additions)).FontSize(10.5).Font("monospace").TextColor(ui.Hex(p.added))
+			ui.Text(c, fmt.Sprintf("+%d", ch.Additions)).FontSize(10).Font("monospace").TextColor(ui.Hex(p.added))
 		}
 		if ch.Deletions > 0 {
-			ui.Text(c, fmt.Sprintf("−%d", ch.Deletions)).FontSize(10.5).Font("monospace").TextColor(ui.Hex(p.deleted))
-		}
-		if row.staged {
-			ui.Box(c).Size(5, 5).Radius(3).Background(ui.Hex(p.accent))
+			ui.Text(c, fmt.Sprintf("−%d", ch.Deletions)).FontSize(10).Font("monospace").TextColor(ui.Hex(p.deleted))
 		}
 	})
 
@@ -642,135 +873,123 @@ func (a *nativeApp) stashSection(c *ui.Context) {
 
 func (a *nativeApp) commitBox(c *ui.Context) {
 	p := palette(c.Theme())
-	ui.Column(c).Padding(7, 8).Gap(6).BorderWidth(1, 0, 0, 0).BorderColor(ui.Hex(p.border)).
-		Background(ui.Hex(p.panel)).Children(func() {
-		ui.Box(c).Children(func() {
-			msg := ui.TextArea(c, &a.commitForm.Message).Height(76).FontSize(12.5).
-				Placeholder(a.t("Commit message"))
-			if a.focusCommit > 0 {
-				msg.AutoFocus()
-				a.focusCommit = 0
-			}
-			ui.Row(c).Absolute().Top(5).Right(5).Gap(1).Children(func() {
-				history := ui.ButtonBase(c).Size(20, 20).Radius(3).Center().Tooltip(a.t("Recent messages"))
-				if history.Hovered() {
-					history.Background(ui.Hex(p.hover))
+	ui.Column(c).Padding(8).Children(func() {
+		card := ui.Column(c).Padding(12).Gap(9).Radius(14).Border(1, ui.Hex(p.border)).
+			Background(ui.Hex(p.panel)).Shadow(0, 1, 2, 0, ui.RGBA(16, 24, 40, 0.05))
+		card.Children(func() {
+			ui.Box(c).Children(func() {
+				msg := ui.TextArea(c, &a.commitForm.Message).Height(88).FontSize(12.5).
+					Radius(10).Border(1, ui.Hex(p.border)).Padding(10, 30, 10, 11).
+					Placeholder(a.t("Commit message"))
+				if a.focusCommit > 0 {
+					msg.AutoFocus()
+					a.focusCommit = 0
 				}
-				history.Children(func() {
+				ui.Row(c).Absolute().Top(8).Right(8).Gap(1).Children(func() {
+					history, _ := a.kitIconButton(c, "clock", a.t("Recent messages"), 24, 13, false, false, false)
+					history.PopoverMenuButton(func(m *ui.Menu) {
+						if m.Item(a.t("Last Commit Message")).Chosen() {
+							if body := a.lastCommitMessage(); body != "" {
+								a.commitForm.Message = body
+							}
+						}
+						m.Separator()
+						for _, body := range a.g.MessageHistory() {
+							body := body
+							label := strings.SplitN(body, "\n", 2)[0]
+							if m.Item(label).Chosen() {
+								a.commitForm.Message = body
+							}
+						}
+					})
+					_, clicked := a.kitIconButton(c, "rows", a.t("Reformat to 72 columns"), 24, 13, false, false, false)
+					if clicked {
+						a.commitForm.Message = wrapCommitMessage(a.commitForm.Message, 72)
+					}
+				})
+			})
+			ui.Row(c).Gap(8).AlignItems(ui.Center).Children(func() {
+				ui.Checkbox(c, &a.commitForm.Amend, a.t("Amend"))
+				ui.Spacer(c).Grow(1)
+				opts := ui.ButtonBase(c).Height(22).PaddingX(6).Radius(4).Gap(4).AlignItems(ui.Center)
+				if a.showCommitOptions {
+					opts.Background(ui.Hex(p.hover))
+				}
+				opts.Children(func() {
 					ui.Row(c).TextColor(ui.Hex(p.muted)).Center().Children(func() {
-						a.icon(c, "clock", 13)
+						a.icon(c, "settings", 13)
+					})
+					ui.Text(c, a.t("Options")).FontSize(11.5).TextColor(ui.Hex(p.muted))
+					if a.commitForm.SignOff || a.commitForm.NoVerify || a.commitForm.AllowEmpty || a.commitForm.Sign || a.commitForm.AuthorName != "" {
+						ui.Box(c).Size(5, 5).Radius(3).Background(ui.Hex(p.accent))
+					}
+				})
+				if opts.Clicked() {
+					a.showCommitOptions = !a.showCommitOptions
+				}
+			})
+			if a.showCommitOptions {
+				ui.Column(c).Padding(8, 8).Radius(6).Gap(6).Background(ui.Hex(p.raised)).
+					Border(1, ui.Hex(p.border)).Children(func() {
+					ui.Checkbox(c, &a.commitForm.SignOff, a.t("Sign-off commit"))
+					ui.Checkbox(c, &a.commitForm.NoVerify, a.t("Skip hooks (--no-verify)"))
+					ui.Checkbox(c, &a.commitForm.AllowEmpty, a.t("Allow an empty commit"))
+					ui.Checkbox(c, &a.commitForm.Sign, a.t("Sign the commit (GPG)"))
+					ui.Row(c).Gap(6).Children(func() {
+						ui.Text(c, a.t("Author")).FontSize(10.5).TextColor(ui.Hex(p.muted)).Width(38)
+						ui.TextInput(c, &a.commitForm.AuthorName).Placeholder(a.t("Name (optional)")).Grow(1)
+					})
+					ui.Row(c).Gap(6).Children(func() {
+						ui.Text(c, a.t("Email")).FontSize(10.5).TextColor(ui.Hex(p.muted)).Width(38)
+						ui.TextInput(c, &a.commitForm.AuthorEmail).Placeholder("email@example.com").Grow(1)
 					})
 				})
-				history.PopoverMenuButton(func(m *ui.Menu) {
-					if m.Item(a.t("Last Commit Message")).Chosen() {
-						if body := a.lastCommitMessage(); body != "" {
-							a.commitForm.Message = body
-						}
+			}
+			// Commit and its split arrow.
+			count := 0
+			for _, on := range a.checked {
+				if on {
+					count++
+				}
+			}
+			canCommit := count > 0 || strings.TrimSpace(a.commitForm.Message) != "" || a.commitForm.Amend
+			disabled := a.busy > 0 || !canCommit
+			label := a.t("Commit")
+			if count > 0 {
+				label = fmt.Sprintf("%s (%d)", a.t("Commit"), count)
+			}
+			ui.Row(c).Gap(0).Children(func() {
+				if a.kitPrimaryAction(c, "commit", label, disabled, true, 7, 0, 0, 7) {
+					a.commitForm.PushAfter = false
+					a.commitForm.RebaseAfter = false
+					a.commitForm.SelectedOnly = false
+					a.requestCommit()
+				}
+				arrow := a.kitAccentArrow(c, disabled)
+				arrow.PopoverMenuButton(func(m *ui.Menu) {
+					if m.Item(a.t("Commit and Push")).Chosen() {
+						a.commitForm.PushAfter = true
+						a.commitForm.RebaseAfter = false
+						a.commitForm.SelectedOnly = false
+						a.requestCommit()
+					}
+					if m.Item(a.t("Commit and Rebase")).Chosen() {
+						a.commitForm.RebaseAfter = true
+						a.commitForm.PushAfter = false
+						a.commitForm.SelectedOnly = false
+						a.requestCommit()
 					}
 					m.Separator()
-					for _, body := range a.g.MessageHistory() {
-						body := body
-						label := strings.SplitN(body, "\n", 2)[0]
-						if m.Item(label).Chosen() {
-							a.commitForm.Message = body
-						}
+					if m.Item(a.t("Commit Selected Changes Only")).Chosen() {
+						a.commitForm.SelectedOnly = true
+						a.commitForm.PushAfter = false
+						a.commitForm.RebaseAfter = false
+						a.requestCommit()
+					}
+					if m.Item(a.t("Undo Commit")).Chosen() {
+						a.undoCommit()
 					}
 				})
-				reflow := ui.ButtonBase(c).Size(20, 20).Radius(3).Center().Tooltip(a.t("Reformat to 72 columns"))
-				if reflow.Hovered() {
-					reflow.Background(ui.Hex(p.hover))
-				}
-				reflow.Children(func() {
-					ui.Row(c).TextColor(ui.Hex(p.muted)).Center().Children(func() {
-						a.icon(c, "rows", 13)
-					})
-				})
-				if reflow.Clicked() {
-					a.commitForm.Message = wrapCommitMessage(a.commitForm.Message, 72)
-				}
-			})
-		})
-		ui.Row(c).Gap(8).AlignItems(ui.Center).Children(func() {
-			ui.Checkbox(c, &a.commitForm.Amend, a.t("Amend"))
-			ui.Spacer(c).Grow(1)
-			opts := ui.ButtonBase(c).Height(22).PaddingX(6).Radius(4).Gap(4).AlignItems(ui.Center)
-			if a.showCommitOptions {
-				opts.Background(ui.Hex(p.hover))
-			}
-			opts.Children(func() {
-				ui.Row(c).TextColor(ui.Hex(p.muted)).Center().Children(func() {
-					a.icon(c, "settings", 13)
-				})
-				ui.Text(c, a.t("Options")).FontSize(11.5).TextColor(ui.Hex(p.muted))
-				if a.commitForm.SignOff || a.commitForm.NoVerify || a.commitForm.AllowEmpty || a.commitForm.Sign || a.commitForm.AuthorName != "" {
-					ui.Box(c).Size(5, 5).Radius(3).Background(ui.Hex(p.accent))
-				}
-			})
-			if opts.Clicked() {
-				a.showCommitOptions = !a.showCommitOptions
-			}
-		})
-		if a.showCommitOptions {
-			ui.Column(c).Padding(8, 8).Radius(6).Gap(6).Background(ui.Hex(p.raised)).
-				Border(1, ui.Hex(p.border)).Children(func() {
-				ui.Checkbox(c, &a.commitForm.SignOff, a.t("Sign-off commit"))
-				ui.Checkbox(c, &a.commitForm.NoVerify, a.t("Skip hooks (--no-verify)"))
-				ui.Checkbox(c, &a.commitForm.AllowEmpty, a.t("Allow an empty commit"))
-				ui.Checkbox(c, &a.commitForm.Sign, a.t("Sign the commit (GPG)"))
-				ui.Row(c).Gap(6).Children(func() {
-					ui.Text(c, a.t("Author")).FontSize(10.5).TextColor(ui.Hex(p.muted)).Width(38)
-					ui.TextInput(c, &a.commitForm.AuthorName).Placeholder(a.t("Name (optional)")).Grow(1)
-				})
-				ui.Row(c).Gap(6).Children(func() {
-					ui.Text(c, a.t("Email")).FontSize(10.5).TextColor(ui.Hex(p.muted)).Width(38)
-					ui.TextInput(c, &a.commitForm.AuthorEmail).Placeholder("email@example.com").Grow(1)
-				})
-			})
-		}
-		// Commit and its split arrow.
-		count := 0
-		for _, on := range a.checked {
-			if on {
-				count++
-			}
-		}
-		canCommit := count > 0 || strings.TrimSpace(a.commitForm.Message) != "" || a.commitForm.Amend
-		disabled := a.busy > 0 || !canCommit
-		label := a.t("Commit")
-		if count > 0 {
-			label = fmt.Sprintf("%s (%d)", a.t("Commit"), count)
-		}
-		ui.Row(c).Gap(0).Children(func() {
-			if a.kitPrimaryAction(c, "commit", label, disabled, true, 7, 0, 0, 7) {
-				a.commitForm.PushAfter = false
-				a.commitForm.RebaseAfter = false
-				a.commitForm.SelectedOnly = false
-				a.requestCommit()
-			}
-			arrow := a.kitAccentArrow(c, disabled)
-			arrow.PopoverMenuButton(func(m *ui.Menu) {
-				if m.Item(a.t("Commit and Push")).Chosen() {
-					a.commitForm.PushAfter = true
-					a.commitForm.RebaseAfter = false
-					a.commitForm.SelectedOnly = false
-					a.requestCommit()
-				}
-				if m.Item(a.t("Commit and Rebase")).Chosen() {
-					a.commitForm.RebaseAfter = true
-					a.commitForm.PushAfter = false
-					a.commitForm.SelectedOnly = false
-					a.requestCommit()
-				}
-				m.Separator()
-				if m.Item(a.t("Commit Selected Changes Only")).Chosen() {
-					a.commitForm.SelectedOnly = true
-					a.commitForm.PushAfter = false
-					a.commitForm.RebaseAfter = false
-					a.requestCommit()
-				}
-				if m.Item(a.t("Undo Commit")).Chosen() {
-					a.undoCommit()
-				}
 			})
 		})
 	})
@@ -1427,7 +1646,7 @@ func (a *nativeApp) filesPane(c *ui.Context) {
 				return
 			}
 			f := a.fileTree[i]
-			row := ui.Row(c).Height(24).PaddingStart(6 + float32(f.depth)*12).PaddingEnd(8).Gap(5).AlignItems(ui.Center)
+			row := a.kitRow(c, 24, 6+float32(f.depth)*12, 8, 5, i == a.fileSel)
 			if f.dir {
 				if f.open {
 					ui.Row(c).TextColor(ui.Hex(p.muted)).Center().Children(func() {
@@ -1684,11 +1903,7 @@ func (a *nativeApp) branchSection(c *ui.Context, title string, rows []repoRefRow
 	for _, name := range order {
 		key := group + ":" + name
 		closed := a.branchClosed[key]
-		head := ui.ButtonBase(c).Height(22).PaddingStart(19).PaddingEnd(8).Radius(4).Gap(5).
-			AlignItems(ui.Center).FillWidth().Justify(ui.Start)
-		if head.Hovered() {
-			head.Background(ui.Hex(p.hover))
-		}
+		head := a.kitButtonRow(c, 22, 19, 8, 5, false)
 		head.Children(func() {
 			ui.Row(c).TextColor(ui.Hex(p.muted)).Center().Children(func() {
 				if closed {
@@ -1710,13 +1925,7 @@ func (a *nativeApp) branchSection(c *ui.Context, title string, rows []repoRefRow
 		for _, row := range grouped[name] {
 			ref := row.ref
 			selected := len(a.logOpts.Refs) == 1 && a.logOpts.Refs[0] == ref.Name
-			btn := ui.ButtonBase(c).Height(26).PaddingStart(30).PaddingEnd(8).Radius(4).Gap(6).
-				AlignItems(ui.Center).FillWidth().Justify(ui.Start)
-			if selected {
-				btn.Background(ui.Hex(p.selection))
-			} else if btn.Hovered() {
-				btn.Background(ui.Hex(p.hover))
-			}
+			btn := a.kitButtonRow(c, 26, 30, 8, 6, selected)
 			btn.Children(func() {
 				ui.Row(c).TextColor(ui.Hex(p.accent)).Center().Children(func() {
 					a.icon(c, "branch", 12)

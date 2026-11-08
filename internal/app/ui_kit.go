@@ -506,3 +506,34 @@ func (a *nativeApp) kitDialogPrimary(c *ui.Context, label string, disabled bool)
 	motionPressPose(b, b.Pressed() && !disabled, 0.97)
 	return b.Clicked() && !disabled
 }
+
+// kitRow is the shared list row: fixed height, animated hover and selected
+// washes, and the kit's padding rhythm. The caller composes its content.
+func (a *nativeApp) kitRow(c *ui.Context, height, padStart, padEnd, gap float32, selected bool) ui.Element {
+	p := palette(c.Theme())
+	row := ui.Row(c).Height(height).PaddingStart(padStart).PaddingEnd(padEnd).Gap(gap).AlignItems(ui.Center)
+	bg := ui.Transparent
+	if selected {
+		bg = ui.Hex(p.selection)
+	} else if row.Hovered() {
+		bg = ui.Hex(p.hover)
+	}
+	row.Background(motionColor(row, "kit-row-bg", bg))
+	return row
+}
+
+// kitButtonRow is kitRow for a row that is itself the button, as branch
+// groups and branch rows are.
+func (a *nativeApp) kitButtonRow(c *ui.Context, height, padStart, padEnd, gap float32, selected bool) ui.Element {
+	p := palette(c.Theme())
+	b := ui.ButtonBase(c).Height(height).PaddingStart(padStart).PaddingEnd(padEnd).Gap(gap).
+		AlignItems(ui.Center).FillWidth().Justify(ui.Start)
+	bg := ui.Transparent
+	if selected {
+		bg = ui.Hex(p.selection)
+	} else if b.Hovered() {
+		bg = ui.Hex(p.hover)
+	}
+	b.Background(motionColor(b, "kit-button-row-bg", bg))
+	return b
+}

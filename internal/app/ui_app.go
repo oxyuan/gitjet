@@ -117,6 +117,8 @@ type nativeApp struct {
 	sideSplit         float32
 	changes           []changeRow
 	changeSel         int
+	changeClosed      map[string]bool
+	changeView        string
 	checked           map[string]bool
 	checkedInit       bool
 	commitForm        commitForm
@@ -289,6 +291,8 @@ func newNativeApp() *nativeApp {
 		editorSplit:  650,
 		logSplit:     900,
 		changeSel:    -1,
+		changeClosed: map[string]bool{},
+		changeView:   "tree",
 		fileSel:      -1,
 		branchSel:    -1,
 		branchClosed: map[string]bool{},

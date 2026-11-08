@@ -378,6 +378,8 @@ var uiZH = map[string]string{
 	"Search files":                       "搜索文件",
 	"Changed files":                      "更改",
 	"Show files":                         "显示文件",
+	"View Flat":                          "平铺视图",
+	"View Tree":                          "树状视图",
 	"Select a commit to see its details": "选择一个提交以查看详情",
 	"active":                             "活动",
 	"no commits yet":                     "尚无提交",
