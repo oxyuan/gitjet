@@ -557,3 +557,55 @@ func (a *nativeApp) kitEmptyState(c *ui.Context, icon, title, message string, ti
 		}
 	})
 }
+
+// kitCheckbox is the page's 16px checkbox: a rounded box that fills with
+// the accent gradient, a white check, and a quiet border when off. It
+// replaces MyGo's stock box throughout the native views.
+func kitCheckbox(c *ui.Context, checked *bool, label string) ui.Element {
+	p := palette(c.Theme())
+	state := ui.CheckOff
+	if *checked {
+		state = ui.CheckOn
+	}
+	b := ui.CheckboxStateBase(c, &state).Label(label)
+	b.Children(func() {
+		ui.Row(c).Gap(6).AlignItems(ui.Center).Children(func() {
+			box := ui.Box(c).Size(16, 16).Radius(5)
+			box.Draw(func(pt *ui.Painter, r ui.Rect) {
+				switch state {
+				case ui.CheckOn:
+					pt.FillGradient(r, ui.LinearGradient{
+						Angle: 180, From: ui.Hex(p.accentHover), To: ui.Hex(p.accent), Oklab: true,
+					}, 5)
+					pt.Stroke(r, ui.Hex(p.accent), 5, 1)
+				case ui.CheckMixed:
+					pt.Fill(r, ui.Hex(p.accent), 5)
+				default:
+					fill := ui.Transparent
+					if b.Hovered() {
+						fill = ui.Hex(p.hover)
+					}
+					pt.Fill(r, fill, 5)
+					pt.Stroke(r, ui.Hex(p.muted2).Alpha(0.55), 5, 1.5)
+				}
+			})
+			box.Children(func() {
+				switch state {
+				case ui.CheckOn:
+					ui.Row(c).TextColor(ui.Hex(p.accentText)).Center().Children(func() {
+						ui.Icon(c, iconSVG("check")).Size(11, 11)
+					})
+				case ui.CheckMixed:
+					ui.Box(c).Size(9, 2.5).Radius(1).Background(ui.Hex(p.accentText))
+				}
+			})
+			if label != "" {
+				ui.Text(c, label).FontSize(12.5).TextColor(ui.Hex(p.fgSoft))
+			}
+		})
+	})
+	if b.Changed() {
+		*checked = state == ui.CheckOn
+	}
+	return b
+}

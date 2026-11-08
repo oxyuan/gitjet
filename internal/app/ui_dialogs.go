@@ -295,7 +295,25 @@ func (a *nativeApp) settingsFooter(c *ui.Context) {
 	ui.Row(c).Height(54).PaddingX(16).Gap(8).AlignItems(ui.Center).
 		BorderWidth(1, 0, 0, 0).BorderColor(ui.Hex(p.border)).Background(ui.Hex(p.panel)).Children(func() {
 		if a.secondaryButton(c, a.t("Restore Defaults"), false) {
-			a.dialog.draft = a.ws.DefaultSettings()
+			def := a.ws.DefaultSettings()
+			switch a.dialog.tabIndex {
+			case 0:
+				a.dialog.draft.Language = def.Language
+				a.dialog.draft.Theme = def.Theme
+				a.dialog.draft.UIScale = def.UIScale
+				a.dialog.draft.OpenInNewWindow = def.OpenInNewWindow
+			case 1:
+				current := a.dialog.draft
+				current.Language = def.Language
+				current.Theme = def.Theme
+				current.UIScale = def.UIScale
+				current.OpenInNewWindow = def.OpenInNewWindow
+				a.dialog.draft = def
+				a.dialog.draft.Language = current.Language
+				a.dialog.draft.Theme = current.Theme
+				a.dialog.draft.UIScale = current.UIScale
+				a.dialog.draft.OpenInNewWindow = current.OpenInNewWindow
+			}
 		}
 		ui.Spacer(c).Grow(1)
 		if a.secondaryButton(c, a.t("Cancel"), false) {
@@ -582,7 +600,7 @@ func (a *nativeApp) settingsDialog(c *ui.Context) {
 					s.UIScale = int(v)
 				}
 			})
-			ui.Checkbox(c, &s.OpenInNewWindow, a.t("Open a repository in a new window"))
+			kitCheckbox(c, &s.OpenInNewWindow, a.t("Open a repository in a new window"))
 		case 1:
 			ui.Field(c, a.t("Git executable"), func() {
 				ui.Row(c).Gap(6).Children(func() {
@@ -615,24 +633,24 @@ func (a *nativeApp) settingsDialog(c *ui.Context) {
 					s.DiffContext = int(v)
 				}
 			})
-			ui.Checkbox(c, &s.IgnoreWhitespace, a.t("Ignore whitespace in diffs"))
-			ui.Checkbox(c, &s.ShowIgnored, a.t("Show ignored files"))
-			ui.Checkbox(c, &s.ConfirmRollback, a.t("Confirm before rollback"))
-			ui.Checkbox(c, &s.ConfirmForcePush, a.t("Confirm force push"))
+			kitCheckbox(c, &s.IgnoreWhitespace, a.t("Ignore whitespace in diffs"))
+			kitCheckbox(c, &s.ShowIgnored, a.t("Show ignored files"))
+			kitCheckbox(c, &s.ConfirmRollback, a.t("Confirm before rollback"))
+			kitCheckbox(c, &s.ConfirmForcePush, a.t("Confirm force push"))
 			ui.Field(c, a.t("Update method"), func() {
 				ui.Select(c, &s.UpdateMethod, []string{"merge", "rebase"})
 			})
-			ui.Checkbox(c, &s.AutoUpdateOnReject, a.t("Update when a push is rejected"))
-			ui.Checkbox(c, &s.AutoFetch, a.t("Fetch automatically"))
+			kitCheckbox(c, &s.AutoUpdateOnReject, a.t("Update when a push is rejected"))
+			kitCheckbox(c, &s.AutoFetch, a.t("Fetch automatically"))
 			ui.Field(c, a.t("Fetch every (minutes)"), func() {
 				v := float64(s.AutoFetchMinutes)
 				if ui.NumberInput(c, &v, 1, 1440, 1).Changed() {
 					s.AutoFetchMinutes = int(v)
 				}
 			})
-			ui.Checkbox(c, &s.CommitCheckCRLF, a.t("Warn about CRLF"))
-			ui.Checkbox(c, &s.CommitCheckNames, a.t("Warn about invalid names"))
-			ui.Checkbox(c, &s.CommitCheckHead, a.t("Warn about detached HEAD"))
+			kitCheckbox(c, &s.CommitCheckCRLF, a.t("Warn about CRLF"))
+			kitCheckbox(c, &s.CommitCheckNames, a.t("Warn about invalid names"))
+			kitCheckbox(c, &s.CommitCheckHead, a.t("Warn about detached HEAD"))
 			ui.Field(c, a.t("Large file warning (MB)"), func() {
 				v := float64(s.CommitCheckLargeMB)
 				if ui.NumberInput(c, &v, 0, 1000, 1).Changed() {
@@ -885,11 +903,11 @@ func (a *nativeApp) pushDialog(c *ui.Context) {
 			})
 		})
 	}
-	ui.Checkbox(c, &d.flag1, a.t("Set upstream"))
-	ui.Checkbox(c, &d.flag2, a.t("Force with lease"))
-	ui.Checkbox(c, &d.flag3, a.t("Force if includes"))
-	ui.Checkbox(c, &d.flag4, a.t("Push tags"))
-	ui.Checkbox(c, &d.flag5, a.t("Dry run"))
+	kitCheckbox(c, &d.flag1, a.t("Set upstream"))
+	kitCheckbox(c, &d.flag2, a.t("Force with lease"))
+	kitCheckbox(c, &d.flag3, a.t("Force if includes"))
+	kitCheckbox(c, &d.flag4, a.t("Push tags"))
+	kitCheckbox(c, &d.flag5, a.t("Dry run"))
 	if a.dialog.text != "" {
 		ui.Text(c, a.dialog.text).FontSize(10).TextColor(t.Danger)
 	}
@@ -946,13 +964,13 @@ func (a *nativeApp) pullDialog(c *ui.Context) {
 		ui.Select(c, &d.remote, opts)
 	})
 	ui.Field(c, a.t("Branch"), func() { ui.TextInput(c, &d.branch) })
-	ui.Checkbox(c, &d.flag1, a.t("Rebase"))
-	ui.Checkbox(c, &d.flag2, a.t("Autostash"))
-	ui.Checkbox(c, &d.flag3, a.t("Prune"))
-	ui.Checkbox(c, &d.flag4, a.t("Tags"))
-	ui.Checkbox(c, &d.flag5, a.t("Fast-forward only"))
-	ui.Checkbox(c, &d.flag6, a.t("No fast-forward"))
-	ui.Checkbox(c, &d.flag7, a.t("Squash"))
+	kitCheckbox(c, &d.flag1, a.t("Rebase"))
+	kitCheckbox(c, &d.flag2, a.t("Autostash"))
+	kitCheckbox(c, &d.flag3, a.t("Prune"))
+	kitCheckbox(c, &d.flag4, a.t("Tags"))
+	kitCheckbox(c, &d.flag5, a.t("Fast-forward only"))
+	kitCheckbox(c, &d.flag6, a.t("No fast-forward"))
+	kitCheckbox(c, &d.flag7, a.t("Squash"))
 	if a.dialog.text != "" {
 		ui.Text(c, a.dialog.text).FontSize(10).TextColor(c.Theme().Danger)
 	}
@@ -981,9 +999,9 @@ func (a *nativeApp) openStashDialog() {
 func (a *nativeApp) stashDialog(c *ui.Context) {
 	d := &a.dialog
 	ui.Field(c, a.t("Message"), func() { ui.TextInput(c, &d.text) })
-	ui.Checkbox(c, &d.flag1, a.t("Include untracked files"))
-	ui.Checkbox(c, &d.flag2, a.t("Keep the index"))
-	ui.Checkbox(c, &d.flag3, a.t("Selected only"))
+	kitCheckbox(c, &d.flag1, a.t("Include untracked files"))
+	kitCheckbox(c, &d.flag2, a.t("Keep the index"))
+	kitCheckbox(c, &d.flag3, a.t("Selected only"))
 	a.buttons(c, a.t("Stash"), func() {
 		var paths []string
 		if d.flag3 {
@@ -1010,7 +1028,7 @@ func (a *nativeApp) branchDialog(c *ui.Context) {
 	ui.Field(c, a.t("Name"), func() { ui.TextInput(c, &d.branch) })
 	if !rename {
 		ui.Field(c, a.t("Start point"), func() { ui.TextInput(c, &d.from) })
-		ui.Checkbox(c, &d.flag1, a.t("Check out after creating"))
+		kitCheckbox(c, &d.flag1, a.t("Check out after creating"))
 	}
 	if a.dialog.text != "" {
 		ui.Text(c, a.dialog.text).FontSize(10).TextColor(c.Theme().Danger)
@@ -1046,7 +1064,7 @@ func (a *nativeApp) tagDialog(c *ui.Context) {
 	ui.Field(c, a.t("Name"), func() { ui.TextInput(c, &d.branch) })
 	ui.Field(c, a.t("Message"), func() { ui.TextArea(c, &d.text).Height(70) })
 	ui.Field(c, a.t("Revision"), func() { ui.TextInput(c, &d.from) })
-	ui.Checkbox(c, &d.flag1, a.t("Force"))
+	kitCheckbox(c, &d.flag1, a.t("Force"))
 	a.buttons(c, a.t("Create"), func() {
 		opts := git.TagOptions{Name: strings.TrimSpace(d.branch), Message: d.text, Revision: strings.TrimSpace(d.from), Force: d.flag1}
 		if opts.Name == "" {
@@ -1161,7 +1179,7 @@ func (a *nativeApp) cleanupDialog(c *ui.Context) {
 	for _, b := range a.dialog.merged {
 		name := b.Name
 		v := a.dialog.checks[name]
-		if ui.Checkbox(c, &v, name).Changed() {
+		if kitCheckbox(c, &v, name).Changed() {
 			a.dialog.checks[name] = v
 		}
 	}
@@ -1169,7 +1187,7 @@ func (a *nativeApp) cleanupDialog(c *ui.Context) {
 	for _, b := range a.dialog.gone {
 		name := b.Name
 		v := a.dialog.checks[name]
-		if ui.Checkbox(c, &v, name).Changed() {
+		if kitCheckbox(c, &v, name).Changed() {
 			a.dialog.checks[name] = v
 		}
 	}
@@ -1747,8 +1765,8 @@ func (a *nativeApp) patchDialog(c *ui.Context) {
 			a.closeDialog()
 		}
 	})
-	ui.Checkbox(c, &d.flag1, a.t("Staged changes only"))
-	ui.Checkbox(c, &d.flag3, a.t("Selected only"))
+	kitCheckbox(c, &d.flag1, a.t("Staged changes only"))
+	kitCheckbox(c, &d.flag3, a.t("Selected only"))
 	ui.Field(c, a.t("Paste a patch"), func() {
 		ui.TextArea(c, &d.text).Height(100)
 	})
@@ -1801,12 +1819,12 @@ func (a *nativeApp) openMergeDialog(ref string) {
 func (a *nativeApp) mergeDialog(c *ui.Context) {
 	d := &a.dialog
 	ui.Text(c, d.from).FontSize(12).FontWeight(600)
-	ui.Checkbox(c, &d.flag1, a.t("Fast-forward only"))
-	ui.Checkbox(c, &d.flag2, a.t("No fast-forward"))
-	ui.Checkbox(c, &d.flag3, a.t("Squash"))
-	ui.Checkbox(c, &d.flag4, a.t("No commit"))
-	ui.Checkbox(c, &d.flag5, a.t("Skip hooks"))
-	ui.Checkbox(c, &d.flag6, a.t("Allow unrelated histories"))
+	kitCheckbox(c, &d.flag1, a.t("Fast-forward only"))
+	kitCheckbox(c, &d.flag2, a.t("No fast-forward"))
+	kitCheckbox(c, &d.flag3, a.t("Squash"))
+	kitCheckbox(c, &d.flag4, a.t("No commit"))
+	kitCheckbox(c, &d.flag5, a.t("Skip hooks"))
+	kitCheckbox(c, &d.flag6, a.t("Allow unrelated histories"))
 	a.buttons(c, a.t("Merge"), func() {
 		opts := git.MergeOptions{
 			FFOnly:                  d.flag1,
@@ -1840,11 +1858,11 @@ func (a *nativeApp) rebaseDialog(c *ui.Context) {
 	d := &a.dialog
 	ui.Field(c, a.t("Onto"), func() { ui.TextInput(c, &d.from) })
 	ui.Field(c, a.t("Branch"), func() { ui.TextInput(c, &d.text3).Placeholder(a.t("The checked-out branch when empty")) })
-	ui.Checkbox(c, &d.flag1, a.t("Autostash"))
-	ui.Checkbox(c, &d.flag2, a.t("Update refs"))
-	ui.Checkbox(c, &d.flag3, a.t("Rebase merges"))
-	ui.Checkbox(c, &d.flag4, a.t("Keep empty commits"))
-	ui.Checkbox(c, &d.flag5, a.t("Rebase the root"))
+	kitCheckbox(c, &d.flag1, a.t("Autostash"))
+	kitCheckbox(c, &d.flag2, a.t("Update refs"))
+	kitCheckbox(c, &d.flag3, a.t("Rebase merges"))
+	kitCheckbox(c, &d.flag4, a.t("Keep empty commits"))
+	kitCheckbox(c, &d.flag5, a.t("Rebase the root"))
 	ui.Field(c, a.t("Autosquash"), func() {
 		ui.Select(c, &d.text2, []string{"system", "true", "false"})
 	})
@@ -2100,7 +2118,7 @@ func (a *nativeApp) worktreeDialog(c *ui.Context) {
 	d := &a.dialog
 	ui.Field(c, a.t("Path"), func() { ui.TextInput(c, &d.dirPath).Placeholder(a.t("Folder for the worktree")) })
 	ui.Field(c, a.t("Branch"), func() { ui.TextInput(c, &d.branch) })
-	ui.Checkbox(c, &d.flag1, a.t("Create a new branch"))
+	kitCheckbox(c, &d.flag1, a.t("Create a new branch"))
 	a.buttons(c, a.t("Create"), func() {
 		path, branch := strings.TrimSpace(d.dirPath), strings.TrimSpace(d.branch)
 		newBranch := d.flag1

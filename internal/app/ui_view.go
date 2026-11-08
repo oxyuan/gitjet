@@ -704,7 +704,7 @@ func (a *nativeApp) changeRowAt(c *ui.Context, i, depth int) {
 		}
 		if !ch.Unmerged && ch.Kind != "ignored" {
 			v := a.checked[key]
-			if ui.Checkbox(c, &v, "").Changed() {
+			if kitCheckbox(c, &v, "").Changed() {
 				a.checked[key] = v
 			}
 		} else {
@@ -993,7 +993,7 @@ func (a *nativeApp) commitBox(c *ui.Context) {
 				})
 			})
 			ui.Row(c).Gap(8).AlignItems(ui.Center).Children(func() {
-				ui.Checkbox(c, &a.commitForm.Amend, a.t("Amend"))
+				kitCheckbox(c, &a.commitForm.Amend, a.t("Amend"))
 				ui.Spacer(c).Grow(1)
 				opts := ui.ButtonBase(c).Height(22).PaddingX(6).Radius(4).Gap(4).AlignItems(ui.Center)
 				if a.showCommitOptions {
@@ -1015,10 +1015,10 @@ func (a *nativeApp) commitBox(c *ui.Context) {
 			if a.showCommitOptions {
 				ui.Column(c).Padding(8, 8).Radius(6).Gap(6).Background(ui.Hex(p.raised)).
 					Border(1, ui.Hex(p.border)).Children(func() {
-					ui.Checkbox(c, &a.commitForm.SignOff, a.t("Sign-off commit"))
-					ui.Checkbox(c, &a.commitForm.NoVerify, a.t("Skip hooks (--no-verify)"))
-					ui.Checkbox(c, &a.commitForm.AllowEmpty, a.t("Allow an empty commit"))
-					ui.Checkbox(c, &a.commitForm.Sign, a.t("Sign the commit (GPG)"))
+					kitCheckbox(c, &a.commitForm.SignOff, a.t("Sign-off commit"))
+					kitCheckbox(c, &a.commitForm.NoVerify, a.t("Skip hooks (--no-verify)"))
+					kitCheckbox(c, &a.commitForm.AllowEmpty, a.t("Allow an empty commit"))
+					kitCheckbox(c, &a.commitForm.Sign, a.t("Sign the commit (GPG)"))
 					ui.Row(c).Gap(6).Children(func() {
 						ui.Text(c, a.t("Author")).FontSize(10.5).TextColor(ui.Hex(p.muted)).Width(38)
 						ui.TextInput(c, &a.commitForm.AuthorName).Placeholder(a.t("Name (optional)")).Grow(1)

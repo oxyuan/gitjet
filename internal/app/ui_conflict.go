@@ -300,7 +300,7 @@ func (m *mergeWindow) body(c *ui.Context) {
 				}
 			}
 			ui.Text(c, fmt.Sprintf("%d of %d blocks unresolved", unresolved, len(m.blocks))).FontSize(10).TextColor(t.TextMuted)
-			ui.Checkbox(c, &m.sync, m.app.t("Sync scroll"))
+			kitCheckbox(c, &m.sync, m.app.t("Sync scroll"))
 			ui.Spacer(c).Grow(1)
 			if ui.Button(c, m.app.t("Accept All Ours")).Clicked() {
 				m.acceptAll("ours")
