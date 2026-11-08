@@ -550,6 +550,11 @@ export function conflictSegments(text: string): ConflictSegment[] | null {
         break;
       } else if (line.startsWith("<<<<<<<")) {
         return null;
+      } else if (line === "=======" || line.startsWith("|||||||") || line.startsWith(">>>>>>>")) {
+        // The line reads as a marker but sits where only content belongs, so
+        // the section boundaries are guesses: refuse the parse rather than
+        // attribute this text to the wrong side.
+        return null;
       } else if (mode === "ours") {
         ours.push(line);
       } else if (mode === "base") {
@@ -680,15 +685,22 @@ export function buildMergeView(model: MergeModel, working: string): MergeView {
   }
   for (let i = b; i < model.baseLines.length; i++) expected.push(model.baseLines[i]!);
 
-  const segments: ConflictSegment[] = conflictSegments(working) ?? [{ kind: "text", text: working }];
-  const stripped = splitLines(strippedWorking(segments)).lines;
+  const parsed = conflictSegments(working);
+  // Text that cannot be read apart from the markers around it proves nothing:
+  // treating a broken parse as "Git already dropped those markers" is how a
+  // file still full of markers got staged. Such a file keeps the model's own
+  // text and every conflict open.
+  const trusted = parsed !== null;
+  const segments: ConflictSegment[] = parsed ?? [];
+  const stripped = trusted ? splitLines(strippedWorking(segments)).lines : [];
   // A missing working file (a path the merge never wrote) has nothing to
-  // compare; the stages are all there is.
+  // compare either; the stages are all there is.
   const noFile = working === "" && expected.length > 0;
-  const map = noFile ? null : lineMap(expected, stripped);
+  const compare = trusted && !noFile;
+  const map = compare ? lineMap(expected, stripped) : null;
 
   const sections: { from: number; to: number }[] = [];
-  if (!noFile) {
+  if (compare) {
     let at = 0;
     for (const segment of segments) {
       if (segment.kind === "text") {
@@ -712,15 +724,11 @@ export function buildMergeView(model: MergeModel, working: string): MergeView {
       from: map?.start[span.from] ?? span.from,
       to: map ? (sameLine ? map.start[span.to]! : map.end[span.to]!) : span.to,
     };
-    const section = noFile
-      ? undefined
-      : map && sections.find((candidate) => inSection(mapped, candidate));
+    const section = map ? sections.find((candidate) => inSection(mapped, candidate)) : undefined;
     let rangeLines: string[];
-    if (section) {
+    if (!compare || section) {
       // Git grouped this range into a conflict section: a one-sided change is
       // still an auto-merge, a conflicted one waits for a decision.
-      rangeLines = range.kind === "conflict" ? range.ours : chosenLines(range);
-    } else if (noFile) {
       rangeLines = range.kind === "conflict" ? range.ours : chosenLines(range);
     } else {
       rangeLines = stripped.slice(mapped.from, mapped.to);
@@ -728,7 +736,7 @@ export function buildMergeView(model: MergeModel, working: string): MergeView {
     const from = lines.length;
     lines.push(...rangeLines);
     spans.push({ index: range.index, from, to: lines.length });
-    if (range.kind === "conflict" && (noFile || section !== undefined)) open.push(range.index);
+    if (range.kind === "conflict" && (!compare || section !== undefined)) open.push(range.index);
     b = range.baseEnd;
   }
   for (let i = b; i < model.baseLines.length; i++) lines.push(model.baseLines[i]!);

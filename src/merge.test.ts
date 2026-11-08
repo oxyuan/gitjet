@@ -250,6 +250,31 @@ describe("buildMergeView", () => {
     }
   });
 
+  it("keeps a conflict open when its markers cannot be read", () => {
+    // A document that itself starts a line with the opening marker makes the
+    // section boundaries ambiguous. Guessing "already resolved" there staged a
+    // file still full of markers, so the whole file stays open instead.
+    const merged = computeMerge("x\n", "<<<<<<< marker\n", "y\n", { labels: { ours: "HEAD", theirs: "other" } });
+    const working = "<<<<<<< HEAD\n<<<<<<< marker\n=======\ny\n>>>>>>> other\n";
+    expect(conflictSegments(working)).toBeNull();
+    const view = buildMergeView(merged, working);
+    expect(view.open).toEqual([0]);
+    expect(view.text).toBe("<<<<<<< marker\n");
+  });
+
+  it("keeps a conflict open when a section holds a marker-shaped line", () => {
+    // "=======" is also a Markdown setext underline, and inside a section it
+    // cannot be told apart from the separator.
+    const merged = computeMerge("title\nbody\n", "title\n=======\nbody\n", "title\nBODY\n", {
+      labels: { ours: "HEAD", theirs: "other" },
+    });
+    const working = "title\n<<<<<<< HEAD\n=======\nbody\n=======\nBODY\n>>>>>>> other\n";
+    expect(conflictSegments(working)).toBeNull();
+    const view = buildMergeView(merged, working);
+    expect(view.open).toEqual([0]);
+    expect(view.text).toBe("title\n=======\nbody\n");
+  });
+
   it("auto-merges the one-sided changes Git grouped into a conflict", () => {
     // Git's section covers b..d, but only b is a real conflict: ours changed c
     // and theirs changed d, so the merged result must keep both.
