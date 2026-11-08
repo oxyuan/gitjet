@@ -28,6 +28,8 @@ const T = {
     exitCode: "exit {code} · {ms} ms",
     noOutput: "No output",
     running: "Running",
+    stop: "Stop",
+    stopHint: "Stop the running command",
   },
   zh: {
     commandView: "命令",
@@ -49,6 +51,8 @@ const T = {
     exitCode: "退出码 {code} · {ms} 毫秒",
     noOutput: "没有输出",
     running: "运行中",
+    stop: "停止",
+    stopHint: "停止正在运行的命令",
   },
 } as const;
 
@@ -516,6 +520,17 @@ export function ConsolePanel({
                 {block.running ? (
                   <span className="console-block-meta">
                     <Spinner /> {t("running")}
+                    {/* A command that waits for input holds the
+                        repository's write lock; stopping it is the only
+                        way back without quitting the app. */}
+                    <button
+                      type="button"
+                      className="console-stop"
+                      title={t("stopHint")}
+                      onClick={() => void Git.cancelConsole().catch(() => {})}
+                    >
+                      {t("stop")}
+                    </button>
                   </span>
                 ) : block.exitCode !== undefined ? (
                   <span className={cx("console-block-meta", failed && "failed")}>

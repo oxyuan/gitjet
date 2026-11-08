@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Git } from "./mygo";
 import type { Commit, CommitDetail, CommitFile, LogResult } from "./mygo";
+import { hasSignature, signatureKey, signatureTone } from "./signature";
 import { computeGraph, graphWidth } from "./graph";
 import { FileIcon, Icon } from "./icons";
 import { useT } from "./i18n";
@@ -98,6 +99,14 @@ const T = {
     pathScope: "File · {path}",
     clearPathScope: "Stop filtering by this file or line",
     clearScope: "Show the checked out branch instead",
+    signatureGood: "Signed",
+    signatureBad: "Bad signature",
+    signatureUntrusted: "Signed, untrusted key",
+    signatureExpired: "Signature expired",
+    signatureExpiredKey: "Signing key expired",
+    signatureRevoked: "Signing key revoked",
+    signatureUnknown: "Signature cannot be checked",
+    signatureKey: "Key {key}",
     inBranchesOne: "In 1 branch",
     inBranchesOther: "In {n} branches",
     resizeDetails: "Drag to resize",
@@ -167,6 +176,14 @@ const T = {
     pathScope: "文件 · {path}",
     clearPathScope: "取消按此文件或行过滤",
     clearScope: "回到当前分支",
+    signatureGood: "签名已验证",
+    signatureBad: "签名无效",
+    signatureUntrusted: "签名可用，但密钥未受信任",
+    signatureExpired: "签名已过期",
+    signatureExpiredKey: "签名密钥已过期",
+    signatureRevoked: "签名密钥已吊销",
+    signatureUnknown: "无法校验签名",
+    signatureKey: "密钥 {key}",
     inBranchesOne: "在 1 个分支中",
     inBranchesOther: "在 {n} 个分支中",
     resizeDetails: "拖动调整高度",
@@ -973,6 +990,16 @@ export function LogDock({
                         {parent.slice(0, 8)}
                       </button>
                     ))}
+                  </div>
+                )}
+                {hasSignature(detail.signature) && (
+                  <div className={cx("log-detail-signature", signatureTone(detail.signature.status))}>
+                    <Icon
+                      name={signatureTone(detail.signature.status) === "good" ? "check" : "warning"}
+                      size={11}
+                    />
+                    <span>{t(signatureKey(detail.signature.status)!)}</span>
+                    {detail.signature.signer && <span className="muted">{detail.signature.signer}</span>}
                   </div>
                 )}
                 {detail.committer !== detail.author && (

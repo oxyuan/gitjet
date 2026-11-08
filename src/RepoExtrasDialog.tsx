@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { Channel } from "mygo-runtime";
 import { Git } from "./mygo";
-import type { LFSStatus, Shelf, Submodule, Worktree } from "./mygo";
+import type { Hook, LFSStatus, Shelf, Submodule, Worktree } from "./mygo";
 import { Icon } from "./icons";
 import { useT } from "./i18n";
 import { Button, Checkbox, Field, Modal, Spinner, TextInput, cx } from "./ui";
@@ -33,6 +33,12 @@ const T = {
     pop: "Apply and Drop",
     drop: "Drop",
     lfs: "Git LFS",
+    hooks: "Hooks",
+    hooksNone: "This repository has no hooks",
+    hookRuns: "Runs",
+    hookOff: "Not executable",
+    hookSample: "Sample: rename it to enable",
+    hookHint: "Hooks live in the git directory, outside the working tree.",
     close: "Close",
     loading: "Loading",
     refresh: "Refresh",
@@ -91,6 +97,12 @@ const T = {
     pop: "应用并删除",
     drop: "删除",
     lfs: "Git LFS",
+    hooks: "钩子",
+    hooksNone: "该仓库没有钩子",
+    hookRuns: "会运行",
+    hookOff: "没有执行权限",
+    hookSample: "示例：改名后才会启用",
+    hookHint: "钩子位于 git 目录，不在工作区里。",
     close: "关闭",
     loading: "加载中",
     refresh: "刷新",
@@ -125,7 +137,7 @@ const T = {
   },
 } as const;
 
-type RepoTab = "worktrees" | "submodules" | "shelves" | "lfs";
+type RepoTab = "worktrees" | "submodules" | "shelves" | "lfs" | "hooks";
 
 /** submoduleState is the badge git's status prefix stands for. */
 function joinPath(root: string, rel: string): string {
@@ -169,6 +181,7 @@ export function RepoExtrasDialog({
   const [trees, setTrees] = useState<Worktree[] | null>(null);
   const [subs, setSubs] = useState<Submodule[] | null>(null);
   const [lfs, setLfs] = useState<LFSStatus | null>(null);
+  const [hooks, setHooks] = useState<Hook[] | null>(null);
   const [shelves, setShelves] = useState<Shelf[] | null>(null);
   const [shelfName, setShelfName] = useState("");
   const [subUrl, setSubUrl] = useState("");
@@ -187,6 +200,7 @@ export function RepoExtrasDialog({
       if (tab === "worktrees") setTrees(await Git.worktrees());
       else if (tab === "submodules") setSubs(await Git.submodules());
       else if (tab === "shelves") setShelves(await Git.shelves());
+      else if (tab === "hooks") setHooks(await Git.hooks());
       else setLfs(await Git.lfs());
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
@@ -236,7 +250,7 @@ export function RepoExtrasDialog({
       }
     >
       <div className="tabs repo-tabs" role="tablist">
-        {(["worktrees", "submodules", "shelves", "lfs"] as const).map((key) => (
+        {(["worktrees", "submodules", "shelves", "lfs", "hooks"] as const).map((key) => (
           <button
             key={key}
             role="tab"
@@ -405,6 +419,34 @@ export function RepoExtrasDialog({
               <Button onClick={() => void act(() => Git.applyPatchFile(false))}>{t("applyPatchFile")}</Button>
             </div>
           </div>
+        </div>
+      )}
+
+      {tab === "hooks" && (
+        <div className="repo-panel">
+          {!hooks && !error && <Spinner label={t("loading")} />}
+          {hooks?.length === 0 && <p className="setting-hint">{t("hooksNone")}</p>}
+          {hooks && hooks.length > 0 && (
+            <>
+              <p className="setting-hint">{t("hookHint")}</p>
+              <div className="repo-list narrow">
+                {hooks.map((hook) => (
+                  <div className="repo-row" key={hook.path}>
+                    <Icon name={hook.sample ? "file" : "check"} size={13} />
+                    <div className="repo-row-main">
+                      <span className="repo-row-title" title={hook.path}>
+                        {hook.name}
+                      </span>
+                      <span className="muted repo-row-sub">{hook.path}</span>
+                    </div>
+                    <span className={cx("muted", hook.executable && !hook.sample && "hook-live")}>
+                      {hook.sample ? t("hookSample") : hook.executable ? t("hookRuns") : t("hookOff")}
+                    </span>
+                  </div>
+                ))}
+              </div>
+            </>
+          )}
         </div>
       )}
 

@@ -54,6 +54,7 @@ import { useFileMenu } from "./FileMenu";
 import { LangProvider, count, resolveLang, useT, type Lang } from "./i18n";
 import { buildMergeView, computeMerge, conflictLabels, resolveSimpleConflicts } from "./merge";
 import { normalizeText } from "./editorText";
+import { gutterDiffOptions } from "./gutter";
 import { LogDock, type LogFilters } from "./LogDock";
 import { FileTree, type ChangeView } from "./FileTree";
 import { BranchList } from "./BranchList";
@@ -1177,7 +1178,7 @@ function AppShell({ onLangChange }: { onLangChange: (lang: Lang) => void }) {
     if (!snapshot) return;
     void loadLog(true);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [logAuthor, logSearch, logPath, logLine, logRef, snapshot?.state.head]);
+  }, [logAuthor, logSearch, logPath, logLine, logRef, logFilters, snapshot?.state.head]);
 
   useEffect(() => {
     if (!snapshot) return;
@@ -1587,16 +1588,9 @@ function AppShell({ onLangChange }: { onLangChange: (lang: Lang) => void }) {
 
   /** Alt-click on a change bar: roll back only that line. */
   const rollbackEditorLine = async (path: string, line: number) => {
-    const opts: DiffOptions = {
-      path,
-      target: "worktree",
-      revision: "",
-      from: "",
-      context: settingsRef.current?.diffContext ?? -1,
-      ignoreWhitespace: settingsRef.current?.ignoreWhitespace ?? false,
-      ignoreWhitespaceEol: false,
-      noText: false,
-    };
+    // The bars and their line numbers come from the editor's own diff, so
+    // the patch is built from the same options.
+    const opts = gutterDiffOptions(path);
     await withBusy(async () => {
       await Git.applyLines(opts, [line], "rollback");
       await reload(false);
@@ -1616,18 +1610,11 @@ function AppShell({ onLangChange }: { onLangChange: (lang: Lang) => void }) {
     }
   };
 
-  /** Roll back the hunk under a change bar in the source editor. */
+  /** Roll back the hunk under a change bar in the source editor. A hunk
+   * index only means something for the patch the bars were built from, so
+   * this uses the editor's context and not the viewer's "whole file". */
   const rollbackEditorHunk = async (path: string, hunk: number) => {
-    const opts: DiffOptions = {
-      path,
-      target: "worktree",
-      revision: "",
-      from: "",
-      context: settingsRef.current?.diffContext ?? -1,
-      ignoreWhitespace: settingsRef.current?.ignoreWhitespace ?? false,
-      ignoreWhitespaceEol: false,
-      noText: true,
-    };
+    const opts = gutterDiffOptions(path);
     if (settingsRef.current?.confirmRollback) {
       const ok = await ask({
         title: t("rollbackHunkTitle"),
@@ -1742,7 +1729,7 @@ function AppShell({ onLangChange }: { onLangChange: (lang: Lang) => void }) {
         return;
       }
       await withConflicts(async () => {
-        await Git.rebase({ onto: upstream, branch: "", autostash: true, updateRefs: false, rebaseMerges: false, keepEmpty: false, root: false, autoSquash: "" });
+        await Git.rebase({ onto: upstream, branch: "", autostash: true, updateRefs: false, rebaseMerges: false, empty: "", root: false, autoSquash: "" });
         notify("success", t("rebaseFinished"));
         await reload(false);
       });
@@ -2906,10 +2893,7 @@ function AppShell({ onLangChange }: { onLangChange: (lang: Lang) => void }) {
             author={logAuthor}
             authors={authors}
             filters={logFilters}
-            onFilters={(next) => {
-              setLogFilters(next);
-              setTimeout(() => void loadLog(true), 0);
-            }}
+            onFilters={setLogFilters}
             scope={logRef}
             pathScope={logPath ? (logLine > 0 ? `${logPath}:${logLine}` : logPath) : ""}
             onClearScope={() => setLogRef("")}
@@ -3843,6 +3827,7 @@ function RightPane({
         )}
         {active.kind === "diff" && (
           <DiffView
+            key={active.id}
             diff={active.diff}
             opts={active.opts}
             mode={diffMode}

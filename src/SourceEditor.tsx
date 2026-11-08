@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { Git, type BlameLine, type DiffOptions, type SourceFile } from "./mygo";
 import { SourceEditor as Editor } from "./editor";
 import { annotateDate, changeRanges, type ChangeRange } from "./annotate";
+import { gutterDiffOptions } from "./gutter";
 import { connectLSP, lspServes, registerView, unregisterView, toUri } from "./lsp";
 import { blameMenuItems } from "./blameMenu";
 import { ContextMenu, useStoredState, type ContextItem } from "./ui";
@@ -194,6 +195,7 @@ export function SourceEditor({
     if (!host.current) return;
     const created = new Editor(host.current, {
       doc: draft ?? file.text,
+      baseline: file.text,
       language: file.language,
       wrap,
       editable,
@@ -259,16 +261,7 @@ export function SourceEditor({
       return;
     }
     if (workingTree) {
-      const opts: DiffOptions = {
-        path: file.path,
-        target: "worktree",
-        revision: "",
-        from: "",
-        context: 3,
-        ignoreWhitespace: false,
-        ignoreWhitespaceEol: false,
-        noText: true,
-      };
+      const opts: DiffOptions = gutterDiffOptions(file.path);
       Git.diff(opts)
         .then((diff) => {
           if (!cancelled) setChanges(changeRanges(diff));

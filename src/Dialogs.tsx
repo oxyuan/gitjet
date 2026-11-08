@@ -214,7 +214,11 @@ const T = {
     "rebase.autostash": "Stash local changes (--autostash)",
     "rebase.updateRefs": "Update branches pointing into the range (--update-refs)",
     "rebase.merges": "Recreate merge commits (--rebase-merges)",
-    "rebase.keepEmpty": "Keep commits that become empty (--keep-empty)",
+    "rebase.empty": "Commits that become empty",
+    "rebase.emptyDefault": "Leave it to git (drops them)",
+    "rebase.emptyKeep": "Keep them (--empty=keep)",
+    "rebase.emptyDrop": "Drop them (--empty=drop)",
+    "rebase.emptyStop": "Stop and ask (--empty=stop)",
     "rebase.root": "Rebase the whole branch (--root)",
     "rebase.autosquash": "Autosquash",
     "rebase.autosquashConfig": "Follow git config",
@@ -484,7 +488,11 @@ const T = {
     "rebase.autostash": "Stash 本地更改（--autostash）",
     "rebase.updateRefs": "更新指向该区间的分支（--update-refs）",
     "rebase.merges": "重建 Merge 提交（--rebase-merges）",
-    "rebase.keepEmpty": "保留变为空的提交（--keep-empty）",
+    "rebase.empty": "变为空的提交",
+    "rebase.emptyDefault": "跟随 git（丢弃）",
+    "rebase.emptyKeep": "保留（--empty=keep）",
+    "rebase.emptyDrop": "丢弃（--empty=drop）",
+    "rebase.emptyStop": "停下来询问（--empty=stop）",
     "rebase.root": "Rebase 整个分支（--root）",
     "rebase.autosquash": "自动合并",
     "rebase.autosquashConfig": "跟随 Git 配置",
@@ -2096,7 +2104,7 @@ export function RebaseDialog({
   const [autostash, setAutostash] = useState(true);
   const [updateRefs, setUpdateRefs] = useState(false);
   const [rebaseMerges, setRebaseMerges] = useState(false);
-  const [keepEmpty, setKeepEmpty] = useState(false);
+  const [empty, setEmpty] = useState("");
   const [root, setRoot] = useState(false);
   const [autoSquash, setAutoSquash] = useState("");
   const ready = root || base.trim() !== "";
@@ -2119,7 +2127,7 @@ export function RebaseDialog({
                 autostash,
                 updateRefs,
                 rebaseMerges,
-                keepEmpty,
+                empty,
                 root,
                 autoSquash,
               })
@@ -2152,11 +2160,18 @@ export function RebaseDialog({
             <option value="false">{t("rebase.autosquashOff")}</option>
           </Select>
         </Field>
+        <Field label={t("rebase.empty")}>
+          <Select value={empty} onChange={setEmpty}>
+            <option value="">{t("rebase.emptyDefault")}</option>
+            <option value="keep">{t("rebase.emptyKeep")}</option>
+            <option value="drop">{t("rebase.emptyDrop")}</option>
+            <option value="stop">{t("rebase.emptyStop")}</option>
+          </Select>
+        </Field>
         <div className="dialog-checks">
           <Checkbox checked={autostash} onChange={setAutostash} label={t("rebase.autostash")} />
           <Checkbox checked={updateRefs} onChange={setUpdateRefs} label={t("rebase.updateRefs")} />
           <Checkbox checked={rebaseMerges} onChange={setRebaseMerges} label={t("rebase.merges")} />
-          <Checkbox checked={keepEmpty} onChange={setKeepEmpty} label={t("rebase.keepEmpty")} />
           <Checkbox
             checked={root}
             onChange={(v) => {

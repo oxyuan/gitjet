@@ -120,6 +120,7 @@ export interface CommitDetail {
   stats: CommitStats;
   branches: string[];
   tags: string[];
+  signature: CommitSignature;
 }
 
 export interface CommitFile {
@@ -154,6 +155,13 @@ export interface CommitResult {
   short: string;
   subject: string;
   output: string;
+}
+
+export interface CommitSignature {
+  status: string;
+  signer: string;
+  key: string;
+  checked: boolean;
 }
 
 export interface CommitStats {
@@ -220,6 +228,7 @@ export interface DiffLine {
   oldNo: number;
   newNo: number;
   text: string;
+  noNewline: boolean;
 }
 
 export interface DiffOptions {
@@ -261,6 +270,13 @@ export interface FileDiff {
   hasChanges: boolean;
   wholeFile: boolean;
   language: string;
+}
+
+export interface Hook {
+  name: string;
+  path: string;
+  executable: boolean;
+  sample: boolean;
 }
 
 export interface ImageData {
@@ -437,9 +453,9 @@ export interface RebaseOptions {
   onto: string;
   branch: string;
   autostash: boolean;
+  empty: string;
   updateRefs: boolean;
   rebaseMerges: boolean;
-  keepEmpty: boolean;
   root: boolean;
   autoSquash: string;
 }
@@ -816,6 +832,14 @@ export const Git = {
   blame(path: string, revision: string, opts: BlameOptions): Promise<BlameResult> {
     return call("Git.Blame", path, revision, opts);
   },
+  /**
+   * CancelConsole stops the console command that is running, if any. It is
+   * the only way out of a program that waits for input: the console holds
+   * the write lock while it runs.
+   */
+  cancelConsole(): Promise<boolean> {
+    return call("Git.CancelConsole");
+  },
   /** Changes returns the local changes, stashes and changelists. */
   changes(includeIgnored: boolean): Promise<ChangesSnapshot> {
     return call("Git.Changes", includeIgnored);
@@ -962,6 +986,13 @@ export const Git = {
   /** Files searches the working tree's files for quick open. */
   files(query: string): Promise<RepoFile[]> {
     return call("Git.Files", query);
+  },
+  /**
+   * Hooks lists the hooks git would run for this repository, so a commit that
+   * is rejected or rewritten by one is not a mystery.
+   */
+  hooks(): Promise<Hook[]> {
+    return call("Git.Hooks");
   },
   /** Ignore adds paths to .gitignore and removes tracked files under them from the index. */
   ignore(paths: string[]): Promise<string> {

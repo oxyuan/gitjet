@@ -624,6 +624,9 @@ class FindBar implements Panel {
 
 export type EditorOptions = {
   doc: string;
+  /** The text on disk. A document restored from a draft differs from it and
+   *  must open dirty, or Save stays disabled until the user types. */
+  baseline?: string;
   language: string;
   wrap: boolean;
   /** The reader's language, for the find bar's copy. */
@@ -767,7 +770,7 @@ export class SourceEditor {
   constructor(parent: HTMLElement, opts: EditorOptions) {
     let lastLine = 1;
     const editable = !!opts.editable;
-    this.savedDoc = normalizeText(opts.doc);
+    this.savedDoc = normalizeText(opts.baseline ?? opts.doc);
     this.onDirtyChange = opts.onDirtyChange;
     this.annotateExtension = annotateGutter(opts);
     this.view = new EditorView({

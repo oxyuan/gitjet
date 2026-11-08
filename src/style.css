@@ -9439,3 +9439,44 @@ body.resizing-row .log-detail-split::after {
   flex: 1;
   min-width: 0;
 }
+
+/* Stop is the way out of a console command that waits for input: it holds
+   the repository's write lock while it runs. */
+.console-stop {
+  margin-left: 6px;
+  padding: 1px 7px;
+  border: 1px solid var(--border);
+  border-radius: 5px;
+  background: transparent;
+  color: var(--fg-soft);
+  font: inherit;
+  font-size: 9.5px;
+  cursor: pointer;
+}
+
+.console-stop:hover {
+  border-color: var(--danger);
+  color: var(--danger);
+}
+
+/* The signature line under a commit message: a commit is only as good as
+   its verification. */
+.log-detail-signature {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  color: var(--muted-2);
+  font-size: 10.5px;
+}
+
+.log-detail-signature.good {
+  color: var(--success);
+}
+
+.log-detail-signature.bad {
+  color: var(--danger);
+}
+
+.hook-live {
+  color: var(--success);
+}
