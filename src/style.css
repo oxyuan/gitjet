@@ -8765,6 +8765,15 @@ body.resizing-row .log-detail-split::after {
   color: var(--fg);
 }
 
+.cm-merge-action.revert {
+  color: var(--muted);
+}
+
+.cm-merge-action.revert:hover {
+  background: var(--selection);
+  color: var(--fg);
+}
+
 .cm-merge-action.apply:hover {
   background: var(--selection);
 }

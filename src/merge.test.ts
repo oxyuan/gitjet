@@ -10,6 +10,7 @@ import {
   hasConflictMarkers,
   ignoreRangeLines,
   insertConflictMarkers,
+  resetRangeLines,
   splitLines,
   resolveSimpleConflicts,
   tryResolveRange,
@@ -455,6 +456,26 @@ describe("ignoreRangeLines", () => {
       theirs: ["T"],
     });
     expect(ignoreRangeLines(added, "theirs")).toEqual([]);
+  });
+});
+
+describe("resetRangeLines", () => {
+  it("reopens a conflict with the local side", () => {
+    const model = computeMerge("a\nbase\n", "a\nours\n", "a\ntheirs\n");
+    const conflict = model.ranges.find((r) => r.kind === "conflict")!;
+    expect(resetRangeLines(conflict)).toEqual({ lines: ["ours"], resolved: false });
+  });
+
+  it("reverts a decided change to the merge base", () => {
+    const model = computeMerge("a\nbase\nc\nlast\n", "a\nBASE\nc\nlast\n", "a\nbase\nc\nLAST\n");
+    const oursRange = model.ranges.find((r) => r.oursChanged && r.kind !== "conflict")!;
+    expect(resetRangeLines(oursRange)).toEqual({ lines: ["base"], resolved: true });
+  });
+
+  it("removes an added block when reverted", () => {
+    const model = computeMerge("a\nb\n", "a\nnew\nb\n", "a\nb\n");
+    const added = model.ranges.find((r) => r.kind === "inserted")!;
+    expect(resetRangeLines(added)).toEqual({ lines: [], resolved: true });
   });
 });
 

@@ -7,6 +7,7 @@ import {
   diffHunks,
   ignoreRangeLines,
   insertConflictMarkers,
+  resetRangeLines,
   splitLines,
   tryResolveRange,
   type MergeLabels,
@@ -99,6 +100,8 @@ const T = {
     highlightLines: "Lines",
     highlightWords: "Words",
     highlightChars: "Characters",
+    resolveAutomatically: "Resolve Automatically",
+    revertChange: "Revert Change",
     discardTitle: "Unsaved Resolution",
     discardMessage: "This file's resolution has not been saved. Closing now discards it.",
     keepEditing: "Keep Editing",
@@ -180,6 +183,8 @@ const T = {
     highlightLines: "行数",
     highlightWords: "单词",
     highlightChars: "字符",
+    resolveAutomatically: "自动解决",
+    revertChange: "还原更改",
     discardTitle: "未保存的解决结果",
     discardMessage: "该文件的解决结果尚未保存，关闭将丢弃这些更改。",
     keepEditing: "继续编辑",
@@ -254,19 +259,21 @@ function sideBlocks(
   const offsets = lineOffsets(lines);
   const blocks: MergePaneBlock[] = [];
   for (const range of model.ranges) {
-    // A one-sided change is already merged: offering a button there would only
-    // ask for a decision the result cannot change.
-    if (range.kind !== "conflict") continue;
+    // Every change a side made is actionable, not only the conflicts: IDEA
+    // lets the reader accept or ignore a one-sided change too, which is how an
+    // auto-merged change is taken back.
+    if (side === "ours" ? !range.oursChanged : !range.theirsChanged) continue;
     const start = side === "ours" ? range.oursStart : range.theirsStart;
     const end = side === "ours" ? range.oursEnd : range.theirsEnd;
+    const conflict = range.kind === "conflict";
     blocks.push({
       id: range.index,
       from: offsetAt(offsets, start),
       to: offsetAt(offsets, end),
-      tone: "conflict",
+      tone: conflict ? "conflict" : side,
       apply: side,
       ignore: true,
-      marks: labels.marks ? conflictMarks(range, side, offsets, labels.chars) : [],
+      marks: conflict && labels.marks ? conflictMarks(range, side, offsets, labels.chars) : [],
       title: `${labels.apply} · ${rangeType(range, labels.t)}`,
     });
   }
@@ -283,12 +290,14 @@ function resultBlocks(
 ): MergePaneBlock[] {
   return view.blocks.map((block) => {
     const range = model.ranges[block.index];
-    const resolved = states.get(block.index)?.resolved ?? block.resolved;
+    const state = states.get(block.index);
+    const resolved = state?.resolved ?? block.resolved;
     return {
       id: block.index,
       from: block.from,
       to: block.to,
       tone: resolved ? "resolved" : "conflict",
+      revert: revertable(range, state),
       title: resolved ? (range ? rangeType(range, t) : t("resolvedBlock")) : t("conflictBlock"),
     } satisfies MergePaneBlock;
   });
@@ -330,6 +339,13 @@ function countUnresolved(states: ReadonlyMap<number, RangeState>): number {
   let count = 0;
   for (const state of states.values()) if (!state.resolved) count++;
   return count;
+}
+
+/** Whether "Revert change" would move the block: a resolved conflict reopens
+ *  and a decided change goes back to the merge base. */
+function revertable(range: MergeRange | undefined, state: RangeState | undefined): boolean {
+  if (!range || !state) return false;
+  return range.kind === "conflict" ? state.resolved : !sameLines(state.lines, range.base);
 }
 
 function CompareVersions({
@@ -694,10 +710,18 @@ export function ConflictView({
         return {
           ...block,
           tone: resolved ? "resolved" : "conflict",
+          revert: revertable(range, state),
           title: resolved ? (range ? rangeType(range, tr) : t("resolvedBlock")) : t("conflictBlock"),
         } satisfies MergePaneBlock;
       });
-      if (next.some((block, i) => block.tone !== blocks[i]?.tone || block.title !== blocks[i]?.title)) {
+      if (
+        next.some(
+          (block, i) =>
+            block.tone !== blocks[i]?.tone ||
+            block.title !== blocks[i]?.title ||
+            block.revert !== blocks[i]?.revert,
+        )
+      ) {
         result.setBlocks(next);
       }
     }
@@ -709,7 +733,19 @@ export function ConflictView({
       pane.setBlocks(
         pane.getBlocks().map((block) => {
           const range = model.ranges[block.id];
-          if (range?.kind !== "conflict") return block;
+          if (!range) return block;
+          // A one-sided change stays actionable even though the result already
+          // carries it: accepting it replaces the other side's text, ignoring
+          // it takes the auto-merged change back.
+          if (range.kind !== "conflict") {
+            return {
+              ...block,
+              apply: side,
+              ignore: true,
+              tone: side,
+              title: `${t(side === "ours" ? "applyLocal" : "applyRemote")} · ${rangeType(range, tr)}`,
+            };
+          }
           const active = pending.has(block.id);
           // A decided block keeps only its status mark: choosing a side is the
           // decision, and Ctrl+Z is how that decision is undone.
@@ -865,9 +901,17 @@ export function ConflictView({
       const pane = resultPane.current;
       const state = blocksRef.current.get(index);
       if (!pane || !state) return;
+      // Accepting the side the result already shows is not a new decision;
+      // an unresolved conflict still becomes decided even when its local text
+      // is already what the pane holds.
+      if (state.resolved && sameLines(state.lines, lines)) return;
       commitDecision([{ index, before: state, after: { lines, resolved: true } }]);
+      // A one-sided change is a correction, not a decision to move on from:
+      // only a conflict advances the caret to the next open block, the way
+      // accepting a conflict advances the IDE.
+      if (model.ranges[index]?.kind !== "conflict") return;
       // The next decision is what the reader wants next: the caret moves to the
-      // following open block, the way accepting a conflict advances the IDE.
+      // following open block.
       const open = [...blocksRef.current.entries()]
         .filter(([, candidate]) => !candidate.resolved)
         .map(([id]) => id)
@@ -885,16 +929,16 @@ export function ConflictView({
       pane.view.dispatch({ selection: { anchor: at } });
       pane.scrollToLine(doc.lineAt(at).number);
     },
-    [commitDecision],
+    [commitDecision, model],
   );
 
-  /** Accept a side: the range becomes exactly that revision's text. */
+  /** Accept a side: the range becomes exactly that revision's text. This works
+   *  for a one-sided change too, so an auto-merged change can be replaced by
+   *  the other side's text, the way IDEA's gutter accept does. */
   const applyRange = useCallback(
     (index: number, side: "ours" | "theirs") => {
       const range = model.ranges[index];
-      // Only a conflict asks for a decision: a one-sided change is already in
-      // the result, and replacing its recovered span would eat neighbours.
-      if (!range || range.kind !== "conflict") return;
+      if (!range) return;
       resolveRange(index, side === "ours" ? range.ours : range.theirs);
     },
     [model, resolveRange],
@@ -905,8 +949,35 @@ export function ConflictView({
   const ignoreRange = useCallback(
     (index: number, side: "ours" | "theirs") => {
       const range = model.ranges[index];
-      if (!range || range.kind !== "conflict") return;
+      if (!range) return;
       resolveRange(index, ignoreRangeLines(range, side));
+    },
+    [model, resolveRange],
+  );
+
+  /** IDEA's per-change Reset/Revert: a resolved conflict reopens, a decided
+   *  change goes back to the merge base. */
+  const resetRange = useCallback(
+    (index: number) => {
+      const range = model.ranges[index];
+      const state = blocksRef.current.get(index);
+      if (!range || !state) return;
+      const reset = resetRangeLines(range);
+      if (state.resolved === reset.resolved && sameLines(state.lines, reset.lines)) return;
+      commitDecision([{ index, before: state, after: reset }]);
+    },
+    [commitDecision, model],
+  );
+
+  /** Resolve one conflict with the line attribution the wand uses. */
+  const autoResolveOne = useCallback(
+    (index: number) => {
+      const range = model.ranges[index];
+      const state = blocksRef.current.get(index);
+      if (!range || !state || state.resolved) return;
+      const lines = tryResolveRange(range) ?? tryResolveRange(range, true);
+      if (!lines) return;
+      resolveRange(index, lines);
     },
     [model, resolveRange],
   );
@@ -1035,6 +1106,14 @@ export function ConflictView({
           ? rangeAtResultLine(pointerLine)
           : rangeAtSideLine(side, pointerLine);
     const conflictTarget = target?.kind === "conflict" ? target : null;
+    const state = target ? blocksRef.current.get(target.index) : undefined;
+    const sideTarget =
+      target && (side === "ours" ? target.oursChanged : side === "theirs" ? target.theirsChanged : false)
+        ? target
+        : null;
+    const resolvable = conflictTarget
+      ? tryResolveRange(conflictTarget) ?? tryResolveRange(conflictTarget, true)
+      : null;
     const items: ContextItem[] = [];
     if (side === "result") {
       items.push({
@@ -1051,6 +1130,18 @@ export function ConflictView({
         disabled: conflictTarget === null,
         onClick: () => conflictTarget && applyRange(conflictTarget.index, "theirs"),
       });
+      items.push({
+        label: t("resolveAutomatically"),
+        icon: "sparkle",
+        disabled: !conflictTarget || state?.resolved === true || resolvable === null,
+        onClick: () => conflictTarget && autoResolveOne(conflictTarget.index),
+      });
+      items.push({
+        label: t("revertChange"),
+        icon: "undo",
+        disabled: !revertable(target ?? undefined, state),
+        onClick: () => target && resetRange(target.index),
+      });
       items.push({ separator: true });
       items.push({ label: t("resolveUsingLocal"), icon: "ours", onClick: () => applyWholeSide("ours") });
       items.push({ label: t("resolveUsingRemote"), icon: "theirs", onClick: () => applyWholeSide("theirs") });
@@ -1059,11 +1150,11 @@ export function ConflictView({
         label: t("accept"),
         shortcut: side === "ours" ? "⌘⌃→" : "⌘⌃←",
         icon: side,
-        // A one-sided change is already in the result: only a conflict has a
-        // side to accept.
-        disabled: conflictTarget === null,
+        // Every change the side made can be accepted, not only a conflict:
+        // this is how one side of an auto-merged change replaces the other.
+        disabled: sideTarget === null,
         onClick: () => {
-          if (conflictTarget) applyRange(conflictTarget.index, side);
+          if (sideTarget) applyRange(sideTarget.index, side);
         },
       });
       items.push({
@@ -1074,9 +1165,9 @@ export function ConflictView({
       items.push({
         label: t("ignore"),
         icon: "eye",
-        disabled: conflictTarget === null,
+        disabled: sideTarget === null,
         onClick: () => {
-          if (conflictTarget) ignoreRange(conflictTarget.index, side);
+          if (sideTarget) ignoreRange(sideTarget.index, side);
         },
       });
     }
@@ -1213,6 +1304,8 @@ export function ConflictView({
       blocks: resultBlocks(model, blocksRef.current, initial, tr),
       wrap,
       whitespace: showWhitespace,
+      onRevertBlock: (id) => resetRange(id),
+      actionLabels: { apply: t("apply"), ignore: t("ignore"), revert: t("revertChange") },
       onScroll: (line) => sync("result", line),
       onSelection: (start) => syncCurrentRef.current(start),
       onSaveRequest: () => requestSaveRef.current(true, true),
@@ -1579,10 +1672,32 @@ export function ConflictView({
           </div>
         </Modal>
       )}
+      {confirmClose && (
+        <Modal
           title={t("discardTitle")}
+          icon="warning"
+          width={430}
+          onClose={() => setConfirmClose(false)}
+          footer={
+            <>
+              <Button onClick={() => setConfirmClose(false)} autoFocus>
                 {t("keepEditing")}
+              </Button>
+              <Button
+                variant="danger"
+                onClick={() => {
+                  setConfirmClose(false);
+                  onClose();
+                }}
+              >
                 {t("discardClose")}
+              </Button>
+            </>
+          }
+        >
           <div className="confirm-message">{t("discardMessage")}</div>
+        </Modal>
+      )}
       {compare && (
         <CompareVersions
           left={versionText(compare.left)}

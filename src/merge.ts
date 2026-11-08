@@ -433,6 +433,18 @@ export function chosenLines(range: MergeRange, eq: LineEq = exact): string[] {
 }
 
 /**
+ * "Revert change", the counterpart of IDEA's Revert/Reset gutter action: a
+ * conflict goes back to its local side and reopens, while a decided change
+ * goes back to the merge base. Reverting a change is not the same as ignoring
+ * a side: ignore keeps the other side's text, revert drops the whole edit.
+ */
+export function resetRangeLines(range: MergeRange): { lines: string[]; resolved: boolean } {
+  return range.kind === "conflict"
+    ? { lines: range.ours, resolved: false }
+    : { lines: range.base, resolved: true };
+}
+
+/**
  * Tries the line-attribution merge IDEA's wand performs: a line is taken from
  * the side that changed it, and the block stays a conflict only when both
  * sides changed the same line differently.

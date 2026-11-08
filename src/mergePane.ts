@@ -39,6 +39,8 @@ export interface MergePaneBlock {
   apply?: "ours" | "theirs";
   /** A change the reader can dismiss back to the base text. */
   ignore?: boolean;
+  /** A decided block the reader can take back to its pre-decision text. */
+  revert?: boolean;
   /** Word-level differences inside a conflicting line. */
   marks?: { from: number; to: number }[];
   title?: string;
@@ -51,8 +53,9 @@ export interface MergePaneOptions {
   blocks?: MergePaneBlock[];
   onApplyBlock?: (id: number) => void;
   onIgnoreBlock?: (id: number) => void;
+  onRevertBlock?: (id: number) => void;
   /** Tooltips for the gutter actions. */
-  actionLabels?: { apply: string; ignore: string };
+  actionLabels?: { apply: string; ignore: string; revert?: string };
   /** Which edge carries the gutter: the inner one faces the result. */
   side?: "before" | "after";
   onChange?: (doc: string, blocks: MergePaneBlock[]) => void;
@@ -117,10 +120,12 @@ class ApplyMarker extends GutterMarker {
     readonly id: number,
     readonly apply: "ours" | "theirs" | undefined,
     readonly ignore: boolean,
+    readonly revert: boolean,
     readonly tone: MergePaneTone,
     readonly title: string,
     readonly applyLabel: string,
     readonly ignoreLabel: string,
+    readonly revertLabel: string,
   ) {
     super();
   }
@@ -131,10 +136,12 @@ class ApplyMarker extends GutterMarker {
       other.id === this.id &&
       other.apply === this.apply &&
       other.ignore === this.ignore &&
+      other.revert === this.revert &&
       other.tone === this.tone &&
       other.title === this.title &&
       other.applyLabel === this.applyLabel &&
-      other.ignoreLabel === this.ignoreLabel
+      other.ignoreLabel === this.ignoreLabel &&
+      other.revertLabel === this.revertLabel
     );
   }
 
@@ -142,7 +149,7 @@ class ApplyMarker extends GutterMarker {
     const el = document.createElement("span");
     el.className = `cm-merge-actions ${this.tone}`;
     el.title = this.title;
-    const button = (action: "apply" | "ignore", text: string, title: string, extra: string) => {
+    const button = (action: "apply" | "ignore" | "revert", text: string, title: string, extra: string) => {
       const b = document.createElement("button");
       b.type = "button";
       b.tabIndex = -1;
@@ -153,13 +160,18 @@ class ApplyMarker extends GutterMarker {
       b.textContent = text;
       el.append(b);
     };
+    // The status glyph is the block's state; the buttons beside it are what
+    // the reader can do to it, the way IDEA's gutter toolbar works.
+    if (!this.apply && !this.ignore) {
+      const mark = document.createElement("span");
+      mark.className = `cm-merge-gutter-mark ${this.tone}`;
+      mark.textContent = this.tone === "conflict" ? "!" : "✓";
+      el.append(mark);
+    }
+    if (this.revert) button("revert", "↺", this.revertLabel, "revert");
     if (this.ignore) button("ignore", "✕", this.ignoreLabel, "ignore");
     if (this.apply) {
       button("apply", this.apply === "ours" ? "»" : "«", this.applyLabel, `apply ${this.apply}`);
-    }
-    if (!this.apply && !this.ignore) {
-      el.textContent = this.tone === "conflict" ? "!" : "✓";
-      el.className = `cm-merge-gutter-mark ${this.tone}`;
     }
     return el;
   }
@@ -168,7 +180,7 @@ class ApplyMarker extends GutterMarker {
 function buildGutter(
   view: EditorView,
   blocks: MergePaneBlock[],
-  labels: { apply: string; ignore: string; status: string },
+  labels: { apply: string; ignore: string; revert: string; status: string },
 ): RangeSet<GutterMarker> {
   const builder = new RangeSetBuilder<GutterMarker>();
   const sorted = [...blocks].sort((a, b) => a.from - b.from);
@@ -179,7 +191,17 @@ function buildGutter(
     builder.add(
       line.from,
       line.from,
-      new ApplyMarker(block.id, block.apply, block.ignore === true, block.tone, title, labels.apply, labels.ignore),
+      new ApplyMarker(
+        block.id,
+        block.apply,
+        block.ignore === true,
+        block.revert === true,
+        block.tone,
+        title,
+        labels.apply,
+        labels.ignore,
+        labels.revert,
+      ),
     );
   }
   return builder.finish();
@@ -252,6 +274,7 @@ export class MergePane {
               buildGutter(view, view.state.field(blocksField), {
                 apply: this.opts.actionLabels?.apply ?? "Apply",
                 ignore: this.opts.actionLabels?.ignore ?? "Ignore",
+                revert: this.opts.actionLabels?.revert ?? "Revert",
                 status: "Conflict block",
               }),
             domEventHandlers: {
@@ -269,6 +292,11 @@ export class MergePane {
                 if (action === "ignore" && this.opts.onIgnoreBlock) {
                   event.preventDefault();
                   this.opts.onIgnoreBlock(block.id);
+                  return true;
+                }
+                if (action === "revert" && this.opts.onRevertBlock) {
+                  event.preventDefault();
+                  this.opts.onRevertBlock(block.id);
                   return true;
                 }
                 if (action === "apply" && block.apply && this.opts.onApplyBlock) {
