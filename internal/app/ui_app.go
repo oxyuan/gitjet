@@ -226,6 +226,7 @@ type nativeApp struct {
 	consoleComp    []git.Completion
 
 	dialog dialogState
+	merge  *mergeWindow
 
 	lsp         *lspClient
 	lspStarting bool
@@ -433,6 +434,7 @@ func (a *nativeApp) viewBody(c *ui.Context) {
 	a.registerFileTypeahead(c)
 	a.mainView(c)
 	a.dialogView(c)
+	a.mergeView(c)
 	a.noticeView(c)
 }
 
@@ -582,7 +584,7 @@ func (a *nativeApp) openPath(path string) {
 	a.reloading.Store(false)
 	a.reloadPending.Store(false)
 	if a.repoOpen {
-		closeMergeWindows()
+		closeMergeWindows(a)
 		_ = a.g.LSPStop()
 		a.ws.Close()
 		a.lsp = nil
@@ -634,7 +636,7 @@ func (a *nativeApp) openPath(path string) {
 }
 
 func (a *nativeApp) closeRepo() {
-	closeMergeWindows()
+	closeMergeWindows(a)
 	a.reloadGen.Add(1)
 	a.reloading.Store(false)
 	a.reloadPending.Store(false)

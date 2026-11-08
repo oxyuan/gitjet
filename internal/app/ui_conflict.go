@@ -54,40 +54,42 @@ type mergeBlock struct {
 	base       string
 }
 
-var nativeMergeWindows = map[string]*mergeWindow{}
-
 func openMergeEditor(a *nativeApp, path string) {
-	if m := nativeMergeWindows[path]; m != nil && m.win != nil && !m.win.IsDestroyed() {
-		m.win.Show()
-		m.win.Focus()
+	if m := a.merge; m != nil && m.path == path {
+		a.redraw()
 		return
 	}
 	m := &mergeWindow{app: a, path: path, sync: true}
-	nativeMergeWindows[path] = m
-	m.win = mygo.NewWindow(mygo.WindowOptions{
-		Title:           "Merge " + path,
-		Width:           1240,
-		Height:          800,
-		MinWidth:        900,
-		MinHeight:       560,
-		BackgroundColor: "light-dark(#f5f5f7, #1c1d21)",
-		Content:         ui.View(m.view),
-	})
-	m.win.OnClosed(func() {
-		if nativeMergeWindows[path] == m {
-			delete(nativeMergeWindows, path)
-		}
-	})
+	a.merge = m
 	m.load()
 	go func() {
 		details, err := m.app.g.MergeDetails()
 		if err == nil {
 			mygo.RunOnMain(func() {
 				m.details = details
-				m.win.Invalidate()
+				m.invalidate()
 			})
 		}
 	}()
+}
+
+func (m *mergeWindow) invalidate() {
+	if m.win != nil {
+		m.win.Invalidate()
+		return
+	}
+	m.app.redraw()
+}
+
+func (m *mergeWindow) close() {
+	if m.win != nil {
+		m.win.Close()
+		return
+	}
+	if m.app.merge == m {
+		m.app.merge = nil
+	}
+	m.app.redraw()
 }
 
 func (m *mergeWindow) load() {
@@ -101,7 +103,7 @@ func (m *mergeWindow) load() {
 			}
 			m.content = cc
 			m.build()
-			m.win.Invalidate()
+			m.invalidate()
 		})
 	}()
 }
@@ -203,26 +205,41 @@ func (m *mergeWindow) view(c *ui.Context) {
 	})
 }
 
+func (a *nativeApp) mergeView(c *ui.Context) {
+	m := a.merge
+	if m == nil {
+		return
+	}
+	p := palette(c.Theme())
+	ui.Overlay(c, func() {
+		ui.Box(c).Absolute().Fill().Background(ui.RGBA(10, 14, 22, 0.32))
+		panel := ui.Column(c).Absolute().Left(24).Right(24).Top(24).Bottom(24).Radius(16).
+			Background(ui.Hex(p.editor)).Border(1, ui.Hex(p.border)).
+			Shadow(0, 30, 80, 0, ui.RGBA(16, 20, 40, 0.24)).Clip()
+		panel.Children(func() { m.body(c) })
+	})
+}
+
 func (m *mergeWindow) body(c *ui.Context) {
 	t := c.Theme()
 	c.OnWindowShortcut(0, ui.KeyF7, func() {
 		if len(m.blocks) > 0 {
 			m.selected = (m.selected + 1) % len(m.blocks)
-			m.win.Invalidate()
+			m.invalidate()
 		}
 	})
 	c.OnWindowShortcut(ui.Shift, ui.KeyF7, func() {
 		if len(m.blocks) > 0 {
 			m.selected = (m.selected + len(m.blocks) - 1) % len(m.blocks)
-			m.win.Invalidate()
+			m.invalidate()
 		}
 	})
-	c.OnWindowShortcut(ui.Alt, ui.KeyLeft, func() { m.choose(m.selected, blockOurs); m.win.Invalidate() })
-	c.OnWindowShortcut(ui.Alt, ui.KeyRight, func() { m.choose(m.selected, blockTheirs); m.win.Invalidate() })
-	c.OnWindowShortcut(ui.Cmd|ui.Ctrl, ui.KeyLeft, func() { m.choose(m.selected, blockOurs); m.win.Invalidate() })
-	c.OnWindowShortcut(ui.Cmd|ui.Ctrl, ui.KeyRight, func() { m.choose(m.selected, blockTheirs); m.win.Invalidate() })
-	c.OnWindowShortcut(ui.Cmd, ui.KeyZ, func() { m.undoChoice(); m.win.Invalidate() })
-	c.OnWindowShortcut(ui.Cmd|ui.Shift, ui.KeyZ, func() { m.redoChoice(); m.win.Invalidate() })
+	c.OnWindowShortcut(ui.Alt, ui.KeyLeft, func() { m.choose(m.selected, blockOurs); m.invalidate() })
+	c.OnWindowShortcut(ui.Alt, ui.KeyRight, func() { m.choose(m.selected, blockTheirs); m.invalidate() })
+	c.OnWindowShortcut(ui.Cmd|ui.Ctrl, ui.KeyLeft, func() { m.choose(m.selected, blockOurs); m.invalidate() })
+	c.OnWindowShortcut(ui.Cmd|ui.Ctrl, ui.KeyRight, func() { m.choose(m.selected, blockTheirs); m.invalidate() })
+	c.OnWindowShortcut(ui.Cmd, ui.KeyZ, func() { m.undoChoice(); m.invalidate() })
+	c.OnWindowShortcut(ui.Cmd|ui.Shift, ui.KeyZ, func() { m.redoChoice(); m.invalidate() })
 	ui.Column(c).Fill().Background(t.Background).Children(func() {
 		ui.Row(c).Height(46).Padding(0, 12).Gap(8).AlignItems(ui.Center).BorderWidth(0, 0, 1, 0).BorderColor(t.Border).Children(func() {
 			ui.Text(c, "Merge "+m.path).FontSize(13).FontWeight(600)
@@ -233,13 +250,18 @@ func (m *mergeWindow) body(c *ui.Context) {
 				ui.Text(c, st.OpOurs+" → "+st.OpTheirs).FontSize(10).TextColor(t.TextMuted)
 			}
 			ui.Spacer(c).Grow(1)
+			if m.app.merge == m {
+				if _, clicked := m.app.kitIconButton(c, "close", m.app.t("Close"), 28, 14, false, false, false); clicked {
+					m.close()
+				}
+			}
 			if _, clicked := m.app.kitIconButton(c, "undo", m.app.t("Undo"), 28, 14, len(m.undo) == 0, false, false); clicked {
 				m.undoChoice()
-				m.win.Invalidate()
+				m.invalidate()
 			}
 			if _, clicked := m.app.kitIconButton(c, "redo", m.app.t("Redo"), 28, 14, len(m.redo) == 0, false, false); clicked {
 				m.redoChoice()
-				m.win.Invalidate()
+				m.invalidate()
 			}
 			if m.err != "" {
 				ui.Text(c, m.err).FontSize(10).TextColor(t.Danger)
@@ -260,11 +282,11 @@ func (m *mergeWindow) body(c *ui.Context) {
 				ui.Row(c).Gap(8).Children(func() {
 					if ui.Button(c, m.app.t("Accept Ours")).Clicked() {
 						m.app.takeSide(m.path, "ours")
-						m.win.Close()
+						m.close()
 					}
 					if ui.Button(c, m.app.t("Accept Theirs")).Clicked() {
 						m.app.takeSide(m.path, "theirs")
-						m.win.Close()
+						m.close()
 					}
 				})
 			})
@@ -326,7 +348,7 @@ func (m *mergeWindow) resolveSimple() {
 		}
 	}
 	m.rebuildResult()
-	m.win.Invalidate()
+	m.invalidate()
 }
 
 func (m *mergeWindow) side(c *ui.Context, title string, state *editor.State, side string) {
@@ -386,7 +408,7 @@ func (m *mergeWindow) acceptAll(side string) {
 			m.choose(i, blockTheirs)
 		}
 	}
-	m.win.Invalidate()
+	m.invalidate()
 }
 
 // choose writes one side of a block into the result at the block's byte
@@ -476,7 +498,7 @@ func (m *mergeWindow) apply(finish bool) {
 		text = m.withMarkers(unresolved)
 	}
 	m.busy = true
-	m.win.Invalidate()
+	m.invalidate()
 	path := m.path
 	go func() {
 		err := m.app.g.SaveResolution(path, text, stage)
@@ -484,14 +506,14 @@ func (m *mergeWindow) apply(finish bool) {
 			m.busy = false
 			if err != nil {
 				m.err = err.Error()
-				m.win.Invalidate()
+				m.invalidate()
 				return
 			}
 			m.app.refresh()
 			if stage || (finish && unresolved == 0) {
-				m.win.Close()
+				m.close()
 			} else {
-				m.win.Invalidate()
+				m.invalidate()
 			}
 		})
 	}()
@@ -632,11 +654,8 @@ func lineAt(lines []string, i int) (string, bool) {
 	return lines[i], true
 }
 
-func closeMergeWindows() {
-	for path, m := range nativeMergeWindows {
-		if m.win != nil && !m.win.IsDestroyed() {
-			m.win.Close()
-		}
-		delete(nativeMergeWindows, path)
+func closeMergeWindows(a *nativeApp) {
+	if a.merge != nil {
+		a.merge = nil
 	}
 }
