@@ -592,9 +592,11 @@ func (a *nativeApp) refresh() {
 
 func (a *nativeApp) rebuildRows() {
 	a.changes = a.changes[:0]
-	for _, ch := range a.snapshot.Changes {
-		if ch.Staged {
-			a.changes = append(a.changes, changeRow{change: ch, staged: true})
+	if a.showStaged {
+		for _, ch := range a.snapshot.Changes {
+			if ch.Staged {
+				a.changes = append(a.changes, changeRow{change: ch, staged: true})
+			}
 		}
 	}
 	for _, ch := range a.snapshot.Changes {

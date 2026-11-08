@@ -137,6 +137,20 @@ func (a *nativeApp) commitPane(c *ui.Context) {
 				}
 				a.unstage(paths)
 			}
+			if ui.Button(c, a.t("Stage Selected")).Clicked() {
+				a.stage(a.selectedPaths(false))
+			}
+			if ui.Button(c, a.t("Unstage Selected")).Clicked() {
+				a.unstage(a.selectedPaths(true))
+			}
+			if ui.Button(c, a.t("Rollback Selected")).Clicked() {
+				a.rollback(a.selectedPaths(false))
+			}
+			hideStaged := !a.showStaged
+			if ui.Checkbox(c, &hideStaged, a.t("Hide staged")).Changed() {
+				a.showStaged = !hideStaged
+				a.rebuildRows()
+			}
 			ui.MenuButton(c, a.activeChangelistName(), func(m *ui.Menu) {
 				if m.Item(a.t("New Changelist")).Chosen() {
 					a.dialog = dialogState{kind: dialogPrompt, title: a.t("New Changelist"), message: a.t("Name"), action: "new-changelist"}
@@ -260,6 +274,9 @@ func (a *nativeApp) changeRow(c *ui.Context, i int) {
 		m.Separator()
 		if m.Item(a.t("Show Diff")).Chosen() {
 			a.openDiffFor(row)
+		}
+		if m.Item(a.t("Compare with HEAD")).Chosen() {
+			a.openDiff(git.DiffOptions{Path: ch.Path, OldPath: ch.OldPath, Target: git.DiffHead, Context: a.settings.DiffContext})
 		}
 		if m.Item(a.t("Open Source")).Chosen() {
 			a.openSource(ch.Path, "")

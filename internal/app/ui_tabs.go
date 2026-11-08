@@ -166,6 +166,26 @@ func (a *nativeApp) buildDiff(tab *docTab, fd git.FileDiff) {
 		}
 		return
 	}
+	if (tab.opts.IgnoreWhitespace || tab.opts.IgnoreWhitespaceEOL) && fd.Patch != "" {
+		if patches, err := editor.ParsePatch(fd.Patch); err == nil && len(patches) > 0 {
+			st := &editor.DiffState{Editable: false, Inline: editor.DiffInlineWord, LineSelection: true, Wrap: tab.wrapOn}
+			st.SetPatch(patches[0])
+			st.OnLineSelection = func(r editor.DiffLineRange) {
+				tab.selStart, tab.selEnd, tab.selSide, tab.hasSel = r.Start, r.End, r.Side, true
+			}
+			if a.settings.DiffContext < 0 {
+				st.ExpandUnchanged = true
+			} else {
+				st.ContextLines = a.settings.DiffContext
+			}
+			st.Theme = editor.DefaultTheme(ui.LightTheme())
+			st.RenderAnnotation = a.renderDiffAnnotation
+			tab.diff = st
+			tab.title = fd.Path
+			a.loadDiffBlame(tab)
+			return
+		}
+	}
 	old := editor.NewBuffer(fd.OldText)
 	newBuf := editor.NewBuffer(fd.NewText)
 	lang := editor.LanguageFor(fd.Path)
@@ -504,6 +524,12 @@ func (a *nativeApp) diffView(c *ui.Context, tab *docTab) {
 			ui.Row(c).Padding(12).Gap(8).Children(func() { ui.Spinner(c); ui.Text(c, a.t("Loading diff")) })
 			return
 		}
+		if n := len(tab.diff.Hunks()); n == 0 {
+			ui.Column(c).Fill().Center().Children(func() {
+				ui.Text(c, a.t("No differences")).TextColor(t.TextMuted)
+			})
+			return
+		}
 		tab.diff.Theme = editor.DefaultTheme(t)
 		tab.diff.Wrap = a.diffWrap(tab)
 		tab.diff.Annotations = tab.diff.Annotations[:0]
@@ -607,10 +633,14 @@ func (a *nativeApp) diffToolbar(c *ui.Context, tab *docTab) {
 		if ui.Checkbox(c, &wrap, a.t("Wrap")).Changed() {
 			tab.wrapOn = wrap
 		}
-		ignore := a.settings.IgnoreWhitespace
+		ignore := tab.opts.IgnoreWhitespace
 		if ui.Checkbox(c, &ignore, a.t("Ignore whitespace")).Changed() {
-			a.settings.IgnoreWhitespace = ignore
 			tab.opts.IgnoreWhitespace = ignore
+			a.loadDiff(tab)
+		}
+		eol := tab.opts.IgnoreWhitespaceEOL
+		if ui.Checkbox(c, &eol, a.t("Ignore EOL")).Changed() {
+			tab.opts.IgnoreWhitespaceEOL = eol
 			a.loadDiff(tab)
 		}
 		if tab.diff != nil {

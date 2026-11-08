@@ -17,20 +17,21 @@ import (
 // unresolved.
 
 type mergeWindow struct {
-	app      *nativeApp
-	path     string
-	win      *mygo.Window
-	content  git.ConflictContent
-	err      string
-	busy     bool
-	merged   string
-	ours     *editor.State
-	theirs   *editor.State
-	result   *editor.Buffer
-	blocks   []mergeBlock
-	choice   []mergeChoice
-	selected int
-	details  git.MergeDetails
+	app         *nativeApp
+	path        string
+	win         *mygo.Window
+	content     git.ConflictContent
+	err         string
+	busy        bool
+	merged      string
+	ours        *editor.State
+	theirs      *editor.State
+	result      *editor.Buffer
+	resultState *editor.State
+	blocks      []mergeBlock
+	choice      []mergeChoice
+	selected    int
+	details     git.MergeDetails
 }
 
 type mergeChoice uint8
@@ -140,8 +141,14 @@ func (m *mergeWindow) build() {
 	m.merged = result.String()
 	m.result = editor.NewBuffer(m.merged)
 	m.result.SetLanguage(editor.LanguageFor(m.path))
-	m.ours = &editor.State{Buffer: editor.NewBuffer(m.content.Ours), ReadOnly: true, LineHeight: 1.5}
-	m.theirs = &editor.State{Buffer: editor.NewBuffer(m.content.Theirs), ReadOnly: true, LineHeight: 1.5}
+	m.resultState = &editor.State{Buffer: m.result, LineHeight: 1.5}
+	lang := editor.LanguageFor(m.path)
+	oursBuf := editor.NewBuffer(m.content.Ours)
+	theirsBuf := editor.NewBuffer(m.content.Theirs)
+	oursBuf.SetLanguage(lang)
+	theirsBuf.SetLanguage(lang)
+	m.ours = &editor.State{Buffer: oursBuf, ReadOnly: true, LineHeight: 1.5}
+	m.theirs = &editor.State{Buffer: theirsBuf, ReadOnly: true, LineHeight: 1.5}
 	m.choice = make([]mergeChoice, len(m.blocks))
 }
 
@@ -332,9 +339,11 @@ func (m *mergeWindow) resultPane(c *ui.Context) {
 			}
 		})
 		m.result.SetLanguage(editor.LanguageFor(m.path))
-		state := &editor.State{Buffer: m.result, LineHeight: 1.5}
-		state.Theme = editor.DefaultTheme(t)
-		editor.View(c, state).Grow(1).FillWidth()
+		if m.resultState == nil {
+			m.resultState = &editor.State{Buffer: m.result, LineHeight: 1.5}
+		}
+		m.resultState.Theme = editor.DefaultTheme(t)
+		editor.View(c, m.resultState).Grow(1).FillWidth()
 	})
 }
 

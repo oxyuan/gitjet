@@ -85,7 +85,6 @@ func cleanList(paths []string) []string {
 
 func (a *nativeApp) diffAction(tab *docTab, hunk int, lines []int, action string) {
 	opts := tab.opts
-	opts.IgnoreWhitespace = a.settings.IgnoreWhitespace
 	a.busy++
 	a.redraw()
 	go func() {
@@ -816,4 +815,22 @@ func (a *nativeApp) editGitignore() {
 			a.openSource(path, "")
 		})
 	}()
+}
+
+// selectedPaths returns the checked paths on one side of the index.
+func (a *nativeApp) selectedPaths(staged bool) []string {
+	var out []string
+	for _, row := range a.changes {
+		if row.staged != staged || row.change.Unmerged || row.change.Kind == "ignored" {
+			continue
+		}
+		key := row.change.Path
+		if row.staged {
+			key = "staged:" + key
+		}
+		if a.checked[key] {
+			out = append(out, row.change.Path)
+		}
+	}
+	return out
 }
