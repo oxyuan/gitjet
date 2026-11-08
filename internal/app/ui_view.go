@@ -1387,7 +1387,7 @@ func (a *nativeApp) logDetails(c *ui.Context) {
 		ui.Scroll(c).Grow(1).Children(func() {
 			ui.Column(c).Padding(8, 10, 12, 10).Gap(6).Children(func() {
 				ui.Row(c).Height(22).Gap(5).AlignItems(ui.Center).Children(func() {
-					ui.Text(c, strings.ToUpper(a.t("files"))).FontSize(10).FontWeight(650).
+					ui.Text(c, strings.ToUpper(a.t("Files"))).FontSize(10).FontWeight(650).
 						LetterSpacing(0.06).TextColor(ui.Hex(p.muted))
 					ui.Text(c, fmtInt(len(d.Files))).FontSize(10).TextColor(ui.Hex(p.muted2))
 					ui.Spacer(c).Grow(1)

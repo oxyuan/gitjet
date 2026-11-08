@@ -538,7 +538,7 @@ func (a *nativeApp) commitView(c *ui.Context, tab *docTab) {
 						ui.Text(c, strings.TrimSpace(d.Body)).FontSize(11.5).TextColor(ui.Hex(p.fgSoft)).Wrap()
 					})
 				}
-				ui.Text(c, strings.ToUpper(a.t("files"))).FontSize(10).FontWeight(650).
+				ui.Text(c, strings.ToUpper(a.t("Files"))).FontSize(10).FontWeight(650).
 					LetterSpacing(0.06).TextColor(ui.Hex(p.muted)).PaddingY(4)
 				ui.Column(c).Gap(1).Children(func() {
 					for _, f := range d.Files {
