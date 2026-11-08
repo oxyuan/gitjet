@@ -537,3 +537,19 @@ func (a *nativeApp) kitButtonRow(c *ui.Context, height, padStart, padEnd, gap fl
 	b.Background(motionColor(b, "kit-button-row-bg", bg))
 	return b
 }
+
+// kitEmptyState is the shared quiet state: a tinted icon tile, a title and
+// a muted explanation.
+func (a *nativeApp) kitEmptyState(c *ui.Context, icon, title, message string, tint ui.Color) {
+	ui.Column(c).Fill().Center().Gap(6).Padding(24, 20).Children(func() {
+		ui.Box(c).Size(26, 26).Radius(12).Background(tint.Alpha(0.12)).Center().Children(func() {
+			ui.Row(c).TextColor(tint).Center().Children(func() {
+				a.icon(c, icon, 15)
+			})
+		})
+		ui.Text(c, title).FontSize(11.5).FontWeight(600).TextColor(ui.Hex(palette(c.Theme()).fgSoft))
+		if message != "" {
+			ui.Text(c, message).FontSize(10.5).TextColor(ui.Hex(palette(c.Theme()).muted2)).MaxWidth(260)
+		}
+	})
+}

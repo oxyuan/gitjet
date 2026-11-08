@@ -184,8 +184,12 @@ func (a *nativeApp) commitPane(c *ui.Context) {
 			toolbarRule(c)
 			if _, clicked := a.iconButton(c, "expand", a.t("Expand all"), false); clicked {
 				a.changeClosed = map[string]bool{}
-				for path := range a.openDirs {
-					a.openDirs[path] = true
+				for _, row := range a.changes {
+					dir := filepath.Dir(row.change.Path)
+					for dir != "." && dir != "/" {
+						a.openDirs[dir] = true
+						dir = filepath.Dir(dir)
+					}
 				}
 			}
 			if _, clicked := a.iconButton(c, "collapse", a.t("Collapse all"), false); clicked {
@@ -220,6 +224,26 @@ func (a *nativeApp) commitPane(c *ui.Context) {
 				})
 			})
 			more.PopoverMenuButton(func(m *ui.Menu) {
+				picked := a.pickedChangeRows()
+				one := len(picked) == 1
+				if m.Item(a.t("Open Source")).Disabled(!one).Chosen() && one {
+					a.openSource(picked[0].change.Path, "")
+				}
+				if m.Item(a.t("Show Diff")).Disabled(!one).Chosen() && one {
+					a.openDiffFor(picked[0])
+				}
+				if len(picked) > 0 {
+					if m.Item(a.t("Stage Selected")).Chosen() {
+						a.stage(a.pickedChangePaths(false))
+					}
+					if m.Item(a.t("Unstage Selected")).Chosen() {
+						a.unstage(a.pickedChangePaths(true))
+					}
+					if m.Item(a.t("Rollback Selected")).Chosen() {
+						a.rollback(a.pickedChangePaths(false))
+					}
+				}
+				m.Separator()
 				if m.Item(a.t("Undo Commit")).Chosen() {
 					a.undoCommit()
 				}
@@ -386,13 +410,7 @@ func (a *nativeApp) commitPane(c *ui.Context) {
 					}
 				}
 				if len(a.changes) == 0 {
-					ui.Column(c).Grow(1).MinHeight(0).Center().Gap(8).Padding(28, 20).Children(func() {
-						ui.Row(c).TextColor(ui.Hex(p.success)).Center().Children(func() {
-							a.icon(c, "check", 20)
-						})
-						ui.Text(c, a.t("No local changes")).FontSize(12).TextColor(ui.Hex(p.muted))
-						ui.Text(c, a.t("The working tree is clean.")).FontSize(11).TextColor(ui.Hex(p.muted2))
-					})
+					a.kitEmptyState(c, "check", a.t("No local changes"), a.t("The working tree is clean."), ui.Hex(p.success))
 				}
 			})
 		})
@@ -636,7 +654,11 @@ func (a *nativeApp) changeRowAt(c *ui.Context, i, depth int) {
 	p := palette(c.Theme())
 	row := a.changes[i]
 	ch := row.change
-	selected := i == a.changeSel
+	key := ch.Path
+	if row.staged {
+		key = "staged:" + key
+	}
+	selected := a.changePicked[key]
 	line := a.kitRow(c, 28, 6+float32(depth)*12, 10, 6, selected)
 	line.Radius(6)
 	if selected {
@@ -645,6 +667,28 @@ func (a *nativeApp) changeRowAt(c *ui.Context, i, depth int) {
 		})
 	}
 	if line.Clicked() {
+		mods := c.Modifiers()
+		switch {
+		case mods&ui.Shift != 0 && a.changeAnchor >= 0:
+			lo, hi := a.changeAnchor, i
+			if lo > hi {
+				lo, hi = hi, lo
+			}
+			for a.changePicked = map[string]bool{}; lo <= hi; lo++ {
+				r := a.changes[lo]
+				k := r.change.Path
+				if r.staged {
+					k = "staged:" + k
+				}
+				a.changePicked[k] = true
+			}
+		case mods&ui.Cmd != 0:
+			a.changePicked[key] = !a.changePicked[key]
+			a.changeAnchor = i
+		default:
+			a.changePicked = map[string]bool{key: true}
+			a.changeAnchor = i
+		}
 		a.changeSel = i
 	}
 	if line.DoubleClicked() {
@@ -1234,12 +1278,7 @@ func (a *nativeApp) logListView(c *ui.Context) {
 			}
 		}
 		if len(a.log.Commits) == 0 {
-			ui.Column(c).Fill().Center().Gap(8).Children(func() {
-				ui.Row(c).TextColor(ui.Hex(p.muted2)).Center().Children(func() {
-					a.icon(c, "commit", 20)
-				})
-				ui.Text(c, a.t("No commits")).FontSize(11).TextColor(ui.Hex(p.muted))
-			})
+			a.kitEmptyState(c, "commit", a.t("No commits"), "", ui.Hex(p.muted2))
 		}
 	})
 }
@@ -1271,12 +1310,7 @@ func (a *nativeApp) logDetails(c *ui.Context) {
 	p := palette(c.Theme())
 	ui.Column(c).FillHeight().Background(ui.Hex(p.editor)).BorderWidth(0, 0, 0, 1).BorderColor(ui.Hex(p.border)).Children(func() {
 		if a.logDetail == nil {
-			ui.Column(c).Fill().Center().Gap(8).Children(func() {
-				ui.Row(c).TextColor(ui.Hex(p.muted2)).Center().Children(func() {
-					a.icon(c, "log", 20)
-				})
-				ui.Text(c, a.t("Select a commit to see its details")).FontSize(11).TextColor(ui.Hex(p.muted))
-			})
+			a.kitEmptyState(c, "log", a.t("Select a commit to see its details"), "", ui.Hex(p.muted2))
 			return
 		}
 		d := a.logDetail
@@ -1712,9 +1746,7 @@ func (a *nativeApp) filesPane(c *ui.Context) {
 			}
 		})
 		if len(a.fileTree) == 0 {
-			ui.Column(c).Grow(1).Center().Children(func() {
-				ui.Text(c, a.t("No files")).TextColor(ui.Hex(p.muted)).FontSize(11)
-			})
+			a.kitEmptyState(c, "files", a.t("No files"), "", ui.Hex(p.muted2))
 		}
 		a.fileList.Selected = &a.fileSel
 		a.fileList.Label = func(i int) string {
@@ -2441,6 +2473,30 @@ func (a *nativeApp) consolePane(c *ui.Context) {
 }
 
 // ----- shared helpers ---------------------------------------------------
+
+func (a *nativeApp) pickedChangeRows() []changeRow {
+	var out []changeRow
+	for _, row := range a.changes {
+		key := row.change.Path
+		if row.staged {
+			key = "staged:" + key
+		}
+		if a.changePicked[key] {
+			out = append(out, row)
+		}
+	}
+	return out
+}
+
+func (a *nativeApp) pickedChangePaths(staged bool) []string {
+	var out []string
+	for _, row := range a.pickedChangeRows() {
+		if row.staged == staged {
+			out = append(out, row.change.Path)
+		}
+	}
+	return out
+}
 
 func (a *nativeApp) openSelectedChange() {
 	if a.changeSel < 0 || a.changeSel >= len(a.changes) {

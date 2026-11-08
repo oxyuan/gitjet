@@ -119,6 +119,8 @@ type nativeApp struct {
 	changeSel         int
 	changeClosed      map[string]bool
 	changeView        string
+	changePicked      map[string]bool
+	changeAnchor      int
 	checked           map[string]bool
 	checkedInit       bool
 	commitForm        commitForm
