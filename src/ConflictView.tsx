@@ -7,6 +7,7 @@ import {
   diffHunks,
   ignoreRangeLines,
   insertConflictMarkers,
+  needsSideChoice,
   resetRangeLines,
   splitLines,
   tryResolveRange,
@@ -67,6 +68,14 @@ const T = {
     apply: "Apply",
     applyHint: "Save the result and stage the file",
     binaryConflict: "Binary conflict — choose a side",
+    linkConflict: "Symbolic link conflict — choose a side",
+    submoduleConflict: "Submodule conflict — choose a side",
+    deleteConflict: "One side deleted this file — choose a side",
+    bothDeletedConflict: "Both sides deleted this file — resolve it by confirming",
+    oursDeleted: "The local side deleted this file; the other side still has it.",
+    theirsDeleted: "The other side deleted this file; the local side still has it.",
+    bothDeleted: "Neither side kept this file.",
+    noEditableText: "This path is not merged as text, so only a side can be chosen.",
     noChanges: "Contents are identical",
     noChangesMade: "No changes",
     changesOne: "{n} change",
@@ -150,6 +159,14 @@ const T = {
     apply: "应用",
     applyHint: "保存结果并将文件加入暂存区",
     binaryConflict: "二进制冲突 — 请选择一侧",
+    linkConflict: "符号链接冲突 — 请选择一侧",
+    submoduleConflict: "子模块冲突 — 请选择一侧",
+    deleteConflict: "有一侧删除了该文件 — 请选择一侧",
+    bothDeletedConflict: "两侧都删除了该文件 — 确认后完成解决",
+    oursDeleted: "本地一侧删除了该文件，另一侧仍保留。",
+    theirsDeleted: "另一侧删除了该文件，本地一侧仍保留。",
+    bothDeleted: "两侧都没有保留该文件。",
+    noEditableText: "该路径不按文本合并，只能选择一侧。",
     noChanges: "内容一致",
     noChangesMade: "没有更改",
     changesOne: "{n} 个变更",
@@ -1456,7 +1473,35 @@ export function ConflictView({
   const versionLabel = (key: VersionKey) =>
     key === "base" ? t("base") : key === "ours" ? t("local") : key === "theirs" ? t("remote") : t("result");
 
-  if (conflict.binary) {
+  // A binary file, a link, a submodule, or a path one side deleted has no
+  // three-way text to merge: whatever the editor wrote would be a new file
+  // git never recorded (and writing through a link changes its target). The
+  // only honest resolutions are the two sides.
+  if (needsSideChoice(conflict)) {
+    const note = conflict.binary
+      ? t("binaryConflict")
+      : conflict.kind === "symlink"
+        ? t("linkConflict")
+        : conflict.kind === "submodule"
+          ? t("submoduleConflict")
+          : !conflict.hasOurs && !conflict.hasTheirs
+            ? t("bothDeletedConflict")
+            : t("deleteConflict");
+    const explain = conflict.binary
+      ? t("noEditableText")
+      : conflict.kind !== "file"
+        ? t("noEditableText")
+        : !conflict.hasOurs && !conflict.hasTheirs
+          ? t("bothDeleted")
+          : !conflict.hasOurs
+            ? t("oursDeleted")
+            : t("theirsDeleted");
+    const preview = (text: string, label: string) => (
+      <div className="merge3-choice-side">
+        <div className="merge3-choice-head">{label}</div>
+        <pre className="merge3-choice-text">{text}</pre>
+      </div>
+    );
     return (
       <div className="conflict-view merge3-view">
         <header className="diff-header">
@@ -1467,16 +1512,27 @@ export function ConflictView({
             <IconButton icon="close" title={t("close")} small onClick={requestClose} />
           </div>
         </header>
-        <div className="diff-empty">
-          <Icon name="warning" size={24} />
-          <div>{t("binaryConflict")}</div>
+        <div className="merge3-choice">
+          <div className="merge3-choice-note">
+            <Icon name="warning" size={16} />
+            <span>{note}</span>
+          </div>
+          <div className="merge3-choice-explain">{explain}</div>
+          <div className="merge3-choice-sides">
+            {conflict.hasOurs &&
+              !conflict.binary &&
+              preview(conflict.ours, t("fromChanges", { name: labels.ours || t("local") }))}
+            {conflict.hasTheirs &&
+              !conflict.binary &&
+              preview(conflict.theirs, t("fromChanges", { name: labels.theirs || t("remote") }))}
+          </div>
         </div>
         <footer className="merge3-footer">
           <span className="spacer" />
-          <Button size="small" onClick={() => onTakeSide("ours")} disabled={busy || (!conflict.hasOurs && !conflict.hasTheirs)}>
+          <Button size="small" onClick={() => onTakeSide("ours")} disabled={busy}>
             {t("acceptLeft")}
           </Button>
-          <Button size="small" onClick={() => onTakeSide("theirs")} disabled={busy || (!conflict.hasTheirs && !conflict.hasOurs)}>
+          <Button size="small" onClick={() => onTakeSide("theirs")} disabled={busy}>
             {t("acceptRight")}
           </Button>
           <Button size="small" onClick={requestClose}>

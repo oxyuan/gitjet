@@ -4,6 +4,8 @@
  * than from the markers Git happened to write.
  */
 
+import type { ConflictContent } from "./mygo";
+
 export interface DiffHunk {
   baseStart: number;
   baseEnd: number;
@@ -962,6 +964,19 @@ export function resolveSimpleConflicts(
     text: lines.join("\n") + (model.trailingNewline && lines.length > 0 ? "\n" : ""),
     remaining,
   };
+}
+
+/**
+ * Whether a conflict can be merged as text. A binary file, a symbolic link, a
+ * submodule, and a path one side added or deleted have no three-way text to
+ * edit: writing the result pane would create a file git never recorded (a link
+ * would be written through, to its target). Those conflicts offer the two
+ * sides and nothing else.
+ */
+export function needsSideChoice(
+  conflict: Pick<ConflictContent, "binary" | "kind" | "hasOurs" | "hasTheirs">,
+): boolean {
+  return conflict.binary || conflict.kind !== "file" || !conflict.hasOurs || !conflict.hasTheirs;
 }
 
 export function hasConflictMarkers(text: string): boolean {

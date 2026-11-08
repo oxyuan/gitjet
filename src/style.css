@@ -9356,3 +9356,66 @@ body.resizing-row .log-detail-split::after {
   flex: none;
   margin-left: 2px;
 }
+
+/* A conflict that is not merged as text — a binary file, a link, a submodule,
+   or a path one side deleted — offers the two sides instead of an editor. */
+.merge3-choice {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 16px;
+  overflow: auto;
+}
+
+.merge3-choice-note {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--warning);
+  font-weight: 600;
+}
+
+.merge3-choice-explain {
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.merge3-choice-sides {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  gap: 12px;
+}
+
+.merge3-choice-side {
+  flex: 1;
+  min-width: 0;
+  min-height: 120px;
+  display: flex;
+  flex-direction: column;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  overflow: hidden;
+  background: var(--panel);
+}
+
+.merge3-choice-head {
+  flex: none;
+  padding: 6px 8px;
+  border-bottom: 1px solid var(--border);
+  color: var(--muted);
+  font-size: 11px;
+}
+
+.merge3-choice-text {
+  flex: 1;
+  min-height: 0;
+  margin: 0;
+  padding: 8px;
+  overflow: auto;
+  font-family: var(--font-mono);
+  font-size: 12px;
+  white-space: pre;
+}

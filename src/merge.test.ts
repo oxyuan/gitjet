@@ -10,6 +10,7 @@ import {
   hasConflictMarkers,
   ignoreRangeLines,
   insertConflictMarkers,
+  needsSideChoice,
   resetRangeLines,
   splitLines,
   resolveSimpleConflicts,
@@ -20,6 +21,22 @@ import {
 function kinds(ranges: MergeRange[]) {
   return ranges.map((r) => r.kind);
 }
+
+describe("needsSideChoice", () => {
+  const text = { binary: false, kind: "file", hasOurs: true, hasTheirs: true };
+
+  it("leaves an ordinary text conflict to the editor", () => {
+    expect(needsSideChoice(text)).toBe(false);
+  });
+
+  it("asks for a side when a stage is missing or the path is not text", () => {
+    expect(needsSideChoice({ ...text, hasOurs: false })).toBe(true);
+    expect(needsSideChoice({ ...text, hasTheirs: false })).toBe(true);
+    expect(needsSideChoice({ ...text, kind: "symlink" })).toBe(true);
+    expect(needsSideChoice({ ...text, kind: "submodule" })).toBe(true);
+    expect(needsSideChoice({ ...text, binary: true })).toBe(true);
+  });
+});
 
 describe("splitLines", () => {
   it("keeps the trailing newline out of the line list", () => {
