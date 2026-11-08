@@ -205,6 +205,8 @@ const T = {
     nothingToCommit: "Nothing to commit",
     nothingToCommitMessage: "Check at least one file in the commit panel.",
     commitNeedsMessage: "A commit needs a message",
+    commitBlockedTitle: "Resolve the conflicts first",
+    commitBlockedMessage: "{n} conflicted files are still in the index; git commits nothing until they are resolved.",
     commitFailed: "Commit failed",
     committed: "Committed {hash}",
     checkedOut: "Checked out",
@@ -436,6 +438,8 @@ const T = {
     nothingToCommit: "没有可提交的内容",
     nothingToCommitMessage: "请在提交面板中至少勾选一个文件。",
     commitNeedsMessage: "提交需要填写提交信息",
+    commitBlockedTitle: "请先解决冲突",
+    commitBlockedMessage: "索引里还有 {n} 个冲突文件，未解决前 git 不会提交任何内容。",
     commitFailed: "提交失败",
     committed: "已提交 {hash}",
     checkedOut: "已 Checkout",
@@ -1664,6 +1668,13 @@ function AppShell({ onLangChange }: { onLangChange: (lang: Lang) => void }) {
 
   const commit = async (pushAfter: boolean, rebaseAfter = false, selectedOnly = false) => {
     if (!snapshot) return;
+    // Every commit is refused while the index holds unmerged entries, so say
+    // what blocks it and show the files instead of surfacing git's error.
+    if (snapshot.conflicts.length > 0) {
+      notify("error", t("commitBlockedTitle"), t("commitBlockedMessage", { n: snapshot.conflicts.length }));
+      openConflictSummary();
+      return;
+    }
     const eligible = new Set<string>();
     for (const c of snapshot.changes) {
       if (c.unmerged || c.kind === "ignored" || c.kind === "conflict") continue;

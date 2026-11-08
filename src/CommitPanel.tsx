@@ -69,6 +69,9 @@ const T = {
     applyStash: "Apply stash",
     dropStash: "Drop stash",
     resolveAll: "Resolve conflicts…",
+    blockedByConflictOne: "1 conflicted file has to be resolved before committing.",
+    blockedByConflicts: "{n} conflicted files have to be resolved before committing.",
+    commitBlockedTooltip: "Resolve the conflicts first",
     stashDetail: "Show the stash contents",
     pop: "Pop",
     apply: "Apply",
@@ -152,6 +155,9 @@ const T = {
     applyStash: "Stash apply",
     dropStash: "Stash drop",
     resolveAll: "解决冲突…",
+    blockedByConflictOne: "有 1 个冲突文件，解决后才能提交。",
+    blockedByConflicts: "有 {n} 个冲突文件，解决后才能提交。",
+    commitBlockedTooltip: "请先解决冲突",
     stashDetail: "查看 Stash 内容",
     pop: "弹出",
     apply: "应用",
@@ -643,7 +649,10 @@ export function CommitPanel({
   });
 
   // Staged files are committed whether or not their section is on screen.
-  const canCommit = uniqueChecked.length > 0 || staged.length > 0 || form.amend || [...checked].length > 0;
+  // git refuses every commit while the index has unmerged entries, so the
+  // buttons say why instead of letting the command fail.
+  const blocked = conflicts.length > 0;
+  const canCommit = !blocked && (uniqueChecked.length > 0 || staged.length > 0 || form.amend || [...checked].length > 0);
 
   return (
     <div className="commit-panel">
@@ -1027,12 +1036,21 @@ export function CommitPanel({
             </div>
           )}
         </div>
+        {blocked && (
+          <div className="commit-blocked">
+            <Icon name="warning" size={12} />
+            <span>{count(conflicts.length, t("blockedByConflictOne"), t("blockedByConflicts", { n: conflicts.length }))}</span>
+            <button className="commit-options-btn" onClick={actions.onResolveConflicts}>
+              {t("resolveAll")}
+            </button>
+          </div>
+        )}
         <div className="commit-buttons">
           <button
             className="btn btn-primary commit-btn"
             onClick={() => actions.onCommit(false)}
             disabled={busy || !canCommit}
-            title={t("commitTooltip")}
+            title={blocked ? t("commitBlockedTooltip") : t("commitTooltip")}
           >
             <Icon name="commit" />
             {uniqueChecked.length > 0 ? t("commitCount", { n: uniqueChecked.length }) : t("commit")}
@@ -1058,7 +1076,7 @@ export function CommitPanel({
               });
             }}
             disabled={busy || !canCommit}
-            title={t("commitAndPush")}
+            title={blocked ? t("commitBlockedTooltip") : t("commitAndPush")}
           >
             <Icon name="chevronUp" size={12} />
           </button>

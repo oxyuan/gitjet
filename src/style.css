@@ -9419,3 +9419,23 @@ body.resizing-row .log-detail-split::after {
   font-size: 12px;
   white-space: pre;
 }
+
+/* A commit is refused while the index holds unmerged entries: the panel says
+   what blocks it next to the buttons instead of letting git refuse later. */
+.commit-blocked {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin: 0 8px 6px;
+  padding: 5px 8px;
+  border: 1px solid color-mix(in srgb, var(--warning) 40%, var(--border));
+  border-radius: 6px;
+  background: color-mix(in srgb, var(--warning) 10%, transparent);
+  color: var(--warning);
+  font-size: 11px;
+}
+
+.commit-blocked span {
+  flex: 1;
+  min-width: 0;
+}
