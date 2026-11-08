@@ -580,3 +580,12 @@ func lineAt(lines []string, i int) (string, bool) {
 	}
 	return lines[i], true
 }
+
+func closeMergeWindows() {
+	for path, m := range nativeMergeWindows {
+		if m.win != nil && !m.win.IsDestroyed() {
+			m.win.Close()
+		}
+		delete(nativeMergeWindows, path)
+	}
+}

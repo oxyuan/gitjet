@@ -447,6 +447,7 @@ func (a *nativeApp) openPath(path string) {
 	a.reloading.Store(false)
 	a.reloadPending.Store(false)
 	if a.repoOpen {
+		closeMergeWindows()
 		_ = a.g.LSPStop()
 		a.ws.Close()
 		a.lsp = nil
@@ -494,6 +495,7 @@ func (a *nativeApp) openPath(path string) {
 }
 
 func (a *nativeApp) closeRepo() {
+	closeMergeWindows()
 	a.reloadGen.Add(1)
 	a.reloading.Store(false)
 	a.reloadPending.Store(false)
