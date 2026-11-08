@@ -192,6 +192,16 @@ func normalizeNewlines(s string) string {
 }
 
 func (m *mergeWindow) view(c *ui.Context) {
+	theme := m.app.theme
+	if theme == nil {
+		theme = gitjetTheme(false)
+	}
+	ui.Themed(c, theme).Fill().Children(func() {
+		m.body(c)
+	})
+}
+
+func (m *mergeWindow) body(c *ui.Context) {
 	t := c.Theme()
 	c.OnWindowShortcut(0, ui.KeyF7, func() {
 		if len(m.blocks) > 0 {
