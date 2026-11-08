@@ -1,6 +1,10 @@
 import type { ReactNode } from "react";
 import { fileBadge } from "./fileIcons";
 
+/** The two side arrows, exported for the merge gutter that builds DOM by hand. */
+export const ARROW_LEFT = "M13 8H3M6.4 4.6 3 8l3.4 3.4";
+export const ARROW_RIGHT = "M3 8h10M9.6 4.6 13 8l-3.4 3.4";
+
 /**
  * The app's icon set, drawn on a 16px grid with 1.5px strokes, round caps,
  * and no fills except status dots.
@@ -199,8 +203,8 @@ const PATHS: Record<string, ReactNode> = {
       <path d="M2 2.4v3.4h3.4" />
     </>
   ),
-  ours: <path d="M13 8H3M6.4 4.6 3 8l3.4 3.4" />,
-  theirs: <path d="M3 8h10M9.6 4.6 13 8l-3.4 3.4" />,
+  ours: <path d={ARROW_LEFT} />,
+  theirs: <path d={ARROW_RIGHT} />,
   sparkle: (
     <>
       <path d="M8 2.2 9.2 6l3.8 1.2L9.2 8.4 8 12.2 6.8 8.4 3 7.2 6.8 6z" />

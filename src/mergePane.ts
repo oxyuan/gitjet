@@ -27,6 +27,7 @@ import { codeFolding, foldEffect, syntaxHighlighting, unfoldAll } from "@codemir
 import { blockText } from "./merge";
 import { editorHighlightStyle } from "./highlight";
 import { editorSelectionTheme, editorTheme, loadLanguage } from "./editor";
+import { ARROW_LEFT, ARROW_RIGHT } from "./icons";
 
 export type MergePaneTone = "ours" | "theirs" | "conflict" | "resolved" | "ignored";
 
@@ -149,7 +150,12 @@ class ApplyMarker extends GutterMarker {
     const el = document.createElement("span");
     el.className = `cm-merge-actions ${this.tone}`;
     el.title = this.title;
-    const button = (action: "apply" | "ignore" | "revert", text: string, title: string, extra: string) => {
+    const button = (
+      action: "apply" | "ignore" | "revert",
+      content: string | SVGElement,
+      title: string,
+      extra: string,
+    ) => {
       const b = document.createElement("button");
       b.type = "button";
       b.tabIndex = -1;
@@ -157,7 +163,7 @@ class ApplyMarker extends GutterMarker {
       b.dataset.mergeAction = action;
       b.dataset.mergeBlock = String(this.id);
       b.title = title;
-      b.textContent = text;
+      b.append(content);
       el.append(b);
     };
     // The status glyph is the block's state; the buttons beside it are what
@@ -171,10 +177,29 @@ class ApplyMarker extends GutterMarker {
     if (this.revert) button("revert", "↺", this.revertLabel, "revert");
     if (this.ignore) button("ignore", "✕", this.ignoreLabel, "ignore");
     if (this.apply) {
-      button("apply", this.apply === "ours" ? "»" : "«", this.applyLabel, `apply ${this.apply}`);
+      button("apply", arrow(this.apply === "ours" ? ARROW_RIGHT : ARROW_LEFT), this.applyLabel, `apply ${this.apply}`);
     }
     return el;
   }
+}
+
+/** A guillemet at 11px is punctuation, not a control: draw the arrow itself. */
+function arrow(d: string): SVGElement {
+  const ns = "http://www.w3.org/2000/svg";
+  const svg = document.createElementNS(ns, "svg");
+  svg.setAttribute("viewBox", "0 0 16 16");
+  svg.setAttribute("width", "14");
+  svg.setAttribute("height", "14");
+  svg.setAttribute("fill", "none");
+  svg.setAttribute("stroke", "currentColor");
+  svg.setAttribute("stroke-width", "2");
+  svg.setAttribute("stroke-linecap", "round");
+  svg.setAttribute("stroke-linejoin", "round");
+  svg.setAttribute("aria-hidden", "true");
+  const path = document.createElementNS(ns, "path");
+  path.setAttribute("d", d);
+  svg.append(path);
+  return svg;
 }
 
 function buildGutter(

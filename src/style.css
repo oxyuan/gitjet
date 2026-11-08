@@ -2281,7 +2281,7 @@ body.col-resizing {
 }
 
 .cm-merge-gutter {
-  width: 36px;
+  width: 40px;
   background: var(--code-bg);
   border-right: 1px solid var(--border);
 }
@@ -2299,12 +2299,12 @@ body.col-resizing {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: 14px;
-  height: 16px;
+  width: 16px;
+  height: 18px;
   border-radius: 3px;
   color: var(--muted);
   font-family: var(--font-mono);
-  font-size: 11px;
+  font-size: 12.5px;
   cursor: default;
 }
 
@@ -8742,22 +8742,25 @@ body.resizing-row .log-detail-split::after {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  min-width: 14px;
-  height: 16px;
+  min-width: 17px;
+  height: 18px;
   padding: 0 1px;
   border: 0;
   border-radius: 3px;
   background: transparent;
   color: var(--muted);
   font-family: var(--font-mono);
-  font-size: 11px;
+  font-size: 12.5px;
   line-height: 1;
   cursor: pointer;
 }
 
+.cm-merge-action svg {
+  display: block;
+}
+
 .cm-merge-action.apply {
   color: var(--accent);
-  font-weight: 600;
 }
 
 .cm-merge-action.ignore:hover {
