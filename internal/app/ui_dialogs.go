@@ -578,6 +578,7 @@ func (a *nativeApp) commitDetailDialog(c *ui.Context) {
 	if len(d.Parents) > 0 {
 		ui.Text(c, "parents: "+strings.Join(d.Parents, " ")).FontSize(9).TextColor(t.TextMuted)
 	}
+	ui.Text(c, fmt.Sprintf("%d files · +%d −%d", d.Stats.Files, d.Stats.Additions, d.Stats.Deletions)).FontSize(9).TextColor(t.TextMuted)
 	ui.Text(c, d.Message).FontSize(11).MaxLines(6)
 	m := ui.TextInput(c, &a.dialog.text).Placeholder(a.t("Create fixup/squash or edit history"))
 	_ = m

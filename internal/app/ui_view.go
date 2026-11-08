@@ -1002,9 +1002,11 @@ func (a *nativeApp) logPane(c *ui.Context) {
 			in := ui.TextInput(c, &a.logSearch).Placeholder(a.t("Search commits")).Grow(1)
 			if in.Submitted() {
 				a.logOpts.Search = strings.TrimSpace(a.logSearch)
+				a.logDirty = true
 				a.refresh()
 			}
 			if ui.Checkbox(c, &a.logAll, a.t("All branches")).Changed() {
+				a.logDirty = true
 				a.refresh()
 			}
 		})
@@ -1012,24 +1014,29 @@ func (a *nativeApp) logPane(c *ui.Context) {
 			author := ui.TextInput(c, &a.logAuthor).Placeholder(a.t("Author")).Width(110)
 			if author.Submitted() {
 				a.logOpts.Author = strings.TrimSpace(a.logAuthor)
+				a.logDirty = true
 				a.refresh()
 			}
 			if ui.Checkbox(c, &a.logRegex, ".*").Changed() {
 				a.logOpts.Regex = a.logRegex
+				a.logDirty = true
 				a.refresh()
 			}
 			if ui.Checkbox(c, &a.logCase, "Aa").Changed() {
 				a.logOpts.CaseSensitive = a.logCase
+				a.logDirty = true
 				a.refresh()
 			}
 			since := ui.TextInput(c, &a.logSince).Placeholder("YYYY-MM-DD").Width(100)
 			if since.Submitted() {
 				a.logOpts.Since = parseDay(a.logSince, false)
+				a.logDirty = true
 				a.refresh()
 			}
 			until := ui.TextInput(c, &a.logUntil).Placeholder("YYYY-MM-DD").Width(100)
 			if until.Submitted() {
 				a.logOpts.Until = parseDay(a.logUntil, true)
+				a.logDirty = true
 				a.refresh()
 			}
 			if ui.Button(c, "≡").Clicked() {

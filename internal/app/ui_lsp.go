@@ -447,8 +447,9 @@ func (a *nativeApp) lookupReferences(word string) {
 
 func referenceLocations(raw json.RawMessage, a *nativeApp) []refHit {
 	var locs []struct {
-		URI   string `json:"uri"`
-		Range struct {
+		URI       string `json:"uri"`
+		TargetURI string `json:"targetUri"`
+		Range     struct {
 			Start struct {
 				Line      int `json:"line"`
 				Character int `json:"character"`
@@ -460,7 +461,11 @@ func referenceLocations(raw json.RawMessage, a *nativeApp) []refHit {
 	}
 	out := make([]refHit, 0, len(locs))
 	for _, l := range locs {
-		path := a.relPath(uriToPath(l.URI))
+		uri := l.URI
+		if uri == "" {
+			uri = l.TargetURI
+		}
+		path := a.relPath(uriToPath(uri))
 		if path == "" {
 			continue
 		}

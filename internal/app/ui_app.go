@@ -143,6 +143,7 @@ type nativeApp struct {
 	logOpts      git.LogOptions
 	logSearch    string
 	logAll       bool
+	logDirty     bool
 	logAuthor    string
 	logRegex     bool
 	logCase      bool
@@ -276,6 +277,7 @@ func newNativeApp() *nativeApp {
 			Limit: 300,
 		},
 		logSel:    -1,
+		logDirty:  true,
 		changeSel: -1,
 		fileSel:   -1,
 		branchSel: -1,
@@ -424,6 +426,7 @@ func (a *nativeApp) busyRun(label string, fn func() error) {
 }
 
 func (a *nativeApp) changed() {
+	a.logDirty = true
 	a.refresh()
 }
 
@@ -453,6 +456,10 @@ func (a *nativeApp) openPath(path string) {
 		a.snapshot = git.ChangesSnapshot{}
 		a.log = git.LogResult{}
 		a.graph = nil
+		a.logOpts = git.LogOptions{Limit: 300}
+		a.logAll = false
+		a.logDirty = true
+		a.sideTab = 0
 		a.checked = map[string]bool{}
 		a.checkedInit = false
 		a.logPick.Clear()
@@ -475,6 +482,7 @@ func (a *nativeApp) openPath(path string) {
 			a.lsp = nil
 			a.lspStarting = false
 			a.snapshot = snap
+			a.logDirty = true
 			a.commitForm.Message = strings.TrimSpace(a.settings.CommitTemplate)
 			a.pickInitialChange()
 			a.loadRecent()
@@ -533,6 +541,7 @@ func (a *nativeApp) refresh() {
 	gen := a.reloadGen.Add(1)
 	opts := a.logOpts
 	opts.All = a.logAll
+	loadLog := a.logDirty || len(a.log.Commits) == 0
 	go func() {
 		snap, err := a.g.Refresh()
 		if err != nil {
@@ -551,7 +560,11 @@ func (a *nativeApp) refresh() {
 		lfs, _ := a.g.LFS()
 		worktrees, _ := a.g.Worktrees()
 		submodules, _ := a.g.Submodules()
-		logRes, logErr := a.g.Log(opts)
+		var logRes git.LogResult
+		var logErr error
+		if loadLog {
+			logRes, logErr = a.g.Log(opts)
+		}
 		files, _ := a.g.Files("")
 		recentBranches := a.g.RecentBranches()
 		journal, _ := a.g.Journal(300)
@@ -580,11 +593,16 @@ func (a *nativeApp) refresh() {
 			if len(journal) > 0 {
 				a.journal = journal
 			}
-			if logErr == nil {
-				a.log = logRes
-				a.graph = computeGraph(logRes.Commits)
-				if a.logSel >= len(a.log.Commits) {
-					a.logSel = len(a.log.Commits) - 1
+			if loadLog {
+				a.logDirty = false
+				if logErr == nil {
+					a.log = logRes
+					a.graph = computeGraph(logRes.Commits)
+					if a.logSel >= len(a.log.Commits) {
+						a.logSel = len(a.log.Commits) - 1
+					}
+				} else {
+					a.fail(logErr)
 				}
 			}
 			a.rebuildRows()

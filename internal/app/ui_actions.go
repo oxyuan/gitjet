@@ -452,6 +452,7 @@ func (a *nativeApp) openRefLog(ref git.RepoRef) {
 	}
 	a.logOpts.Path = ""
 	a.logOpts.Line = 0
+	a.logDirty = true
 	a.openLogTab()
 }
 
@@ -461,6 +462,7 @@ func (a *nativeApp) showFileHistory(path string) {
 	a.logOpts.Path = path
 	a.logOpts.Line = 0
 	a.logOpts.Follow = true
+	a.logDirty = true
 	a.openLogTab()
 }
 
@@ -470,6 +472,7 @@ func (a *nativeApp) showLineHistory(path string, line int) {
 	a.logOpts.Path = path
 	a.logOpts.Line = line
 	a.logOpts.Follow = true
+	a.logDirty = true
 	a.openLogTab()
 }
 

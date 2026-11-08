@@ -36,12 +36,12 @@ func (a *nativeApp) closeTab(i int) {
 		return
 	}
 	tab := a.tabs[i]
-	if tab.kind == tabSource && a.lsp != nil {
-		a.lsp.didClose(tab)
-	}
 	if tab.dirty() {
 		a.dialog = dialogState{kind: dialogConfirm, title: a.t("Unsaved changes"), message: a.t("Close without saving?"), tabIndex: i, action: "close-tab"}
 		return
+	}
+	if tab.kind == tabSource && a.lsp != nil {
+		a.lsp.didClose(tab)
 	}
 	a.tabs = append(a.tabs[:i], a.tabs[i+1:]...)
 	if a.activeTab >= len(a.tabs) {
@@ -159,6 +159,7 @@ func (a *nativeApp) fillDiffTexts(fd git.FileDiff, opts git.DiffOptions) git.Fil
 func (a *nativeApp) buildDiff(tab *docTab, fd git.FileDiff) {
 	tab.loaded = true
 	tab.err = ""
+	tab.truncated = fd.Truncated
 	if fd.Binary || a.isImage(fd.Path) {
 		tab.binary = true
 		if a.isImage(fd.Path) {
@@ -510,6 +511,9 @@ func (a *nativeApp) diffView(c *ui.Context, tab *docTab) {
 			ui.Text(c, tab.err).TextColor(t.Danger).Padding(12)
 			return
 		}
+		if tab.truncated {
+			ui.Text(c, a.t("The file is too large to show whole")).FontSize(10).TextColor(t.Warning).Padding(4, 10)
+		}
 		if tab.binary {
 			if tab.imageOld != nil || tab.imageNew != nil {
 				a.imageDiffView(c, tab)
@@ -723,6 +727,9 @@ func (a *nativeApp) sourceView(c *ui.Context, tab *docTab) {
 		if tab.missing {
 			ui.Text(c, a.t("File does not exist in this revision")).TextColor(t.TextMuted).Padding(12)
 			return
+		}
+		if tab.truncated {
+			ui.Text(c, a.t("The file is too large to show whole")).FontSize(10).TextColor(t.Warning).Padding(4, 10)
 		}
 		if tab.binary {
 			if tab.image != nil {
