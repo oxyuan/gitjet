@@ -18,8 +18,7 @@ import (
 // mainView is the repository window: title bar, tool window, editor area
 // and status bar.
 func (a *nativeApp) mainView(c *ui.Context) {
-	t := c.Theme()
-	ui.Column(c).Fill().Background(t.Background).Children(func() {
+	ui.Column(c).Fill().Children(func() {
 		a.titleBar(c)
 		ui.Split(c, &a.sideSplit, func() {
 			a.toolWindow(c)
@@ -34,7 +33,7 @@ func (a *nativeApp) titleBar(c *ui.Context) {
 	p := palette(c.Theme())
 	title := ui.Row(c).Height(52).PaddingStart(12).PaddingEnd(12).AlignItems(ui.Center).Gap(2).
 		BorderWidth(0, 0, 1, 0).BorderColor(ui.Hex(p.border)).DragWindow().
-		Gradient(ui.Hex(p.panel2), ui.Hex(p.panel), 90)
+		Background(ui.Hex(p.panel).Alpha(0.84))
 	if runtime.GOOS == "darwin" {
 		title.PaddingStart(84)
 	}
@@ -1651,7 +1650,7 @@ func (a *nativeApp) statusBar(c *ui.Context) {
 	st := a.snapshot.State
 	ui.Row(c).Height(28).PaddingX(10).Gap(10).AlignItems(ui.Center).
 		BorderWidth(1, 0, 0, 0).BorderColor(ui.Hex(p.border)).
-		Gradient(ui.Hex(p.panel), ui.Hex(p.panel).Mix(ui.Hex(p.bg), 0.18), 90).Children(func() {
+		Background(ui.Hex(p.panel).Alpha(0.86)).Children(func() {
 		branch := ui.ButtonBase(c).Height(22).PaddingX(7).Radius(6).Gap(5).AlignItems(ui.Center)
 		if branch.Hovered() {
 			branch.Background(ui.Hex(p.hover))

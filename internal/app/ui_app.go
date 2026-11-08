@@ -381,6 +381,7 @@ func (a *nativeApp) openWindow() {
 		TitleBarHeight:       52,
 		TrafficLightPosition: &mygo.Point{X: 20, Y: 19},
 		BackgroundColor:      "light-dark(#f5f5f7, #1c1d21)",
+		Vibrancy:             mygo.VibrancyUnderWindow,
 		StateKey:             stateKey,
 		Content:              ui.View(a.view),
 	})
