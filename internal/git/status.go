@@ -4,6 +4,8 @@ import (
 	"context"
 	"crypto/sha1"
 	"encoding/hex"
+	"fmt"
+	"os"
 	"path/filepath"
 	"strings"
 )
@@ -294,13 +296,49 @@ func kindOf(status byte) string {
 	return "modified"
 }
 
-// Signature is a cheap fingerprint of the working tree and the checked
-// out branch. The app polls it to notice changes made outside the app.
+// signatureStats caps how many changed files the poll stats on every
+// tick; past it the status listing alone is the fingerprint.
+const signatureStats = 5000
+
+// Signature is a fingerprint of the working tree and the checked out
+// branch. The app polls it to notice changes made outside the app.
+//
+// The porcelain records name changed paths but not their content, so a
+// file edited twice in a row keeps the same status line. Size and
+// modification time of each listed path are hashed along with it, which
+// is what makes an edit inside one already-changed file visible.
 func (r *Repo) Signature(ctx context.Context) string {
-	out, err := r.run(ctx, "status", "--porcelain=v2", "-z", "--branch", "--untracked-files=normal")
+	out, err := r.run(ctx, "status", "--porcelain=v2", "-z", "--branch", "--untracked-files=all")
 	if err != nil {
 		return ""
 	}
-	sum := sha1.Sum([]byte(out))
-	return hex.EncodeToString(sum[:])
+	h := sha1.New()
+	h.Write([]byte(out))
+	paths := signaturePaths(parseStatus(out).Changes)
+	if len(paths) <= signatureStats {
+		for _, p := range paths {
+			info, err := os.Stat(r.AbsPath(p))
+			if err != nil {
+				continue
+			}
+			fmt.Fprintf(h, "%s\x00%d\x00%d\x00", p, info.Size(), info.ModTime().UnixNano())
+		}
+	}
+	return hex.EncodeToString(h.Sum(nil))
+}
+
+// signaturePaths lists each path a status record mentions, the old side
+// of a rename included.
+func signaturePaths(changes []Change) []string {
+	seen := map[string]bool{}
+	paths := make([]string, 0, len(changes))
+	for _, c := range changes {
+		for _, p := range []string{c.Path, c.OldPath} {
+			if p != "" && !seen[p] {
+				seen[p] = true
+				paths = append(paths, p)
+			}
+		}
+	}
+	return paths
 }

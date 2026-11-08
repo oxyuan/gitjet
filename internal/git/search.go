@@ -42,7 +42,9 @@ func (r *Repo) SearchSymbol(ctx context.Context, query string, limit int) (Symbo
 	if limit <= 0 {
 		limit = 200
 	}
-	out, err := r.run(ctx, "grep", "-n", "-I", "--no-color", "--full-name", "--untracked",
+	// -z keeps a path out of git's C quoting, --column asks git for the
+	// column instead of guessing it from the text.
+	out, err := r.run(ctx, "grep", "-n", "-z", "--column", "-I", "--no-color", "--full-name", "--untracked",
 		"-w", "-F", "-e", query, "--", ".")
 	if err != nil {
 		// git grep exits 1 when nothing matched; that is an empty answer,
@@ -54,39 +56,33 @@ func (r *Repo) SearchSymbol(ctx context.Context, query string, limit int) (Symbo
 		return SymbolSearch{}, err
 	}
 	result := SymbolSearch{Query: query, Hits: []SymbolHit{}}
-	for _, line := range strings.Split(out, "\n") {
-		if line == "" {
+	// Each match is "path\0line\0column\0text", one per line, with every
+	// field raw: a path may hold a colon, a space or any UTF-8 byte.
+	for _, record := range strings.Split(out, "\n") {
+		if record == "" {
 			continue
 		}
-		// path:line:text — the path may itself contain a colon, the text
-		// certainly does, so only the first two separators count.
-		first := strings.IndexByte(line, ':')
-		if first < 0 {
+		parts := strings.SplitN(record, "\x00", 4)
+		if len(parts) < 4 {
 			continue
 		}
-		second := strings.IndexByte(line[first+1:], ':')
-		if second < 0 {
-			continue
-		}
-		second += first + 1
-		number, err := strconv.Atoi(line[first+1 : second])
+		number, err := strconv.Atoi(parts[1])
 		if err != nil {
 			continue
 		}
-		text := line[second+1:]
-		column := strings.Index(text, query)
-		if column < 0 {
-			continue
+		column, err := strconv.Atoi(parts[2])
+		if err != nil {
+			column = 0
 		}
 		if len(result.Hits) >= limit {
 			result.Truncated = true
 			break
 		}
 		result.Hits = append(result.Hits, SymbolHit{
-			Path:   strings.TrimPrefix(line[:first], "./"),
+			Path:   strings.TrimPrefix(parts[0], "./"),
 			Line:   number,
-			Column: column + 1,
-			Text:   text,
+			Column: column,
+			Text:   parts[3],
 		})
 	}
 	return result, nil

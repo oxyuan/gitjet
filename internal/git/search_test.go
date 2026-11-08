@@ -25,8 +25,10 @@ func TestSearchSymbolFindsWholeWordsOnly(t *testing.T) {
 	for _, hit := range got.Hits {
 		places = append(places, filepath.ToSlash(hit.Path)+":"+strconv.Itoa(hit.Line)+":"+strconv.Itoa(hit.Column))
 	}
-	// One hit per line: git grep reports lines, not occurrences.
-	want := []string{"main.go:1:6", "main.go:3:6", "other.go:1:4"}
+	// One hit per line: git grep reports lines, not occurrences. The
+	// column is the whole-word match, not the first place the text appears:
+	// line 3 starts with "OpenAll", which -w does not match.
+	want := []string{"main.go:1:6", "main.go:3:18", "other.go:1:4"}
 	if strings.Join(places, " ") != strings.Join(want, " ") {
 		t.Fatalf("hits = %v, want %v", places, want)
 	}
