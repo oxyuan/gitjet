@@ -837,6 +837,12 @@ func (a *nativeApp) editorArea(c *ui.Context) {
 	p := palette(c.Theme())
 	ui.Column(c).FillHeight().Background(ui.Hex(p.editor)).Children(func() {
 		a.tabStrip(c)
+		if !a.repoOpen {
+			ui.Box(c).Grow(1).MinHeight(0).Children(func() {
+				a.welcomeBody(c)
+			})
+			return
+		}
 		if a.logFold {
 			ui.Box(c).Grow(1).MinHeight(0).Children(func() {
 				if len(a.tabs) == 0 || a.activeTab < 0 || a.activeTab >= len(a.tabs) {
@@ -1949,15 +1955,26 @@ func (a *nativeApp) tagSection(c *ui.Context) {
 		if a.branchSearch != "" && !strings.Contains(strings.ToLower(ref.Name), strings.ToLower(a.branchSearch)) {
 			continue
 		}
-		line := ui.ButtonBase(c).Height(26).PaddingStart(19).PaddingEnd(8).Radius(4).Gap(6).AlignItems(ui.Center).FillWidth().Justify(ui.Start)
+		line := ui.ButtonBase(c).Height(38).PaddingStart(19).PaddingEnd(8).PaddingY(3).Radius(4).
+			FillWidth().Justify(ui.Start)
 		if line.Hovered() {
 			line.Background(ui.Hex(p.hover))
 		}
 		line.Children(func() {
-			ui.Row(c).TextColor(ui.Hex(p.accentAlt)).Center().Children(func() {
-				a.icon(c, "tag", 12)
+			ui.Column(c).Gap(1).Grow(1).Children(func() {
+				ui.Row(c).Gap(6).AlignItems(ui.Center).Children(func() {
+					ui.Row(c).TextColor(ui.Hex(p.accentAlt)).Center().Children(func() {
+						a.icon(c, "tag", 12)
+					})
+					ui.Text(c, ref.Name).FontSize(12).TextColor(ui.Hex(p.fgSoft)).MaxLines(1)
+					ui.Spacer(c).Grow(1)
+					ui.Text(c, a.stamp(ref.Time)).FontSize(9.5).TextColor(ui.Hex(p.muted2))
+				})
+				ui.Row(c).Gap(6).AlignItems(ui.Center).Children(func() {
+					ui.Text(c, ref.Short).FontSize(9.5).Font("monospace").TextColor(ui.Hex(p.muted2))
+					ui.Text(c, ref.Subject).FontSize(10.5).TextColor(ui.Hex(p.muted)).MaxLines(1)
+				})
 			})
-			ui.Text(c, ref.Name).FontSize(12).TextColor(ui.Hex(p.fgSoft)).MaxLines(1)
 		})
 		if line.Clicked() {
 			a.openRefLog(ref)
