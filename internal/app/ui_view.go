@@ -107,7 +107,7 @@ func (a *nativeApp) quickTrigger(c *ui.Context) {
 func (a *nativeApp) toolWindow(c *ui.Context) {
 	t := c.Theme()
 	p := palette(t)
-	ui.Column(c).FillHeight().Background(ui.Hex(p.panel)).BorderWidth(0, 1, 0, 0).
+	ui.Column(c).FillHeight().Background(ui.Hex(p.panel).Mix(ui.Hex(p.bg), 0.12)).BorderWidth(0, 1, 0, 0).
 		BorderColor(ui.Hex(p.border)).Children(func() {
 		// The page ordered its tools Files, Commit, Branch, Console; the
 		// history lived in the dock below the editor, not here.
@@ -121,7 +121,7 @@ func (a *nativeApp) toolWindow(c *ui.Context) {
 			{4, a.t("Console")},
 		}
 		ui.Row(c).Height(48).PaddingX(10).PaddingY(8).Gap(4).AlignItems(ui.Center).
-			Background(ui.Hex(p.panel2)).BorderWidth(0, 0, 1, 0).BorderColor(ui.Hex(p.border)).Children(func() {
+			BorderWidth(0, 0, 1, 0).BorderColor(ui.Hex(p.border)).Children(func() {
 			for _, tab := range tabs {
 				tab := tab
 				active := a.sideTab == tab.index

@@ -100,12 +100,14 @@ type nativeApp struct {
 	startup   string
 	secondary bool
 
-	repoOpen bool
-	loading  bool
-	errText  string
-	busy     int
-	notice   string
-	redraws  uint64
+	repoOpen    bool
+	loading     bool
+	errText     string
+	busy        int
+	notice      string
+	noticeError bool
+	noticeSeq   int
+	redraws     uint64
 
 	snapshot   git.ChangesSnapshot
 	refs       git.RefsSnapshot
@@ -412,10 +414,36 @@ func (a *nativeApp) viewBody(c *ui.Context) {
 	})
 	a.mainView(c)
 	a.dialogView(c)
-	if a.notice != "" {
-		c.Toast(a.notice)
-		a.notice = ""
+	a.noticeView(c)
+}
+
+func (a *nativeApp) noticeView(c *ui.Context) {
+	if a.notice == "" {
+		return
 	}
+	p := palette(c.Theme())
+	tint := ui.Hex(p.accent)
+	icon := "check"
+	if a.noticeError {
+		tint = ui.Hex(p.danger)
+		icon = "warning"
+	}
+	card := ui.Column(c).Absolute().Bottom(38).Right(12).Width(340).Padding(10, 12).Radius(12).
+		Background(ui.Hex(p.raised)).Border(1, ui.Hex(p.border)).
+		Shadow(0, 18, 48, 0, ui.RGBA(16, 20, 40, 0.18))
+	card.Children(func() {
+		ui.Row(c).Gap(8).AlignItems(ui.Center).Children(func() {
+			ui.Box(c).Size(22, 22).Radius(7).Background(tint.Alpha(0.12)).Center().Children(func() {
+				ui.Row(c).TextColor(tint).Center().Children(func() {
+					a.icon(c, icon, 13)
+				})
+			})
+			ui.Text(c, a.notice).FontSize(11.5).TextColor(ui.Hex(p.fgSoft)).Grow(1).MaxLines(4)
+			if _, clicked := a.kitIconButton(c, "close", a.t("Close"), 22, 12, false, false, false); clicked {
+				a.notice = ""
+			}
+		})
+	})
 }
 
 func (a *nativeApp) applyAppearance(c *ui.Context) {
@@ -456,7 +484,8 @@ func (a *nativeApp) fail(err error) {
 		return
 	}
 	a.errText = err.Error()
-	a.notice = err.Error()
+	a.setNotice(err.Error())
+	a.noticeError = true
 	a.redraw()
 }
 
@@ -467,6 +496,16 @@ func (a *nativeApp) clearNotice() {
 
 func (a *nativeApp) setNotice(s string) {
 	a.notice = s
+	a.noticeError = false
+	a.noticeSeq++
+	seq := a.noticeSeq
+	time.AfterFunc(4*time.Second, func() {
+		mygo.RunOnMain(func() {
+			if seq == a.noticeSeq {
+				a.notice = ""
+			}
+		})
+	})
 	a.redraw()
 }
 
