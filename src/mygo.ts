@@ -188,6 +188,7 @@ export interface Conflict {
 export interface ConflictContent {
   path: string;
   language: string;
+  kind: string;
   base: string;
   ours: string;
   theirs: string;

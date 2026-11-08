@@ -445,3 +445,84 @@ func TestSaveResolutionWaitsForCleanResult(t *testing.T) {
 		t.Fatalf("conflicts = %d after a clean save", st.State.Conflicts)
 	}
 }
+
+// linkConflict creates a merge that stops on a symbolic link both sides
+// retargeted, and returns the repository and its directory.
+func linkConflict(t *testing.T) (*Repo, string) {
+	t.Helper()
+	repo, dir := newTestRepo(t)
+	link := filepath.Join(dir, "link")
+	retarget := func(target string) {
+		t.Helper()
+		if err := os.Remove(link); err != nil && !os.IsNotExist(err) {
+			t.Fatal(err)
+		}
+		if err := os.Symlink(target, link); err != nil {
+			t.Skipf("symlink: %v", err)
+		}
+		runGit(t, dir, "add", "link")
+		runGit(t, dir, "commit", "-q", "-m", target)
+	}
+	retarget("a.txt")
+	runGit(t, dir, "branch", "other")
+	retarget("b.txt")
+	runGit(t, dir, "checkout", "-q", "other")
+	retarget("c.txt")
+	runGit(t, dir, "checkout", "-q", "main")
+	if _, err := repo.Merge(context.Background(), "other", MergeOptions{}); err == nil {
+		t.Fatal("merge should have conflicted")
+	}
+	return repo, dir
+}
+
+func TestConflictReportsALinkAsALink(t *testing.T) {
+	repo, dir := linkConflict(t)
+	conflict, err := repo.Conflict(context.Background(), "link")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if conflict.Kind != "symlink" {
+		t.Fatalf("kind = %q, want symlink", conflict.Kind)
+	}
+	// The link itself is what git stages; its target is not the file's text.
+	if conflict.Working != "" {
+		t.Fatalf("working = %q, want empty for a link", conflict.Working)
+	}
+	if conflict.Ours != "b.txt" || conflict.Theirs != "c.txt" {
+		t.Fatalf("stages = %q / %q", conflict.Ours, conflict.Theirs)
+	}
+	if err := repo.SaveResolution(context.Background(), "link", "b.txt", true); err == nil {
+		t.Fatal("SaveResolution should refuse a symbolic link")
+	}
+	fi, err := os.Lstat(filepath.Join(dir, "link"))
+	if err != nil || fi.Mode()&os.ModeSymlink == 0 {
+		t.Fatalf("link is gone after the refusal: %v %v", fi, err)
+	}
+	if got := runGit(t, dir, "status", "--porcelain=v2"); !strings.Contains(got, "u UU") {
+		t.Fatalf("status = %q, want the path still unmerged", got)
+	}
+}
+
+func TestConflictReportsTheSurvivingSideOfADeleteModify(t *testing.T) {
+	repo, dir := newTestRepo(t)
+	runGit(t, dir, "branch", "other")
+	runGit(t, dir, "rm", "-q", "a.txt")
+	runGit(t, dir, "commit", "-q", "-m", "delete")
+	runGit(t, dir, "checkout", "-q", "other")
+	writeFile(t, dir, "a.txt", "one\ntheirs\n")
+	runGit(t, dir, "commit", "-q", "-am", "theirs")
+	runGit(t, dir, "checkout", "-q", "main")
+	if _, err := repo.Merge(context.Background(), "other", MergeOptions{}); err == nil {
+		t.Fatal("merge should have conflicted")
+	}
+	conflict, err := repo.Conflict(context.Background(), "a.txt")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if conflict.Kind != "file" || conflict.HasOurs || !conflict.HasTheirs {
+		t.Fatalf("conflict = %+v", conflict)
+	}
+	if conflict.Working != "one\ntheirs\n" {
+		t.Fatalf("working = %q, want the side that still has the file", conflict.Working)
+	}
+}

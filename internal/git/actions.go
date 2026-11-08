@@ -778,8 +778,12 @@ func (r *Repo) StashDrop(ctx context.Context, index int) (string, error) {
 // ConflictContent is the three stages git recorded for an unmerged path,
 // plus the working tree file with its conflict markers.
 type ConflictContent struct {
-	Path      string `json:"path"`
-	Language  string `json:"language"`
+	Path     string `json:"path"`
+	Language string `json:"language"`
+	// Kind is what the path is: a regular "file", a "symlink" or a
+	// "submodule". Only a file merges as text; the other two can be resolved
+	// by choosing a side but must never be written through.
+	Kind      string `json:"kind"`
 	Base      string `json:"base"`
 	Ours      string `json:"ours"`
 	Theirs    string `json:"theirs"`
@@ -788,6 +792,41 @@ type ConflictContent struct {
 	HasOurs   bool   `json:"hasOurs"`
 	HasTheirs bool   `json:"hasTheirs"`
 	Binary    bool   `json:"binary"`
+}
+
+// conflictKind reads the index mode of the stages, which is the only place a
+// link or a submodule is distinguishable from a text file before the tree is
+// checked out. Without stages the working tree decides.
+func (r *Repo) conflictKind(ctx context.Context, path string) string {
+	if out, err := r.run(ctx, "ls-files", "-u", "-z", "--", path); err == nil {
+		for _, record := range strings.Split(out, "\x00") {
+			meta, _, ok := strings.Cut(record, "\t")
+			if !ok {
+				continue
+			}
+			fields := strings.Fields(meta)
+			if len(fields) < 3 {
+				continue
+			}
+			switch fields[0] {
+			case "160000":
+				return "submodule"
+			case "120000":
+				return "symlink"
+			}
+		}
+	}
+	fi, err := os.Lstat(r.AbsPath(path))
+	if err != nil {
+		return "file"
+	}
+	if fi.Mode()&os.ModeSymlink != 0 {
+		return "symlink"
+	}
+	if fi.IsDir() {
+		return "submodule"
+	}
+	return "file"
 }
 
 // Conflict reads the three stages and the working tree of an unmerged path.
@@ -807,12 +846,16 @@ func (r *Repo) Conflict(ctx context.Context, path string) (ConflictContent, erro
 		}
 		return out, true
 	}
-	c := ConflictContent{Path: clean, Language: languageOf(clean)}
+	c := ConflictContent{Path: clean, Language: languageOf(clean), Kind: r.conflictKind(ctx, clean)}
 	c.Base, c.HasBase = read(":1")
 	c.Ours, c.HasOurs = read(":2")
 	c.Theirs, c.HasTheirs = read(":3")
-	if b, err := os.ReadFile(r.AbsPath(clean)); err == nil {
-		c.Working = string(b)
+	// Reading a link follows it, so only a regular file is read as text: the
+	// panes show what a merge could write, not the link's target.
+	if c.Kind == "file" {
+		if b, err := os.ReadFile(r.AbsPath(clean)); err == nil {
+			c.Working = string(b)
+		}
 	}
 	c.Binary = looksBinary(c.Base) || looksBinary(c.Ours) || looksBinary(c.Theirs) || looksBinary(c.Working)
 	return c, nil
@@ -828,10 +871,22 @@ func (r *Repo) SaveResolution(ctx context.Context, path, content string, stage b
 	}
 	r.write.Lock()
 	defer r.write.Unlock()
-	if err := os.MkdirAll(filepath.Dir(r.AbsPath(clean)), 0o755); err != nil {
+	abs := r.AbsPath(clean)
+	// Writing through a link would change the file it points at and leave the
+	// link (what git stages) untouched; a submodule is a directory. Neither is
+	// merged as text, so refuse instead of writing something nobody asked for.
+	if fi, err := os.Lstat(abs); err == nil {
+		if fi.Mode()&os.ModeSymlink != 0 {
+			return errors.New("this conflict is a symbolic link; choose a side instead")
+		}
+		if fi.IsDir() {
+			return errors.New("this conflict is a directory; choose a side instead")
+		}
+	}
+	if err := os.MkdirAll(filepath.Dir(abs), 0o755); err != nil {
 		return err
 	}
-	if err := os.WriteFile(r.AbsPath(clean), []byte(content), 0o644); err != nil {
+	if err := os.WriteFile(abs, []byte(content), 0o644); err != nil {
 		return err
 	}
 	if !stage {
