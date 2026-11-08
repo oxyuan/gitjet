@@ -219,6 +219,8 @@ func (m *mergeWindow) body(c *ui.Context) {
 	})
 	c.OnWindowShortcut(ui.Alt, ui.KeyLeft, func() { m.choose(m.selected, blockOurs); m.win.Invalidate() })
 	c.OnWindowShortcut(ui.Alt, ui.KeyRight, func() { m.choose(m.selected, blockTheirs); m.win.Invalidate() })
+	c.OnWindowShortcut(ui.Cmd|ui.Ctrl, ui.KeyLeft, func() { m.choose(m.selected, blockOurs); m.win.Invalidate() })
+	c.OnWindowShortcut(ui.Cmd|ui.Ctrl, ui.KeyRight, func() { m.choose(m.selected, blockTheirs); m.win.Invalidate() })
 	c.OnWindowShortcut(ui.Cmd, ui.KeyZ, func() { m.undoChoice(); m.win.Invalidate() })
 	c.OnWindowShortcut(ui.Cmd|ui.Shift, ui.KeyZ, func() { m.redoChoice(); m.win.Invalidate() })
 	ui.Column(c).Fill().Background(t.Background).Children(func() {

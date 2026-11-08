@@ -321,10 +321,13 @@ func (a *nativeApp) fetchWith(opts git.FetchOptions) {
 }
 
 func (a *nativeApp) openPullDialog() {
+	a.openPullDialogForBranch(a.snapshot.State.Branch)
+}
+
+func (a *nativeApp) openPullDialogForBranch(branch string) {
 	if !a.repoOpen {
 		return
 	}
-	branch := a.snapshot.State.Branch
 	remote := ""
 	for _, r := range a.remotes {
 		remote = r.Name

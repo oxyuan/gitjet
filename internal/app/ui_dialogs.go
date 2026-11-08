@@ -559,96 +559,119 @@ func (a *nativeApp) initDialog(c *ui.Context) {
 // ----- settings ---------------------------------------------------------
 
 func (a *nativeApp) openSettingsDialog() {
-	a.dialog = dialogState{kind: dialogSettings, draft: a.settings}
+	a.dialog = dialogState{kind: dialogSettings, draft: a.settings, tabIndex: 0}
 }
 
 func (a *nativeApp) settingsDialog(c *ui.Context) {
 	s := &a.dialog.draft
+	tabs := []string{a.t("General"), a.t("Git"), a.t("Shortcuts")}
+	tab := a.kitSegmented(c, tabs, a.dialog.tabIndex)
+	a.dialog.tabIndex = tab
 	ui.Column(c).Gap(8).Children(func() {
-		ui.Field(c, a.t("Language"), func() {
-			opts := []string{"system", "en", "zh"}
-			ui.Select(c, &s.Language, opts)
-		})
-		ui.Field(c, a.t("Theme"), func() {
-			ui.Select(c, &s.Theme, []string{"system", "light", "dark"})
-		})
-		ui.Field(c, a.t("Interface scale"), func() {
-			v := float64(s.UIScale)
-			if ui.NumberInput(c, &v, 70, 160, 10).Changed() {
-				s.UIScale = int(v)
-			}
-		})
-		ui.Field(c, a.t("Git executable"), func() {
-			ui.Row(c).Gap(6).Children(func() {
-				ui.TextInput(c, &s.GitPath).Placeholder(a.t("Found on PATH when empty")).Grow(1)
-				if a.kitDialogButton(c, a.t("Detect"), false, false) {
-					path := s.GitPath
-					go func() {
-						version, err := a.ws.ValidateGit(path)
-						mygo.RunOnMain(func() {
-							if err != nil {
-								a.dialog.text = err.Error()
-							} else {
-								a.dialog.text = version
-							}
-							a.redraw()
-						})
-					}()
+		switch tab {
+		case 0:
+			ui.Field(c, a.t("Language"), func() {
+				ui.Select(c, &s.Language, []string{"system", "en", "zh"})
+			})
+			ui.Field(c, a.t("Theme"), func() {
+				ui.Select(c, &s.Theme, []string{"system", "light", "dark"})
+			})
+			ui.Field(c, a.t("Interface scale"), func() {
+				v := float64(s.UIScale)
+				if ui.NumberInput(c, &v, 70, 160, 10).Changed() {
+					s.UIScale = int(v)
 				}
 			})
-		})
-		ui.Field(c, a.t("SSH command"), func() {
-			ui.TextInput(c, &s.SshCommand).Placeholder("ssh -i ~/.ssh/id_ed25519")
-		})
-		ui.Field(c, a.t("Fetch tags"), func() {
-			ui.Select(c, &s.FetchTagsMode, []string{"auto", "always", "never"})
-		})
-		ui.Field(c, a.t("Diff context"), func() {
-			v := float64(s.DiffContext)
-			if ui.NumberInput(c, &v, -1, 100, 1).Changed() {
-				s.DiffContext = int(v)
+			ui.Checkbox(c, &s.OpenInNewWindow, a.t("Open a repository in a new window"))
+		case 1:
+			ui.Field(c, a.t("Git executable"), func() {
+				ui.Row(c).Gap(6).Children(func() {
+					ui.TextInput(c, &s.GitPath).Placeholder(a.t("Found on PATH when empty")).Grow(1)
+					if a.kitDialogButton(c, a.t("Detect"), false, false) {
+						path := s.GitPath
+						go func() {
+							version, err := a.ws.ValidateGit(path)
+							mygo.RunOnMain(func() {
+								if err != nil {
+									a.dialog.text = err.Error()
+								} else {
+									a.dialog.text = version
+								}
+								a.redraw()
+							})
+						}()
+					}
+				})
+			})
+			ui.Field(c, a.t("SSH command"), func() {
+				ui.TextInput(c, &s.SshCommand).Placeholder("ssh -i ~/.ssh/id_ed25519")
+			})
+			ui.Field(c, a.t("Fetch tags"), func() {
+				ui.Select(c, &s.FetchTagsMode, []string{"auto", "always", "never"})
+			})
+			ui.Field(c, a.t("Diff context"), func() {
+				v := float64(s.DiffContext)
+				if ui.NumberInput(c, &v, -1, 100, 1).Changed() {
+					s.DiffContext = int(v)
+				}
+			})
+			ui.Checkbox(c, &s.IgnoreWhitespace, a.t("Ignore whitespace in diffs"))
+			ui.Checkbox(c, &s.ShowIgnored, a.t("Show ignored files"))
+			ui.Checkbox(c, &s.ConfirmRollback, a.t("Confirm before rollback"))
+			ui.Checkbox(c, &s.ConfirmForcePush, a.t("Confirm force push"))
+			ui.Field(c, a.t("Update method"), func() {
+				ui.Select(c, &s.UpdateMethod, []string{"merge", "rebase"})
+			})
+			ui.Checkbox(c, &s.AutoUpdateOnReject, a.t("Update when a push is rejected"))
+			ui.Checkbox(c, &s.AutoFetch, a.t("Fetch automatically"))
+			ui.Field(c, a.t("Fetch every (minutes)"), func() {
+				v := float64(s.AutoFetchMinutes)
+				if ui.NumberInput(c, &v, 1, 1440, 1).Changed() {
+					s.AutoFetchMinutes = int(v)
+				}
+			})
+			ui.Checkbox(c, &s.CommitCheckCRLF, a.t("Warn about CRLF"))
+			ui.Checkbox(c, &s.CommitCheckNames, a.t("Warn about invalid names"))
+			ui.Checkbox(c, &s.CommitCheckHead, a.t("Warn about detached HEAD"))
+			ui.Field(c, a.t("Large file warning (MB)"), func() {
+				v := float64(s.CommitCheckLargeMB)
+				if ui.NumberInput(c, &v, 0, 1000, 1).Changed() {
+					s.CommitCheckLargeMB = int(v)
+				}
+			})
+			ui.Field(c, a.t("Commit template"), func() {
+				ui.TextArea(c, &s.CommitTemplate).Height(70)
+			})
+			ui.Field(c, a.t("Protected branches"), func() {
+				joined := strings.Join(s.ProtectedBranches, "\n")
+				if ui.TextArea(c, &joined).Changed() {
+					s.ProtectedBranches = splitLines(joined)
+				}
+				ui.Text(c, a.t("One pattern per line")).FontSize(10).TextColor(c.Theme().TextMuted)
+			})
+		case 2:
+			ui.Text(c, a.t("Keyboard shortcuts")).FontSize(12).FontWeight(600).TextColor(c.Theme().Text)
+			for _, row := range []struct{ keys, action string }{
+				{"⌘/Ctrl O", a.t("Open")},
+				{"⌘/Ctrl P", a.t("Quick Open")},
+				{"⌘/Ctrl K", a.t("Commit")},
+				{"⌘/Ctrl Shift K", a.t("Push")},
+				{"⌘/Ctrl T", a.t("Pull")},
+				{"⌘/Ctrl 9", a.t("Commit")},
+				{"⌘/Ctrl 0", a.t("History")},
+				{"⌘/Ctrl Enter", a.t("Commit")},
+				{"⌘/Ctrl Space", a.t("Complete file path")},
+			} {
+				ui.Row(c).Height(28).Gap(10).AlignItems(ui.Center).Children(func() {
+					a.kbd(c, row.keys)
+					ui.Text(c, row.action).FontSize(11.5).TextColor(c.Theme().TextMuted)
+				})
 			}
-		})
-		ui.Checkbox(c, &s.IgnoreWhitespace, a.t("Ignore whitespace in diffs"))
-		ui.Checkbox(c, &s.ShowIgnored, a.t("Show ignored files"))
-		ui.Checkbox(c, &s.ConfirmRollback, a.t("Confirm before rollback"))
-		ui.Checkbox(c, &s.ConfirmForcePush, a.t("Confirm force push"))
-		ui.Field(c, a.t("Update method"), func() {
-			ui.Select(c, &s.UpdateMethod, []string{"merge", "rebase"})
-		})
-		ui.Checkbox(c, &s.AutoUpdateOnReject, a.t("Update when a push is rejected"))
-		ui.Checkbox(c, &s.OpenInNewWindow, a.t("Open a repository in a new window"))
-		ui.Checkbox(c, &s.AutoFetch, a.t("Fetch automatically"))
-		ui.Field(c, a.t("Fetch every (minutes)"), func() {
-			v := float64(s.AutoFetchMinutes)
-			if ui.NumberInput(c, &v, 1, 1440, 1).Changed() {
-				s.AutoFetchMinutes = int(v)
-			}
-		})
-		ui.Checkbox(c, &s.CommitCheckCRLF, a.t("Warn about CRLF"))
-		ui.Checkbox(c, &s.CommitCheckNames, a.t("Warn about invalid names"))
-		ui.Checkbox(c, &s.CommitCheckHead, a.t("Warn about detached HEAD"))
-		ui.Field(c, a.t("Large file warning (MB)"), func() {
-			v := float64(s.CommitCheckLargeMB)
-			if ui.NumberInput(c, &v, 0, 1000, 1).Changed() {
-				s.CommitCheckLargeMB = int(v)
-			}
-		})
-		ui.Field(c, a.t("Commit template"), func() {
-			ui.TextArea(c, &s.CommitTemplate).Height(70)
-		})
-		ui.Field(c, a.t("Protected branches"), func() {
-			joined := strings.Join(s.ProtectedBranches, "\n")
-			if ui.TextArea(c, &joined).Changed() {
-				s.ProtectedBranches = splitLines(joined)
-			}
-			ui.Text(c, a.t("One pattern per line")).FontSize(10).TextColor(c.Theme().TextMuted)
-		})
+		}
 	})
 	if a.dialog.text != "" {
 		ui.Text(c, a.dialog.text).FontSize(10).TextColor(c.Theme().Danger)
 	}
-
 }
 
 func splitLines(s string) []string {

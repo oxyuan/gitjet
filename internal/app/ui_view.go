@@ -863,12 +863,12 @@ func (a *nativeApp) stashSection(c *ui.Context) {
 	if len(a.snapshot.Stashes) == 0 {
 		return
 	}
-	t := c.Theme()
-	ui.Row(c).Padding(6, 8).Gap(6).AlignItems(ui.Center).Children(func() {
-		ui.Text(c, a.t("Stashes")).FontSize(10).FontWeight(700).TextColor(t.TextMuted)
-		ui.Text(c, fmt.Sprintf("%d", len(a.snapshot.Stashes))).FontSize(9).TextColor(t.TextMuted)
+	p := palette(c.Theme())
+	ui.Row(c).Height(30).PaddingX(8).Gap(6).AlignItems(ui.Center).Children(func() {
+		ui.Text(c, strings.ToUpper(a.t("Stashes"))).FontSize(10).FontWeight(650).LetterSpacing(0.05).TextColor(ui.Hex(p.muted))
+		ui.Text(c, fmt.Sprintf("%d", len(a.snapshot.Stashes))).FontSize(9.5).TextColor(ui.Hex(p.muted2))
 		ui.Spacer(c).Grow(1)
-		if ui.Button(c, a.t("Clear")).Clicked() {
+		if a.miniTextButton(c, a.t("Clear"), false) {
 			a.busyRun("stash", func() error {
 				_, err := a.g.ClearStashes()
 				return err
@@ -879,12 +879,27 @@ func (a *nativeApp) stashSection(c *ui.Context) {
 		ui.Column(c).Gap(1).Children(func() {
 			for _, st := range a.snapshot.Stashes {
 				st := st
-				row := ui.Row(c).Height(22).Padding(2, 8).Gap(6).AlignItems(ui.Center)
+				row := a.kitButtonRow(c, 28, 8, 8, 6, false)
 				row.Children(func() {
-					ui.Text(c, st.Message).FontSize(10).MaxLines(1)
+					ui.Text(c, st.Message).FontSize(11).TextColor(ui.Hex(p.fgSoft)).MaxLines(1)
 					ui.Spacer(c).Grow(1)
-					ui.Text(c, a.stamp(st.Time)).FontSize(9).TextColor(t.TextMuted)
+					ui.Text(c, a.stamp(st.Time)).FontSize(9).TextColor(ui.Hex(p.muted2))
+					if a.miniTextButton(c, a.t("Pop"), false) {
+						index := st.Index
+						a.busyRun("stash", func() error { _, err := a.g.StashApply(index, true, true); return err })
+					}
+					if a.miniTextButton(c, a.t("Apply"), false) {
+						index := st.Index
+						a.busyRun("stash", func() error { _, err := a.g.StashApply(index, false, true); return err })
+					}
+					if a.miniTextButton(c, a.t("Drop"), true) {
+						index := st.Index
+						a.busyRun("stash", func() error { _, err := a.g.StashDrop(index); return err })
+					}
 				})
+				if row.Clicked() {
+					a.showStashFiles(st)
+				}
 				row.ContextMenu(func(m *ui.Menu) {
 					if m.Item(a.t("Apply")).Chosen() {
 						index := st.Index
@@ -2171,6 +2186,9 @@ func (a *nativeApp) branchContextMenu(m *ui.Menu, ref git.RepoRef, group string)
 	m.Separator()
 	if m.Item(a.t("Push Branch…")).Chosen() {
 		a.openPushDialogForBranch(ref.Name)
+	}
+	if ref.Head && m.Item(a.t("Pull Branch…")).Chosen() {
+		a.openPullDialogForBranch(ref.Name)
 	}
 	if group == "local" && !ref.Head {
 		m.Separator()
