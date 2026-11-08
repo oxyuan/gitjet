@@ -351,11 +351,11 @@ func iconNameForTab(tab int) string {
 // primaryButton is the accent button of the old pages: a rounded pill on
 // the welcome card and a 5px button in dialogs.
 func (a *nativeApp) primaryButton(c *ui.Context, label string) bool {
-	return a.kitPrimary(c, label)
+	return a.kitDialogPrimary(c, label, false)
 }
 
 func (a *nativeApp) secondaryButton(c *ui.Context, label string, disabled bool) bool {
-	return a.kitSecondary(c, label, disabled)
+	return a.kitDialogButton(c, label, false, disabled)
 }
 
 func (a *nativeApp) kbd(c *ui.Context, label string) {
@@ -392,8 +392,8 @@ func (a *nativeApp) miniTextButton(c *ui.Context, label string, danger bool) boo
 // searchBox is the bordered little search field of the page's toolbars.
 func (a *nativeApp) searchBox(c *ui.Context, value *string, placeholder string, width float32) (ui.Element, bool, bool) {
 	p := palette(c.Theme())
-	b := ui.Row(c).Height(26).Width(width).PaddingX(7).Gap(5).AlignItems(ui.Center).
-		Radius(6).Background(ui.Hex(p.input)).Border(1, ui.Hex(p.borderStrong))
+	b := ui.Row(c).Height(30).Width(width).PaddingX(9).Gap(7).AlignItems(ui.Center).
+		Radius(8).Background(ui.Hex(p.input)).Border(1, ui.Hex(p.border))
 	border := ui.Hex(p.borderStrong)
 	if b.Hovered() {
 		border = ui.Hex(p.accent)

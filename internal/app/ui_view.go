@@ -31,7 +31,7 @@ func (a *nativeApp) mainView(c *ui.Context) {
 
 func (a *nativeApp) titleBar(c *ui.Context) {
 	p := palette(c.Theme())
-	title := ui.Row(c).Height(44).PaddingStart(12).PaddingEnd(10).AlignItems(ui.Center).Gap(2).
+	title := ui.Row(c).Height(52).PaddingStart(12).PaddingEnd(12).AlignItems(ui.Center).Gap(2).
 		BorderWidth(0, 0, 1, 0).BorderColor(ui.Hex(p.border)).DragWindow().
 		Gradient(ui.Hex(p.panel2), ui.Hex(p.panel), 90)
 	if runtime.GOOS == "darwin" {
@@ -40,7 +40,7 @@ func (a *nativeApp) titleBar(c *ui.Context) {
 	title.Children(func() {
 		ui.Row(c).Gap(8).PaddingEnd(9).AlignItems(ui.Center).Children(func() {
 			a.kitLogo(c)
-			ui.Text(c, "GitJet").FontSize(13).FontWeight(650)
+			ui.Text(c, "GitJet").FontSize(13.5).FontWeight(650).LetterSpacing(-0.015)
 			if a.repoOpen {
 				ui.Text(c, "/").FontSize(13).TextColor(ui.Hex(p.muted2))
 				name := a.snapshot.State.Name
@@ -118,7 +118,7 @@ func (a *nativeApp) toolWindow(c *ui.Context) {
 			{1, a.t("Branches")},
 			{4, a.t("Console")},
 		}
-		ui.Row(c).Height(36).PaddingX(6).Gap(2).AlignItems(ui.Center).
+		ui.Row(c).Height(48).PaddingX(10).PaddingY(8).Gap(4).AlignItems(ui.Center).
 			Background(ui.Hex(p.panel2)).BorderWidth(0, 0, 1, 0).BorderColor(ui.Hex(p.border)).Children(func() {
 			for _, tab := range tabs {
 				tab := tab
@@ -175,7 +175,7 @@ func (a *nativeApp) commitPane(c *ui.Context) {
 	p := palette(c.Theme())
 	ui.Column(c).Grow(1).MinHeight(0).Background(ui.Hex(p.panel)).Children(func() {
 		// The panel toolbar: refresh, expand, view mode, more.
-		ui.Row(c).Height(33).PaddingX(6).Gap(2).AlignItems(ui.Center).
+		ui.Row(c).Height(40).Padding(4, 10).Gap(3).AlignItems(ui.Center).
 			BorderWidth(0, 0, 1, 0).BorderColor(ui.Hex(p.border)).Children(func() {
 			if _, clicked := a.iconButton(c, "refresh", a.t("Refresh"), false); clicked {
 				a.refresh()
@@ -406,7 +406,7 @@ func (a *nativeApp) changeRow(c *ui.Context, i int) {
 	p := palette(c.Theme())
 	row := a.changes[i]
 	ch := row.change
-	line := ui.Row(c).Height(26).PaddingX(8).Gap(6).AlignItems(ui.Center)
+	line := ui.Row(c).Height(23).PaddingX(8).Gap(5).AlignItems(ui.Center)
 	bg := ui.Transparent
 	if i == a.changeSel {
 		bg = ui.Hex(p.selection)
@@ -740,8 +740,8 @@ func (a *nativeApp) commitBox(c *ui.Context) {
 		if count > 0 {
 			label = fmt.Sprintf("%s (%d)", a.t("Commit"), count)
 		}
-		ui.Row(c).Gap(4).Children(func() {
-			if a.kitPrimaryAction(c, "commit", label, disabled, true) {
+		ui.Row(c).Gap(0).Children(func() {
+			if a.kitPrimaryAction(c, "commit", label, disabled, true, 7, 0, 0, 7) {
 				a.commitForm.PushAfter = false
 				a.commitForm.RebaseAfter = false
 				a.commitForm.SelectedOnly = false
@@ -826,7 +826,11 @@ func (a *nativeApp) logDock(c *ui.Context) {
 
 func (a *nativeApp) logHeader(c *ui.Context) {
 	p := palette(c.Theme())
-	ui.Row(c).Height(33).PaddingX(6).Gap(2).AlignItems(ui.Center).
+	headHeight := float32(40)
+	if a.logFold {
+		headHeight = 30
+	}
+	ui.Row(c).Height(headHeight).Padding(4, 10).Gap(3).AlignItems(ui.Center).
 		Background(ui.Hex(p.panel)).BorderWidth(0, 0, 1, 0).BorderColor(ui.Hex(p.border)).Children(func() {
 		open := !a.logFold
 		if _, clicked := a.smallIconButton(c, map[bool]string{true: "chevronDown", false: "chevronRight"}[open], a.t("Log"), false); clicked {
@@ -932,11 +936,11 @@ func (a *nativeApp) logListView(c *ui.Context) {
 				return
 			}
 			cm := a.log.Commits[i]
-			row := ui.Row(c).Height(28).Padding(4, 12).Gap(9).AlignItems(ui.Center)
+			row := ui.Row(c).Height(26).PaddingX(9).Gap(8).AlignItems(ui.Center)
 			row.Children(func() {
-				a.graphCellSized(c, i, 28)
+				a.graphCellSized(c, i, 26)
 				ui.Text(c, cm.Short).FontSize(10.5).Font("monospace").TextColor(ui.Hex(p.muted2)).Width(58)
-				ui.Text(c, cm.Subject).FontSize(12.5).TextColor(ui.Hex(p.fgSoft)).MaxLines(1).Grow(1)
+				ui.Text(c, cm.Subject).FontSize(12).TextColor(ui.Hex(p.fgSoft)).MaxLines(1).Grow(1)
 				for j, ref := range cm.Refs {
 					if j >= 2 {
 						break

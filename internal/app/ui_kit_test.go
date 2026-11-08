@@ -6,31 +6,39 @@ import (
 	"github.com/egoist/mygo/ui"
 )
 
-func TestFileBadgeKnownExtensions(t *testing.T) {
+func TestFileBadgeMatchesThePage(t *testing.T) {
 	cases := []struct {
 		path  string
 		label string
-		tint  ui.Color
+		lang  string
 	}{
-		{"src/App.tsx", "TS", ui.Hex("#3178c6")},
-		{"src/style.css", "CSS", ui.Hex("#8b5cf6")},
-		{"README.md", "MD", ui.Hex("#6b7280")},
-		{"main.go", "GO", ui.Hex("#00a7d0")},
-		{"script.sh", "SH", ui.Hex("#4b5563")},
+		{"src/App.tsx", "TS", "ts"},
+		{"src/style.css", "#", "css"},
+		{"README.md", "MD", "markdown"},
+		{"main.go", "GO", "go"},
+		{"go.mod", "GO", "go"},
+		{"package.json", "NP", "npm"},
+		{"Cargo.toml", "RS", "rust"},
+		{"script.sh", "SH", "shell"},
+		{"LICENSE", "LC", "text"},
+		{".npmrc", "CFG", "config"},
+		{"data.weirdext", "WE", "plain"},
+		{"Makefile", "MK", "make"},
+		{"types.d.ts", "TS", "ts"},
 	}
 	for _, tc := range cases {
-		label, tint := fileBadge(tc.path)
-		if label != tc.label || tint != tc.tint {
-			t.Errorf("fileBadge(%q) = %q, %v; want %q, %v", tc.path, label, tint, tc.label, tc.tint)
+		label, lang := fileBadge(tc.path)
+		if label != tc.label || lang != tc.lang {
+			t.Errorf("fileBadge(%q) = %q/%q; want %q/%q", tc.path, label, lang, tc.label, tc.lang)
 		}
 	}
 }
 
-func TestFileBadgeUnknownAndExtensionless(t *testing.T) {
-	if label, _ := fileBadge("LICENSE"); label != "·" {
-		t.Errorf("extensionless label = %q; want ·", label)
+func TestFileBadgeTintUsesThePagePalette(t *testing.T) {
+	if got, want := fileBadgeTint("ts", lightColors), ui.Hex("#4a90d9"); got != want {
+		t.Errorf("typescript tint = %v; want %v", got, want)
 	}
-	if label, _ := fileBadge("data.weirdext"); label != "WEI" {
-		t.Errorf("long extension label = %q; want WEI", label)
+	if got, want := fileBadgeTint("plain", lightColors), ui.Hex(lightColors.muted); got != want {
+		t.Errorf("plain tint = %v; want muted %v", got, want)
 	}
 }

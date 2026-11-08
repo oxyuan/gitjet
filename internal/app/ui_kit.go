@@ -1,8 +1,6 @@
 package app
 
 import (
-	"strings"
-
 	"github.com/egoist/mygo/ui"
 )
 
@@ -91,7 +89,7 @@ func (a *nativeApp) kitIconButton(c *ui.Context, name, tip string, size, iconSiz
 // it can grow and fade instead of switching between two images.
 func (a *nativeApp) kitToolTab(c *ui.Context, icon, label string, count int, active bool) (ui.Element, bool) {
 	p := palette(c.Theme())
-	b := ui.ButtonBase(c).Height(29).PaddingX(10).Radius(kitRadiusTab).Gap(6).AlignItems(ui.Center)
+	b := ui.ButtonBase(c).Height(30).PaddingX(10).Radius(8).Gap(7).AlignItems(ui.Center)
 
 	bg := ui.Transparent
 	if active {
@@ -111,26 +109,15 @@ func (a *nativeApp) kitToolTab(c *ui.Context, icon, label string, count int, act
 		fg = ui.Hex(p.fgSoft)
 	}
 	fg = motionColor(b, "kit-tab-fg", fg)
-	mark := motionReveal(b, "kit-tab-mark", active)
-	b.DrawOver(func(pt *ui.Painter, r ui.Rect) {
-		if mark <= 0.01 {
-			return
-		}
-		w := 12 + 8*mark
-		x := r.X + (r.W-w)/2
-		y := r.Y + r.H - 2
-		pt.FillGradient(ui.Rect{X: x, Y: y, W: w, H: 2}, ui.LinearGradient{
-			Angle: 0,
-			From:  ui.Hex(p.accent),
-			To:    ui.Hex(p.accentAlt),
-			Oklab: true,
-		}, 1)
-	})
+	iconCol := ui.Hex(p.accent)
+	if !active {
+		iconCol = fg
+	}
 	b.Children(func() {
-		ui.Row(c).TextColor(fg).Center().Children(func() {
-			a.icon(c, icon, 14)
+		ui.Row(c).TextColor(iconCol).Center().Children(func() {
+			a.icon(c, icon, 15)
 		})
-		ui.Text(c, label).FontSize(12).TextColor(fg)
+		ui.Text(c, label).FontSize(12).FontWeight(550).TextColor(fg)
 		if count > 0 {
 			kitCount(c, count, active)
 		}
@@ -147,11 +134,11 @@ func kitCount(c *ui.Context, n int, active bool) {
 	bg := ui.Hex(p.accentSoft)
 	fg := ui.Hex(p.accent)
 	if active {
-		bg = ui.Hex(p.accent)
-		fg = ui.Hex(p.accentText)
+		bg = ui.Hex(p.selectionStrong)
+		fg = ui.Hex(p.accent)
 	}
-	ui.Box(c).Height(16).PaddingX(5).Radius(8).Background(bg).Center().Children(func() {
-		ui.Text(c, fmtInt(n)).FontSize(9.5).FontWeight(600).TextColor(fg)
+	ui.Box(c).Height(17).PaddingX(5).Radius(9).Background(bg).Center().Children(func() {
+		ui.Text(c, fmtInt(n)).FontSize(10).FontWeight(650).TextColor(fg)
 	})
 }
 
@@ -164,9 +151,12 @@ func (a *nativeApp) kitPrimary(c *ui.Context, label string) bool {
 // kitPrimaryAction is kitPrimary with an optional leading icon and a
 // disabled state; the commit bar uses it to keep one button for every
 // count and every busy state.
-func (a *nativeApp) kitPrimaryAction(c *ui.Context, icon, label string, disabled, grow bool) bool {
+func (a *nativeApp) kitPrimaryAction(c *ui.Context, icon, label string, disabled, grow bool, radius ...float32) bool {
 	p := palette(c.Theme())
 	b := ui.ButtonBase(c).Height(30).PaddingX(14).Radius(kitRadiusControl).Gap(7).AlignItems(ui.Center).Disabled(disabled)
+	if len(radius) > 0 {
+		b.Radius(radius...)
+	}
 	if grow {
 		b.Grow(1)
 	}
@@ -207,7 +197,7 @@ func (a *nativeApp) kitPrimaryAction(c *ui.Context, icon, label string, disabled
 // primary fill and gloss, separated by a translucent seam.
 func (a *nativeApp) kitAccentArrow(c *ui.Context, disabled bool) ui.Element {
 	p := palette(c.Theme())
-	b := ui.ButtonBase(c).Size(30, 30).Center().Radius(kitRadiusControl).Disabled(disabled)
+	b := ui.ButtonBase(c).Size(28, 30).Center().Radius(0, 7, 7, 0).Disabled(disabled)
 	bg := ui.Hex(p.accent)
 	if b.Hovered() && !disabled {
 		bg = ui.Hex(p.accentHover)
@@ -262,7 +252,7 @@ func (a *nativeApp) kitSecondary(c *ui.Context, label string, disabled bool) boo
 // button because the palette, not typing here, is what opens.
 func (a *nativeApp) kitSearch(c *ui.Context, placeholder, shortcut string, enabled bool) (ui.Element, bool) {
 	p := palette(c.Theme())
-	b := ui.ButtonBase(c).Height(30).Width(248).Radius(kitRadiusField).PaddingX(10).Gap(8).
+	b := ui.ButtonBase(c).Height(30).Width(240).Radius(kitRadiusField).PaddingX(10).Gap(8).
 		AlignItems(ui.Center).Tooltip(a.t("Quick Open")).Disabled(!enabled)
 	border := ui.Hex(p.border)
 	fill := ui.Hex(p.raised)
@@ -314,80 +304,32 @@ func kitToolbarRule(c *ui.Context) {
 	}).MarginX(4)
 }
 
-// kitFileBadge is the small language tile in file lists. The old page
-// tinted a generic file icon by extension; a tile with a two- or
-// three-letter label reads faster and keeps the colour language.
+// kitFileBadge is the small language tile in file lists. It mirrors the
+// page's FileIcon: a 14-unit rounded rect with a 13% tint, 38% stroke and a
+// monogram, scaled with the requested size.
 func (a *nativeApp) kitFileBadge(c *ui.Context, path string, size float32) ui.Element {
-	label, tint := fileBadge(path)
-	box := ui.Box(c).Size(size, size).Radius(4)
+	label, lang := fileBadge(path)
+	if label == "" {
+		return a.icon(c, "file", size)
+	}
+	tint := fileBadgeTint(lang, palette(c.Theme()))
+	box := ui.Box(c).Size(size, size)
 	box.Draw(func(p *ui.Painter, r ui.Rect) {
-		p.Fill(r, tint.Alpha(0.13), 4)
-		p.Stroke(ui.Rect{X: r.X + 0.5, Y: r.Y + 0.5, W: r.W - 1, H: r.H - 1}, tint.Alpha(0.24), 4, 1)
+		scale := size / 16
+		inset := 1 * scale
+		p.Fill(ui.Rect{X: r.X + inset, Y: r.Y + inset, W: r.W - 2*inset, H: r.H - 2*inset}, tint.Alpha(0.13), 3.4*scale)
+		p.Stroke(ui.Rect{X: r.X + inset + 0.5, Y: r.Y + inset + 0.5, W: r.W - 2*inset - 1, H: r.H - 2*inset - 1}, tint.Alpha(0.38), 3.4*scale, scale)
 	})
 	box.Children(func() {
+		fontSize := float32(8)
+		if len(label) > 2 {
+			fontSize = 6
+		}
 		ui.Row(c).TextColor(tint).Center().Children(func() {
-			ui.Text(c, label).FontSize(max(6.5, size*0.43)).Font("monospace").FontWeight(700)
+			ui.Text(c, label).FontSize(fontSize * size / 16).Font("monospace").FontWeight(800).LetterSpacing(-0.25)
 		})
 	})
 	return box
-}
-
-func fileBadge(path string) (string, ui.Color) {
-	ext := strings.ToLower(filepathExt(path))
-	switch ext {
-	case "ts", "tsx", "mts", "cts":
-		return "TS", ui.Hex("#3178c6")
-	case "js", "jsx", "mjs", "cjs":
-		return "JS", ui.Hex("#b7a600")
-	case "go":
-		return "GO", ui.Hex("#00a7d0")
-	case "rs":
-		return "RS", ui.Hex("#b7410e")
-	case "py":
-		return "PY", ui.Hex("#3572a5")
-	case "rb":
-		return "RB", ui.Hex("#cc342d")
-	case "java":
-		return "JV", ui.Hex("#b07219")
-	case "kt", "kts":
-		return "KT", ui.Hex("#7f52ff")
-	case "swift":
-		return "SW", ui.Hex("#f05138")
-	case "c", "h":
-		return "C", ui.Hex("#555555")
-	case "cc", "cpp", "cxx", "hpp":
-		return "C++", ui.Hex("#00599c")
-	case "css", "scss", "less":
-		return "CSS", ui.Hex("#8b5cf6")
-	case "html", "htm":
-		return "<>", ui.Hex("#e34f26")
-	case "json", "jsonc":
-		return "{}", ui.Hex("#b06a1f")
-	case "yaml", "yml":
-		return "YML", ui.Hex("#cb171e")
-	case "toml":
-		return "TML", ui.Hex("#9c4221")
-	case "xml":
-		return "XML", ui.Hex("#0b93a5")
-	case "sh", "bash", "zsh", "fish":
-		return "SH", ui.Hex("#4b5563")
-	case "md", "markdown":
-		return "MD", ui.Hex("#6b7280")
-	case "sql":
-		return "SQL", ui.Hex("#336791")
-	case "svg":
-		return "SVG", ui.Hex("#b06a1f")
-	case "png", "jpg", "jpeg", "gif", "webp":
-		return "IMG", ui.Hex("#26a269")
-	default:
-		if ext == "" {
-			return "·", ui.Hex("#96969d")
-		}
-		if len(ext) > 3 {
-			ext = ext[:3]
-		}
-		return strings.ToUpper(ext), ui.Hex("#96969d")
-	}
 }
 
 // kitDocTab is an editor tab: a raised sheet when active, an animated
@@ -500,4 +442,67 @@ func (a *nativeApp) kitSegmented(c *ui.Context, labels []string, active int) int
 		}
 	})
 	return chosen
+}
+
+// kitDialogButton is the quiet action of a dialog footer or an inline
+// row. It follows the page's 32px radius-9 button, with the kit's animated
+// hover and pressed give.
+func (a *nativeApp) kitDialogButton(c *ui.Context, label string, danger, disabled bool) bool {
+	p := palette(c.Theme())
+	b := ui.ButtonBase(c).Height(32).PaddingX(14).Radius(9).AlignItems(ui.Center).Disabled(disabled)
+	bg := ui.Hex(p.raised)
+	border := ui.Hex(p.border)
+	if danger {
+		bg = ui.Hex(p.danger)
+		border = ui.Hex(p.danger)
+	}
+	if b.Hovered() && !disabled {
+		if danger {
+			bg = ui.Hex(p.danger).Mix(ui.RGB(255, 255, 255), 0.10)
+		} else {
+			bg = ui.Hex(p.raised).Mix(ui.Hex(p.hover), 0.45)
+			border = ui.Hex(p.borderStrong)
+		}
+	}
+	if b.Pressed() && !disabled {
+		bg = bg.Mix(ui.Hex(p.hoverStrong), 0.55)
+	}
+	b.Background(motionColor(b, "kit-dialog-bg", bg)).Border(1, motionColor(b, "kit-dialog-border", border)).
+		Shadow(0, 1, 2, 0, ui.RGBA(16, 24, 40, 0.05))
+	fg := ui.Hex(p.fg)
+	if danger {
+		fg = ui.Hex(p.accentText)
+	}
+	b.Children(func() {
+		ui.Text(c, label).FontSize(12.5).FontWeight(550).TextColor(motionColor(b, "kit-dialog-fg", fg))
+	})
+	motionPressPose(b, b.Pressed() && !disabled, 0.97)
+	return b.Clicked() && !disabled
+}
+
+// kitDialogPrimary is the one filled action of a dialog.
+func (a *nativeApp) kitDialogPrimary(c *ui.Context, label string, disabled bool) bool {
+	p := palette(c.Theme())
+	b := ui.ButtonBase(c).Height(32).PaddingX(14).Radius(9).AlignItems(ui.Center).Disabled(disabled)
+	bg := ui.Hex(p.accent)
+	if b.Hovered() && !disabled {
+		bg = ui.Hex(p.accentHover)
+	}
+	if disabled {
+		bg = ui.Hex(p.accent).Alpha(0.55)
+	}
+	b.Background(motionColor(b, "kit-dialog-primary-bg", bg)).
+		Shadow(0, 4, 14, 0, ui.Hex(p.accent).Alpha(0.18))
+	b.DrawOver(func(pt *ui.Painter, r ui.Rect) {
+		pt.FillGradient(ui.Rect{X: r.X + 1, Y: r.Y + 1, W: r.W - 2, H: r.H * 0.5}, ui.LinearGradient{
+			Angle: 180,
+			From:  ui.RGBA(255, 255, 255, 0.18),
+			To:    ui.Transparent,
+		}, 8)
+	})
+	b.Children(func() {
+		ui.Text(c, label).FontSize(12.5).FontWeight(550).TextColor(ui.Hex(p.accentText))
+	})
+	motionPressPose(b, b.Pressed() && !disabled, 0.97)
+	return b.Clicked() && !disabled
 }
