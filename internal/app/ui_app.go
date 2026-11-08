@@ -319,7 +319,7 @@ func newNativeApp() *nativeApp {
 		logSplit:       900,
 		changeSel:      -1,
 		changeClosed:   map[string]bool{},
-		changeView:     "tree",
+		changeView:     "flat",
 		fileSel:        -1,
 		branchSel:      -1,
 		branchClosed:   map[string]bool{},
