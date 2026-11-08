@@ -8,7 +8,6 @@
 package git
 
 import (
-	"bufio"
 	"bytes"
 	"context"
 	"errors"
@@ -19,6 +18,7 @@ import (
 	"path/filepath"
 	"runtime"
 	"sort"
+	"strconv"
 	"strings"
 	"sync"
 
@@ -252,6 +252,52 @@ func (r *Repo) run(ctx context.Context, args ...string) (string, error) {
 	return stdout.String(), nil
 }
 
+// runLimited runs git and keeps at most limit bytes of stdout. The command
+// is killed as soon as that many bytes have arrived, so a 300 MB blob is
+// never read into memory: callers that cap what they show get the cap
+// instead of an allocation the size of the file.
+func (r *Repo) runLimited(ctx context.Context, limit int, args ...string) (stdout string, truncated bool, err error) {
+	runCtx, cancel := context.WithCancel(ctx)
+	defer cancel()
+	cmd := r.command(runCtx, args...)
+	pipe, err := cmd.StdoutPipe()
+	if err != nil {
+		return "", false, err
+	}
+	var stderr bytes.Buffer
+	cmd.Stderr = &stderr
+	if err := cmd.Start(); err != nil {
+		return "", false, &Error{Args: args, Err: err}
+	}
+	data, readErr := io.ReadAll(io.LimitReader(pipe, int64(limit)+1))
+	if len(data) > limit {
+		truncated = true
+		data = data[:limit]
+		// Nothing more is wanted; stop git rather than let it write into a
+		// pipe nobody reads.
+		cancel()
+	}
+	waitErr := cmd.Wait()
+	if truncated {
+		return string(data), true, nil
+	}
+	if readErr != nil {
+		return string(data), false, &Error{Args: args, Err: readErr}
+	}
+	if waitErr != nil {
+		code := -1
+		var exit *exec.ExitError
+		if errors.As(waitErr, &exit) {
+			code = exit.ExitCode()
+		}
+		if ctx.Err() != nil {
+			waitErr = ctx.Err()
+		}
+		return string(data), false, &Error{Args: args, Stderr: stderr.String(), Stdout: string(data), Code: code, Err: waitErr}
+	}
+	return string(data), false, nil
+}
+
 // runEnv runs git with extra environment variables, which is how a
 // temporary index is used without changing anything else.
 func (r *Repo) runEnv(ctx context.Context, extra []string, args ...string) (string, error) {
@@ -344,6 +390,11 @@ func (r *Repo) stream(ctx context.Context, emit func(string), args ...string) (s
 
 // streamCmd is stream for an already built command. The console uses it to
 // run the programs a user types, which are not always git.
+//
+// The reader never stops before the pipe is closed: a bufio.Scanner gives
+// up on a token wider than its buffer and leaves the writer blocked, which
+// froze cmd.Wait and, through the write lock, every other command. Lines
+// here have no length limit.
 func (r *Repo) streamCmd(ctx context.Context, cmd *exec.Cmd, args []string, emit func(string)) (string, error) {
 	pr, pw := io.Pipe()
 	cmd.Stdout = pw
@@ -356,16 +407,36 @@ func (r *Repo) streamCmd(ctx context.Context, cmd *exec.Cmd, args []string, emit
 	done := make(chan struct{})
 	go func() {
 		defer close(done)
-		scanner := bufio.NewScanner(pr)
-		scanner.Buffer(make([]byte, 0, 64*1024), 4*1024*1024)
-		scanner.Split(splitProgress)
-		for scanner.Scan() {
-			line := scanner.Text()
-			all.WriteString(line)
+		buf := make([]byte, 64*1024)
+		var pending []byte
+		flush := func(line []byte) {
+			all.Write(line)
 			all.WriteByte('\n')
 			if emit != nil {
-				emit(line)
+				emit(string(line))
 			}
+		}
+		for {
+			n, readErr := pr.Read(buf)
+			if n > 0 {
+				pending = append(pending, buf[:n]...)
+				// Progress bars end in a carriage return, so both break a
+				// line; the carriage return itself is dropped.
+				for {
+					i := bytes.IndexAny(pending, "\r\n")
+					if i < 0 {
+						break
+					}
+					flush(pending[:i])
+					_, pending = pending[:0], pending[i+1:]
+				}
+			}
+			if readErr != nil {
+				break
+			}
+		}
+		if len(pending) > 0 {
+			flush(pending)
 		}
 	}()
 	err := cmd.Wait()
@@ -386,22 +457,50 @@ func (r *Repo) streamCmd(ctx context.Context, cmd *exec.Cmd, args []string, emit
 	return out, nil
 }
 
-// splitProgress splits on newlines and carriage returns, dropping the
-// latter, so that progress bars stream.
-func splitProgress(data []byte, atEOF bool) (int, []byte, error) {
-	if atEOF && len(data) == 0 {
-		return 0, nil, nil
+// ---- small helpers ----
+
+// unquoteGitPath removes the C-style quoting git applies to a path that
+// contains control characters, spaces next to them, or bytes above ASCII.
+// "rename from" prints that quoted form, and a quoted name is not a path.
+func unquoteGitPath(p string) string {
+	if len(p) < 2 || p[0] != '"' {
+		return p
 	}
-	if i := bytes.IndexAny(data, "\r\n"); i >= 0 {
-		return i + 1, data[:i], nil
+	unquoted, err := strconv.Unquote(p)
+	if err != nil {
+		return p
 	}
-	if atEOF {
-		return len(data), data, nil
-	}
-	return 0, nil, nil
+	return unquoted
 }
 
-// ---- small helpers ----
+// literalPath turns a repository path into a pathspec that names exactly
+// that file. Git reads an ordinary path as a glob, so "web/[slug]/page.tsx"
+// would also match "web/s/page.tsx" and stage the wrong file. Escaping is
+// what every path-taking command understands; the ":(literal)" magic is
+// rejected by blame.
+func literalPath(p string) string {
+	if !strings.ContainsAny(p, "*?[\\") {
+		return p
+	}
+	var b strings.Builder
+	b.Grow(len(p) + 4)
+	for _, r := range p {
+		if r == '*' || r == '?' || r == '[' || r == '\\' {
+			b.WriteByte('\\')
+		}
+		b.WriteRune(r)
+	}
+	return b.String()
+}
+
+// literalPaths is literalPath over a list.
+func literalPaths(paths []string) []string {
+	out := make([]string, len(paths))
+	for i, p := range paths {
+		out[i] = literalPath(p)
+	}
+	return out
+}
 
 // cleanPath validates a repository-relative path from the page and returns
 // it with forward slashes. Paths that leave the working tree are rejected.

@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 )
 
 // TestConsoleHelperProcess is not a test: it is the program the console runs
@@ -157,4 +158,34 @@ func hasCompletion(list []Completion, text string) bool {
 		}
 	}
 	return false
+}
+
+func TestStreamReturnsASingleLineLongerThanFourMegabytes(t *testing.T) {
+	repo, dir := newTestRepo(t)
+	writeFile(t, dir, "wide.txt", "short\n")
+	runGit(t, dir, "add", "wide.txt")
+	runGit(t, dir, "commit", "-q", "-m", "wide")
+
+	// One diff line of five mebibytes with no newline: the shape that made
+	// bufio.Scanner stop reading and left git waiting on a pipe nobody read.
+	writeFile(t, dir, "wide.txt", strings.Repeat("x", 5<<20))
+
+	done := make(chan struct{})
+	var out string
+	var err error
+	go func() {
+		out, err = repo.stream(context.Background(), nil, "diff", "--no-color")
+		close(done)
+	}()
+	select {
+	case <-done:
+	case <-time.After(30 * time.Second):
+		t.Fatal("streaming a long line never returned")
+	}
+	if err != nil {
+		t.Fatalf("stream: %v", err)
+	}
+	if len(out) <= 5<<20 {
+		t.Fatalf("streamed %d bytes, want the whole line", len(out))
+	}
 }

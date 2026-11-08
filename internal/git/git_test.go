@@ -526,3 +526,19 @@ func TestConflictReportsTheSurvivingSideOfADeleteModify(t *testing.T) {
 		t.Fatalf("working = %q, want the side that still has the file", conflict.Working)
 	}
 }
+
+func TestApplyDiffHunkStagesAFileWithoutATrailingNewline(t *testing.T) {
+	repo, dir := newTestRepo(t)
+	writeFile(t, dir, "n.txt", "one\ntwo")
+	runGit(t, dir, "add", "n.txt")
+	runGit(t, dir, "commit", "-q", "-m", "no newline")
+	writeFile(t, dir, "n.txt", "one\ntwo changed")
+
+	if err := repo.ApplyDiffHunk(context.Background(), DiffOptions{Path: "n.txt", Target: DiffWorkingTree, Context: 3}, 0, "stage"); err != nil {
+		t.Fatalf("ApplyDiffHunk: %v", err)
+	}
+	staged := runGit(t, dir, "diff", "--cached", "--", "n.txt")
+	if !strings.Contains(staged, "+two changed") || !strings.Contains(staged, `\ No newline at end of file`) {
+		t.Fatalf("staged patch lost the marker:\n%s", staged)
+	}
+}

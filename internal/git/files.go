@@ -44,15 +44,18 @@ func (r *Repo) FileContent(ctx context.Context, path, revision string) (SourceFi
 		out.Revision = ""
 		st, err := os.Stat(r.AbsPath(clean))
 		if err == nil && !st.IsDir() {
+			out.Exists = true
+			out.Size = st.Size()
+			if st.Size() > int64(limit) {
+				// Nothing is read: the file is past what this viewer
+				// shows, and reading it whole is how a 300 MB blob used to
+				// take the app with it.
+				out.Truncated = true
+				return out, nil
+			}
 			b, err := os.ReadFile(r.AbsPath(clean))
 			if err != nil {
 				return SourceFile{}, err
-			}
-			out.Exists = true
-			out.Size = st.Size()
-			if len(b) > limit {
-				b = b[:limit]
-				out.Truncated = true
 			}
 			if looksBinary(string(b)) {
 				out.Binary = true
@@ -62,23 +65,20 @@ func (r *Repo) FileContent(ctx context.Context, path, revision string) (SourceFi
 			return out, nil
 		}
 		// A deleted file still has its committed content.
-		if text, ok := r.blob(ctx, "HEAD", clean, limit); ok {
-			out.Text, out.Exists = text, false
+		if text, truncated, ok := r.blob(ctx, "HEAD", clean, limit); ok {
+			out.Text, out.Exists, out.Truncated = text, false, truncated
 			return out, nil
 		}
 		return out, nil
 	}
 	if rev == "INDEX" {
 		out.Revision = "INDEX"
-		text, err := r.run(ctx, "show", ":"+clean)
+		text, truncated, err := r.runLimited(ctx, limit, "show", ":"+clean)
 		if err != nil {
 			return out, nil
 		}
 		out.Exists = true
-		if len(text) > limit {
-			text = text[:limit]
-			out.Truncated = true
-		}
+		out.Truncated = truncated
 		if looksBinary(text) {
 			out.Binary = true
 			return out, nil
@@ -89,24 +89,22 @@ func (r *Repo) FileContent(ctx context.Context, path, revision string) (SourceFi
 	if strings.ContainsAny(rev, " \t\n") || strings.HasPrefix(rev, "-") {
 		return SourceFile{}, errors.New("invalid revision")
 	}
-	text, ok := r.blob(ctx, rev, clean, limit)
+	text, truncated, ok := r.blob(ctx, rev, clean, limit)
 	if !ok {
 		return out, nil
 	}
 	out.Exists = true
 	out.Text = text
+	out.Truncated = truncated
 	return out, nil
 }
 
-func (r *Repo) blob(ctx context.Context, rev, path string, limit int) (string, bool) {
-	out, err := r.run(ctx, "show", rev+":"+path)
+func (r *Repo) blob(ctx context.Context, rev, path string, limit int) (string, bool, bool) {
+	out, truncated, err := r.runLimited(ctx, limit, "show", rev+":"+path)
 	if err != nil {
-		return "", false
+		return "", false, false
 	}
-	if len(out) > limit {
-		out = out[:limit]
-	}
-	return out, true
+	return out, truncated, true
 }
 
 // Files lists the files of the working tree, tracked and untracked, whose

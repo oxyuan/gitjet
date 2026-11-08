@@ -53,17 +53,32 @@ func (r *Repo) Image(ctx context.Context, path, revision string) (ImageData, err
 			return ImageData{}, errors.New("invalid revision")
 		}
 	}
+	const limit = 20 << 20
 	var data []byte
 	switch rev {
 	case "":
+		if info, statErr := os.Stat(r.AbsPath(clean)); statErr == nil && info.Size() > limit {
+			return ImageData{}, errors.New("the image is larger than 20 MB")
+		}
 		data, err = os.ReadFile(r.AbsPath(clean))
+		if err == nil && len(data) > limit {
+			return ImageData{}, errors.New("the image is larger than 20 MB")
+		}
 	case "INDEX":
 		var text string
-		text, err = r.run(ctx, "show", ":"+clean)
+		var truncated bool
+		text, truncated, err = r.runLimited(ctx, limit, "show", ":"+clean)
+		if truncated {
+			return ImageData{}, errors.New("the image is larger than 20 MB")
+		}
 		data = []byte(text)
 	default:
 		var text string
-		text, err = r.run(ctx, "show", rev+":"+clean)
+		var truncated bool
+		text, truncated, err = r.runLimited(ctx, limit, "show", rev+":"+clean)
+		if truncated {
+			return ImageData{}, errors.New("the image is larger than 20 MB")
+		}
 		data = []byte(text)
 	}
 	if err != nil {
@@ -72,7 +87,7 @@ func (r *Repo) Image(ctx context.Context, path, revision string) (ImageData, err
 			// the empty state.
 			err
 	}
-	if len(data) > 20<<20 {
+	if len(data) > limit {
 		return ImageData{}, errors.New("the image is larger than 20 MB")
 	}
 	return ImageData{Mime: mime, Data: base64.StdEncoding.EncodeToString(data)}, nil

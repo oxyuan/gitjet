@@ -54,6 +54,9 @@ type DiffLine struct {
 	OldNo int    `json:"oldNo"`
 	NewNo int    `json:"newNo"`
 	Text  string `json:"text"`
+	// NoNewline marks the last line of a side that does not end in a
+	// newline. A patch that drops the marker no longer applies.
+	NoNewline bool `json:"noNewline"`
 }
 
 // DiffHunk is one @@ block.
@@ -207,7 +210,11 @@ func (r *Repo) patchFor(ctx context.Context, opts DiffOptions, path string) (str
 			args = append(args, parents[0], h)
 		} else {
 			// A root commit has no parent; compare against the empty tree.
-			args = append(args, emptyTree, h)
+			empty, err := r.emptyTreeObject(ctx)
+			if err != nil {
+				return "", err
+			}
+			args = append(args, empty, h)
 		}
 	case DiffRange:
 		if opts.From == "" || opts.Revision == "" {
@@ -219,7 +226,7 @@ func (r *Repo) patchFor(ctx context.Context, opts DiffOptions, path string) (str
 			args = append(args, opts.Revision)
 		}
 	}
-	args = append(args, "--", path)
+	args = append(args, "--", literalPath(path))
 	out, err := r.run(ctx, args...)
 	if err != nil {
 		return "", err
@@ -239,7 +246,7 @@ func (r *Repo) patchFor(ctx context.Context, opts DiffOptions, path string) (str
 
 // isTracked says whether the index knows the path.
 func (r *Repo) isTracked(ctx context.Context, path string) bool {
-	_, err := r.run(ctx, "ls-files", "--error-unmatch", "--", path)
+	_, err := r.run(ctx, "ls-files", "--error-unmatch", "--", literalPath(path))
 	return err == nil
 }
 
@@ -252,6 +259,7 @@ func syntheticNewFile(path string, content []byte) string {
 	if strings.IndexByte(text, 0) >= 0 {
 		return fmt.Sprintf("diff --git a/%s b/%s\nnew file mode 100644\nBinary files /dev/null and b/%s differ\n", path, path, path)
 	}
+	missingFinalNewline := !strings.HasSuffix(text, "\n")
 	lines := strings.SplitAfter(text, "\n")
 	if len(lines) > 0 && lines[len(lines)-1] == "" {
 		lines = lines[:len(lines)-1]
@@ -259,17 +267,28 @@ func syntheticNewFile(path string, content []byte) string {
 	var b strings.Builder
 	fmt.Fprintf(&b, "diff --git a/%s b/%s\nnew file mode 100644\n--- /dev/null\n+++ b/%s\n", path, path, path)
 	fmt.Fprintf(&b, "@@ -0,0 +1,%d @@\n", len(lines))
-	for _, line := range lines {
+	for i, line := range lines {
 		line = strings.TrimSuffix(line, "\n")
 		b.WriteString("+")
 		b.WriteString(line)
 		b.WriteString("\n")
+		if missingFinalNewline && i == len(lines)-1 {
+			b.WriteString("\\ No newline at end of file\n")
+		}
 	}
 	return b.String()
 }
 
-// emptyTree is git's hash for an empty tree; every repository has it.
-const emptyTree = "4b825dc642cb6eb9a060e54bf8d69288fbee4904"
+// emptyTreeObject is the hash of an empty tree in this repository's object
+// format: a SHA-256 repository has a different one, and the SHA-1 hash
+// there fails as an unknown revision.
+func (r *Repo) emptyTreeObject(ctx context.Context) (string, error) {
+	out, err := r.runInput(ctx, "", "hash-object", "-t", "tree", "--stdin")
+	if err != nil {
+		return "", err
+	}
+	return strings.TrimSpace(out), nil
+}
 
 // parents returns the parent hashes of a commit.
 func (r *Repo) parents(ctx context.Context, rev string) ([]string, error) {
@@ -327,10 +346,10 @@ func parsePatch(patch, path string) FileDiff {
 				d.Status = "deleted"
 			case strings.HasPrefix(line, "rename from "):
 				d.Status = "renamed"
-				d.OldPath = strings.TrimPrefix(line, "rename from ")
+				d.OldPath = unquoteGitPath(strings.TrimPrefix(line, "rename from "))
 			case strings.HasPrefix(line, "copy from "):
 				d.Status = "copied"
-				d.OldPath = strings.TrimPrefix(line, "copy from ")
+				d.OldPath = unquoteGitPath(strings.TrimPrefix(line, "copy from "))
 			case strings.HasPrefix(line, "old mode"), strings.HasPrefix(line, "new mode"):
 				if d.Status == "modified" && !seenHunk {
 					// A mode change alone is still a modification; leave it.
@@ -346,6 +365,12 @@ func parsePatch(patch, path string) FileDiff {
 			continue
 		}
 		if current == nil {
+			continue
+		}
+		if strings.HasPrefix(line, `\ No newline`) {
+			if n := len(current.Lines); n > 0 {
+				current.Lines[n-1].NoNewline = true
+			}
 			continue
 		}
 		if line == "" || strings.HasPrefix(line, `\`) {
@@ -385,6 +410,9 @@ func parsePatch(patch, path string) FileDiff {
 				}
 				raw.WriteString(l.Text)
 				raw.WriteString("\n")
+				if l.NoNewline {
+					raw.WriteString("\\ No newline at end of file\n")
+				}
 			}
 			h.raw = raw.String()
 		}
@@ -399,17 +427,22 @@ func (r *Repo) fillText(ctx context.Context, d *FileDiff, opts DiffOptions, path
 		if p == "" {
 			return "", false
 		}
-		out, err := r.run(ctx, "show", rev+":"+p)
+		out, truncated, err := r.runLimited(ctx, limit, "show", rev+":"+p)
 		if err != nil {
 			return "", false
 		}
-		if len(out) > limit {
+		if truncated {
 			d.Truncated = true
-			return out[:limit], true
 		}
 		return out, true
 	}
 	readFile := func(p string) (string, bool) {
+		if info, err := os.Stat(r.AbsPath(p)); err == nil && info.Size() > limit {
+			// Read nothing rather than the whole file: the viewer only
+			// shows the first 8 MiB anyway.
+			d.Truncated = true
+			return "", true
+		}
 		b, err := os.ReadFile(r.AbsPath(p))
 		if err != nil {
 			return "", false
@@ -429,9 +462,11 @@ func (r *Repo) fillText(ctx context.Context, d *FileDiff, opts DiffOptions, path
 	case DiffStaged:
 		if !opts.NoText {
 			oldText, _ = readBlob("HEAD", oldPath)
-			out, err := r.run(ctx, "show", ":"+path)
-			if err == nil {
+			if out, truncated, err := r.runLimited(ctx, limit, "show", ":"+path); err == nil {
 				newText = out
+				if truncated {
+					d.Truncated = true
+				}
 			}
 		}
 	case DiffCommit:
@@ -566,9 +601,15 @@ func (r *Repo) OpenExternalDiff(ctx context.Context, opts DiffOptions) (string, 
 		if perr != nil {
 			return "", perr
 		}
-		base := emptyTree
+		base := ""
 		if len(parents) > 0 {
 			base = parents[0]
+		} else {
+			empty, err := r.emptyTreeObject(ctx)
+			if err != nil {
+				return "", err
+			}
+			base = empty
 		}
 		args = append(args, base, rev)
 	case DiffRange:
@@ -580,6 +621,6 @@ func (r *Repo) OpenExternalDiff(ctx context.Context, opts DiffOptions) (string, 
 		// index against the working tree, which is what git difftool
 		// compares by default
 	}
-	args = append(args, "--", path)
+	args = append(args, "--", literalPath(path))
 	return r.run(ctx, args...)
 }

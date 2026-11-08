@@ -63,7 +63,7 @@ func (r *Repo) ApplyDiffLines(ctx context.Context, opts DiffOptions, lines []int
 		if !r.isTracked(ctx, path) {
 			// An untracked file needs an index entry before a patch can
 			// apply to it; intent-to-add provides an empty one.
-			if _, err := r.run(ctx, "add", "-N", "--", path); err != nil {
+			if _, err := r.run(ctx, "add", "-N", "--", literalPath(path)); err != nil {
 				return err
 			}
 		}
@@ -90,7 +90,7 @@ func (r *Repo) StageIntent(ctx context.Context, paths []string) error {
 	if len(clean) == 0 {
 		return errors.New("no paths were given")
 	}
-	args := append([]string{"add", "-N", "--"}, clean...)
+	args := append([]string{"add", "-N", "--"}, literalPaths(clean)...)
 	_, err = r.writeRun(ctx, args...)
 	return err
 }
@@ -101,6 +101,16 @@ func (r *Repo) StageIntent(ctx context.Context, paths []string) error {
 func selectPatchHunks(diff FileDiff, selected map[int]bool, wantNew bool) string {
 	_ = wantNew
 	var out strings.Builder
+	// A hunk whose line lost its "\ No newline" marker makes git apply
+	// reject the whole patch, so every written line carries it along.
+	writeLine := func(prefix string, l DiffLine) {
+		out.WriteString(prefix)
+		out.WriteString(l.Text)
+		out.WriteString("\n")
+		if l.NoNewline {
+			out.WriteString("\\ No newline at end of file\n")
+		}
+	}
 	pickedLine := func(l DiffLine) bool {
 		return (l.OldNo > 0 && selected[l.OldNo]) || (l.NewNo > 0 && selected[l.NewNo])
 	}
@@ -147,7 +157,7 @@ func selectPatchHunks(diff FileDiff, selected map[int]bool, wantNew bool) string
 				}
 				fmt.Fprintf(&out, "@@ -%d,0 +%d,%d @@\n", max(0, blockOld-1), chosen[0].NewNo, len(chosen))
 				for _, l := range chosen {
-					out.WriteString("+" + l.Text + "\n")
+					writeLine("+", l)
 				}
 			case len(adds) == 0:
 				var chosen []DiffLine
@@ -161,7 +171,7 @@ func selectPatchHunks(diff FileDiff, selected map[int]bool, wantNew bool) string
 				}
 				fmt.Fprintf(&out, "@@ -%d,%d +%d,0 @@\n", chosen[0].OldNo, len(chosen), max(0, blockNew-1))
 				for _, l := range chosen {
-					out.WriteString("-" + l.Text + "\n")
+					writeLine("-", l)
 				}
 			case len(dels) == len(adds):
 				for k := range dels {
@@ -169,7 +179,9 @@ func selectPatchHunks(diff FileDiff, selected map[int]bool, wantNew bool) string
 					if !pickedLine(d) && !pickedLine(a) {
 						continue
 					}
-					fmt.Fprintf(&out, "@@ -%d,1 +%d,1 @@\n-%s\n+%s\n", d.OldNo, a.NewNo, d.Text, a.Text)
+					fmt.Fprintf(&out, "@@ -%d,1 +%d,1 @@\n", d.OldNo, a.NewNo)
+					writeLine("-", d)
+					writeLine("+", a)
 				}
 			default:
 				// A block with unequal sides cannot be split line by line.
@@ -186,9 +198,9 @@ func selectPatchHunks(diff FileDiff, selected map[int]bool, wantNew bool) string
 				fmt.Fprintf(&out, "@@ -%d,%d +%d,%d @@\n", blockOld, len(dels), blockNew, len(adds))
 				for _, l := range block {
 					if l.Kind == "del" {
-						out.WriteString("-" + l.Text + "\n")
+						writeLine("-", l)
 					} else {
-						out.WriteString("+" + l.Text + "\n")
+						writeLine("+", l)
 					}
 				}
 			}
