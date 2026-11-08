@@ -105,6 +105,12 @@ use it only for layout work. Vite's port is pinned to 5173 in **both**
   as `gitjet: before <action>` and restored with `stash pop --index`; a failed
   restore keeps the stash and says so in the output. `Reset` is deliberately
   not wrapped — a hard reset is asked for to discard changes.
+- Conflict resolution has two entry points that share one repository call:
+  `MergePreview` merges the three index stages with `MergeText` (a diff3
+  implementation in `threemerge.go`, verified against `git merge-file`), and
+  `ResolveInMemory` writes the blob with `hash-object --path` (filters
+  included) and replaces the index entry through `update-index --index-info`.
+  `SaveResolution` stages the bytes it was handed, never what is on disk.
 - `Rewrite` replays a plan of cherry-picks, so a conflict leaves the rest of
   the plan in `<git dir>/gitjet-rewrite-plan.json`; `ContinueOperation`
   finishes it and `AbortOperation` resets back to the original tip. Progress

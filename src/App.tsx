@@ -55,6 +55,7 @@ import { LangProvider, count, resolveLang, useT, type Lang } from "./i18n";
 import { buildMergeView, computeMerge, conflictLabels, resolveSimpleConflicts } from "./merge";
 import { normalizeText } from "./editorText";
 import { gutterDiffOptions } from "./gutter";
+import { mergeConflictInMemory } from "./conflictMerge";
 import { LogDock, type LogFilters } from "./LogDock";
 import { FileTree, type ChangeView } from "./FileTree";
 import { BranchList } from "./BranchList";
@@ -2243,6 +2244,36 @@ function AppShell({ onLangChange }: { onLangChange: (lang: Lang) => void }) {
       await reload(false);
     });
 
+  /** Merges every conflicted file with git's three-way algorithm, computed
+   *  in memory from the index stages: files that merge cleanly are staged
+   *  and disappear, the rest keep markers for the merge editor. */
+  const mergeConflictsInMemory = () =>
+    withBusy(async () => {
+      const list = snapshotRef.current?.conflicts ?? [];
+      const ours = state?.opOurs ?? "";
+      const theirs = state?.opTheirs ?? "";
+      let done = 0;
+      let remaining = 0;
+      for (const conflict of list) {
+        try {
+          const content = await Git.conflict(conflict.path);
+          const result = await mergeConflictInMemory(conflict.path, ours, theirs, content.working);
+          if (result.clean) {
+            done++;
+            closeDoc(`conflict:${conflict.path}`);
+          } else {
+            remaining += result.conflicts;
+          }
+        } catch {
+          // A binary file, a link or a deleted side has no line merge; it
+          // stays for the reader to choose a side.
+          remaining++;
+        }
+      }
+      notify("success", t("simpleResolved", { n: done }), remaining > 0 ? t("stillUnresolved", { n: remaining }) : undefined);
+      await reload(false);
+    });
+
   const createTag = async (opts: { name: string; message: string; revision: string; force: boolean }) => {
     setDialog(null);
     await withBusy(async () => {
@@ -3258,6 +3289,7 @@ function AppShell({ onLangChange }: { onLangChange: (lang: Lang) => void }) {
           }}
           onTakeSide={(paths, side) => void takeSideAll(paths, side)}
           onResolveSimple={() => void resolveSimpleConflictsAll()}
+          onMergeInMemory={() => void mergeConflictsInMemory()}
           onContinue={() => {
             setDialog(null);
             void continueOperation();

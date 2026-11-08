@@ -314,6 +314,7 @@ const T = {
     "conflicts.allResolved": "All conflicts resolved",
     "conflicts.files": "{n} files",
     "conflicts.solveSimple": "Resolve all simple conflicts",
+    "conflicts.mergeInMemory": "Three-way merge all",
     "conflicts.showDirs": "Show directories",
     "conflicts.accept": "Accept",
     "conflicts.acceptFinish": "Accept and Finish",
@@ -588,6 +589,7 @@ const T = {
     "conflicts.allResolved": "所有冲突已解决",
     "conflicts.files": "{n} 文件",
     "conflicts.solveSimple": "解决所有简单冲突",
+    "conflicts.mergeInMemory": "全部三方合并",
     "conflicts.showDirs": "显示目录",
     "conflicts.accept": "接受",
     "conflicts.acceptFinish": "接受并完成",
@@ -2778,6 +2780,7 @@ export function ConflictSummaryDialog({
   onOpen,
   onTakeSide,
   onResolveSimple,
+  onMergeInMemory,
   onContinue,
 }: {
   operation: string;
@@ -2790,6 +2793,8 @@ export function ConflictSummaryDialog({
   onOpen: (path: string) => void;
   onTakeSide: (paths: string[], side: "ours" | "theirs") => void;
   onResolveSimple: () => void;
+  /** Merge every file with git's three-way algorithm, in memory. */
+  onMergeInMemory: () => void;
   onContinue: () => void;
 }) {
   const t = useT(T);
@@ -2923,6 +2928,9 @@ export function ConflictSummaryDialog({
       <div className="conflict-dialog-toolbar">
         <Button size="small" onClick={onResolveSimple} disabled={conflicts.length === 0}>
           <Icon name="sparkle" size={12} /> {t("conflicts.solveSimple")}
+        </Button>
+        <Button size="small" onClick={onMergeInMemory} disabled={conflicts.length === 0}>
+          <Icon name="merge" size={12} /> {t("conflicts.mergeInMemory")}
         </Button>
         <span className="spacer" />
         <Button size="small" onClick={() => onTakeSide(chosen, "ours")} disabled={chosen.length === 0}>

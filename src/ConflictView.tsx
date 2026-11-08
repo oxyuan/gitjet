@@ -91,6 +91,8 @@ const T = {
     fromChanges: "Changes from {name}",
     showDetails: "Show details",
     resolveSimple: "Resolve simple conflicts",
+    autoMerge: "Three-way merge",
+    autoMergeHint: "Merge the three stages with git's algorithm, in memory: the result is staged when nothing conflicts",
     compareContents: "Compare contents",
     accept: "Accept",
     resolveUsingLocal: "Resolve Using Left",
@@ -185,6 +187,8 @@ const T = {
     fromChanges: "来自 {name} 的更改",
     showDetails: "显示详细信息",
     resolveSimple: "解决简单冲突",
+    autoMerge: "三方合并",
+    autoMergeHint: "按 git 的算法在内存中合并三个阶段：没有冲突时直接暂存，有冲突时写入标记继续处理",
     compareContents: "比较内容",
     accept: "接受",
     resolveUsingLocal: "使用左侧解决",
@@ -467,6 +471,7 @@ export function ConflictView({
   onClose,
   onShowHistory,
   onDirtyChange,
+  onAutoMerge,
   visible = true,
 }: {
   path: string;
@@ -480,6 +485,9 @@ export function ConflictView({
   onClose: () => void;
   onShowHistory?: (line: number) => void;
   onDirtyChange?: (dirty: boolean) => void;
+  /** Merge the three stages in memory and write the result; the host owns
+   *  the repository call and the reload that follows it. */
+  onAutoMerge?: () => void;
   visible?: boolean;
 }) {
   const t = useT(T);
@@ -1624,6 +1632,15 @@ export function ConflictView({
             onClick={autoResolve}
             disabled={unresolved === 0}
           />
+          {onAutoMerge && (
+            <IconButton
+              icon="merge"
+              title={t("autoMergeHint")}
+              small
+              onClick={onAutoMerge}
+              disabled={busy}
+            />
+          )}
           <IconButton icon="undo" title={t("undo")} small onClick={undo} />
           <IconButton icon="redo" title={t("redo")} small onClick={redo} />
           <span className="spacer" />

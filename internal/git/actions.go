@@ -5,7 +5,6 @@ import (
 	"errors"
 	"fmt"
 	"os"
-	"path/filepath"
 	"sort"
 	"strconv"
 	"strings"
@@ -956,41 +955,6 @@ func (r *Repo) Conflict(ctx context.Context, path string) (ConflictContent, erro
 	}
 	c.Binary = looksBinary(c.Base) || looksBinary(c.Ours) || looksBinary(c.Theirs) || looksBinary(c.Working)
 	return c, nil
-}
-
-// SaveResolution writes the result pane. It stages the path only when the
-// content has no conflict markers left, which is what the IDE does: saving
-// a half-resolved file keeps it unmerged for git.
-func (r *Repo) SaveResolution(ctx context.Context, path, content string, stage bool) error {
-	clean, err := cleanPath(path)
-	if err != nil {
-		return err
-	}
-	r.write.Lock()
-	defer r.write.Unlock()
-	abs := r.AbsPath(clean)
-	// Writing through a link would change the file it points at and leave the
-	// link (what git stages) untouched; a submodule is a directory. Neither is
-	// merged as text, so refuse instead of writing something nobody asked for.
-	if fi, err := os.Lstat(abs); err == nil {
-		if fi.Mode()&os.ModeSymlink != 0 {
-			return errors.New("this conflict is a symbolic link; choose a side instead")
-		}
-		if fi.IsDir() {
-			return errors.New("this conflict is a directory; choose a side instead")
-		}
-	}
-	if err := os.MkdirAll(filepath.Dir(abs), 0o755); err != nil {
-		return err
-	}
-	if err := os.WriteFile(abs, []byte(content), 0o644); err != nil {
-		return err
-	}
-	if !stage {
-		return nil
-	}
-	_, err = r.run(ctx, "add", "-A", "--", literalPath(clean))
-	return err
 }
 
 // CountConflictMarkers counts the conflict blocks a working file still

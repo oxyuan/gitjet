@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { ConflictView } from "./ConflictView";
 import { LangProvider, resolveLang } from "./i18n";
 import { Git, Workspace, events, type Bootstrap, type ConflictContent, type MergeDetails } from "./mygo";
+import { mergeConflictInMemory } from "./conflictMerge";
 
 const T = {
   en: {
@@ -178,6 +179,21 @@ export function MergeWindow({ path }: { path: string }) {
         }
         onClose={() => void Workspace.closeWindow()}
         onDirtyChange={setDirty}
+        onAutoMerge={() =>
+          void run(async () => {
+            const result = await mergeConflictInMemory(
+              path,
+              boot?.repo?.state.opOurs ?? "",
+              boot?.repo?.state.opTheirs ?? "",
+              conflict.working,
+            );
+            // A clean merge removes the conflict, so hand over to the next
+            // one; the markers stay on screen when something is left to
+            // decide, and reloading is what rebuilds the blocks around them.
+            if (result.clean) await finish();
+            else await load();
+          })
+        }
       />
     </div>
     </LangProvider>

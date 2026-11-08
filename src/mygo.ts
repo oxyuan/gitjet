@@ -375,6 +375,22 @@ export interface MergeOptions {
   allowUnrelatedHistories: boolean;
 }
 
+export interface MergePreview {
+  path: string;
+  content: string;
+  conflicts: number;
+  hasBase: boolean;
+  hasOurs: boolean;
+  hasTheirs: boolean;
+}
+
+export interface MergePreviewRequest {
+  path: string;
+  ours: string;
+  base: string;
+  theirs: string;
+}
+
 export interface MergeSide {
   branch: string;
   hash: string;
@@ -1092,6 +1108,14 @@ export const Git = {
   /** MergeDetails describes the commits both sides of the operation point at. */
   mergeDetails(): Promise<MergeDetails> {
     return call("Git.MergeDetails");
+  },
+  /**
+   * MergePreview merges a conflicted path's three stages in memory: the
+   * working tree is neither read nor written, so the page can show what a
+   * full three-way merge would be before anything is decided.
+   */
+  mergePreview(req: MergePreviewRequest): Promise<MergePreview> {
+    return call("Git.MergePreview", req);
   },
   /** MessageHistory returns messages used in this repository. */
   messageHistory(): Promise<string[]> {

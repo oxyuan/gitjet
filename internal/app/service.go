@@ -1618,6 +1618,17 @@ func (g *Git) Conflict(path string) (git.ConflictContent, error) {
 	return repo.Conflict(context.Background(), path)
 }
 
+// MergePreview merges a conflicted path's three stages in memory: the
+// working tree is neither read nor written, so the page can show what a
+// full three-way merge would be before anything is decided.
+func (g *Git) MergePreview(req git.MergePreviewRequest) (git.MergePreview, error) {
+	repo, err := g.c.currentRepo()
+	if err != nil {
+		return git.MergePreview{}, err
+	}
+	return repo.MergePreview(context.Background(), req)
+}
+
 // SaveResolution writes the result pane and stages the path when the
 // content no longer has conflict markers.
 func (g *Git) SaveResolution(path, content string, stage bool) error {

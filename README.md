@@ -42,7 +42,7 @@ Go 调用你机器上的 git，React 画界面。hooks、filters、credential he
 - ✍️ **提交** —— amend、sign-off、GPG 与签名校验、模板、只提交选中更改、提交前检查、撤销提交、fixup / squash。
 - 🌿 **分支与远端** —— 检出 / 更新、标签、清理已合并分支、工作树、子模块、LFS、钩子、push 预览与 refspec。
 - 🕰️ **历史** —— 多 lane 提交图、过滤与搜索、任意比较、cherry-pick / revert / reset、文件历史、blame。
-- 🔀 **冲突与重写** —— 三栏合并；merge / rebase / cherry-pick / revert 的继续、跳过与中止；交互式 rebase。
+- 🔀 **冲突与重写** —— 三栏合并与内存三方合并（按 git 的 diff3 算法，不触碰工作区即可暂存结果）；merge / rebase / cherry-pick / revert 的继续、跳过与中止；交互式 rebase。
 - 👀 **阅读** —— 并排 / 统一差异、图片对照、可编辑源码、LSP、快速打开、多标签。
 - 🖥️ **工具** —— 控制台与操作日志、快捷键、主题与语言、最近仓库、系统集成。
 
