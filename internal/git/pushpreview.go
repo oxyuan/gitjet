@@ -92,24 +92,29 @@ func (r *Repo) PushPreview(ctx context.Context, remote, branch, remoteBranch str
 
 	if other != "" {
 		p.Ahead = r.countCommits(ctx, other+".."+branch)
-		p.Behind = r.countCommits(ctx, branch+".."+other)
 		if out, err := r.run(ctx, "merge-base", branch, other); err == nil {
 			p.Base = strings.TrimSpace(out)
 		}
 		if out, err := r.run(ctx, "rev-parse", "--short", other); err == nil {
 			p.RemoteTip = strings.TrimSpace(out)
 		}
-		// A remote branch that is not an ancestor of the local one has
-		// commits the local branch never saw: pushing would overwrite them.
-		if _, err := r.run(ctx, "merge-base", "--is-ancestor", other, branch); err != nil {
-			var gerr *Error
-			p.Diverged = errors.As(err, &gerr) && gerr.Code == 1
+		// A branch the remote does not have yet cannot be behind it and
+		// cannot overwrite anything: the substitute ref above only narrows
+		// the list of commits and files that would be sent.
+		if !p.Creates {
+			p.Behind = r.countCommits(ctx, branch+".."+other)
+			// A remote branch that is not an ancestor of the local one has
+			// commits the local branch never saw: pushing would overwrite them.
+			if _, err := r.run(ctx, "merge-base", "--is-ancestor", other, branch); err != nil {
+				var gerr *Error
+				p.Diverged = errors.As(err, &gerr) && gerr.Code == 1
+			}
 		}
 	} else {
 		p.Ahead = r.countCommits(ctx, branch)
 	}
 
-	args := []string{"log", "--no-color", "--no-show-signature", "--max-count=" + strconv.Itoa(pushPreviewLimit+1), logFormat}
+	args := []string{"log", "--no-color", "--no-show-signature", "--decorate=full", "--max-count=" + strconv.Itoa(pushPreviewLimit+1), logFormat}
 	if other != "" {
 		args = append(args, other+".."+branch)
 	} else {
@@ -125,7 +130,11 @@ func (r *Repo) PushPreview(ctx context.Context, remote, branch, remoteBranch str
 
 	from := p.Base
 	if from == "" {
-		from = emptyTree
+		empty, err := r.emptyTreeObject(ctx)
+		if err != nil {
+			return p, err
+		}
+		from = empty
 	}
 	if files, err := r.diffFiles(ctx, from, branch); err == nil {
 		p.Files = files

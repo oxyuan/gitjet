@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"sort"
 	"strconv"
 	"strings"
 )
@@ -140,16 +141,38 @@ func copyWorktreeIncludes(from, to string) {
 		if _, err := os.Stat(dst); err == nil {
 			continue
 		}
-		_ = copyTree(src, dst)
+		budget := worktreeCopyBudget
+		_ = copyTree(src, dst, &budget)
 	}
 }
 
-func copyTree(src, dst string) error {
-	info, err := os.Stat(src)
+// worktreeCopyBudget bounds one .worktreeinclude entry. Copying follows
+// no link and no directory twice, but a listed folder can still hold a
+// whole toolchain, and this runs inside a call the page is waiting for.
+const worktreeCopyBudget = 20000
+
+func copyTree(src, dst string, budget *int) error {
+	if *budget <= 0 {
+		return nil
+	}
+	*budget--
+	// Lstat, not Stat: a link is copied as a link. Following it can copy a
+	// whole disk, and following a link to an ancestor never ends.
+	info, err := os.Lstat(src)
 	if err != nil {
 		return err
 	}
-	if !info.IsDir() {
+	switch {
+	case info.Mode()&os.ModeSymlink != 0:
+		target, err := os.Readlink(src)
+		if err != nil {
+			return err
+		}
+		if err := os.MkdirAll(filepath.Dir(dst), 0o755); err != nil {
+			return err
+		}
+		return os.Symlink(target, dst)
+	case !info.IsDir():
 		data, err := os.ReadFile(src)
 		if err != nil {
 			return err
@@ -167,7 +190,7 @@ func copyTree(src, dst string) error {
 		return err
 	}
 	for _, entry := range entries {
-		if err := copyTree(filepath.Join(src, entry.Name()), filepath.Join(dst, entry.Name())); err != nil {
+		if err := copyTree(filepath.Join(src, entry.Name()), filepath.Join(dst, entry.Name()), budget); err != nil {
 			return err
 		}
 	}
@@ -329,50 +352,34 @@ func (r *Repo) StashFiles(ctx context.Context, index int) ([]StashFile, error) {
 		return nil, errors.New("invalid stash")
 	}
 	ref := "stash@{" + strconv.Itoa(index) + "}"
-	out, err := r.run(ctx, "stash", "show", "-u", "--numstat", "--format=", ref)
+	// -z keeps git from C-quoting paths: a stash of "dir with space/é.txt"
+	// arrives as the name it is, not as "dir with space/\303\251.txt".
+	out, err := r.run(ctx, "stash", "show", "-u", "--numstat", "-z", "--format=", ref)
 	if err != nil {
 		return []StashFile{}, err
 	}
+	records := strings.Split(out, "\x00")
 	files := []StashFile{}
-	for _, line := range strings.Split(out, "\n") {
-		if strings.TrimSpace(line) == "" {
+	for i := 0; i < len(records); i++ {
+		record := strings.TrimPrefix(records[i], "\n")
+		if strings.TrimSpace(record) == "" {
 			continue
 		}
-		f := strings.SplitN(line, "\t", 3)
+		f := strings.SplitN(record, "\t", 3)
 		if len(f) < 3 {
 			continue
 		}
 		file := StashFile{Path: f[2], Additions: atoi(f[0]), Deletions: atoi(f[1])}
 		file.Binary = f[0] == "-" || f[1] == "-"
-		// A rename prints "old => new" or "dir/{old => new}".
-		if strings.Contains(f[2], "=>") {
-			file.OldPath, file.Path = splitRename(f[2])
+		if file.Path == "" && i+2 < len(records) {
+			// With -z a rename names its two sides as separate records.
+			file.OldPath = records[i+1]
+			file.Path = records[i+2]
+			i += 2
 		}
 		files = append(files, file)
 	}
 	return files, nil
-}
-
-// splitRename splits git's compact rename path into its two sides.
-func splitRename(path string) (oldPath, newPath string) {
-	if open := strings.Index(path, "{"); open >= 0 {
-		if closeIdx := strings.Index(path[open:], "}"); closeIdx >= 0 {
-			closeIdx += open
-			inner := path[open+1 : closeIdx]
-			from, to, ok := strings.Cut(inner, " => ")
-			if !ok {
-				return "", path
-			}
-			prefix := path[:open]
-			suffix := path[closeIdx+1:]
-			return prefix + strings.TrimSpace(from) + suffix, prefix + strings.TrimSpace(to) + suffix
-		}
-	}
-	from, to, ok := strings.Cut(path, " => ")
-	if !ok {
-		return "", path
-	}
-	return from, to
 }
 
 // StashToBranch restores a stash on a new branch cut from the commit the
@@ -458,15 +465,17 @@ func (r *Repo) Submodules(ctx context.Context) ([]Submodule, error) {
 			state = "conflict"
 		}
 		rest := strings.TrimLeft(line, "-+U ")
-		fields := strings.Fields(rest)
 		s := Submodule{State: state}
-		if len(fields) >= 2 {
-			s.Hash = fields[0]
-			s.Short = short(fields[0])
-			s.Path = fields[1]
-		}
-		if len(fields) > 2 {
-			s.Describe = strings.Trim(fields[2], "()")
+		// "<hash> <path> (<describe>)": the path may contain spaces, so it
+		// runs to the describe suffix rather than to the next field.
+		if hash, tail, ok := strings.Cut(rest, " "); ok {
+			s.Hash = hash
+			s.Short = short(hash)
+			s.Path = tail
+			if i := strings.LastIndex(tail, " ("); i >= 0 && strings.HasSuffix(tail, ")") {
+				s.Path = tail[:i]
+				s.Describe = tail[i+2 : len(tail)-1]
+			}
 		}
 		if c, ok := byPath[s.Path]; ok {
 			s.URL = c.url
@@ -539,15 +548,23 @@ func (r *Repo) LFS(ctx context.Context) LFSStatus {
 		return status
 	}
 	status.Installed = true
-	if fields := strings.Fields(out); len(fields) > 2 {
-		status.Version = strings.TrimSuffix(fields[2], "/")
+	// "git-lfs/3.5.1 (GitHub.com; darwin arm64; go 1.21)" — the version is
+	// the part after the slash of the first word, not the third word.
+	if fields := strings.Fields(out); len(fields) > 0 {
+		status.Version = strings.TrimPrefix(strings.TrimSuffix(fields[0], "/"), "git-lfs/")
 	}
 	if out, err := r.run(ctx, "lfs", "ls-files", "-l"); err == nil {
 		for _, line := range strings.Split(out, "\n") {
-			f := strings.Fields(line)
-			if len(f) >= 3 {
-				status.Files = append(status.Files, LFSFile{Path: f[len(f)-1], Oid: f[0]})
+			// "<oid> <*|-> <path>": the path may contain spaces.
+			oid, rest, ok := strings.Cut(strings.TrimSpace(line), " ")
+			if !ok {
+				continue
 			}
+			_, path, ok := strings.Cut(strings.TrimSpace(rest), " ")
+			if !ok || path == "" {
+				continue
+			}
+			status.Files = append(status.Files, LFSFile{Path: path, Oid: oid})
 		}
 	}
 	return status
@@ -657,4 +674,69 @@ func diffKind(status string) string {
 	default:
 		return "modified"
 	}
+}
+
+// Hook is one executable in the repository's hooks directory.
+type Hook struct {
+	Name string `json:"name"`
+	Path string `json:"path"`
+	// Executable is false for a hook git would refuse to run.
+	Executable bool `json:"executable"`
+	// Sample marks the ".sample" files git ships, which do not run.
+	Sample bool `json:"sample"`
+}
+
+// Hooks lists the hooks this repository would actually run. Git keeps them
+// outside the working tree, so a hook that reformats or rejects a commit is
+// invisible in the app unless it is named here.
+func (r *Repo) Hooks(ctx context.Context) ([]Hook, error) {
+	dir := ""
+	if out, err := r.run(ctx, "config", "--get", "core.hooksPath"); err == nil {
+		dir = strings.TrimSpace(out)
+	}
+	if dir == "" {
+		dir = filepath.Join(r.gitDir, "hooks")
+	} else if !filepath.IsAbs(dir) {
+		dir = filepath.Join(r.dir, dir)
+	}
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return []Hook{}, nil
+		}
+		return nil, err
+	}
+	hooks := []Hook{}
+	for _, entry := range entries {
+		if entry.IsDir() {
+			continue
+		}
+		info, err := entry.Info()
+		if err != nil {
+			continue
+		}
+		name := entry.Name()
+		// Git runs a hook only under its plain name: a ".sample" file is a
+		// template even when the template directory made it executable.
+		sample := strings.HasSuffix(name, ".sample")
+		if sample {
+			// The sample keeps its full name: it is the file the reader
+			// has to rename, and two rows must not claim the same name.
+			hooks = append(hooks, Hook{Name: name, Path: filepath.Join(dir, name), Executable: false, Sample: true})
+			continue
+		}
+		hooks = append(hooks, Hook{
+			Name:       name,
+			Path:       filepath.Join(dir, entry.Name()),
+			Executable: info.Mode().Perm()&0o111 != 0,
+			Sample:     sample,
+		})
+	}
+	sort.Slice(hooks, func(i, j int) bool {
+		if hooks[i].Sample != hooks[j].Sample {
+			return !hooks[i].Sample
+		}
+		return hooks[i].Name < hooks[j].Name
+	})
+	return hooks, nil
 }

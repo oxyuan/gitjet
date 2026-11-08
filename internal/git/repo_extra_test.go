@@ -2,7 +2,9 @@ package git
 
 import (
 	"context"
+	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -203,5 +205,49 @@ func TestTreeListsEveryFileIncludingUntracked(t *testing.T) {
 		if files[i-1].Path > files[i].Path {
 			t.Fatalf("not sorted: %q before %q", files[i-1].Path, files[i].Path)
 		}
+	}
+}
+
+func TestHooksListsWhatGitWouldRun(t *testing.T) {
+	repo, dir := newTestRepo(t)
+	hooksDir := filepath.Join(dir, ".git", "hooks")
+	if err := os.MkdirAll(hooksDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	live := filepath.Join(hooksDir, "pre-commit")
+	if err := os.WriteFile(live, []byte("#!/bin/sh\nexit 0\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(hooksDir, "commit-msg.sample"), []byte("#!/bin/sh\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	hooks, err := repo.Hooks(context.Background())
+	if err != nil {
+		t.Fatalf("Hooks: %v", err)
+	}
+	byName := map[string]Hook{}
+	for _, hook := range hooks {
+		byName[hook.Name] = hook
+	}
+	pre, ok := byName["pre-commit"]
+	if !ok || !pre.Executable || pre.Sample {
+		t.Fatalf("pre-commit = %+v, want an executable hook", pre)
+	}
+	// GitHub's own templates are executable on disk; only the name decides
+	// whether git runs one.
+	if sample := byName["pre-commit.sample"]; !sample.Sample {
+		t.Fatalf("pre-commit.sample = %+v, want a template", sample)
+	}
+	for _, hook := range hooks {
+		if strings.HasSuffix(hook.Path, ".sample") && !hook.Sample {
+			t.Fatalf("%s is a template but was listed as live", hook.Path)
+		}
+	}
+	if msg, ok := byName["commit-msg.sample"]; !ok || !msg.Sample {
+		t.Fatalf("commit-msg sample = %+v", msg)
+	}
+	if hooks[0].Sample {
+		t.Fatal("a sample was listed before a live hook")
 	}
 }

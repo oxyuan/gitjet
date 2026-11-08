@@ -120,7 +120,9 @@ func (r *Repo) Log(ctx context.Context, opts LogOptions) (LogResult, error) {
 			opts.All = false
 		}
 	}
-	args := []string{"log", "--topo-order", "--no-color", "--no-show-signature"}
+	// Full ref names keep a branch and a tag called "v1" apart; the short
+	// form would invent "heads/v1" and break checkout.
+	args := []string{"log", "--topo-order", "--no-color", "--no-show-signature", "--decorate=full"}
 	if opts.FirstParent {
 		args = append(args, "--first-parent")
 	}
@@ -164,7 +166,7 @@ func (r *Repo) Log(ctx context.Context, opts LogOptions) (LogResult, error) {
 			if opts.Follow {
 				args = append(args, "--follow")
 			}
-			args = append(args, "--", path)
+			args = append(args, "--", literalPath(path))
 		}
 	}
 	out, err := r.run(ctx, args...)
@@ -248,7 +250,7 @@ func parseRefDecorations(s string) []CommitRef {
 		ref := CommitRef{}
 		switch {
 		case strings.HasPrefix(part, "HEAD -> "):
-			ref.Name = strings.TrimPrefix(part, "HEAD -> ")
+			ref.Name = shortRefName(strings.TrimPrefix(part, "HEAD -> "))
 			ref.Type = "head"
 			ref.Head = true
 		case part == "HEAD":
@@ -256,7 +258,7 @@ func parseRefDecorations(s string) []CommitRef {
 			ref.Type = "head"
 			ref.Head = true
 		case strings.HasPrefix(part, "tag: "):
-			ref.Name = strings.TrimPrefix(part, "tag: ")
+			ref.Name = strings.TrimPrefix(strings.TrimPrefix(part, "tag: "), "refs/tags/")
 			ref.Type = "tag"
 		case strings.HasPrefix(part, "refs/heads/"):
 			ref.Name = strings.TrimPrefix(part, "refs/heads/")
@@ -285,12 +287,24 @@ func parseRefDecorations(s string) []CommitRef {
 	return out
 }
 
+// shortRefName strips the namespace a full ref name carries, without the
+// ambiguity of git's ":short" form, which spells a branch that shares its
+// name with a tag as "heads/v1".
+func shortRefName(full string) string {
+	for _, prefix := range []string{"refs/heads/", "refs/remotes/", "refs/tags/"} {
+		if strings.HasPrefix(full, prefix) {
+			return strings.TrimPrefix(full, prefix)
+		}
+	}
+	return full
+}
+
 // Refs lists local branches, remote branches and tags.
 func (r *Repo) Refs(ctx context.Context) (RefsSnapshot, error) {
 	format := strings.Join([]string{
 		"%(refname)", "%(objectname)", "%(upstream)", "%(upstream:track)",
 		"%(HEAD)", "%(committerdate:unix)", "%(subject)", "%(symref)",
-		"%(refname:short)", "%(*objectname)",
+		"%(*objectname)",
 	}, "%00")
 	out, err := r.run(ctx, "for-each-ref", "--format="+format, "refs/heads", "refs/remotes", "refs/tags")
 	if err != nil {
@@ -302,13 +316,13 @@ func (r *Repo) Refs(ctx context.Context) (RefsSnapshot, error) {
 			continue
 		}
 		f := strings.Split(line, "\x00")
-		if len(f) < 10 {
+		if len(f) < 9 {
 			continue
 		}
 		full := f[0]
 		ref := RepoRef{
 			FullName: full,
-			Name:     f[8],
+			Name:     shortRefName(full),
 			Hash:     f[1],
 			Short:    short(f[1]),
 			Upstream: strings.TrimPrefix(f[2], "refs/remotes/"),
@@ -441,6 +455,19 @@ type CommitDetail struct {
 	Branches []string `json:"branches"`
 	// Tags lists the tags whose history contains this commit.
 	Tags []string `json:"tags"`
+	// Signature is what git says about the commit's signature, which is
+	// how a reader knows the commit is the one its author made.
+	Signature CommitSignature `json:"signature"`
+}
+
+// CommitSignature is the result of verifying a commit's signature. Status
+// holds git's own letter: G good, B bad, U good but untrusted, X expired
+// signature, Y expired key, R revoked key, E cannot check, N unsigned.
+type CommitSignature struct {
+	Status  string `json:"status"`
+	Signer  string `json:"signer"`
+	Key     string `json:"key"`
+	Checked bool   `json:"checked"`
 }
 
 // CommitFile is a path a commit changed.
@@ -466,7 +493,7 @@ func (r *Repo) ShowCommit(ctx context.Context, hash string) (CommitDetail, error
 	if hash == "" || strings.ContainsAny(hash, " \t\n") {
 		return CommitDetail{}, errors.New("invalid revision")
 	}
-	out, err := r.run(ctx, "show", "-s", "--no-color", "--format=%H%x1f%P%x1f%an%x1f%ae%x1f%at%x1f%cn%x1f%ce%x1f%ct%x1f%D%x1f%s%x1f%b", hash)
+	out, err := r.run(ctx, "show", "-s", "--no-color", "--decorate=full", "--format=%H%x1f%P%x1f%an%x1f%ae%x1f%at%x1f%cn%x1f%ce%x1f%ct%x1f%D%x1f%s%x1f%b", hash)
 	if err != nil {
 		return CommitDetail{}, err
 	}
@@ -504,6 +531,7 @@ func (r *Repo) ShowCommit(ctx context.Context, hash string) (CommitDetail, error
 	detail.Stats.Files = len(files)
 	detail.Branches = r.branchesContaining(ctx, c.Hash)
 	detail.Tags = r.tagsContaining(ctx, c.Hash)
+	detail.Signature = r.commitSignature(ctx, c.Hash)
 	return detail, nil
 }
 
@@ -564,9 +592,15 @@ func (r *Repo) tagsContaining(ctx context.Context, hash string) []string {
 // commitFiles lists the files a commit changed against its first parent
 // and counts their lines with numstat.
 func (r *Repo) commitFiles(ctx context.Context, c Commit) ([]CommitFile, error) {
-	from := emptyTree
+	from := ""
 	if len(c.Parents) > 0 {
 		from = c.Parents[0]
+	} else {
+		empty, err := r.emptyTreeObject(ctx)
+		if err != nil {
+			return nil, err
+		}
+		from = empty
 	}
 	return r.diffFiles(ctx, from, c.Hash)
 }
@@ -678,4 +712,24 @@ func (r *Repo) Remotes(ctx context.Context) ([]Remote, error) {
 		remotes = append(remotes, rem)
 	}
 	return remotes, nil
+}
+
+// commitSignature asks git to verify a commit's signature. Verification is
+// per commit rather than per listing: it runs gpg for each one, and a log of
+// three hundred commits should not.
+func (r *Repo) commitSignature(ctx context.Context, hash string) CommitSignature {
+	out, err := r.run(ctx, "log", "-1", "--no-color", "--format=%G?%x00%GS%x00%GK", hash)
+	if err != nil {
+		return CommitSignature{}
+	}
+	fields := strings.SplitN(strings.TrimRight(out, "\n"), "\x00", 3)
+	for len(fields) < 3 {
+		fields = append(fields, "")
+	}
+	return CommitSignature{
+		Status:  strings.TrimSpace(fields[0]),
+		Signer:  strings.TrimSpace(fields[1]),
+		Key:     strings.TrimSpace(fields[2]),
+		Checked: true,
+	}
 }

@@ -83,11 +83,10 @@ func InitRepo(ctx context.Context, gitPath, dir, branch string) (string, error) 
 	if out := r.runQuiet(ctx, "rev-parse", "--show-toplevel"); out != "" {
 		return "", fmt.Errorf("%s is already inside a git repository", abs)
 	}
-	args := []string{"init"}
-	if _, err := r.run(ctx, "check-ref-format", "--branch", branch); err == nil {
-		args = append(args, "-b", branch)
+	if _, err := r.run(ctx, "check-ref-format", "--branch", branch); err != nil {
+		return "", fmt.Errorf("%q is not a valid branch name", branch)
 	}
-	args = append(args, ".")
+	args := []string{"init", "-b", branch, "."}
 	return r.run(ctx, args...)
 }
 

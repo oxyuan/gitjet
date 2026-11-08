@@ -113,7 +113,7 @@ func (r *Repo) RenamePath(ctx context.Context, from, to string) error {
 	}
 	tracked := r.tracks(ctx, src)
 	if tracked {
-		if _, err := r.run(ctx, "mv", "--", src, dst); err == nil {
+		if _, err := r.run(ctx, "mv", "--", literalPath(src), dst); err == nil {
 			return nil
 		}
 	}
@@ -125,13 +125,13 @@ func (r *Repo) RenamePath(ctx context.Context, from, to string) error {
 	}
 	// git refused the move (a mixed tracked/untracked directory, for one),
 	// so stage the index side of the move by hand.
-	_, err = r.run(ctx, "add", "-A", "--", src, dst)
+	_, err = r.run(ctx, "add", "-A", "--", literalPath(src), literalPath(dst))
 	return err
 }
 
 // tracks reports whether git has an index entry at or below path.
 func (r *Repo) tracks(ctx context.Context, path string) bool {
-	_, err := r.run(ctx, "ls-files", "--error-unmatch", "--", path)
+	_, err := r.run(ctx, "ls-files", "--error-unmatch", "--", literalPath(path))
 	return err == nil
 }
 
@@ -152,6 +152,6 @@ func (r *Repo) DeletePath(ctx context.Context, path string) error {
 	if !tracked {
 		return nil
 	}
-	_, err = r.run(ctx, "add", "-A", "--", clean)
+	_, err = r.run(ctx, "add", "-A", "--", literalPath(clean))
 	return err
 }

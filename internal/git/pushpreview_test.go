@@ -82,6 +82,11 @@ func TestPushPreviewOfANewBranchComparesWithTheRemoteBranchItCameFrom(t *testing
 	if p.Head == "" {
 		t.Error("Head is empty, want the branch tip")
 	}
+	// Nothing exists on the remote to be behind or to overwrite: a new
+	// branch that grew from origin/main must not report itself as diverged.
+	if p.Behind != 0 || p.Diverged {
+		t.Errorf("Behind = %d, Diverged = %v, want 0 and false", p.Behind, p.Diverged)
+	}
 }
 
 func TestPushPreviewRejectsAnUnknownBranch(t *testing.T) {

@@ -50,3 +50,23 @@ func TestRefsAheadWithoutUpstream(t *testing.T) {
 		t.Fatalf("ahead/behind = %d/%d, want 2/0", got.Ahead, got.Behind)
 	}
 }
+
+func TestRefsKeepsABranchAndATagWithTheSameNameApart(t *testing.T) {
+	repo, dir := newTestRepo(t)
+	runGit(t, dir, "branch", "v1")
+	runGit(t, dir, "tag", "v1")
+
+	snap, err := repo.Refs(context.Background())
+	if err != nil {
+		t.Fatalf("Refs: %v", err)
+	}
+	names := []string{}
+	for _, ref := range append(append([]RepoRef{}, snap.Local...), snap.Tags...) {
+		names = append(names, ref.Name)
+	}
+	for _, name := range names {
+		if name != "v1" && name != "main" {
+			t.Fatalf("ref name %q is not the name git shows", name)
+		}
+	}
+}

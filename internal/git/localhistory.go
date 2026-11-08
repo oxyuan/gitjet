@@ -96,13 +96,17 @@ func (r *Repo) SnapshotLocal(path, label string) (LocalHistoryEntry, bool, error
 	r.history.Lock()
 	defer r.history.Unlock()
 	entries := r.readHistory()
-	for i, entry := range entries {
-		if entry.Path == clean && entry.Digest == digest {
-			if label != "" && entry.Label != label {
-				entries[i].Label = label
+	// Only the newest entry for this path can be the same content. Turning
+	// a file back into what it held an hour ago is a new step in its
+	// history, not a duplicate of the older one.
+	if n := len(entries); n > 0 {
+		last := entries[n-1]
+		if last.Path == clean && last.Digest == digest {
+			if label != "" && last.Label != label {
+				entries[n-1].Label = label
 				_ = r.writeHistory(entries)
 			}
-			return entries[i], false, nil
+			return last, false, nil
 		}
 	}
 	if err := os.MkdirAll(filepath.Join(r.historyDir(), "blobs"), 0o755); err != nil {
@@ -126,7 +130,29 @@ func (r *Repo) SnapshotLocal(path, label string) (LocalHistoryEntry, bool, error
 	if err := r.writeHistory(entries); err != nil {
 		return entry, true, err
 	}
+	r.collectHistoryGarbage(entries)
 	return entry, true, nil
+}
+
+// collectHistoryGarbage removes the blobs no entry refers to any more:
+// pruning the index alone would let the history directory grow without a
+// bound. The caller holds r.history.
+func (r *Repo) collectHistoryGarbage(entries []LocalHistoryEntry) {
+	live := make(map[string]bool, len(entries))
+	for _, entry := range entries {
+		live[entry.Digest] = true
+	}
+	dir := filepath.Join(r.historyDir(), "blobs")
+	names, err := os.ReadDir(dir)
+	if err != nil {
+		return
+	}
+	for _, name := range names {
+		if name.IsDir() || live[name.Name()] {
+			continue
+		}
+		_ = os.Remove(filepath.Join(dir, name.Name()))
+	}
 }
 
 // SnapshotChanged records every file in the working tree that has changes,
