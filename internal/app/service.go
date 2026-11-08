@@ -5,12 +5,14 @@ import (
 	"errors"
 	"fmt"
 	"log"
+	"net/url"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"runtime"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"gitjet/internal/git"
@@ -18,6 +20,15 @@ import (
 	"github.com/egoist/mygo"
 	"github.com/egoist/mygo/transfer"
 )
+
+// Bootstrap is the state the page needs when it starts.
+type Bootstrap struct {
+	Settings Settings             `json:"settings"`
+	Repo     *git.ChangesSnapshot `json:"repo"`
+	Error    string               `json:"error"`
+	Version  string               `json:"version"`
+	Platform string               `json:"platform"`
+}
 
 // Workspace is the bound service for app-level actions: choosing and
 // opening a repository, settings, and the recent list.
@@ -35,6 +46,41 @@ type Git struct {
 // including changes made outside the app.
 var RepoChanged = mygo.NewEvent[git.RepoState]("repo:changed")
 
+// Bootstrap returns settings, and reopens the last repository if it still
+// exists, like an IDE reopening the last project.
+func (w *Workspace) Bootstrap() (Bootstrap, error) {
+	b := Bootstrap{
+		Settings: w.c.settings,
+		Version:  "0.1.0",
+		Platform: runtime.GOOS + "/" + runtime.GOARCH,
+	}
+	w.c.mu.Lock()
+	startup := w.c.startup
+	recent := append([]RecentRepo(nil), w.c.settings.Recent...)
+	w.c.mu.Unlock()
+	if startup != "" {
+		snap, err := w.Open(startup)
+		if err != nil {
+			b.Error = err.Error()
+		} else {
+			b.Repo = &snap
+		}
+		return b, nil
+	}
+	if len(recent) > 0 {
+		path := recent[0].Path
+		if st, err := os.Stat(path); err == nil && st.IsDir() {
+			snap, err := w.Open(path)
+			if err == nil {
+				b.Repo = &snap
+			} else {
+				b.Error = err.Error()
+			}
+		}
+	}
+	return b, nil
+}
+
 // OpenInWindow starts another copy of the app on path, letting the caller
 // keep its own repository open. Each window is its own process, so the two
 // cannot share a repository, a poll loop or a settings write.
@@ -50,6 +96,84 @@ func (w *Workspace) OpenInWindow(path string) error {
 	cmd := exec.Command(exe, path)
 	cmd.Dir = path
 	return cmd.Start()
+}
+
+// mergeWindows tracks the separate merge-editor windows, so asking for the
+// same file twice focuses the one already showing it.
+var (
+	mergeMu      sync.Mutex
+	mergeWindows = map[string]*mygo.Window{}
+)
+
+// OpenMergeWindow shows one file's merge editor in its own window. IDEA
+// resolves a conflict in a window that belongs only to that file; closing it
+// leaves the repository window exactly as it was.
+func (w *Workspace) OpenMergeWindow(path string) error {
+	path = strings.TrimSpace(path)
+	if path == "" {
+		return errors.New("no file was given")
+	}
+	mergeMu.Lock()
+	if existing := mergeWindows[path]; existing != nil && !existing.IsDestroyed() {
+		mergeMu.Unlock()
+		existing.Show()
+		existing.Focus()
+		return nil
+	}
+	mergeMu.Unlock()
+	win := mygo.NewWindow(mygo.WindowOptions{
+		Title:           "Merge " + filepath.Base(path),
+		Width:           1240,
+		Height:          800,
+		MinWidth:        900,
+		MinHeight:       560,
+		BackgroundColor: "light-dark(#f5f5f7, #141416)",
+		URL:             "/?merge=" + url.QueryEscape(path),
+	})
+	mergeMu.Lock()
+	mergeWindows[path] = win
+	mergeMu.Unlock()
+	win.OnClosed(func() {
+		mergeMu.Lock()
+		if mergeWindows[path] == win {
+			delete(mergeWindows, path)
+		}
+		mergeMu.Unlock()
+	})
+	win.Focus()
+	return nil
+}
+
+// CloseWindow closes the window the call came from. The merge editor calls it
+// when its file is applied, saved or handed to the next conflict.
+func (w *Workspace) CloseWindow(ctx context.Context) error {
+	win := mygo.CallerWindow(ctx)
+	if win == nil || win.IsDestroyed() {
+		return nil
+	}
+	win.Close()
+	return nil
+}
+
+// ChooseFolder shows the native folder picker and returns the chosen
+// path, or "" when the user canceled.
+func (w *Workspace) ChooseFolder(ctx context.Context) (string, error) {
+	win := mygo.CallerWindow(ctx)
+	l := w.c.uiLang()
+	paths, err := mygo.Dialog.Open(mygo.OpenDialogOptions{
+		Parent:      win,
+		Title:       l.tr("dialog.openRepo"),
+		ButtonLabel: l.tr("dialog.openRepoButton"),
+		Directory:   true,
+		Message:     l.tr("dialog.openRepoMessage"),
+	})
+	if err != nil || len(paths) == 0 {
+		return "", err
+	}
+	if st, err := os.Stat(paths[0]); err == nil && !st.IsDir() {
+		return filepath.Dir(paths[0]), nil
+	}
+	return paths[0], nil
 }
 
 // Open opens a repository and returns its local changes.
@@ -100,12 +224,7 @@ func (w *Workspace) Clone(url, dir string, out *mygo.Channel[string]) (string, e
 	gitPath := w.c.settings.GitPath
 	w.c.mu.Unlock()
 	ctx, trace := git.WithCommandTrace(context.Background())
-	text, err := git.Clone(ctx, gitPath, url, dir, func(line string) {
-		if out != nil {
-			_ = out.Send(line)
-		}
-		w.c.emit(line)
-	})
+	text, err := git.Clone(ctx, gitPath, url, dir, func(line string) { _ = out.Send(line) })
 	return appendCommands(text, *trace), err
 }
 
@@ -312,7 +431,6 @@ func (c *core) startPolling() {
 					if _, ferr := repo.Fetch(fetchCtx, git.FetchOptions{All: true, Prune: true, TagsMode: tagsMode}, nil); ferr == nil {
 						if snap, serr := c.snapshot(fetchCtx, c.settings.ShowIgnored); serr == nil {
 							RepoChanged.Broadcast(snap.State)
-							c.changed()
 						}
 					}
 					fetchCancel()
@@ -337,7 +455,6 @@ func (c *core) startPolling() {
 				repo.SnapshotChanged(ctx, 40)
 				if snap, err := c.snapshot(ctx, c.settings.ShowIgnored); err == nil {
 					RepoChanged.Broadcast(snap.State)
-					c.changed()
 				}
 			}
 			cancel()
@@ -368,7 +485,6 @@ func (g *Git) notify() {
 		g.c.lastSig = ""
 		g.c.mu.Unlock()
 		RepoChanged.Broadcast(st.State)
-		g.c.changed()
 	}
 }
 
@@ -1160,12 +1276,7 @@ func (g *Git) Push(opts git.PushOptions, out *mygo.Channel[string]) (string, err
 	}
 	ctx, trace := git.WithCommandTrace(context.Background())
 	started := time.Now()
-	text, err := repo.Push(ctx, opts, func(line string) {
-		if out != nil {
-			_ = out.Send(line)
-		}
-		g.c.emit(line)
-	})
+	text, err := repo.Push(ctx, opts, func(line string) { _ = out.Send(line) })
 	g.journalOperation(repo, JournalEntry{Action: "push", Commands: *trace, Output: text}, err, started)
 	if err == nil {
 		g.rememberPushTarget(opts.Remote, opts.Branch)
@@ -1185,12 +1296,7 @@ func (g *Git) Pull(opts git.PullOptions, out *mygo.Channel[string]) (string, err
 	started := time.Now()
 	opts.TagsMode = g.c.settings.FetchTagsMode
 	run := func(ctx context.Context) (string, error) {
-		return repo.Pull(ctx, opts, func(line string) {
-			if out != nil {
-				_ = out.Send(line)
-			}
-			g.c.emit(line)
-		})
+		return repo.Pull(ctx, opts, func(line string) { _ = out.Send(line) })
 	}
 	var text string
 	if opts.Autostash {
@@ -1212,12 +1318,7 @@ func (g *Git) Fetch(opts git.FetchOptions, out *mygo.Channel[string]) (string, e
 	ctx, trace := git.WithCommandTrace(context.Background())
 	started := time.Now()
 	opts.TagsMode = g.c.settings.FetchTagsMode
-	text, err := repo.Fetch(ctx, opts, func(line string) {
-		if out != nil {
-			_ = out.Send(line)
-		}
-		g.c.emit(line)
-	})
+	text, err := repo.Fetch(ctx, opts, func(line string) { _ = out.Send(line) })
 	g.journalOperation(repo, JournalEntry{Action: "fetch", Commands: *trace, Output: text}, err, started)
 	g.notify()
 	return appendCommands(text, *trace), err
@@ -1362,7 +1463,9 @@ func (g *Git) SavePatch(opts git.PatchOptions, name string) (string, error) {
 	if strings.TrimSpace(patch) == "" {
 		return "", errors.New("there are no changes for the patch")
 	}
+	win := mygo.CallerWindow(context.Background())
 	chosen, err := mygo.Dialog.Save(mygo.SaveDialogOptions{
+		Parent:      win,
 		Title:       g.c.uiLang().tr("dialog.savePatch"),
 		DefaultPath: filepath.Join(repo.Dir(), name),
 		ButtonLabel: g.c.uiLang().tr("dialog.save"),
@@ -1397,7 +1500,9 @@ func (g *Git) ApplyPatchFile(reverse bool) (string, error) {
 	if err != nil {
 		return "", err
 	}
+	win := mygo.CallerWindow(context.Background())
 	paths, err := mygo.Dialog.Open(mygo.OpenDialogOptions{
+		Parent:  win,
 		Title:   g.c.uiLang().tr("dialog.openPatch"),
 		Filters: []mygo.FileFilter{{Name: "Patch", Extensions: []string{"patch", "diff"}}},
 	})
@@ -1675,12 +1780,7 @@ func (g *Git) Console(command string, out *mygo.Channel[string]) (git.ConsoleRes
 		return git.ConsoleResult{}, err
 	}
 	started := time.Now()
-	res, err := repo.RunConsole(context.Background(), command, func(line string) {
-		if out != nil {
-			_ = out.Send(line)
-		}
-		g.c.emit(line)
-	})
+	res, err := repo.RunConsole(context.Background(), command, func(line string) { _ = out.Send(line) })
 	g.journalOperation(repo, JournalEntry{
 		Action:   "console",
 		Source:   "console",
@@ -2069,12 +2169,7 @@ func (g *Git) LFSPull(out *mygo.Channel[string]) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	return repo.LFSPull(context.Background(), func(line string) {
-		if out != nil {
-			_ = out.Send(line)
-		}
-		g.c.emit(line)
-	})
+	return repo.LFSPull(context.Background(), func(line string) { _ = out.Send(line) })
 }
 
 // StashFiles lists the paths a stash entry touches.
@@ -2206,12 +2301,7 @@ func (g *Git) Unshallow(out *mygo.Channel[string]) (string, error) {
 	}
 	ctx, trace := git.WithCommandTrace(context.Background())
 	started := time.Now()
-	text, err := repo.Unshallow(ctx, func(line string) {
-		if out != nil {
-			_ = out.Send(line)
-		}
-		g.c.emit(line)
-	})
+	text, err := repo.Unshallow(ctx, func(line string) { _ = out.Send(line) })
 	g.journalOperation(repo, JournalEntry{Action: "unshallow", Commands: *trace, Output: text}, err, started)
 	g.notify()
 	return appendCommands(text, *trace), err

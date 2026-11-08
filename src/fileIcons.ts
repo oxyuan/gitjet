@@ -1,0 +1,283 @@
+/**
+ * A file's badge: a tiny language monogram plus the palette key that colours
+ * it. The mapping is pure and lives outside React so the explorer, quick
+ * open and every other file list can share one answer to "what is this?".
+ */
+export interface FileBadge {
+  /** 1–3 characters shown inside the badge. Empty means "no badge". */
+  label: string;
+  /** Colour token: `.file-icon.lang-<lang>` in style.css. */
+  lang: string;
+}
+
+const badge = (label: string, lang: string): FileBadge => ({ label, lang });
+
+/** Whole file names win over extensions: Dockerfile is not a "file". */
+const BY_NAME: Record<string, FileBadge> = {
+  dockerfile: badge("DK", "docker"),
+  "docker-compose.yml": badge("DK", "docker"),
+  "docker-compose.yaml": badge("DK", "docker"),
+  makefile: badge("MK", "make"),
+  gnumakefile: badge("MK", "make"),
+  "cmakelists.txt": badge("CM", "cmake"),
+  "package.json": badge("NP", "npm"),
+  "package-lock.json": badge("LK", "lock"),
+  "pnpm-lock.yaml": badge("LK", "lock"),
+  "yarn.lock": badge("LK", "lock"),
+  "bun.lockb": badge("LK", "lock"),
+  "go.mod": badge("GO", "go"),
+  "go.sum": badge("GO", "go"),
+  "go.work": badge("GO", "go"),
+  "cargo.toml": badge("RS", "rust"),
+  "cargo.lock": badge("LK", "lock"),
+  "pom.xml": badge("MV", "maven"),
+  "build.gradle": badge("GR", "gradle"),
+  "build.gradle.kts": badge("GR", "gradle"),
+  "settings.gradle": badge("GR", "gradle"),
+  "settings.gradle.kts": badge("GR", "gradle"),
+  gradlew: badge("GR", "gradle"),
+  "gradlew.bat": badge("GR", "gradle"),
+  mvnw: badge("MV", "maven"),
+  "mvnw.cmd": badge("MV", "maven"),
+  "requirements.txt": badge("PY", "python"),
+  "pyproject.toml": badge("PY", "python"),
+  pipfile: badge("PY", "python"),
+  gemfile: badge("RB", "ruby"),
+  rakefile: badge("RB", "ruby"),
+  "composer.json": badge("PHP", "php"),
+  "composer.lock": badge("LK", "lock"),
+  "tsconfig.json": badge("TS", "ts"),
+  "jsconfig.json": badge("JS", "js"),
+  "vite.config.ts": badge("TS", "ts"),
+  "webpack.config.js": badge("JS", "js"),
+  ".gitignore": badge("GIT", "git"),
+  ".gitattributes": badge("GIT", "git"),
+  ".gitmodules": badge("GIT", "git"),
+  ".gitconfig": badge("GIT", "git"),
+  ".editorconfig": badge("CFG", "config"),
+  ".npmrc": badge("CFG", "config"),
+  ".nvmrc": badge("CFG", "config"),
+  ".prettierrc": badge("CFG", "config"),
+  ".eslintrc": badge("CFG", "config"),
+  ".babelrc": badge("CFG", "config"),
+  license: badge("LC", "text"),
+  licence: badge("LC", "text"),
+  copying: badge("LC", "text"),
+  notice: badge("LC", "text"),
+  authors: badge("AU", "text"),
+  readme: badge("MD", "markdown"),
+  "readme.md": badge("MD", "markdown"),
+  "readme.markdown": badge("MD", "markdown"),
+  "readme.txt": badge("MD", "markdown"),
+};
+
+/** Extensions are matched lowercased, without the dot. */
+const BY_EXT: Record<string, FileBadge> = {
+  ts: badge("TS", "ts"),
+  mts: badge("TS", "ts"),
+  cts: badge("TS", "ts"),
+  tsx: badge("TS", "ts"),
+  js: badge("JS", "js"),
+  mjs: badge("JS", "js"),
+  cjs: badge("JS", "js"),
+  jsx: badge("JS", "js"),
+  go: badge("GO", "go"),
+  java: badge("JV", "java"),
+  jar: badge("JV", "java"),
+  class: badge("JV", "java"),
+  kt: badge("KT", "kotlin"),
+  kts: badge("KT", "kotlin"),
+  groovy: badge("GR", "gradle"),
+  gradle: badge("GR", "gradle"),
+  scala: badge("SC", "scala"),
+  sc: badge("SC", "scala"),
+  rs: badge("RS", "rust"),
+  py: badge("PY", "python"),
+  pyi: badge("PY", "python"),
+  pyw: badge("PY", "python"),
+  rb: badge("RB", "ruby"),
+  rake: badge("RB", "ruby"),
+  php: badge("PHP", "php"),
+  c: badge("C", "c"),
+  h: badge("C", "c"),
+  cpp: badge("C+", "cpp"),
+  cc: badge("C+", "cpp"),
+  cxx: badge("C+", "cpp"),
+  "c++": badge("C+", "cpp"),
+  hpp: badge("C+", "cpp"),
+  hh: badge("C+", "cpp"),
+  hxx: badge("C+", "cpp"),
+  ipp: badge("C+", "cpp"),
+  cs: badge("C#", "csharp"),
+  csx: badge("C#", "csharp"),
+  fs: badge("F#", "fsharp"),
+  fsx: badge("F#", "fsharp"),
+  vb: badge("VB", "vb"),
+  swift: badge("SW", "swift"),
+  m: badge("OC", "objc"),
+  mm: badge("OC", "objc"),
+  sh: badge("SH", "shell"),
+  bash: badge("SH", "shell"),
+  zsh: badge("SH", "shell"),
+  fish: badge("SH", "shell"),
+  ksh: badge("SH", "shell"),
+  ps1: badge("PS", "shell"),
+  psm1: badge("PS", "shell"),
+  bat: badge("CMD", "shell"),
+  cmd: badge("CMD", "shell"),
+  html: badge("<>", "html"),
+  htm: badge("<>", "html"),
+  xhtml: badge("<>", "html"),
+  xml: badge("<>", "xml"),
+  svg: badge("SVG", "xml"),
+  css: badge("#", "css"),
+  scss: badge("#", "scss"),
+  sass: badge("#", "scss"),
+  less: badge("#", "less"),
+  styl: badge("#", "stylus"),
+  json: badge("{}", "json"),
+  jsonc: badge("{}", "json"),
+  json5: badge("{}", "json"),
+  jsonl: badge("{}", "json"),
+  ndjson: badge("{}", "json"),
+  yaml: badge("Y", "yaml"),
+  yml: badge("Y", "yaml"),
+  toml: badge("TM", "toml"),
+  md: badge("MD", "markdown"),
+  markdown: badge("MD", "markdown"),
+  mdx: badge("MD", "markdown"),
+  rst: badge("R", "text"),
+  txt: badge("TX", "text"),
+  log: badge("TX", "text"),
+  sql: badge("DB", "sql"),
+  sqlite: badge("DB", "sql"),
+  sqlite3: badge("DB", "sql"),
+  graphql: badge("GQ", "graphql"),
+  gql: badge("GQ", "graphql"),
+  proto: badge("PB", "proto"),
+  lua: badge("L", "lua"),
+  dart: badge("D", "dart"),
+  vue: badge("V", "vue"),
+  svelte: badge("S", "svelte"),
+  astro: badge("A", "astro"),
+  elm: badge("EL", "elm"),
+  ex: badge("EX", "elixir"),
+  exs: badge("EX", "elixir"),
+  erl: badge("ER", "erlang"),
+  hrl: badge("ER", "erlang"),
+  hs: badge("HS", "haskell"),
+  lhs: badge("HS", "haskell"),
+  clj: badge("CL", "clojure"),
+  cljs: badge("CL", "clojure"),
+  cljc: badge("CL", "clojure"),
+  edn: badge("CL", "clojure"),
+  r: badge("R", "r"),
+  jl: badge("JL", "julia"),
+  pl: badge("PL", "perl"),
+  pm: badge("PL", "perl"),
+  nim: badge("NM", "nim"),
+  zig: badge("Z", "zig"),
+  v: badge("V", "verilog"),
+  asm: badge("AS", "asm"),
+  s: badge("AS", "asm"),
+  nasm: badge("AS", "asm"),
+  tf: badge("TF", "terraform"),
+  tfvars: badge("TF", "terraform"),
+  hcl: badge("HC", "terraform"),
+  nix: badge("NX", "nix"),
+  tex: badge("TX", "tex"),
+  sty: badge("TX", "tex"),
+  cls: badge("TX", "tex"),
+  csv: badge("TB", "data"),
+  tsv: badge("TB", "data"),
+  ipynb: badge("NB", "python"),
+  cfg: badge("CFG", "config"),
+  conf: badge("CFG", "config"),
+  ini: badge("CFG", "config"),
+  properties: badge("CFG", "config"),
+  env: badge("ENV", "config"),
+  lock: badge("LK", "lock"),
+  pem: badge("KEY", "key"),
+  crt: badge("KEY", "key"),
+  key: badge("KEY", "key"),
+  p12: badge("KEY", "key"),
+  pfx: badge("KEY", "key"),
+  png: badge("IMG", "image"),
+  jpg: badge("IMG", "image"),
+  jpeg: badge("IMG", "image"),
+  gif: badge("IMG", "image"),
+  webp: badge("IMG", "image"),
+  bmp: badge("IMG", "image"),
+  ico: badge("IMG", "image"),
+  tif: badge("IMG", "image"),
+  tiff: badge("IMG", "image"),
+  avif: badge("IMG", "image"),
+  pdf: badge("PDF", "pdf"),
+  zip: badge("ZIP", "archive"),
+  tar: badge("ZIP", "archive"),
+  gz: badge("ZIP", "archive"),
+  tgz: badge("ZIP", "archive"),
+  bz2: badge("ZIP", "archive"),
+  xz: badge("ZIP", "archive"),
+  "7z": badge("ZIP", "archive"),
+  rar: badge("ZIP", "archive"),
+  zst: badge("ZIP", "archive"),
+  mp4: badge("AV", "media"),
+  mov: badge("AV", "media"),
+  webm: badge("AV", "media"),
+  avi: badge("AV", "media"),
+  mkv: badge("AV", "media"),
+  mp3: badge("AV", "media"),
+  wav: badge("AV", "media"),
+  flac: badge("AV", "media"),
+  ogg: badge("AV", "media"),
+  m4a: badge("AV", "media"),
+  woff: badge("FN", "font"),
+  woff2: badge("FN", "font"),
+  ttf: badge("FN", "font"),
+  otf: badge("FN", "font"),
+  eot: badge("FN", "font"),
+  wasm: badge("WA", "binary"),
+  o: badge("BIN", "binary"),
+  a: badge("BIN", "binary"),
+  so: badge("BIN", "binary"),
+  dylib: badge("BIN", "binary"),
+  dll: badge("BIN", "binary"),
+  exe: badge("BIN", "binary"),
+  bin: badge("BIN", "binary"),
+  plist: badge("PL", "config"),
+};
+
+/**
+ * fileBadge names the language of a repository path. Unknown extensions get a
+ * neutral monogram from their own name rather than the same generic sheet, so
+ * two files still look different; a path with nothing to show returns an empty
+ * label and the caller falls back to the plain file icon.
+ */
+export function fileBadge(path: string): FileBadge {
+  const base = path.slice(path.lastIndexOf("/") + 1).toLowerCase();
+  if (base === "") return { label: "", lang: "plain" };
+
+  const named = BY_NAME[base];
+  if (named) return named;
+  if (base === ".env" || base.startsWith(".env.")) return badge("ENV", "config");
+  if (base.startsWith(".")) {
+    // ".eslintrc.js" is JavaScript; a bare dotfile such as ".npmrc" is not.
+    const second = base.indexOf(".", 1);
+    if (second < 0) return badge("CFG", "config");
+    return BY_EXT[base.slice(second + 1)] ?? badge("CFG", "config");
+  }
+
+  const dot = base.lastIndexOf(".");
+  if (dot > 0) {
+    const ext = base.slice(dot + 1);
+    if (ext !== "") return BY_EXT[ext] ?? badge(monogram(ext), "plain");
+  }
+  return badge(monogram(base), "plain");
+}
+
+/** monogram shortens a word to the two letters that fit in a 13px badge. */
+function monogram(word: string): string {
+  const letters = word.replace(/[^a-z0-9]/gi, "").toUpperCase();
+  return letters.slice(0, letters.length === 1 ? 1 : 2);
+}

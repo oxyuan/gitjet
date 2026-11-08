@@ -285,14 +285,6 @@ type core struct {
 	// startup is the repository named on the command line, which wins over
 	// the last one the app had open.
 	startup string
-	// onChange hears that the working tree, the index or HEAD changed, so
-	// the native view reloads what it shows. It may run on any goroutine.
-	onChange func()
-	// lspOnMessage hears each message a native language-server client
-	// should read, framed JSON without its header. It runs on a goroutine.
-	lspOnMessage func(string)
-	// stream hears the output lines of a running git operation.
-	stream func(string)
 }
 
 func newCore() *core {
@@ -311,26 +303,6 @@ func (c *core) uiLang() lang {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	return resolveLang(c.settings.Language)
-}
-
-// emit hands one line of a running operation to the native console.
-func (c *core) emit(line string) {
-	c.mu.Lock()
-	fn := c.stream
-	c.mu.Unlock()
-	if fn != nil {
-		fn(line)
-	}
-}
-
-// changed tells the native view that what it shows may differ now.
-func (c *core) changed() {
-	c.mu.Lock()
-	fn := c.onChange
-	c.mu.Unlock()
-	if fn != nil {
-		fn()
-	}
 }
 
 func (c *core) currentRepo() (*git.Repo, error) {
