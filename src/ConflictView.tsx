@@ -95,8 +95,10 @@ const T = {
     ignoreTrim: "Trim whitespace",
     ignoreSpaces: "Ignore spaces",
     highlightDiff: "Highlight differences",
+    highlightNone: "None",
     highlightLines: "Lines",
     highlightWords: "Words",
+    highlightChars: "Characters",
     appearance: "Appearance",
     commit: "Commit",
     author: "Author",
@@ -170,8 +172,10 @@ const T = {
     ignoreTrim: "修整空白",
     ignoreSpaces: "忽略空格",
     highlightDiff: "高亮显示差异",
+    highlightNone: "无",
     highlightLines: "行数",
     highlightWords: "单词",
+    highlightChars: "字符",
     appearance: "外观",
     commit: "提交",
     author: "作者",
@@ -368,6 +372,10 @@ function CompareVersions({
 
 type VersionKey = "base" | "ours" | "theirs" | "result";
 
+/** How much of a conflicting line is marked: whole lines, words, characters,
+ *  or nothing beyond the block tint. */
+type HighlightMode = "none" | "lines" | "words" | "chars";
+
 interface SyncAnchor {
   side: number;
   result: number;
@@ -430,7 +438,7 @@ export function ConflictView({
   const t = useT(T);
   const tr = (key: string) => t(key as Parameters<typeof t>[0]);
   const [whitespaceMode, setWhitespaceMode] = useState<WhitespaceMode>("none");
-  const [highlightLines, setHighlightLines] = useState(false);
+  const [highlightMode, setHighlightMode] = useState<HighlightMode>("words");
   const labels = useMemo<MergeLabels>(() => {
     const fromFile = conflictLabels(conflict.working) ?? {};
     return {
@@ -919,8 +927,10 @@ export function ConflictView({
           label: t("highlightDiff"),
           icon: "diff",
           children: [
-            { label: t("highlightLines"), checked: highlightLines, onClick: () => setHighlightLines(true) },
-            { label: t("highlightWords"), checked: !highlightLines, onClick: () => setHighlightLines(false) },
+            { label: t("highlightNone"), checked: highlightMode === "none", onClick: () => setHighlightMode("none") },
+            { label: t("highlightLines"), checked: highlightMode === "lines", onClick: () => setHighlightMode("lines") },
+            { label: t("highlightWords"), checked: highlightMode === "words", onClick: () => setHighlightMode("words") },
+            { label: t("highlightChars"), checked: highlightMode === "chars", onClick: () => setHighlightMode("chars") },
           ],
         },
         {
@@ -1164,7 +1174,12 @@ export function ConflictView({
       doc: conflict.ours,
       editable: false,
       language: conflict.language,
-      blocks: sideBlocks(model, "ours", { apply: t("applyLocal"), t: tr, chars: false, marks: !highlightLines }),
+      blocks: sideBlocks(model, "ours", {
+        apply: t("applyLocal"),
+        t: tr,
+        chars: highlightMode === "chars",
+        marks: highlightMode === "words" || highlightMode === "chars",
+      }),
       wrap,
       whitespace: showWhitespace,
       onApplyBlock: (id) => applyRange(id, "ours"),
@@ -1192,7 +1207,12 @@ export function ConflictView({
       doc: conflict.theirs,
       editable: false,
       language: conflict.language,
-      blocks: sideBlocks(model, "theirs", { apply: t("applyRemote"), t: tr, chars: false, marks: !highlightLines }),
+      blocks: sideBlocks(model, "theirs", {
+        apply: t("applyRemote"),
+        t: tr,
+        chars: highlightMode === "chars",
+        marks: highlightMode === "words" || highlightMode === "chars",
+      }),
       wrap,
       whitespace: showWhitespace,
       onApplyBlock: (id) => applyRange(id, "theirs"),
@@ -1233,8 +1253,15 @@ export function ConflictView({
       pane.setBlocks(
         pane.getBlocks().map((block) => {
           const range = model.ranges.find((r) => r.index === block.id);
+          const marked = highlightMode === "words" || highlightMode === "chars";
           return range
-            ? { ...block, marks: highlightLines ? [] : conflictMarks(range, side, offsets, false) }
+            ? {
+                ...block,
+                marks:
+                  marked && range.kind === "conflict"
+                    ? conflictMarks(range, side, offsets, highlightMode === "chars")
+                    : [],
+              }
             : block;
         }),
       );
@@ -1244,7 +1271,7 @@ export function ConflictView({
     // The panes are rebuilt separately when the model changes; this only
     // refreshes the marks and must preserve their resolved/apply state.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [highlightLines]);
+  }, [highlightMode]);
 
   useEffect(() => {
     for (const pane of [oursPane.current, resultPane.current, theirsPane.current]) {
