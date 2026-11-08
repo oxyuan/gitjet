@@ -115,6 +115,9 @@ const T = {
     discardMessage: "This file's resolution has not been saved. Closing now discards it.",
     keepEditing: "Keep Editing",
     discardClose: "Discard and Close",
+    restartTitle: "Compare Differently",
+    restartMessage: "Comparing with different whitespace rules rebuilds the merge, so the decisions and edits made so far are discarded.",
+    restartMerge: "Discard and Rebuild",
     appearance: "Appearance",
     commit: "Commit",
     author: "Author",
@@ -206,6 +209,9 @@ const T = {
     discardMessage: "该文件的解决结果尚未保存，关闭将丢弃这些更改。",
     keepEditing: "继续编辑",
     discardClose: "丢弃并关闭",
+    restartTitle: "更换比较方式",
+    restartMessage: "按不同的空白规则比较会重建合并结果，此前做出的决定和编辑都会被丢弃。",
+    restartMerge: "丢弃并重建",
     appearance: "外观",
     commit: "提交",
     author: "作者",
@@ -532,6 +538,7 @@ export function ConflictView({
   >(null);
   const [detailsSide, setDetailsSide] = useState<"ours" | "theirs" | null>(null);
   const [pendingSave, setPendingSave] = useState<{ stage: boolean; advance: boolean } | null>(null);
+  const [pendingWhitespace, setPendingWhitespace] = useState<WhitespaceMode | null>(null);
   const [confirmClose, setConfirmClose] = useState(false);
 
   const oursRef = useRef<HTMLDivElement>(null);
@@ -631,6 +638,18 @@ export function ConflictView({
     [conflict.binary],
   );
   requestSaveRef.current = requestSave;
+
+  /** "Ignore differences" rebuilds the three-way model, so the decisions and
+   *  edits made against the old comparison cannot survive it. Ask first, the
+   *  way the IDE does when a merge restarts. */
+  const chooseWhitespace = (mode: WhitespaceMode) => {
+    if (mode === whitespaceMode) return;
+    if (isDirty()) {
+      setPendingWhitespace(mode);
+      return;
+    }
+    setWhitespaceMode(mode);
+  };
 
   const scrollToRange = useCallback((range: MergeRange) => {
     oursPane.current?.scrollToLine(range.oursStart + 1);
@@ -1023,9 +1042,9 @@ export function ConflictView({
           label: t("ignoreDiff"),
           icon: "eye",
           children: [
-            { label: t("ignoreNone"), checked: whitespaceMode === "none", onClick: () => setWhitespaceMode("none") },
-            { label: t("ignoreTrim"), checked: whitespaceMode === "trim", onClick: () => setWhitespaceMode("trim") },
-            { label: t("ignoreSpaces"), checked: whitespaceMode === "spaces", onClick: () => setWhitespaceMode("spaces") },
+            { label: t("ignoreNone"), checked: whitespaceMode === "none", onClick: () => chooseWhitespace("none") },
+            { label: t("ignoreTrim"), checked: whitespaceMode === "trim", onClick: () => chooseWhitespace("trim") },
+            { label: t("ignoreSpaces"), checked: whitespaceMode === "spaces", onClick: () => chooseWhitespace("spaces") },
           ],
         },
         {
@@ -1726,6 +1745,32 @@ export function ConflictView({
           <div className="confirm-message">
             {count(unresolved, t("applyAnywayOne"), t("applyAnywayMessage", { n: unresolved }))}
           </div>
+        </Modal>
+      )}
+      {pendingWhitespace !== null && (
+        <Modal
+          title={t("restartTitle")}
+          icon="warning"
+          width={430}
+          onClose={() => setPendingWhitespace(null)}
+          footer={
+            <>
+              <Button onClick={() => setPendingWhitespace(null)} autoFocus>
+                {t("keepEditing")}
+              </Button>
+              <Button
+                variant="danger"
+                onClick={() => {
+                  setWhitespaceMode(pendingWhitespace);
+                  setPendingWhitespace(null);
+                }}
+              >
+                {t("restartMerge")}
+              </Button>
+            </>
+          }
+        >
+          <div className="confirm-message">{t("restartMessage")}</div>
         </Modal>
       )}
       {confirmClose && (
