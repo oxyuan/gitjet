@@ -33,6 +33,8 @@ type mergeWindow struct {
 	selected    int
 	sync        bool
 	details     git.MergeDetails
+	undo        [][]mergeChoice
+	redo        [][]mergeChoice
 }
 
 type mergeChoice uint8
@@ -217,6 +219,8 @@ func (m *mergeWindow) body(c *ui.Context) {
 	})
 	c.OnWindowShortcut(ui.Alt, ui.KeyLeft, func() { m.choose(m.selected, blockOurs); m.win.Invalidate() })
 	c.OnWindowShortcut(ui.Alt, ui.KeyRight, func() { m.choose(m.selected, blockTheirs); m.win.Invalidate() })
+	c.OnWindowShortcut(ui.Cmd, ui.KeyZ, func() { m.undoChoice(); m.win.Invalidate() })
+	c.OnWindowShortcut(ui.Cmd|ui.Shift, ui.KeyZ, func() { m.redoChoice(); m.win.Invalidate() })
 	ui.Column(c).Fill().Background(t.Background).Children(func() {
 		ui.Row(c).Height(46).Padding(0, 12).Gap(8).AlignItems(ui.Center).BorderWidth(0, 0, 1, 0).BorderColor(t.Border).Children(func() {
 			ui.Text(c, "Merge "+m.path).FontSize(13).FontWeight(600)
@@ -227,6 +231,14 @@ func (m *mergeWindow) body(c *ui.Context) {
 				ui.Text(c, st.OpOurs+" → "+st.OpTheirs).FontSize(10).TextColor(t.TextMuted)
 			}
 			ui.Spacer(c).Grow(1)
+			if _, clicked := m.app.kitIconButton(c, "undo", m.app.t("Undo"), 28, 14, len(m.undo) == 0, false, false); clicked {
+				m.undoChoice()
+				m.win.Invalidate()
+			}
+			if _, clicked := m.app.kitIconButton(c, "redo", m.app.t("Redo"), 28, 14, len(m.redo) == 0, false, false); clicked {
+				m.redoChoice()
+				m.win.Invalidate()
+			}
 			if m.err != "" {
 				ui.Text(c, m.err).FontSize(10).TextColor(t.Danger)
 			}
@@ -381,7 +393,34 @@ func (m *mergeWindow) choose(i int, choice mergeChoice) {
 	if i < 0 || i >= len(m.blocks) {
 		return
 	}
+	m.undo = append(m.undo, append([]mergeChoice(nil), m.choice...))
+	if len(m.undo) > 100 {
+		m.undo = m.undo[1:]
+	}
+	m.redo = nil
 	m.choice[i] = choice
+	m.rebuildResult()
+}
+
+func (m *mergeWindow) undoChoice() {
+	if len(m.undo) == 0 {
+		return
+	}
+	m.redo = append(m.redo, append([]mergeChoice(nil), m.choice...))
+	last := len(m.undo) - 1
+	m.choice = m.undo[last]
+	m.undo = m.undo[:last]
+	m.rebuildResult()
+}
+
+func (m *mergeWindow) redoChoice() {
+	if len(m.redo) == 0 {
+		return
+	}
+	m.undo = append(m.undo, append([]mergeChoice(nil), m.choice...))
+	last := len(m.redo) - 1
+	m.choice = m.redo[last]
+	m.redo = m.redo[:last]
 	m.rebuildResult()
 }
 
