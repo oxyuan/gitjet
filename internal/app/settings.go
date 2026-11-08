@@ -205,6 +205,7 @@ func loadRepoMeta(root string) RepoMeta {
 				meta.Assignments = stored.Assignments
 			}
 			meta.Messages = stored.Messages
+			meta.PushTargets = stored.PushTargets
 			meta.RecentBranches = stored.RecentBranches
 		}
 	}
@@ -282,6 +283,14 @@ type core struct {
 	// lsp is the language server bridge for the open repository.
 	lsp   *lspSession
 	lspMu sync.Mutex
+	// consoleCancel stops the console command that is running: a program
+	// that waits for input would otherwise hold the repository's write
+	// lock for as long as it lives.
+	consoleMu     sync.Mutex
+	consoleCancel context.CancelFunc
+	// consoleGen identifies the running console command, so a command
+	// finishing cannot clear the cancel of the one that started after it.
+	consoleGen int64
 	// startup is the repository named on the command line, which wins over
 	// the last one the app had open.
 	startup string

@@ -67,16 +67,20 @@ func (w *Workspace) Bootstrap() (Bootstrap, error) {
 		}
 		return b, nil
 	}
-	if len(recent) > 0 {
-		path := recent[0].Path
-		if st, err := os.Stat(path); err == nil && st.IsDir() {
-			snap, err := w.Open(path)
-			if err == nil {
-				b.Repo = &snap
-			} else {
-				b.Error = err.Error()
-			}
+	// The newest recent repository that still exists and still opens: a
+	// folder that was moved away must not leave the app on a blank window
+	// while a usable one sits further down the list.
+	for _, entry := range recent {
+		st, err := os.Stat(entry.Path)
+		if err != nil || !st.IsDir() {
+			continue
 		}
+		snap, err := w.Open(entry.Path)
+		if err != nil {
+			continue
+		}
+		b.Repo = &snap
+		return b, nil
 	}
 	return b, nil
 }
@@ -130,6 +134,9 @@ func (w *Workspace) OpenMergeWindow(path string) error {
 		BackgroundColor: "light-dark(#f5f5f7, #141416)",
 		URL:             "/?merge=" + url.QueryEscape(path),
 	})
+	// The merge window is a page too: without this its right-click menu
+	// offers Reload, which would throw away a half-resolved conflict.
+	installPageContextMenu(win)
 	mergeMu.Lock()
 	mergeWindows[path] = win
 	mergeMu.Unlock()
@@ -268,6 +275,7 @@ func (w *Workspace) SaveSettings(s Settings) (Settings, error) {
 		}
 	}
 	oldGitPath := w.c.settings.GitPath
+	oldSsh := w.c.settings.SshCommand
 	oldLang := w.c.settings.Language
 	w.c.mu.Lock()
 	oldRecent := w.c.settings.Recent
@@ -286,11 +294,18 @@ func (w *Workspace) SaveSettings(s Settings) (Settings, error) {
 		if err != nil {
 			return s, fmt.Errorf("settings were saved, but the repository could not be reopened with that git: %w", err)
 		}
+		// The SSH client is a property of the open repository, and the new
+		// one has none yet.
+		reopened.SetSSHCommand(s.SshCommand)
 		w.c.mu.Lock()
 		w.c.repo = reopened
 		w.c.mu.Unlock()
 		w.c.stopPolling()
 		w.c.startPolling()
+	} else if repo != nil && s.SshCommand != oldSsh {
+		// Every command reads this off the repository, so a saved change
+		// has to reach the one that is already open.
+		repo.SetSSHCommand(s.SshCommand)
 	}
 	return s, nil
 }
@@ -1780,7 +1795,21 @@ func (g *Git) Console(command string, out *mygo.Channel[string]) (git.ConsoleRes
 		return git.ConsoleResult{}, err
 	}
 	started := time.Now()
-	res, err := repo.RunConsole(context.Background(), command, func(line string) { _ = out.Send(line) })
+	ctx, cancel := context.WithCancel(context.Background())
+	g.c.consoleMu.Lock()
+	g.c.consoleGen++
+	gen := g.c.consoleGen
+	g.c.consoleCancel = cancel
+	g.c.consoleMu.Unlock()
+	defer func() {
+		cancel()
+		g.c.consoleMu.Lock()
+		if g.c.consoleGen == gen {
+			g.c.consoleCancel = nil
+		}
+		g.c.consoleMu.Unlock()
+	}()
+	res, err := repo.RunConsole(ctx, command, func(line string) { _ = out.Send(line) })
 	g.journalOperation(repo, JournalEntry{
 		Action:   "console",
 		Source:   "console",
@@ -1790,6 +1819,20 @@ func (g *Git) Console(command string, out *mygo.Channel[string]) (git.ConsoleRes
 	}, err, started)
 	g.notify()
 	return res, err
+}
+
+// CancelConsole stops the console command that is running, if any. It is
+// the only way out of a program that waits for input: the console holds
+// the write lock while it runs.
+func (g *Git) CancelConsole() bool {
+	g.c.consoleMu.Lock()
+	cancel := g.c.consoleCancel
+	g.c.consoleMu.Unlock()
+	if cancel == nil {
+		return false
+	}
+	cancel()
+	return true
 }
 
 // Completions suggests git commands and refs.
@@ -2293,6 +2336,16 @@ func (g *Git) LFS() (git.LFSStatus, error) {
 	return repo.LFS(context.Background()), nil
 }
 
+// Hooks lists the hooks git would run for this repository, so a commit that
+// is rejected or rewritten by one is not a mystery.
+func (g *Git) Hooks() ([]git.Hook, error) {
+	repo, err := g.c.currentRepo()
+	if err != nil {
+		return nil, err
+	}
+	return repo.Hooks(context.Background())
+}
+
 // Unshallow fetches the full history of a shallow clone.
 func (g *Git) Unshallow(out *mygo.Channel[string]) (string, error) {
 	repo, err := g.c.currentRepo()
@@ -2341,6 +2394,12 @@ func appendNote(out, note string) string {
 func preserveLocalChanges(ctx context.Context, repo *git.Repo, label string, fn func() (string, error)) (string, error) {
 	st, err := repo.Status(ctx, false)
 	if err != nil || len(st.Changes) == 0 {
+		return fn()
+	}
+	if st.State.Unborn {
+		// There is no commit to stash against yet. Git's own checks still
+		// refuse a switch that would overwrite work, so the operation runs
+		// rather than being rejected by the stash step.
 		return fn()
 	}
 	note := "local changes were stashed before " + label + " and restored after it"
