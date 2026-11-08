@@ -633,9 +633,7 @@ func (a *nativeApp) diffToolbar(c *ui.Context, tab *docTab) {
 			}
 			ui.Text(c, statusLetterKind(status)).FontSize(11).Font("monospace").FontWeight(700).
 				TextColor(statusKindColor(p, status))
-			ui.Row(c).TextColor(fileTint(tab.path)).Center().Children(func() {
-				a.icon(c, "file", 15)
-			})
+			a.kitFileBadge(c, tab.path, 16)
 			ui.Text(c, tab.path).FontSize(12).Font("monospace").TextColor(ui.Hex(p.fgSoft)).MaxLines(1)
 			if tab.opts.OldPath != "" && tab.opts.OldPath != tab.path {
 				ui.Text(c, "← "+tab.opts.OldPath).FontSize(10.5).TextColor(ui.Hex(p.muted2)).MaxLines(1)
@@ -658,15 +656,7 @@ func (a *nativeApp) diffToolbar(c *ui.Context, tab *docTab) {
 			if _, clicked := a.smallIconButton(c, "copy", a.t("Copy Path"), false); clicked {
 				a.copyText(tab.path)
 			}
-			more := ui.ButtonBase(c).Size(26, 26).Radius(4).Center().Tooltip(a.t("Compare"))
-			if more.Hovered() {
-				more.Background(ui.Hex(p.hover))
-			}
-			more.Children(func() {
-				ui.Row(c).TextColor(ui.Hex(p.fgSoft)).Center().Children(func() {
-					a.icon(c, "more", 16)
-				})
-			})
+			more, _ := a.kitIconButton(c, "more", a.t("Compare"), 26, 16, false, false, false)
 			more.PopoverMenuButton(func(m *ui.Menu) {
 				switch target {
 				case git.DiffWorkingTree, git.DiffStaged, git.DiffHead:
@@ -879,9 +869,7 @@ func (a *nativeApp) sourceToolbar(c *ui.Context, tab *docTab) {
 		}
 		ui.Row(c).Height(34).Padding(0, 8, 0, 10).Gap(7).AlignItems(ui.Center).
 			Background(ui.Hex(p.panel)).Children(func() {
-			ui.Row(c).TextColor(ui.Hex(p.muted)).Center().Children(func() {
-				a.icon(c, "file", 15)
-			})
+			a.kitFileBadge(c, tab.path, 16)
 			ui.Text(c, tab.path).FontSize(12).Font("monospace").TextColor(ui.Hex(p.fgSoft)).MaxLines(1)
 			ui.Text(c, label).FontSize(10.5).TextColor(ui.Hex(p.muted2)).MaxLines(1)
 			if tab.src != nil && tab.src.Buffer.Modified() {
@@ -902,35 +890,16 @@ func (a *nativeApp) sourceToolbar(c *ui.Context, tab *docTab) {
 		})
 		ui.Row(c).Height(30).PaddingX(6).Gap(2).AlignItems(ui.Center).
 			Background(ui.Hex(p.panel2)).BorderWidth(1, 0, 0, 0).BorderColor(ui.Hex(p.border)).Children(func() {
-			seg := ui.Row(c).Height(22).Radius(5).Border(1, ui.Hex(p.border)).
-				Background(ui.Hex(p.input)).Children(func() {
-				choices := []struct{ label, rev string }{
-					{a.t("Working Tree"), ""},
-					{a.t("Index"), "INDEX"},
-					{"HEAD", "HEAD"},
+			revs := []string{"", "INDEX", "HEAD"}
+			activeRev := 0
+			for i, rev := range revs {
+				if tab.revision == rev {
+					activeRev = i
 				}
-				for _, choice := range choices {
-					choice := choice
-					on := tab.revision == choice.rev
-					b := ui.ButtonBase(c).Height(20).PaddingX(7).Center()
-					if on {
-						b.Background(ui.Hex(p.selection))
-					} else if b.Hovered() {
-						b.Background(ui.Hex(p.hover))
-					}
-					b.Children(func() {
-						col := p.muted
-						if on {
-							col = p.fg
-						}
-						ui.Text(c, choice.label).FontSize(11).TextColor(ui.Hex(col))
-					})
-					if b.Clicked() {
-						a.openSource(tab.path, choice.rev)
-					}
-				}
-			})
-			_ = seg
+			}
+			if next := a.kitSegmented(c, []string{a.t("Working Tree"), a.t("Index"), "HEAD"}, activeRev); next != activeRev {
+				a.openSource(tab.path, revs[next])
+			}
 			if tab.src != nil {
 				if a.toolbarToggle(c, "rows", a.t("Wrap"), tab.src.SoftWrap) {
 					tab.src.SoftWrap = !tab.src.SoftWrap

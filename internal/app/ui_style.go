@@ -304,8 +304,7 @@ func (a *nativeApp) smallIconButton(c *ui.Context, name, tip string, disabled bo
 
 // toolbarRule is the short vertical divider between toolbar groups.
 func toolbarRule(c *ui.Context) {
-	p := palette(c.Theme())
-	ui.Box(c).Width(1).Height(15).Background(ui.Hex(p.border)).MarginX(4)
+	kitToolbarRule(c)
 }
 
 // countBadge is the small accent pill beside a tool-window tab.

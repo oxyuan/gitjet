@@ -466,3 +466,38 @@ func (a *nativeApp) kitDocTab(c *ui.Context, kind tabKind, title, path string, a
 	motionPressPose(b, b.Pressed(), 0.99)
 	return b, b.Clicked(), closeClicked
 }
+
+// kitSegmented is a compact segmented control: one rounded track, a soft
+// animated selection pill, and text that moves with it. It is the native
+// replacement for the page's watchdog of three revision tabs.
+func (a *nativeApp) kitSegmented(c *ui.Context, labels []string, active int) int {
+	p := palette(c.Theme())
+	chosen := active
+	ui.Row(c).Height(24).Padding(2).Radius(6).Border(1, ui.Hex(p.border)).
+		Background(ui.Hex(p.input)).Children(func() {
+		for i, label := range labels {
+			i, label := i, label
+			b := ui.ButtonBase(c).Height(20).PaddingX(8).Radius(4).Center()
+			bg := ui.Transparent
+			if i == chosen {
+				bg = ui.Hex(p.selectionStrong)
+			} else if b.Hovered() {
+				bg = ui.Hex(p.hover)
+			}
+			b.Background(motionColor(b, "kit-segment-bg", bg))
+			fg := ui.Hex(p.muted)
+			if i == chosen {
+				fg = ui.Hex(p.fg)
+			}
+			fg = motionColor(b, "kit-segment-fg", fg)
+			b.Children(func() {
+				ui.Text(c, label).FontSize(11).TextColor(fg).FontWeight(500)
+			})
+			motionPressPose(b, b.Pressed(), 0.95)
+			if b.Clicked() {
+				chosen = i
+			}
+		}
+	})
+	return chosen
+}
