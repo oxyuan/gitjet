@@ -149,6 +149,7 @@ type nativeApp struct {
 	logSearch        string
 	logAll           bool
 	logDirty         bool
+	logFilterGen     int
 	logFold          bool
 	editorSplit      float32
 	logSplit         float32
@@ -188,12 +189,13 @@ type nativeApp struct {
 	dialogFn func()
 
 	// console
-	consoleOpen bool
-	consoleTab  int
-	consoleLog  []string
-	consoleIn   string
-	consoleHis  []string
-	consoleComp []git.Completion
+	consoleOpen    bool
+	consoleTab     int
+	consoleLog     []string
+	consoleIn      string
+	consoleProgram string
+	consoleHis     []string
+	consoleComp    []git.Completion
 
 	dialog dialogState
 
@@ -293,16 +295,17 @@ func newNativeApp() *nativeApp {
 		logOpts: git.LogOptions{
 			Limit: 300,
 		},
-		logSel:       -1,
-		logDirty:     true,
-		editorSplit:  650,
-		logSplit:     900,
-		changeSel:    -1,
-		changeClosed: map[string]bool{},
-		changeView:   "tree",
-		fileSel:      -1,
-		branchSel:    -1,
-		branchClosed: map[string]bool{},
+		logSel:         -1,
+		logDirty:       true,
+		consoleProgram: "git",
+		editorSplit:    650,
+		logSplit:       900,
+		changeSel:      -1,
+		changeClosed:   map[string]bool{},
+		changeView:     "tree",
+		fileSel:        -1,
+		branchSel:      -1,
+		branchClosed:   map[string]bool{},
 	}
 	a.commitForm.Message = strings.TrimSpace(c.settings.CommitTemplate)
 	c.onChange = func() { mygo.RunOnMain(a.changed) }
@@ -518,6 +521,10 @@ func (a *nativeApp) openPath(path string) {
 				return
 			}
 			a.repoOpen = true
+			a.consoleHis = append([]string(nil), a.c.meta.ConsoleHistory...)
+			if a.c.meta.ConsoleProgram != "" {
+				a.consoleProgram = a.c.meta.ConsoleProgram
+			}
 			a.lsp = nil
 			a.lspStarting = false
 			a.snapshot = snap

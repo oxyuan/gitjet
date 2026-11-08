@@ -436,8 +436,66 @@ func (a *nativeApp) deleteBranch(name string) {
 	a.dialog = dialogState{kind: dialogConfirm, title: a.t("Delete branch"), message: fmt.Sprintf(a.t("Delete branch %s?"), name), action: "delete-branch", text: name}
 }
 
+func (a *nativeApp) deleteBranchChecked(name string) {
+	a.busy++
+	go func() {
+		err := a.g.DeleteBranch(name, false)
+		mygo.RunOnMain(func() {
+			a.busy--
+			if err != nil {
+				a.dialog = dialogState{kind: dialogConfirm, title: a.t("Delete branch"), message: fmt.Sprintf(a.t("Branch %s is not fully merged. Delete it anyway?"), name), action: "delete-branch-force", text: name}
+				return
+			}
+			a.refresh()
+		})
+	}()
+}
+
+func (a *nativeApp) toggleFavoriteBranch(name string) {
+	found := false
+	var next []string
+	for _, n := range a.c.meta.Favorites {
+		if n == name {
+			found = true
+			continue
+		}
+		next = append(next, n)
+	}
+	if !found {
+		next = append(next, name)
+	}
+	a.c.meta.Favorites = next
+	_ = a.c.saveMeta()
+	a.redraw()
+}
+
+func (a *nativeApp) openPushDialogForBranch(branch string) {
+	if !a.repoOpen || branch == "" {
+		return
+	}
+	remote := ""
+	for _, r := range a.remotes {
+		remote = r.Name
+		break
+	}
+	a.dialog = dialogState{kind: dialogPush, remote: remote, branch: branch, remoteBranch: branch}
+	if remote != "" {
+		go func() {
+			preview, err := a.g.PushPreview(remote, branch, branch)
+			mygo.RunOnMain(func() {
+				if err == nil {
+					d := a.dialog
+					d.preview = &preview
+					a.dialog = d
+					a.redraw()
+				}
+			})
+		}()
+	}
+}
+
 func (a *nativeApp) deleteTag(name string) {
-	a.busyRun("delete-tag", func() error { return a.g.DeleteTag(name, "") })
+	a.dialog = dialogState{kind: dialogConfirm, title: a.t("Delete Tag"), message: fmt.Sprintf(a.t("Delete tag %s?"), name), action: "delete-tag", text: name}
 }
 
 func (a *nativeApp) takeSide(path, side string) {
@@ -494,8 +552,14 @@ func (a *nativeApp) runConsole() {
 	}
 	a.consoleIn = ""
 	a.consoleHis = append([]string{line}, a.consoleHis...)
-	if !strings.HasPrefix(line, "!") && line != "git" && !strings.HasPrefix(line, "git ") {
-		line = "git " + line
+	if len(a.consoleHis) > 200 {
+		a.consoleHis = a.consoleHis[:200]
+	}
+	a.c.meta.ConsoleHistory = append([]string(nil), a.consoleHis...)
+	a.c.meta.ConsoleProgram = a.consoleProgram
+	_ = a.c.saveMeta()
+	if !strings.HasPrefix(line, "!") && line != a.consoleProgram && !strings.HasPrefix(line, a.consoleProgram+" ") {
+		line = a.consoleProgram + " " + line
 	}
 	if strings.HasPrefix(line, "!") {
 		line = strings.TrimSpace(strings.TrimPrefix(line, "!"))
@@ -630,6 +694,22 @@ func (a *nativeApp) rebuildQuick() {
 	if a.quickSel < 0 {
 		a.quickSel = 0
 	}
+}
+
+func (a *nativeApp) scheduleLogFilter() {
+	gen := a.logFilterGen + 1
+	a.logFilterGen = gen
+	time.AfterFunc(250*time.Millisecond, func() {
+		mygo.RunOnMain(func() {
+			if gen != a.logFilterGen {
+				return
+			}
+			a.logOpts.Search = strings.TrimSpace(a.logSearch)
+			a.logOpts.Author = strings.TrimSpace(a.logAuthor)
+			a.logDirty = true
+			a.refresh()
+		})
+	})
 }
 
 func (a *nativeApp) loadMoreLog() {

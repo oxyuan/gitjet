@@ -6,6 +6,7 @@ import (
 	"runtime"
 	"sort"
 	"strings"
+	"time"
 
 	"github.com/egoist/mygo"
 	"github.com/egoist/mygo/ui"
@@ -1071,10 +1072,12 @@ func (a *nativeApp) logHeader(c *ui.Context) {
 			}
 			return
 		}
-		if _, submitted, _ := a.searchBox(c, &a.logSearch, a.t("Search commits"), 235); submitted {
+		if _, submitted, changed := a.searchBox(c, &a.logSearch, a.t("Search commits"), 235); submitted {
 			a.logOpts.Search = strings.TrimSpace(a.logSearch)
 			a.logDirty = true
 			a.refresh()
+		} else if changed {
+			a.scheduleLogFilter()
 		}
 		if a.toggleTextButton(c, ".*", a.logOpts.Regex) {
 			a.logRegex = !a.logRegex
@@ -1088,10 +1091,12 @@ func (a *nativeApp) logHeader(c *ui.Context) {
 			a.logDirty = true
 			a.refresh()
 		}
-		if _, submitted, _ := a.searchBox(c, &a.logAuthor, a.t("Author"), 96); submitted {
+		if _, submitted, changed := a.searchBox(c, &a.logAuthor, a.t("Author"), 96); submitted {
 			a.logOpts.Author = strings.TrimSpace(a.logAuthor)
 			a.logDirty = true
 			a.refresh()
+		} else if changed {
+			a.scheduleLogFilter()
 		}
 		ui.Spacer(c).Grow(1)
 		if a.logOpts.Path != "" || a.logOpts.Line > 0 {
@@ -1121,6 +1126,25 @@ func (a *nativeApp) logHeader(c *ui.Context) {
 		filter.PopoverMenuButton(func(m *ui.Menu) {
 			if m.Item(a.t("All branches")).Checked(a.logAll).Chosen() {
 				a.logAll = !a.logAll
+				a.logDirty = true
+				a.refresh()
+			}
+			if m.Item(a.t("Today")).Chosen() {
+				now := time.Now()
+				start := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, now.Location())
+				a.logOpts.Since, a.logOpts.Until = start.Unix(), 0
+				a.logDirty = true
+				a.refresh()
+			}
+			if m.Item(a.t("Last 7 days")).Chosen() {
+				now := time.Now()
+				start := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, now.Location()).AddDate(0, 0, -6)
+				a.logOpts.Since, a.logOpts.Until = start.Unix(), 0
+				a.logDirty = true
+				a.refresh()
+			}
+			if m.Item(a.t("Clear dates")).Chosen() {
+				a.logOpts.Since, a.logOpts.Until = 0, 0
 				a.logDirty = true
 				a.refresh()
 			}
@@ -1256,41 +1280,60 @@ func (a *nativeApp) logDetails(c *ui.Context) {
 			return
 		}
 		d := a.logDetail
-		ui.Scroll(c).Grow(1).Children(func() {
-			ui.Column(c).Padding(12, 14).Gap(8).Children(func() {
-				ui.Text(c, d.Subject).FontSize(12.5).FontWeight(600).TextColor(ui.Hex(p.fg)).MaxLines(2)
-				ui.Row(c).Gap(6).AlignItems(ui.Center).Children(func() {
-					for _, r := range d.Refs {
-						a.refBadge(c, r)
-					}
-					ui.Text(c, d.Author).FontSize(10.5).TextColor(ui.Hex(p.muted))
-					ui.Text(c, a.stamp(d.AuthorTime)).FontSize(10.5).TextColor(ui.Hex(p.muted2))
-					ui.Spacer(c).Grow(1)
-					ui.Text(c, d.Short).FontSize(10).Font("monospace").TextColor(ui.Hex(p.muted2))
-				})
-				ui.Row(c).Gap(10).Children(func() {
-					ui.Text(c, fmt.Sprintf("%d %s", d.Stats.Files, a.t("files"))).FontSize(10).TextColor(ui.Hex(p.muted))
-					ui.Text(c, fmt.Sprintf("+%d", d.Stats.Additions)).FontSize(10).TextColor(ui.Hex(p.success))
-					ui.Text(c, fmt.Sprintf("−%d", d.Stats.Deletions)).FontSize(10).TextColor(ui.Hex(p.danger))
-				})
-				if d.Body != "" {
-					ui.Box(c).Padding(8, 10).Radius(8).Background(ui.Hex(p.code)).
-						Border(1, ui.Hex(p.border)).Children(func() {
-						ui.Text(c, strings.TrimSpace(d.Body)).FontSize(11).TextColor(ui.Hex(p.fgSoft)).Wrap()
-					})
+		ui.Column(c).Padding(10, 12).Gap(5).BorderWidth(0, 0, 1, 0).
+			BorderColor(ui.Hex(p.border)).Children(func() {
+			ui.Text(c, d.Subject).FontSize(13).FontWeight(600).TextColor(ui.Hex(p.fg)).MaxLines(2)
+			ui.Row(c).Gap(6).AlignItems(ui.Center).Children(func() {
+				for _, r := range d.Refs {
+					a.refBadge(c, r)
 				}
-				ui.Box(c).Height(1).Background(ui.Hex(p.border)).MarginY(2)
+				ui.Text(c, d.Author).FontSize(10.5).TextColor(ui.Hex(p.muted))
+				ui.Text(c, a.stamp(d.AuthorTime)).FontSize(10).TextColor(ui.Hex(p.muted2))
+				ui.Spacer(c).Grow(1)
+				hash := ui.ButtonBase(c).Height(18).PaddingX(5).Radius(5).Background(ui.Hex(p.hover)).
+					AlignItems(ui.Center).Tooltip(a.t("Copy Revision Number"))
+				hash.Children(func() {
+					ui.Text(c, d.Short).FontSize(9.5).Font("monospace").TextColor(ui.Hex(p.muted2))
+				})
+				if hash.Clicked() {
+					a.copyText(d.Hash)
+				}
+				if _, clicked := a.smallIconButton(c, "chevronUp", a.t("Previous commit"), false); clicked {
+					a.stepLogDetail(-1)
+				}
+				if _, clicked := a.smallIconButton(c, "chevronDown", a.t("Next commit"), false); clicked {
+					a.stepLogDetail(1)
+				}
+			})
+			ui.Row(c).Gap(10).Children(func() {
+				ui.Text(c, fmt.Sprintf("%d %s", d.Stats.Files, a.t("files"))).FontSize(10).TextColor(ui.Hex(p.muted))
+				ui.Text(c, fmt.Sprintf("+%d", d.Stats.Additions)).FontSize(10).TextColor(ui.Hex(p.success))
+				ui.Text(c, fmt.Sprintf("−%d", d.Stats.Deletions)).FontSize(10).TextColor(ui.Hex(p.danger))
+			})
+		})
+		ui.Scroll(c).Grow(1).Children(func() {
+			ui.Column(c).Padding(8, 10, 12, 10).Gap(6).Children(func() {
+				ui.Row(c).Height(22).Gap(5).AlignItems(ui.Center).Children(func() {
+					ui.Text(c, strings.ToUpper(a.t("files"))).FontSize(10).FontWeight(650).
+						LetterSpacing(0.06).TextColor(ui.Hex(p.muted))
+					ui.Text(c, fmtInt(len(d.Files))).FontSize(10).TextColor(ui.Hex(p.muted2))
+					ui.Spacer(c).Grow(1)
+				})
 				ui.Column(c).Gap(1).Children(func() {
 					for _, f := range d.Files {
 						f := f
-						row := ui.ButtonBase(c).Height(26).PaddingX(4).Radius(5).AlignItems(ui.Center).Gap(7)
-						if row.Hovered() {
-							row.Background(ui.Hex(p.hover))
-						}
+						row := a.kitButtonRow(c, 30, 5, 6, 7, false)
 						row.Children(func() {
 							ui.Text(c, statusLetterKind(f.Status)).FontSize(10).Font("monospace").FontWeight(700).
 								Width(12).TextColor(statusKindColor(p, f.Status))
-							ui.Text(c, f.Path).FontSize(11).TextColor(ui.Hex(p.fgSoft)).MaxLines(1).Grow(1)
+							a.kitFileBadge(c, f.Path, 14)
+							dir := filepath.Dir(f.Path)
+							name := filepath.Base(f.Path)
+							ui.Text(c, name).FontSize(12).TextColor(ui.Hex(p.fgSoft)).MaxLines(1)
+							if dir != "." {
+								ui.Text(c, dir+"/").FontSize(10).TextColor(ui.Hex(p.muted2)).MaxLines(1)
+							}
+							ui.Spacer(c).Grow(1)
 							if f.Additions > 0 {
 								ui.Text(c, fmt.Sprintf("+%d", f.Additions)).FontSize(10).Font("monospace").TextColor(ui.Hex(p.success))
 							}
@@ -1301,12 +1344,26 @@ func (a *nativeApp) logDetails(c *ui.Context) {
 						if row.Clicked() {
 							a.openDiff(git.DiffOptions{Path: f.Path, OldPath: f.OldPath, Target: git.DiffCommit, Revision: d.Hash, Context: a.settings.DiffContext})
 						}
+						row.ContextMenu(func(m *ui.Menu) {
+							if m.Item(a.t("Open Source")).Chosen() {
+								a.openSource(f.Path, d.Hash)
+							}
+							if m.Item(a.t("Show History")).Chosen() {
+								a.showFileHistory(f.Path)
+							}
+							if m.Item(a.t("Copy Path")).Chosen() {
+								a.copyText(f.Path)
+							}
+						})
 					}
 				})
+				if d.Body != "" {
+					ui.Box(c).Padding(8, 10).Radius(8).Background(ui.Hex(p.code)).
+						Border(1, ui.Hex(p.border)).Children(func() {
+						ui.Text(c, strings.TrimSpace(d.Body)).FontSize(11).TextColor(ui.Hex(p.fgSoft)).Wrap()
+					})
+				}
 				ui.Row(c).Gap(6).PaddingY(4).Children(func() {
-					if a.miniTextButton(c, a.t("Copy Revision Number"), false) {
-						a.copyText(d.Hash)
-					}
 					if a.miniTextButton(c, a.t("Browse Revision"), false) {
 						a.openRevisionTree(d.Hash)
 					}
@@ -1317,6 +1374,19 @@ func (a *nativeApp) logDetails(c *ui.Context) {
 			})
 		})
 	})
+}
+
+func (a *nativeApp) stepLogDetail(delta int) {
+	if len(a.log.Commits) == 0 {
+		return
+	}
+	i := a.logSel
+	if i < 0 {
+		i = 0
+	}
+	i = max(0, min(len(a.log.Commits)-1, i+delta))
+	a.logSel = i
+	a.loadLogDetail(a.log.Commits[i].Hash)
 }
 
 func statusKindColor(p appColors, kind string) ui.Color {
@@ -1628,9 +1698,9 @@ func (a *nativeApp) sidebarSection(c *ui.Context, title string, n int, fn func()
 func (a *nativeApp) filesPane(c *ui.Context) {
 	p := palette(c.Theme())
 	ui.Column(c).Grow(1).MinHeight(0).Background(ui.Hex(p.panel)).Children(func() {
-		ui.Row(c).Height(33).PaddingX(6).Gap(4).AlignItems(ui.Center).
+		ui.Row(c).Height(40).Padding(4, 10).Gap(3).AlignItems(ui.Center).
 			BorderWidth(0, 0, 1, 0).BorderColor(ui.Hex(p.border)).Children(func() {
-			if _, _, changed := a.searchBox(c, &a.fileFilter, a.t("Filter files"), 228); changed {
+			if _, _, changed := a.searchBox(c, &a.fileFilter, a.t("Filter files"), 220); changed {
 				a.rebuildFileTree()
 			}
 			ui.Spacer(c).Grow(1)
@@ -1658,7 +1728,7 @@ func (a *nativeApp) filesPane(c *ui.Context) {
 				return
 			}
 			f := a.fileTree[i]
-			row := a.kitRow(c, 24, 6+float32(f.depth)*12, 8, 5, i == a.fileSel)
+			row := a.kitRow(c, 28, 6+float32(f.depth)*12, 10, 6, i == a.fileSel)
 			if f.dir {
 				if f.open {
 					ui.Row(c).TextColor(ui.Hex(p.muted)).Center().Children(func() {
@@ -1686,7 +1756,7 @@ func (a *nativeApp) filesPane(c *ui.Context) {
 						a.icon(c, icon, 14)
 					})
 				} else {
-					a.kitFileBadge(c, f.path, 16)
+					a.kitFileBadge(c, f.path, 14)
 				}
 				name := f.name
 				if f.dir {
@@ -1699,6 +1769,13 @@ func (a *nativeApp) filesPane(c *ui.Context) {
 						TextColor(statusKindColor(p, kind))
 				}
 			})
+			if row.RowDoubleClicked() {
+				if f.dir {
+					a.toggleDir(f.path)
+				} else {
+					a.openSource(f.path, "")
+				}
+			}
 			row.ContextMenu(func(m *ui.Menu) {
 				if m.Item(a.t("Open")).Chosen() {
 					if f.dir {
@@ -1733,7 +1810,12 @@ func (a *nativeApp) filesPane(c *ui.Context) {
 				a.pathMenu(m, f.path, 0)
 			})
 		}).Grow(1)
-		if list.Changed() || list.Submitted() {
+		if list.Changed() {
+			if a.fileSel >= 0 && a.fileSel < len(a.fileTree) && a.fileTree[a.fileSel].dir {
+				a.toggleDir(a.fileTree[a.fileSel].path)
+			}
+		}
+		if list.Submitted() {
 			if a.fileSel >= 0 && a.fileSel < len(a.fileTree) {
 				f := a.fileTree[a.fileSel]
 				if f.dir {
@@ -1798,7 +1880,7 @@ func (a *nativeApp) changedPath(path string) bool {
 func (a *nativeApp) branchesPane(c *ui.Context) {
 	p := palette(c.Theme())
 	ui.Column(c).Grow(1).MinHeight(0).Background(ui.Hex(p.panel)).Children(func() {
-		ui.Row(c).Height(33).PaddingX(6).Gap(1).AlignItems(ui.Center).
+		ui.Row(c).Height(40).Padding(4, 10).Gap(3).AlignItems(ui.Center).
 			BorderWidth(0, 0, 1, 0).BorderColor(ui.Hex(p.border)).Children(func() {
 			if _, clicked := a.smallIconButton(c, "plus", a.t("New Branch"), false); clicked {
 				a.openCreateBranchDialog(a.snapshot.State.Branch)
@@ -1862,7 +1944,7 @@ func (a *nativeApp) branchSection(c *ui.Context, title string, rows []repoRefRow
 		}
 	}
 	closed := a.branchClosed[group]
-	header := ui.ButtonBase(c).Height(26).PaddingX(6).Gap(5).AlignItems(ui.Center).FillWidth().Justify(ui.Start)
+	header := ui.ButtonBase(c).Height(28).PaddingX(8).Gap(5).AlignItems(ui.Center).FillWidth().Justify(ui.Start)
 	if header.Hovered() {
 		header.Background(ui.Hex(p.hover))
 	}
@@ -1881,7 +1963,7 @@ func (a *nativeApp) branchSection(c *ui.Context, title string, rows []repoRefRow
 				a.icon(c, "branch", 12)
 			}
 		})
-		ui.Text(c, title).FontSize(11.5).FontWeight(600).TextColor(ui.Hex(p.fg))
+		ui.Text(c, strings.ToUpper(title)).FontSize(10).FontWeight(650).LetterSpacing(0.07).TextColor(ui.Hex(p.muted))
 		ui.Text(c, fmtInt(n)).FontSize(10).TextColor(ui.Hex(p.muted2))
 	})
 	if header.Clicked() {
@@ -1890,11 +1972,25 @@ func (a *nativeApp) branchSection(c *ui.Context, title string, rows []repoRefRow
 	if closed {
 		return
 	}
+	var pinned []repoRefRow
+	for i := range rows {
+		ref := rows[i].ref
+		if rows[i].group == group && containsString(a.c.meta.Favorites, ref.Name) &&
+			(a.branchSearch == "" || strings.Contains(strings.ToLower(ref.Name), strings.ToLower(a.branchSearch))) {
+			pinned = append(pinned, rows[i])
+		}
+	}
+	for _, row := range pinned {
+		a.branchLeaf(c, row.ref, group, true)
+	}
 	var order []string
 	grouped := map[string][]repoRefRow{}
 	for i := range rows {
 		ref := rows[i].ref
 		if rows[i].group != group || (a.branchSearch != "" && !strings.Contains(strings.ToLower(ref.Name), strings.ToLower(a.branchSearch))) {
+			continue
+		}
+		if containsString(a.c.meta.Favorites, ref.Name) {
 			continue
 		}
 		name := ref.Name
@@ -1935,36 +2031,49 @@ func (a *nativeApp) branchSection(c *ui.Context, title string, rows []repoRefRow
 			continue
 		}
 		for _, row := range grouped[name] {
-			ref := row.ref
-			selected := len(a.logOpts.Refs) == 1 && a.logOpts.Refs[0] == ref.Name
-			btn := a.kitButtonRow(c, 26, 30, 8, 6, selected)
-			btn.Children(func() {
-				ui.Row(c).TextColor(ui.Hex(p.accent)).Center().Children(func() {
-					a.icon(c, "branch", 12)
-				})
-				ui.Text(c, ref.Name).FontSize(12).TextColor(ui.Hex(p.fgSoft)).MaxLines(1)
-				if ref.Head {
-					ui.Row(c).TextColor(ui.Hex(p.accent)).Center().Children(func() {
-						a.icon(c, "check", 11)
-					})
-				}
-				ui.Spacer(c).Grow(1)
-				if ref.Ahead > 0 {
-					ui.Text(c, "↑"+fmtInt(ref.Ahead)).FontSize(9.5).TextColor(ui.Hex(p.success))
-				}
-				if ref.Behind > 0 {
-					ui.Text(c, "↓"+fmtInt(ref.Behind)).FontSize(9.5).TextColor(ui.Hex(p.danger))
-				}
-			})
-			if btn.Clicked() {
-				a.loadBranchLog(ref.Name)
-			}
-			if btn.DoubleClicked() && !ref.Head {
-				a.checkout(ref.Name)
-			}
-			btn.ContextMenu(func(m *ui.Menu) { a.branchContextMenu(m, ref, group) })
+			a.branchLeaf(c, row.ref, group, false)
 		}
 	}
+}
+
+func (a *nativeApp) branchLeaf(c *ui.Context, ref git.RepoRef, group string, full bool) {
+	p := palette(c.Theme())
+	selected := len(a.logOpts.Refs) == 1 && a.logOpts.Refs[0] == ref.Name
+	pad := float32(30)
+	name := ref.Name
+	if full {
+		pad = 19
+	} else if i := strings.IndexByte(name, '/'); i > 0 {
+		name = name[i+1:]
+	}
+	btn := a.kitButtonRow(c, 25, pad, 8, 6, selected)
+	btn.Children(func() {
+		ui.Row(c).TextColor(ui.Hex(p.accent)).Center().Children(func() {
+			a.icon(c, "branch", 12)
+		})
+		ui.Text(c, name).FontSize(12).TextColor(ui.Hex(p.fgSoft)).MaxLines(1)
+		if ref.Head {
+			ui.Row(c).TextColor(ui.Hex(p.accent)).Center().Children(func() {
+				a.icon(c, "check", 11)
+			})
+		}
+		ui.Spacer(c).Grow(1)
+		if ref.Ahead > 0 {
+			ui.Text(c, "↑"+fmtInt(ref.Ahead)).FontSize(9.5).TextColor(ui.Hex(p.success))
+		}
+		if ref.Behind > 0 {
+			ui.Text(c, "↓"+fmtInt(ref.Behind)).FontSize(9.5).TextColor(ui.Hex(p.danger))
+		}
+		if containsString(a.c.meta.Favorites, ref.Name) {
+			ui.Row(c).TextColor(ui.Hex(p.warning)).Center().Children(func() {
+				a.icon(c, "star", 11)
+			})
+		}
+	})
+	if btn.DoubleClicked() {
+		a.loadBranchLog(ref.Name)
+	}
+	btn.ContextMenu(func(m *ui.Menu) { a.branchContextMenu(m, ref, group) })
 }
 
 func (a *nativeApp) branchContextMenu(m *ui.Menu, ref git.RepoRef, group string) {
@@ -1995,6 +2104,17 @@ func (a *nativeApp) branchContextMenu(m *ui.Menu, ref git.RepoRef, group string)
 	}
 	if m.Item(a.t("Copy Revision Number")).Chosen() {
 		a.copyText(ref.Hash)
+	}
+	if containsString(a.c.meta.Favorites, ref.Name) {
+		if m.Item(a.t("Remove from Favorites")).Chosen() {
+			a.toggleFavoriteBranch(ref.Name)
+		}
+	} else if m.Item(a.t("Add to Favorites")).Chosen() {
+		a.toggleFavoriteBranch(ref.Name)
+	}
+	m.Separator()
+	if m.Item(a.t("Push Branch…")).Chosen() {
+		a.openPushDialogForBranch(ref.Name)
 	}
 	if group == "local" && !ref.Head {
 		m.Separator()
@@ -2052,7 +2172,7 @@ func (a *nativeApp) loadBranchLog(name string) {
 func (a *nativeApp) tagSection(c *ui.Context) {
 	p := palette(c.Theme())
 	closed := a.branchClosed["tags"]
-	header := ui.ButtonBase(c).Height(26).PaddingX(6).Gap(5).AlignItems(ui.Center).FillWidth().Justify(ui.Start)
+	header := ui.ButtonBase(c).Height(28).PaddingX(8).Gap(5).AlignItems(ui.Center).FillWidth().Justify(ui.Start)
 	if header.Hovered() {
 		header.Background(ui.Hex(p.hover))
 	}
@@ -2067,9 +2187,12 @@ func (a *nativeApp) tagSection(c *ui.Context) {
 		ui.Row(c).TextColor(ui.Hex(p.muted)).Center().Children(func() {
 			a.icon(c, "tag", 12)
 		})
-		ui.Text(c, a.t("Tags")).FontSize(11.5).FontWeight(600).TextColor(ui.Hex(p.fg))
+		ui.Text(c, strings.ToUpper(a.t("Tags"))).FontSize(10).FontWeight(650).LetterSpacing(0.07).TextColor(ui.Hex(p.muted))
 		ui.Text(c, fmtInt(len(a.tags))).FontSize(10).TextColor(ui.Hex(p.muted2))
 		ui.Spacer(c).Grow(1)
+		if _, clicked := a.smallIconButton(c, "plus", a.t("New Tag"), false); clicked {
+			a.openCreateTagDialog(a.snapshot.State.Head)
+		}
 	})
 	if header.Clicked() {
 		a.branchClosed["tags"] = !closed
@@ -2082,11 +2205,7 @@ func (a *nativeApp) tagSection(c *ui.Context) {
 		if a.branchSearch != "" && !strings.Contains(strings.ToLower(ref.Name), strings.ToLower(a.branchSearch)) {
 			continue
 		}
-		line := ui.ButtonBase(c).Height(38).PaddingStart(19).PaddingEnd(8).PaddingY(3).Radius(4).
-			FillWidth().Justify(ui.Start)
-		if line.Hovered() {
-			line.Background(ui.Hex(p.hover))
-		}
+		line := a.kitButtonRow(c, 38, 19, 8, 6, false)
 		line.Children(func() {
 			ui.Column(c).Gap(1).Grow(1).Children(func() {
 				ui.Row(c).Gap(6).AlignItems(ui.Center).Children(func() {
@@ -2112,6 +2231,9 @@ func (a *nativeApp) tagSection(c *ui.Context) {
 			}
 			if m.Item(a.t("New Branch Here")).Chosen() {
 				a.openCreateBranchDialog(ref.Name)
+			}
+			if m.Item(a.t("Compare with Current")).Chosen() {
+				a.openCompare(ref.Name, a.snapshot.State.Branch)
 			}
 			if m.Item(a.t("Copy Name")).Chosen() {
 				a.copyText(ref.Name)
@@ -2197,24 +2319,15 @@ func graphColors(t *ui.Theme) []ui.Color {
 func (a *nativeApp) consolePane(c *ui.Context) {
 	p := palette(c.Theme())
 	ui.Column(c).Grow(1).MinHeight(0).Background(ui.Hex(p.panel)).Children(func() {
-		ui.Row(c).Height(33).PaddingX(6).Gap(2).AlignItems(ui.Center).
+		ui.Row(c).Height(40).Padding(4, 10).Gap(3).AlignItems(ui.Center).
 			BorderWidth(0, 0, 1, 0).BorderColor(ui.Hex(p.border)).Children(func() {
-			for i, label := range []string{a.t("Command"), a.t("Operations")} {
-				i := i
-				b := ui.ButtonBase(c).Height(27).PaddingX(9).Radius(4).AlignItems(ui.Center)
-				if a.consoleTab == i {
-					b.Background(ui.Hex(p.raised))
-				} else if b.Hovered() {
-					b.Background(ui.Hex(p.hover))
-				}
-				b.Children(func() {
-					ui.Text(c, label).FontSize(12).TextColor(ui.Hex(p.fgSoft))
-				})
-				if b.Clicked() {
-					a.consoleTab = i
-				}
+			if next := a.kitSegmented(c, []string{a.t("Command"), a.t("Operations")}, a.consoleTab); next != a.consoleTab {
+				a.consoleTab = next
 			}
 			ui.Spacer(c).Grow(1)
+			if _, clicked := a.smallIconButton(c, "copy", a.t("Copy Output"), false); clicked {
+				a.copyText(strings.Join(a.consoleLog, "\n"))
+			}
 			if _, clicked := a.smallIconButton(c, "trash", a.t("Clear"), false); clicked {
 				a.consoleLog = nil
 			}
@@ -2225,7 +2338,7 @@ func (a *nativeApp) consolePane(c *ui.Context) {
 			}
 		})
 		ui.Scroll(c).Grow(1).Background(ui.Hex(p.code)).Children(func() {
-			ui.Column(c).Padding(8, 10).Gap(1).Children(func() {
+			ui.Column(c).Padding(6, 8).Gap(1).Children(func() {
 				if a.consoleTab == 0 {
 					if len(a.consoleLog) == 0 {
 						ui.Text(c, a.t("No commands yet")).FontSize(10.5).TextColor(ui.Hex(p.muted2))
@@ -2280,22 +2393,9 @@ func (a *nativeApp) consolePane(c *ui.Context) {
 				}
 			})
 		}
-		ui.Row(c).Height(36).PaddingX(6).Gap(4).AlignItems(ui.Center).
+		ui.Row(c).Height(32).Padding(6, 8).Gap(6).AlignItems(ui.Center).
 			BorderWidth(1, 0, 0, 0).BorderColor(ui.Hex(p.border)).Background(ui.Hex(p.panel)).Children(func() {
-			if _, clicked := a.smallIconButton(c, "clock", a.t("History"), false); clicked {
-				// The menu is attached to the button below; retain the
-				// keyboard shortcut as the visible affordance.
-			}
-			history := ui.ButtonBase(c).Height(24).PaddingX(7).Radius(4).Gap(4).AlignItems(ui.Center)
-			if history.Hovered() {
-				history.Background(ui.Hex(p.hover))
-			}
-			history.Children(func() {
-				ui.Row(c).TextColor(ui.Hex(p.muted)).Center().Children(func() {
-					a.icon(c, "clock", 13)
-				})
-				ui.Text(c, a.t("History")).FontSize(11).TextColor(ui.Hex(p.muted))
-			})
+			history, _ := a.kitIconButton(c, "clock", a.t("History"), 24, 13, false, false, false)
 			history.PopoverMenuButton(func(m *ui.Menu) {
 				for i, line := range a.consoleHis {
 					if i > 20 {
@@ -2307,18 +2407,35 @@ func (a *nativeApp) consolePane(c *ui.Context) {
 					}
 				}
 			})
-			ui.Text(c, "$").FontSize(12).Font("monospace").FontWeight(700).TextColor(ui.Hex(p.accent))
-			in := ui.TextInputBase(c, &a.consoleIn).FontSize(12).Font("monospace").
+			if strings.HasPrefix(strings.TrimSpace(a.consoleIn), "!") {
+				ui.Box(c).Height(20).PaddingX(6).Radius(5).Background(ui.Hex(p.hoverStrong)).Center().Children(func() {
+					ui.Text(c, "$").FontSize(10.5).Font("monospace").TextColor(ui.Hex(p.muted))
+				})
+			} else {
+				program := ui.ButtonBase(c).Height(20).PaddingX(6).Radius(5).Background(ui.Hex(p.accentSoft)).
+					AlignItems(ui.Center).Tooltip(a.t("Program"))
+				program.Children(func() {
+					ui.Text(c, a.consoleProgram).FontSize(10.5).FontWeight(600).TextColor(ui.Hex(p.accent))
+				})
+				program.PopoverMenuButton(func(m *ui.Menu) {
+					for _, name := range []string{"git", "npm", "pnpm", "bun", "go", "mvn", "gradle", "make"} {
+						name := name
+						if m.Item(name).Checked(name == a.consoleProgram).Chosen() {
+							a.consoleProgram = name
+						}
+					}
+					m.Separator()
+					if m.Item(a.t("Shell command (!)")).Chosen() {
+						a.consoleIn = "! " + a.consoleIn
+					}
+				})
+			}
+			in := ui.TextInputBase(c, &a.consoleIn).FontSize(11.5).Font("monospace").
 				Placeholder(a.t("git status")).Grow(1).PaddingX(4)
 			if in.Submitted() {
 				a.runConsole()
 			}
-			if a.primaryButton(c, a.t("Run")) {
-				a.runConsole()
-			}
-			if _, clicked := a.smallIconButton(c, "sparkle", a.t("Complete"), false); clicked {
-				a.completeConsole()
-			}
+			in.OnShortcut(0, ui.KeyTab, a.completeConsole)
 		})
 	})
 }

@@ -435,6 +435,8 @@ func (a *nativeApp) confirmDialog(c *ui.Context) {
 		case "commit":
 			a.commitNow(a.checkedPaths(), a.commitForm)
 		case "delete-branch":
+			a.deleteBranchChecked(d.text)
+		case "delete-branch-force":
 			a.busyRun("delete-branch", func() error { return a.g.DeleteBranch(d.text, true) })
 		case "delete-path":
 			a.busyRun("delete-path", func() error { return a.g.DeletePath(d.text) })
@@ -450,6 +452,8 @@ func (a *nativeApp) confirmDialog(c *ui.Context) {
 			if d.pushOpts != nil {
 				a.push(*d.pushOpts)
 			}
+		case "delete-tag":
+			a.busyRun("delete-tag", func() error { return a.g.DeleteTag(d.text, "") })
 		case "delete-changelist":
 			id := d.target
 			a.busyRun("changelist", func() error {

@@ -75,6 +75,10 @@ type RepoMeta struct {
 	// RecentBranches are the branches checked out lately, newest first,
 	// which the branch list shows above the rest.
 	RecentBranches []string `json:"recentBranches"`
+	// Favorites are branch names starred in the branch list.
+	Favorites      []string `json:"favorites"`
+	ConsoleHistory []string `json:"consoleHistory"`
+	ConsoleProgram string   `json:"consoleProgram"`
 }
 
 // settingsVersion is bumped whenever a stored default has to be rewritten;

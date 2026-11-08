@@ -212,6 +212,7 @@ var iconPaths = map[string]string{
 	"pull":         `<path d="M8 2v7.4"/><path d="M5.2 6.7 8 9.5l2.8-2.8"/><path d="M2.5 13.2h11"/><path d="M4 11.5h8" opacity=".35"/>`,
 	"push":         `<path d="M8 9.6V2.2"/><path d="M5.2 5 8 2.2 10.8 5"/><path d="M2.5 13.2h11"/><path d="M4 11.5h8" opacity=".35"/>`,
 	"branch":       `<circle cx="4.4" cy="3.4" r="1.7"/><circle cx="4.4" cy="12.6" r="1.7"/><circle cx="11.6" cy="5.2" r="1.7"/><path d="M4.4 5.1v5.8"/><path d="M11.6 6.9c0 2.6-2.2 3.4-4.4 3.8"/>`,
+	"star":         `<path d="m8 1.8 1.9 3.9 4.3.6-3.1 3 .7 4.3-3.8-2-3.8 2 .7-4.3-3.1-3 4.3-.6z"/>`,
 	"tag":          `<path d="M2.2 2.2h5.4c.4 0 .8.2 1.1.4l5 5c.5.5.5 1.3 0 1.8l-4.3 4.3c-.5.5-1.3.5-1.8 0l-5-5a1.6 1.6 0 0 1-.4-1.1z"/><circle cx="5.2" cy="5.2" r=".9"/>`,
 	"commit":       `<circle cx="8" cy="8" r="3.1"/><path d="M8 1.2v3.7M8 11.1v3.7"/>`,
 	"log":          `<circle cx="4" cy="4" r="1.6"/><circle cx="4" cy="12" r="1.6"/><path d="M4 5.6v4.8"/><path d="M7.4 4h6.4M7.4 12h6.4M7.4 8h4.8" opacity=".85"/>`,
@@ -232,6 +233,7 @@ var iconPaths = map[string]string{
 	"save":         `<path d="M2.5 2.5h8.6L13.5 5v8.5h-11z"/><path d="M5 2.5v3.6h4.5V2.5M5 13.5V9.2h6v4.3"/>`,
 	"trash":        `<path d="M2.8 4.4h10.4M6.4 4.4V2.8h3.2v1.6"/><path d="M4 4.4l.6 8.2c0 .5.4.8.9.8h5c.5 0 .9-.3.9-.8l.6-8.2"/><path d="M6.6 6.8v4.4M9.4 6.8v4.4" opacity=".5"/>`,
 	"undo":         `<path d="M5.3 3.2 2.5 6l2.8 2.8"/><path d="M2.8 6h6.1a4 4 0 0 1 0 8H6.4"/>`,
+	"redo":         `<path d="M10.7 3.2 13.5 6l-2.8 2.8"/><path d="M13.2 6H7.1a4 4 0 0 0 0 8h2.5"/>`,
 	"copy":         `<rect x="5.4" y="5.4" width="8.2" height="8.2" rx="1.2"/><path d="M10.6 5.4V3.6c0-.7-.5-1.2-1.2-1.2H3.6c-.7 0-1.2.5-1.2 1.2v5.8c0 .7.5 1.2 1.2 1.2h1.8"/>`,
 	"external":     `<path d="M9.5 2.5h4v4M13.5 2.5 7.8 8.2M12 9.8v2.6c0 .6-.5 1.1-1.1 1.1H3.6c-.6 0-1.1-.5-1.1-1.1V5.1c0-.6.5-1.1 1.1-1.1h2.6"/>`,
 	"columns":      `<rect x="1.8" y="2.6" width="12.4" height="10.8" rx="1.2"/><path d="M8 2.6v10.8"/>`,
@@ -301,7 +303,7 @@ func (a *nativeApp) iconButton(c *ui.Context, name, tip string, disabled bool) (
 }
 
 func (a *nativeApp) smallIconButton(c *ui.Context, name, tip string, disabled bool) (ui.Element, bool) {
-	return a.kitIconButton(c, name, tip, 22, 13, disabled, false, false)
+	return a.kitIconButton(c, name, tip, 28, 14, disabled, false, false)
 }
 
 // toolbarRule is the short vertical divider between toolbar groups.
