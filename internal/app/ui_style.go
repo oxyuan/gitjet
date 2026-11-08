@@ -292,32 +292,14 @@ func (a *nativeApp) icon(c *ui.Context, name string, size float32) ui.Element {
 }
 
 // iconButton is the 26px toolbar button of the old title bar and panels.
+// It is a kit control so every panel inherits the same hover timing and
+// pressed give rather than its own copy of a stock button.
 func (a *nativeApp) iconButton(c *ui.Context, name, tip string, disabled bool) (ui.Element, bool) {
-	p := palette(c.Theme())
-	b := ui.ButtonBase(c).Size(26, 26).Radius(4).Center().Tooltip(tip).Disabled(disabled)
-	if b.Hovered() {
-		b.Background(ui.Hex(p.hover))
-	}
-	b.Children(func() {
-		ui.Row(c).TextColor(ui.Hex(p.fgSoft)).Center().Children(func() {
-			a.icon(c, name, 16)
-		})
-	})
-	return b, b.Clicked()
+	return a.kitIconButton(c, name, tip, 26, 16, disabled, false, false)
 }
 
 func (a *nativeApp) smallIconButton(c *ui.Context, name, tip string, disabled bool) (ui.Element, bool) {
-	p := palette(c.Theme())
-	b := ui.ButtonBase(c).Size(22, 22).Radius(4).Center().Tooltip(tip).Disabled(disabled)
-	if b.Hovered() {
-		b.Background(ui.Hex(p.hover))
-	}
-	b.Children(func() {
-		ui.Row(c).TextColor(ui.Hex(p.muted)).Center().Children(func() {
-			a.icon(c, name, 13)
-		})
-	})
-	return b, b.Clicked()
+	return a.kitIconButton(c, name, tip, 22, 13, disabled, false, false)
 }
 
 // toolbarRule is the short vertical divider between toolbar groups.
@@ -370,29 +352,11 @@ func iconNameForTab(tab int) string {
 // primaryButton is the accent button of the old pages: a rounded pill on
 // the welcome card and a 5px button in dialogs.
 func (a *nativeApp) primaryButton(c *ui.Context, label string) bool {
-	p := palette(c.Theme())
-	b := ui.ButtonBase(c).Height(28).PaddingX(12).Radius(5).Gap(6).AlignItems(ui.Center).
-		Background(ui.Hex(p.accent)).Border(1, ui.Hex(p.accent))
-	if b.Hovered() {
-		b.Background(ui.Hex(p.accentHover))
-	}
-	b.Children(func() {
-		ui.Text(c, label).FontSize(12.5).FontWeight(600).TextColor(ui.Hex(p.accentText))
-	})
-	return b.Clicked()
+	return a.kitPrimary(c, label)
 }
 
 func (a *nativeApp) secondaryButton(c *ui.Context, label string, disabled bool) bool {
-	p := palette(c.Theme())
-	b := ui.ButtonBase(c).Height(28).PaddingX(12).Radius(5).Gap(6).AlignItems(ui.Center).
-		Background(ui.Hex(p.raised)).Border(1, ui.Hex(p.borderStrong)).Disabled(disabled)
-	if b.Hovered() {
-		b.Background(ui.Hex(p.hover))
-	}
-	b.Children(func() {
-		ui.Text(c, label).FontSize(12.5).TextColor(ui.Hex(p.fg))
-	})
-	return b.Clicked()
+	return a.kitSecondary(c, label, disabled)
 }
 
 func (a *nativeApp) kbd(c *ui.Context, label string) {
@@ -405,29 +369,37 @@ func (a *nativeApp) kbd(c *ui.Context, label string) {
 
 func (a *nativeApp) miniTextButton(c *ui.Context, label string, danger bool) bool {
 	p := palette(c.Theme())
-	b := ui.ButtonBase(c).Height(18).PaddingX(6).Radius(3).AlignItems(ui.Center).
-		Background(ui.Hex(p.raised)).Border(1, ui.Hex(p.border))
+	b := ui.ButtonBase(c).Height(18).PaddingX(6).Radius(4).AlignItems(ui.Center).
+		Border(1, ui.Hex(p.border))
+	bg := ui.Hex(p.raised)
 	if b.Hovered() {
-		b.Background(ui.Hex(p.hover))
+		bg = ui.Hex(p.hover)
+	}
+	if b.Pressed() {
+		bg = ui.Hex(p.hoverStrong)
+	}
+	b.Background(motionColor(b, "kit-mini-bg", bg))
+	col := ui.Hex(p.fgSoft)
+	if danger {
+		col = ui.Hex(p.danger)
 	}
 	b.Children(func() {
-		col := p.fgSoft
-		if danger {
-			col = p.danger
-		}
-		ui.Text(c, label).FontSize(10.5).TextColor(ui.Hex(col))
+		ui.Text(c, label).FontSize(10.5).TextColor(motionColor(b, "kit-mini-fg", col))
 	})
+	motionPressPose(b, b.Pressed(), 0.96)
 	return b.Clicked()
 }
 
 // searchBox is the bordered little search field of the page's toolbars.
 func (a *nativeApp) searchBox(c *ui.Context, value *string, placeholder string, width float32) (ui.Element, bool, bool) {
 	p := palette(c.Theme())
-	b := ui.Row(c).Height(24).Width(width).PaddingX(6).Gap(4).AlignItems(ui.Center).
-		Radius(4).Background(ui.Hex(p.input)).Border(1, ui.Hex(p.borderStrong))
+	b := ui.Row(c).Height(26).Width(width).PaddingX(7).Gap(5).AlignItems(ui.Center).
+		Radius(6).Background(ui.Hex(p.input)).Border(1, ui.Hex(p.borderStrong))
+	border := ui.Hex(p.borderStrong)
 	if b.Hovered() {
-		b.BorderColor(ui.Hex(p.accent))
+		border = ui.Hex(p.accent)
 	}
+	b.BorderColor(motionColor(b, "kit-search-border", border))
 	var submitted, changed bool
 	b.Children(func() {
 		ui.Row(c).TextColor(ui.Hex(p.muted)).Center().Children(func() {
@@ -444,19 +416,25 @@ func (a *nativeApp) searchBox(c *ui.Context, value *string, placeholder string, 
 // history header.
 func (a *nativeApp) toggleTextButton(c *ui.Context, label string, on bool) bool {
 	p := palette(c.Theme())
-	b := ui.ButtonBase(c).Height(24).PaddingX(5).Radius(3).Center()
+	b := ui.ButtonBase(c).Height(24).PaddingX(6).Radius(5).Center()
+	bg := ui.Transparent
 	if on {
-		b.Background(ui.Hex(p.selection))
+		bg = ui.Hex(p.selection)
 	} else if b.Hovered() {
-		b.Background(ui.Hex(p.hover))
+		bg = ui.Hex(p.hover)
 	}
+	b.Background(motionColor(b, "kit-toggle-bg", bg))
+	col := ui.Hex(p.muted)
+	if on {
+		col = ui.Hex(p.fg)
+	} else if b.Hovered() {
+		col = ui.Hex(p.fgSoft)
+	}
+	col = motionColor(b, "kit-toggle-fg", col)
 	b.Children(func() {
-		col := p.muted
-		if on {
-			col = p.fg
-		}
-		ui.Text(c, label).FontSize(12).TextColor(ui.Hex(col))
+		ui.Text(c, label).FontSize(12).TextColor(col)
 	})
+	motionPressPose(b, b.Pressed(), 0.95)
 	return b.Clicked()
 }
 
@@ -470,37 +448,50 @@ func (a *nativeApp) refBadge(c *ui.Context, label string) {
 
 func (a *nativeApp) toolbarButton(c *ui.Context, icon, label string, disabled bool) bool {
 	p := palette(c.Theme())
-	b := ui.ButtonBase(c).Height(24).PaddingX(7).Radius(4).Gap(5).AlignItems(ui.Center).Disabled(disabled)
+	b := ui.ButtonBase(c).Height(24).PaddingX(8).Radius(5).Gap(5).AlignItems(ui.Center).Disabled(disabled)
+	bg := ui.Transparent
 	if b.Hovered() {
-		b.Background(ui.Hex(p.hover))
+		bg = ui.Hex(p.hover)
 	}
+	if b.Pressed() {
+		bg = ui.Hex(p.hoverStrong)
+	}
+	b.Background(motionColor(b, "kit-toolbar-bg", bg))
+	fg := motionColor(b, "kit-toolbar-fg", ui.Hex(p.fgSoft))
 	b.Children(func() {
-		ui.Row(c).TextColor(ui.Hex(p.fgSoft)).Center().Children(func() {
+		ui.Row(c).TextColor(fg).Center().Children(func() {
 			a.icon(c, icon, 14)
 		})
-		ui.Text(c, label).FontSize(12).TextColor(ui.Hex(p.fgSoft))
+		ui.Text(c, label).FontSize(12).TextColor(fg)
 	})
+	motionPressPose(b, b.Pressed(), 0.97)
 	return b.Clicked()
 }
 
 func (a *nativeApp) toolbarToggle(c *ui.Context, icon, label string, on bool) bool {
 	p := palette(c.Theme())
-	b := ui.ButtonBase(c).Height(24).PaddingX(7).Radius(4).Gap(5).AlignItems(ui.Center)
+	b := ui.ButtonBase(c).Height(24).PaddingX(8).Radius(5).Gap(5).AlignItems(ui.Center)
+	bg := ui.Transparent
 	if on {
-		b.Background(ui.Hex(p.selection))
+		bg = ui.Hex(p.selection)
 	} else if b.Hovered() {
-		b.Background(ui.Hex(p.hover))
+		bg = ui.Hex(p.hover)
 	}
+	b.Background(motionColor(b, "kit-toolbar-bg", bg))
+	col := ui.Hex(p.muted)
+	if on {
+		col = ui.Hex(p.fg)
+	} else if b.Hovered() {
+		col = ui.Hex(p.fgSoft)
+	}
+	col = motionColor(b, "kit-toolbar-fg", col)
 	b.Children(func() {
-		col := p.muted
-		if on {
-			col = p.fg
-		}
-		ui.Row(c).TextColor(ui.Hex(col)).Center().Children(func() {
+		ui.Row(c).TextColor(col).Center().Children(func() {
 			a.icon(c, icon, 14)
 		})
-		ui.Text(c, label).FontSize(12).TextColor(ui.Hex(col))
+		ui.Text(c, label).FontSize(12).TextColor(col)
 	})
+	motionPressPose(b, b.Pressed(), 0.97)
 	return b.Clicked()
 }
 
@@ -511,20 +502,24 @@ func (a *nativeApp) iconSegment(c *ui.Context, active int, names ...string) int 
 		for i, name := range names {
 			i := i
 			b := ui.ButtonBase(c).Size(24, 20).Center()
+			bg := ui.Transparent
 			if chosen == i {
-				b.Background(ui.Hex(p.selection))
+				bg = ui.Hex(p.selection)
 			} else if b.Hovered() {
-				b.Background(ui.Hex(p.hover))
+				bg = ui.Hex(p.hover)
 			}
+			b.Background(motionColor(b, "kit-segment-bg", bg))
+			col := ui.Hex(p.muted)
+			if chosen == i {
+				col = ui.Hex(p.fg)
+			}
+			col = motionColor(b, "kit-segment-fg", col)
 			b.Children(func() {
-				col := p.muted
-				if chosen == i {
-					col = p.fg
-				}
-				ui.Row(c).TextColor(ui.Hex(col)).Center().Children(func() {
+				ui.Row(c).TextColor(col).Center().Children(func() {
 					a.icon(c, name, 13)
 				})
 			})
+			motionPressPose(b, b.Pressed(), 0.92)
 			if b.Clicked() {
 				chosen = i
 			}
@@ -582,20 +577,7 @@ func editorTheme(t *ui.Theme) *editor.Theme {
 }
 
 func (a *nativeApp) titleIconButton(c *ui.Context, name, tip string, disabled, dot bool) (ui.Element, bool) {
-	p := palette(c.Theme())
-	b := ui.ButtonBase(c).Size(30, 30).Radius(8).Center().Tooltip(tip).Disabled(disabled)
-	if b.Hovered() {
-		b.Background(ui.Hex(p.hover))
-	}
-	b.Children(func() {
-		ui.Row(c).TextColor(ui.Hex(p.muted)).Center().Children(func() {
-			a.icon(c, name, 16)
-		})
-		if dot {
-			ui.Box(c).Absolute().Top(6).Right(6).Size(5, 5).Radius(3).Background(ui.Hex(p.accent))
-		}
-	})
-	return b, b.Clicked()
+	return a.kitIconButton(c, name, tip, 30, 16, disabled, false, dot)
 }
 
 // fileTint is the hint of color the old file icons gave each language.

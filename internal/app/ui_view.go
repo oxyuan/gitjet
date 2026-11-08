@@ -38,15 +38,8 @@ func (a *nativeApp) titleBar(c *ui.Context) {
 		title.PaddingStart(84)
 	}
 	title.Children(func() {
-		ui.Row(c).Gap(7).PaddingEnd(8).AlignItems(ui.Center).Children(func() {
-			ui.Box(c).Size(24, 24).Radius(7).Center().
-				Gradient(ui.Hex("#6f7bab"), ui.Hex("#3a4568"), 135).
-				Shadow(0, 2, 8, 0, ui.RGBA(58, 69, 104, 0.20)).
-				Children(func() {
-					ui.Row(c).TextColor(ui.Hex("#ffffff")).Center().Children(func() {
-						a.icon(c, "git", 17)
-					})
-				})
+		ui.Row(c).Gap(8).PaddingEnd(9).AlignItems(ui.Center).Children(func() {
+			a.kitLogo(c)
 			ui.Text(c, "GitJet").FontSize(13).FontWeight(650)
 			if a.repoOpen {
 				ui.Text(c, "/").FontSize(13).TextColor(ui.Hex(p.muted2))
@@ -58,14 +51,14 @@ func (a *nativeApp) titleBar(c *ui.Context) {
 			}
 		})
 		ui.Row(c).Gap(2).AlignItems(ui.Center).Grow(1).Children(func() {
-			if _, clicked := a.titleIconButton(c, "open", a.t("Open Repository"), false, false); clicked {
+			if _, clicked := a.kitIconButton(c, "open", a.t("Open Repository"), 30, 16, false, false, false); clicked {
 				a.chooseAndOpen()
 			}
-			toolbarRule(c)
-			if _, clicked := a.titleIconButton(c, "refresh", a.t("Refresh"), a.busy > 0, false); clicked {
+			kitToolbarRule(c)
+			if _, clicked := a.kitIconButton(c, "refresh", a.t("Refresh"), 30, 16, a.busy > 0, false, false); clicked {
 				a.refresh()
 			}
-			fetch, clicked := a.titleIconButton(c, "fetch", a.t("Fetch"), !a.repoOpen, a.snapshot.State.Behind > 0)
+			fetch, clicked := a.kitIconButton(c, "fetch", a.t("Fetch"), 30, 16, !a.repoOpen, false, a.snapshot.State.Behind > 0)
 			fetch.ContextMenu(func(m *ui.Menu) {
 				if m.Item(a.t("All remotes")).Chosen() {
 					a.fetchWith(git.FetchOptions{All: true, Prune: true})
@@ -83,16 +76,16 @@ func (a *nativeApp) titleBar(c *ui.Context) {
 			if clicked {
 				a.fetchWith(git.FetchOptions{All: true, Prune: true})
 			}
-			if _, clicked := a.titleIconButton(c, "pull", a.t("Pull"), !a.repoOpen || a.busy > 0, a.snapshot.State.Behind > 0); clicked {
+			if _, clicked := a.kitIconButton(c, "pull", a.t("Pull"), 30, 16, !a.repoOpen || a.busy > 0, false, a.snapshot.State.Behind > 0); clicked {
 				a.openPullDialog()
 			}
-			_, clicked = a.titleIconButton(c, "push", a.t("Push"), !a.repoOpen || a.busy > 0, a.snapshot.State.Ahead > 0)
+			_, clicked = a.kitIconButton(c, "push", a.t("Push"), 30, 16, !a.repoOpen || a.busy > 0, false, a.snapshot.State.Ahead > 0)
 			if clicked {
 				a.openPushDialog()
 			}
 			ui.Spacer(c).Grow(1)
 			ui.Spacer(c).Grow(1)
-			if _, clicked := a.titleIconButton(c, "settings", a.t("Settings"), false, false); clicked {
+			if _, clicked := a.kitIconButton(c, "settings", a.t("Settings"), 30, 16, false, false, false); clicked {
 				a.openSettingsDialog()
 			}
 		})
@@ -102,24 +95,9 @@ func (a *nativeApp) titleBar(c *ui.Context) {
 
 // quickTrigger is the centered search affordance of the title bar.
 func (a *nativeApp) quickTrigger(c *ui.Context) {
-	p := palette(c.Theme())
-	quick := ui.ButtonBase(c).Absolute().LeftPercent(50).TranslatePercent(-50, 0).
-		Height(30).Width(240).Radius(9).PaddingX(10).Gap(8).AlignItems(ui.Center).
-		Background(ui.Hex(p.raised)).Border(1, ui.Hex(p.border)).Tooltip(a.t("Quick Open")).
-		Disabled(!a.repoOpen)
-	if quick.Hovered() {
-		quick.Background(ui.Hex(p.raised)).BorderColor(ui.Hex(p.borderStrong))
-	}
-	quick.Children(func() {
-		ui.Row(c).TextColor(ui.Hex(p.muted)).Center().Children(func() {
-			a.icon(c, "search", 14)
-		})
-		ui.Text(c, a.t("Search files")).FontSize(12).TextColor(ui.Hex(p.muted)).Grow(1)
-		ui.Box(c).Height(18).PaddingX(5).Radius(5).Background(ui.Hex(p.hover)).Center().Children(func() {
-			ui.Text(c, "⌘P").FontSize(9).TextColor(ui.Hex(p.muted2))
-		})
-	})
-	if quick.Clicked() {
+	quick, clicked := a.kitSearch(c, a.t("Search files"), "⌘P", a.repoOpen)
+	quick.Absolute().LeftPercent(50).TranslatePercent(-50, 0)
+	if clicked {
 		a.openQuickOpen()
 	}
 }
@@ -145,26 +123,11 @@ func (a *nativeApp) toolWindow(c *ui.Context) {
 			for _, tab := range tabs {
 				tab := tab
 				active := a.sideTab == tab.index
-				b := ui.ButtonBase(c).Height(27).PaddingX(9).Radius(4).Gap(6).AlignItems(ui.Center)
-				if active {
-					b.Background(ui.Hex(p.raised))
-				} else if b.Hovered() {
-					b.Background(ui.Hex(p.hover))
+				count := 0
+				if tab.index == 0 {
+					count = a.snapshot.State.Changed + a.snapshot.State.Untracked + a.snapshot.State.Conflicts
 				}
-				b.Children(func() {
-					col := p.muted
-					if active {
-						col = p.fg
-					}
-					ui.Row(c).TextColor(ui.Hex(col)).Center().Children(func() {
-						a.icon(c, iconNameForTab(tab.index), 14)
-					})
-					ui.Text(c, tab.label).FontSize(12).TextColor(ui.Hex(col))
-					if tab.index == 0 {
-						countBadge(c, a.snapshot.State.Changed+a.snapshot.State.Untracked+a.snapshot.State.Conflicts)
-					}
-				})
-				if b.Clicked() {
+				if _, clicked := a.kitToolTab(c, iconNameForTab(tab.index), tab.label, count, active); clicked {
 					a.sideTab = tab.index
 				}
 			}
@@ -443,12 +406,14 @@ func (a *nativeApp) changeRow(c *ui.Context, i int) {
 	p := palette(c.Theme())
 	row := a.changes[i]
 	ch := row.change
-	line := ui.Row(c).Height(23).PaddingX(8).Gap(5).AlignItems(ui.Center)
+	line := ui.Row(c).Height(26).PaddingX(8).Gap(6).AlignItems(ui.Center)
+	bg := ui.Transparent
 	if i == a.changeSel {
-		line.Background(ui.Hex(p.selection))
+		bg = ui.Hex(p.selection)
 	} else if line.Hovered() {
-		line.Background(ui.Hex(p.hover))
+		bg = ui.Hex(p.hover)
 	}
+	line.Background(motionColor(line, "kit-change-bg", bg))
 	if line.Clicked() {
 		a.changeSel = i
 	}
@@ -470,9 +435,7 @@ func (a *nativeApp) changeRow(c *ui.Context, i int) {
 		mark := statusLetter(ch)
 		ui.Text(c, mark).FontSize(10.5).Font("monospace").FontWeight(700).Width(13).
 			TextColor(statusColor(c.Theme(), ch))
-		ui.Row(c).TextColor(fileTint(ch.Path)).Center().Children(func() {
-			a.icon(c, "file", 14)
-		})
+		a.kitFileBadge(c, ch.Path, 16)
 		ui.Text(c, filepath.Base(ch.Path)).FontSize(12.5).TextColor(ui.Hex(p.fgSoft)).MaxLines(1)
 		if dir := filepath.Dir(ch.Path); dir != "." && !row.staged {
 			ui.Text(c, dir+"/").FontSize(10.5).TextColor(ui.Hex(p.muted2)).MaxLines(1)
@@ -772,39 +735,19 @@ func (a *nativeApp) commitBox(c *ui.Context) {
 			}
 		}
 		canCommit := count > 0 || strings.TrimSpace(a.commitForm.Message) != "" || a.commitForm.Amend
-		ui.Row(c).Gap(0).Children(func() {
-			main := ui.ButtonBase(c).Height(30).Grow(1).Radius(5).Gap(6).Center().
-				Background(ui.Hex(p.accent)).Disabled(a.busy > 0 || !canCommit)
-			if main.Hovered() && canCommit {
-				main.Background(ui.Hex(p.accentHover))
-			}
-			main.Children(func() {
-				ui.Row(c).TextColor(ui.Hex(p.accentText)).Center().Children(func() {
-					a.icon(c, "commit", 15)
-				})
-				label := a.t("Commit")
-				if count > 0 {
-					label = fmt.Sprintf("%s (%d)", a.t("Commit"), count)
-				}
-				ui.Text(c, label).FontSize(12.5).FontWeight(600).TextColor(ui.Hex(p.accentText))
-			})
-			if main.Clicked() && canCommit {
+		disabled := a.busy > 0 || !canCommit
+		label := a.t("Commit")
+		if count > 0 {
+			label = fmt.Sprintf("%s (%d)", a.t("Commit"), count)
+		}
+		ui.Row(c).Gap(4).Children(func() {
+			if a.kitPrimaryAction(c, "commit", label, disabled, true) {
 				a.commitForm.PushAfter = false
 				a.commitForm.RebaseAfter = false
 				a.commitForm.SelectedOnly = false
 				a.requestCommit()
 			}
-			arrow := ui.ButtonBase(c).Size(30, 30).Center().Radius(5).
-				Background(ui.Hex(p.accent)).Disabled(a.busy > 0 || !canCommit)
-			if arrow.Hovered() && canCommit {
-				arrow.Background(ui.Hex(p.accentHover))
-			}
-			arrow.BorderWidth(0, 0, 0, 1).BorderColor(ui.RGBA(255, 255, 255, 0.28))
-			arrow.Children(func() {
-				ui.Row(c).TextColor(ui.Hex(p.accentText)).Center().Children(func() {
-					a.icon(c, "chevronUp", 12)
-				})
-			})
+			arrow := a.kitAccentArrow(c, disabled)
 			arrow.PopoverMenuButton(func(m *ui.Menu) {
 				if m.Item(a.t("Commit and Push")).Chosen() {
 					a.commitForm.PushAfter = true
@@ -989,18 +932,18 @@ func (a *nativeApp) logListView(c *ui.Context) {
 				return
 			}
 			cm := a.log.Commits[i]
-			row := ui.Row(c).Height(26).Padding(4, 10).Gap(8).AlignItems(ui.Center)
+			row := ui.Row(c).Height(28).Padding(4, 12).Gap(9).AlignItems(ui.Center)
 			row.Children(func() {
-				a.graphCellSized(c, i, 26)
+				a.graphCellSized(c, i, 28)
 				ui.Text(c, cm.Short).FontSize(10.5).Font("monospace").TextColor(ui.Hex(p.muted2)).Width(58)
-				ui.Text(c, cm.Subject).FontSize(12).TextColor(ui.Hex(p.fgSoft)).MaxLines(1).Grow(1)
+				ui.Text(c, cm.Subject).FontSize(12.5).TextColor(ui.Hex(p.fgSoft)).MaxLines(1).Grow(1)
 				for j, ref := range cm.Refs {
 					if j >= 2 {
 						break
 					}
 					a.refBadge(c, ref.Name)
 				}
-				ui.Text(c, cm.Author).FontSize(10.5).TextColor(ui.Hex(p.muted)).MaxLines(1).Width(88)
+				ui.Text(c, cm.Author).FontSize(10.5).TextColor(ui.Hex(p.muted)).MaxLines(1).Width(92)
 				ui.Text(c, a.stamp(cm.AuthorTime)).FontSize(10.5).TextColor(ui.Hex(p.muted2)).MaxLines(1)
 			})
 			if row.RowDoubleClicked() {
@@ -1161,50 +1104,11 @@ func (a *nativeApp) tabStrip(c *ui.Context) {
 		for i, tab := range a.tabs {
 			i, tab := i, tab
 			active := i == a.activeTab
-			b := ui.ButtonBase(c).Height(34).Radius(9).Gap(7).PaddingX(10).AlignItems(ui.Center)
-			if active {
-				b.Background(ui.Hex(p.raised)).Border(1, ui.Hex(p.border)).
-					Shadow(0, 1, 2, 0, ui.RGBA(16, 24, 40, 0.05))
-			} else if b.Hovered() {
-				b.Background(ui.Hex(p.hover))
+			b, clicked, closeClicked := a.kitDocTab(c, tab.kind, tab.title, tab.path, active, tab.dirty())
+			if closeClicked {
+				a.closeTab(i)
 			}
-			b.Children(func() {
-				if active {
-					ui.Box(c).Absolute().Top(0).Left(8).Right(8).Height(2).Radius(2).
-						Gradient(ui.Hex(p.accent), ui.Hex(p.accentAlt), 0)
-				}
-				icon := "file"
-				switch tab.kind {
-				case tabDiff:
-					icon = "diff"
-				case tabRevisionTree:
-					icon = "folder"
-				}
-				col := p.muted
-				if active {
-					col = p.fg
-				}
-				ui.Row(c).TextColor(ui.Hex(col)).Center().Children(func() {
-					a.icon(c, icon, 13)
-				})
-				ui.Text(c, tab.title).FontSize(12).TextColor(ui.Hex(col)).MaxLines(1)
-				if tab.dirty() {
-					ui.Box(c).Size(5, 5).Radius(3).Background(ui.Hex(p.accent))
-				}
-				close := ui.ButtonBase(c).Size(16, 16).Radius(3).Center()
-				if close.Hovered() {
-					close.Background(ui.Hex(p.hoverStrong))
-				}
-				close.Children(func() {
-					ui.Row(c).TextColor(ui.Hex(p.muted2)).Center().Children(func() {
-						a.icon(c, "close", 11)
-					})
-				})
-				if close.Clicked() {
-					a.closeTab(i)
-				}
-			})
-			if b.Clicked() {
+			if clicked && !closeClicked {
 				a.activeTab = i
 			}
 			b.ContextMenu(func(m *ui.Menu) {
@@ -1547,9 +1451,7 @@ func (a *nativeApp) filesPane(c *ui.Context) {
 						a.icon(c, icon, 14)
 					})
 				} else {
-					ui.Row(c).TextColor(fileTint(f.path)).Center().Children(func() {
-						a.icon(c, icon, 14)
-					})
+					a.kitFileBadge(c, f.path, 16)
 				}
 				name := f.name
 				if f.dir {
@@ -2023,6 +1925,7 @@ func (a *nativeApp) graphCellSized(c *ui.Context, row int, height float32) {
 	}
 	box := ui.Box(c).Width(width).Height(height)
 	colors := graphColors(c.Theme())
+	bg := ui.Hex(palette(c.Theme()).editor)
 	box.Draw(func(p *ui.Painter, r ui.Rect) {
 		mid := r.Y + r.H/2
 		x := func(lane int) float32 { return r.X + 7 + float32(lane)*graphLaneWidth }
@@ -2034,19 +1937,22 @@ func (a *nativeApp) graphCellSized(c *ui.Context, row int, height float32) {
 			if lane < len(g.faint) && g.faint[lane] {
 				c = c.Alpha(0.35)
 			}
-			p.Line(x(lane), r.Y, x(lane), mid, 1.5, c)
+			p.Line(x(lane), r.Y, x(lane), mid, 2, c)
 		}
 		for lane, hash := range g.after {
 			if hash == "" {
 				continue
 			}
-			p.Line(x(lane), mid, x(lane), r.Y+r.H, 1.5, colors[lane%len(colors)])
+			p.Line(x(lane), mid, x(lane), r.Y+r.H, 2, colors[lane%len(colors)])
 		}
 		for _, target := range g.edges {
-			p.Line(x(g.lane), mid, x(target), r.Y+r.H, 1.5, colors[g.lane%len(colors)])
+			p.Line(x(g.lane), mid, x(target), r.Y+r.H, 2, colors[g.lane%len(colors)])
 		}
 		c := colors[g.lane%len(colors)]
-		p.Fill(ui.Rect{X: x(g.lane) - 3.5, Y: mid - 3.5, W: 7, H: 7}, c, 3.5)
+		cx := x(g.lane)
+		p.Fill(ui.Rect{X: cx - 4.5, Y: mid - 4.5, W: 9, H: 9}, c.Alpha(0.18), 4.5)
+		p.Fill(ui.Rect{X: cx - 3.5, Y: mid - 3.5, W: 7, H: 7}, c, 3.5)
+		p.Fill(ui.Rect{X: cx - 1, Y: mid - 1, W: 2, H: 2}, bg, 1)
 	})
 }
 
