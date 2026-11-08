@@ -35,7 +35,7 @@ notifies the native view.
 | Path | Purpose |
 |---|---|
 | `internal/git/` | Git execution and parsing: `git.go`, `status.go`, `diff.go`, `log.go`, `actions.go`, `blame.go`, `console.go`, `files.go`, `repoinfo.go`, `rewrite.go`, `repo_extra.go`, `lifecycle.go`, `remotes.go`, `lines.go`, `patch.go`, `update.go`, `commit_extra.go`, `localhistory.go`, `commit_selected.go`, `cherry.go`, `images.go`, `trace.go` |
-| `internal/app/` | Native host: `ui_app.go` (window, menu, state, reload), `ui_view.go` (shell, commit panel, branches, files, log, console), `ui_tabs.go` (diff/source tabs), `ui_dialogs.go` (dialogs), `ui_actions.go` (operations), `ui_conflict.go` (merge window), `ui_lsp.go`, `ui_graph.go`, `service.go`, `settings.go`, `run.go` (menu), `i18n.go`, `journal.go`, `lsp.go` |
+| `internal/app/` | Native host: `ui_app.go` (window, menu, state, reload), `ui_view.go` (shell, commit panel, branches, files, log, console), `ui_tabs.go` (diff/source tabs), `ui_dialogs.go` (dialogs, quick open), `ui_style.go` (GitJet palette, SVG icons, shared small controls), `ui_actions.go` (operations), `ui_conflict.go` (merge window), `ui_lsp.go`, `ui_graph.go`, `service.go`, `settings.go`, `run.go` (menu), `i18n.go`, `journal.go`, `lsp.go` |
 | `internal/proc/` | `HideConsole` (`CREATE_NO_WINDOW` on Windows) for every console child |
 | `internal/lsp/` | Language-server detection and message framing |
 | `resources/` | `icon.png` |
@@ -100,6 +100,11 @@ No cgo anywhere; cross-compilation must keep working.
 - LSP is optional: `ensureLSP` probes the repository, starts the server, and
   `ui_lsp.go` owns initialization, document sync, diagnostics, completions,
   hovers and definitions. The no-server fallback is `Git.SearchSymbol`.
+- The page's look is in `ui_style.go`: `gitjetTheme`/`palette` hold the light
+  and dark tokens, `iconSVG` the 16px stroke set, and the small helpers
+  (`iconButton`, `toolbarButton`, `searchBox`, `kbd`) keep new controls in
+  step. Windows wrap their view in `ui.Themed`; never hard-code a color that
+  is not in the palette.
 - Dialogs live in `ui_dialogs.go`; add a `dialogKind`, a card builder and a
   branch in `dialogCard`. Confirmation actions go through `confirmDialog`.
 - Counts and labels are copied from `ChangesSnapshot`/`RepoState`; never
