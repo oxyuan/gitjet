@@ -130,88 +130,200 @@ func (a *nativeApp) dialogView(c *ui.Context) {
 	if !a.dialogOpen() {
 		return
 	}
-	open := true
-	m := ui.Modal(c, &open, func() {
+	if c.KeyDown(ui.KeyEscape) {
+		a.closeDialog()
+		return
+	}
+	ui.Overlay(c, func() {
+		back := ui.Box(c).Absolute().Fill().Background(ui.RGBA(10, 15, 25, 0.38))
+		if back.Clicked() {
+			a.closeDialog()
+			return
+		}
 		a.dialogCard(c)
 	})
-	if m.Dismissed() || !open {
-		a.closeDialog()
-	}
 }
 
 func (a *nativeApp) dialogCard(c *ui.Context) {
-	t := c.Theme()
-	ui.Column(c).Width(520).MaxWidth(760).Padding(16).Gap(10).Background(t.Surface).Radius(12).Children(func() {
+	p := palette(c.Theme())
+	card := ui.Column(c).Absolute().LeftPercent(50).TopPercent(50).TranslatePercent(-50, -50).
+		Width(560).MaxWidthPercent(92).ZIndex(1).
+		Background(ui.Hex(p.raised)).Radius(16).Border(1, ui.Hex(p.border)).
+		Shadow(0, 30, 80, 0, ui.RGBA(16, 20, 40, 0.28))
+	if a.dialog.kind == dialogSettings {
+		card.HeightPercent(88)
+	} else {
+		card.MaxHeightPercent(88)
+	}
+	card.Children(func() {
 		title := a.dialog.title
 		if title == "" {
 			title = a.dialogTitle()
 		}
-		ui.Text(c, title).FontSize(15).FontWeight(700)
-		switch a.dialog.kind {
-		case dialogConfirm:
-			a.confirmDialog(c)
-		case dialogClone:
-			a.cloneDialog(c)
-		case dialogInit:
-			a.initDialog(c)
-		case dialogSettings:
-			a.settingsDialog(c)
-		case dialogCommitChecks:
-			a.commitChecksDialog(c)
-		case dialogCommitDetail:
-			a.commitDetailDialog(c)
-		case dialogPush:
-			a.pushDialog(c)
-		case dialogPull:
-			a.pullDialog(c)
-		case dialogStash:
-			a.stashDialog(c)
-		case dialogBranch:
-			a.branchDialog(c)
-		case dialogTag:
-			a.tagDialog(c)
-		case dialogUpstream:
-			a.upstreamDialog(c)
-		case dialogRemotes:
-			a.remotesDialog(c)
-		case dialogCleanup:
-			a.cleanupDialog(c)
-		case dialogConflicts:
-			a.conflictsDialog(c)
-		case dialogBlame:
-			a.blameDialog(c)
-		case dialogLocalHistory:
-			a.localHistoryDialog(c)
-		case dialogRepoTools:
-			a.repoToolsDialog(c)
-		case dialogCompare:
-			a.compareDialog(c)
-		case dialogPrompt:
-			a.promptDialog(c)
-		case dialogStashFiles:
-			a.stashFilesDialog(c)
-		case dialogShelf:
-			a.shelfDialog(c)
-		case dialogJournal:
-			a.journalDialog(c)
-		case dialogWorktree:
-			a.worktreeDialog(c)
-		case dialogSubmodule:
-			a.submoduleDialog(c)
-		case dialogLFS:
-			a.lfsDialog(c)
-		case dialogPatch:
-			a.patchDialog(c)
-		case dialogRewrite:
-			a.rewriteDialog(c)
-		case dialogMerge:
-			a.mergeDialog(c)
-		case dialogRebase:
-			a.rebaseDialog(c)
-		case dialogReferences:
-			a.referencesDialog(c)
+		ui.Row(c).Height(52).PaddingX(16).Gap(8).AlignItems(ui.Center).
+			BorderWidth(0, 0, 1, 0).BorderColor(ui.Hex(p.border)).Children(func() {
+			ui.Row(c).TextColor(ui.Hex(p.accent)).Center().Children(func() {
+				a.icon(c, dialogIcon(a.dialog.kind), 16)
+			})
+			ui.Text(c, title).FontSize(13.5).FontWeight(600).TextColor(ui.Hex(p.fg)).Grow(1).MaxLines(1)
+			if _, clicked := a.smallIconButton(c, "close", a.t("Close"), false); clicked {
+				a.closeDialog()
+			}
+		})
+		ui.Scroll(c).Grow(1).MinHeight(0).Background(ui.Hex(p.raised)).BorderWidth(0).Radius(0).Children(func() {
+			ui.Column(c).Padding(18).Gap(10).Children(func() {
+				switch a.dialog.kind {
+				case dialogConfirm:
+					a.confirmDialog(c)
+				case dialogClone:
+					a.cloneDialog(c)
+				case dialogInit:
+					a.initDialog(c)
+				case dialogSettings:
+					a.settingsDialog(c)
+				case dialogCommitChecks:
+					a.commitChecksDialog(c)
+				case dialogCommitDetail:
+					a.commitDetailDialog(c)
+				case dialogPush:
+					a.pushDialog(c)
+				case dialogPull:
+					a.pullDialog(c)
+				case dialogStash:
+					a.stashDialog(c)
+				case dialogBranch:
+					a.branchDialog(c)
+				case dialogTag:
+					a.tagDialog(c)
+				case dialogUpstream:
+					a.upstreamDialog(c)
+				case dialogRemotes:
+					a.remotesDialog(c)
+				case dialogCleanup:
+					a.cleanupDialog(c)
+				case dialogConflicts:
+					a.conflictsDialog(c)
+				case dialogBlame:
+					a.blameDialog(c)
+				case dialogLocalHistory:
+					a.localHistoryDialog(c)
+				case dialogRepoTools:
+					a.repoToolsDialog(c)
+				case dialogCompare:
+					a.compareDialog(c)
+				case dialogPrompt:
+					a.promptDialog(c)
+				case dialogStashFiles:
+					a.stashFilesDialog(c)
+				case dialogShelf:
+					a.shelfDialog(c)
+				case dialogJournal:
+					a.journalDialog(c)
+				case dialogWorktree:
+					a.worktreeDialog(c)
+				case dialogSubmodule:
+					a.submoduleDialog(c)
+				case dialogLFS:
+					a.lfsDialog(c)
+				case dialogPatch:
+					a.patchDialog(c)
+				case dialogRewrite:
+					a.rewriteDialog(c)
+				case dialogMerge:
+					a.mergeDialog(c)
+				case dialogRebase:
+					a.rebaseDialog(c)
+				case dialogReferences:
+					a.referencesDialog(c)
+				}
+			})
+		})
+		if a.dialog.kind == dialogSettings {
+			a.settingsFooter(c)
 		}
 	})
+}
+
+func (a *nativeApp) settingsFooter(c *ui.Context) {
+	p := palette(c.Theme())
+	ui.Row(c).Height(54).PaddingX(16).Gap(8).AlignItems(ui.Center).
+		BorderWidth(1, 0, 0, 0).BorderColor(ui.Hex(p.border)).Background(ui.Hex(p.panel)).Children(func() {
+		if a.secondaryButton(c, a.t("Restore Defaults"), false) {
+			a.dialog.draft = a.ws.DefaultSettings()
+		}
+		ui.Spacer(c).Grow(1)
+		if a.secondaryButton(c, a.t("Cancel"), false) {
+			a.closeDialog()
+		}
+		if a.primaryButton(c, a.t("Save")) {
+			a.saveSettingsDraft()
+		}
+	})
+}
+
+func (a *nativeApp) saveSettingsDraft() {
+	draft := a.dialog.draft
+	a.closeDialog()
+	a.busy++
+	go func() {
+		saved, err := a.ws.SaveSettings(draft)
+		mygo.RunOnMain(func() {
+			a.busy--
+			if err != nil {
+				a.fail(err)
+				return
+			}
+			a.settings = saved
+			a.lang = resolveLang(saved.Language)
+			applyMenu(saved.Language)
+			for _, tab := range a.tabs {
+				if tab.kind == tabDiff {
+					tab.opts.Context = saved.DiffContext
+					tab.opts.IgnoreWhitespace = saved.IgnoreWhitespace
+					a.loadDiff(tab)
+				}
+			}
+			a.refresh()
+		})
+	}()
+}
+
+func dialogIcon(kind dialogKind) string {
+	switch kind {
+	case dialogClone, dialogInit:
+		return "folder"
+	case dialogSettings, dialogRepoTools:
+		return "settings"
+	case dialogPush:
+		return "push"
+	case dialogPull:
+		return "pull"
+	case dialogStash, dialogStashFiles, dialogShelf:
+		return "stash"
+	case dialogBranch, dialogUpstream:
+		return "branch"
+	case dialogTag:
+		return "tag"
+	case dialogRemotes:
+		return "fetch"
+	case dialogCleanup:
+		return "trash"
+	case dialogConflicts, dialogMerge, dialogRebase:
+		return "merge"
+	case dialogBlame:
+		return "user"
+	case dialogLocalHistory, dialogJournal:
+		return "clock"
+	case dialogCompare:
+		return "columns"
+	case dialogPrompt:
+		return "edit"
+	case dialogPatch:
+		return "file"
+	case dialogRewrite:
+		return "commit"
+	}
+	return "git"
 }
 
 func (a *nativeApp) dialogTitle() string {
@@ -408,124 +520,91 @@ func (a *nativeApp) openSettingsDialog() {
 
 func (a *nativeApp) settingsDialog(c *ui.Context) {
 	s := &a.dialog.draft
-	ui.Scroll(c).MaxHeight(520).Children(func() {
-		ui.Column(c).Gap(8).Children(func() {
-			ui.Field(c, a.t("Language"), func() {
-				opts := []string{"system", "en", "zh"}
-				ui.Select(c, &s.Language, opts)
-			})
-			ui.Field(c, a.t("Theme"), func() {
-				ui.Select(c, &s.Theme, []string{"system", "light", "dark"})
-			})
-			ui.Field(c, a.t("Interface scale"), func() {
-				v := float64(s.UIScale)
-				if ui.NumberInput(c, &v, 70, 160, 10).Changed() {
-					s.UIScale = int(v)
+	ui.Column(c).Gap(8).Children(func() {
+		ui.Field(c, a.t("Language"), func() {
+			opts := []string{"system", "en", "zh"}
+			ui.Select(c, &s.Language, opts)
+		})
+		ui.Field(c, a.t("Theme"), func() {
+			ui.Select(c, &s.Theme, []string{"system", "light", "dark"})
+		})
+		ui.Field(c, a.t("Interface scale"), func() {
+			v := float64(s.UIScale)
+			if ui.NumberInput(c, &v, 70, 160, 10).Changed() {
+				s.UIScale = int(v)
+			}
+		})
+		ui.Field(c, a.t("Git executable"), func() {
+			ui.Row(c).Gap(6).Children(func() {
+				ui.TextInput(c, &s.GitPath).Placeholder(a.t("Found on PATH when empty")).Grow(1)
+				if ui.Button(c, a.t("Detect")).Clicked() {
+					path := s.GitPath
+					go func() {
+						version, err := a.ws.ValidateGit(path)
+						mygo.RunOnMain(func() {
+							if err != nil {
+								a.dialog.text = err.Error()
+							} else {
+								a.dialog.text = version
+							}
+							a.redraw()
+						})
+					}()
 				}
 			})
-			ui.Field(c, a.t("Git executable"), func() {
-				ui.Row(c).Gap(6).Children(func() {
-					ui.TextInput(c, &s.GitPath).Placeholder(a.t("Found on PATH when empty")).Grow(1)
-					if ui.Button(c, a.t("Detect")).Clicked() {
-						path := s.GitPath
-						go func() {
-							version, err := a.ws.ValidateGit(path)
-							mygo.RunOnMain(func() {
-								if err != nil {
-									a.dialog.text = err.Error()
-								} else {
-									a.dialog.text = version
-								}
-								a.redraw()
-							})
-						}()
-					}
-				})
-			})
-			ui.Field(c, a.t("SSH command"), func() {
-				ui.TextInput(c, &s.SshCommand).Placeholder("ssh -i ~/.ssh/id_ed25519")
-			})
-			ui.Field(c, a.t("Fetch tags"), func() {
-				ui.Select(c, &s.FetchTagsMode, []string{"auto", "always", "never"})
-			})
-			ui.Field(c, a.t("Diff context"), func() {
-				v := float64(s.DiffContext)
-				if ui.NumberInput(c, &v, -1, 100, 1).Changed() {
-					s.DiffContext = int(v)
-				}
-			})
-			ui.Checkbox(c, &s.IgnoreWhitespace, a.t("Ignore whitespace in diffs"))
-			ui.Checkbox(c, &s.ShowIgnored, a.t("Show ignored files"))
-			ui.Checkbox(c, &s.ConfirmRollback, a.t("Confirm before rollback"))
-			ui.Checkbox(c, &s.ConfirmForcePush, a.t("Confirm force push"))
-			ui.Field(c, a.t("Update method"), func() {
-				ui.Select(c, &s.UpdateMethod, []string{"merge", "rebase"})
-			})
-			ui.Checkbox(c, &s.AutoUpdateOnReject, a.t("Update when a push is rejected"))
-			ui.Checkbox(c, &s.OpenInNewWindow, a.t("Open a repository in a new window"))
-			ui.Checkbox(c, &s.AutoFetch, a.t("Fetch automatically"))
-			ui.Field(c, a.t("Fetch every (minutes)"), func() {
-				v := float64(s.AutoFetchMinutes)
-				if ui.NumberInput(c, &v, 1, 1440, 1).Changed() {
-					s.AutoFetchMinutes = int(v)
-				}
-			})
-			ui.Checkbox(c, &s.CommitCheckCRLF, a.t("Warn about CRLF"))
-			ui.Checkbox(c, &s.CommitCheckNames, a.t("Warn about invalid names"))
-			ui.Checkbox(c, &s.CommitCheckHead, a.t("Warn about detached HEAD"))
-			ui.Field(c, a.t("Large file warning (MB)"), func() {
-				v := float64(s.CommitCheckLargeMB)
-				if ui.NumberInput(c, &v, 0, 1000, 1).Changed() {
-					s.CommitCheckLargeMB = int(v)
-				}
-			})
-			ui.Field(c, a.t("Commit template"), func() {
-				ui.TextArea(c, &s.CommitTemplate).Height(70)
-			})
-			ui.Field(c, a.t("Protected branches"), func() {
-				joined := strings.Join(s.ProtectedBranches, "\n")
-				if ui.TextArea(c, &joined).Changed() {
-					s.ProtectedBranches = splitLines(joined)
-				}
-				ui.Text(c, a.t("One pattern per line")).FontSize(10).TextColor(c.Theme().TextMuted)
-			})
+		})
+		ui.Field(c, a.t("SSH command"), func() {
+			ui.TextInput(c, &s.SshCommand).Placeholder("ssh -i ~/.ssh/id_ed25519")
+		})
+		ui.Field(c, a.t("Fetch tags"), func() {
+			ui.Select(c, &s.FetchTagsMode, []string{"auto", "always", "never"})
+		})
+		ui.Field(c, a.t("Diff context"), func() {
+			v := float64(s.DiffContext)
+			if ui.NumberInput(c, &v, -1, 100, 1).Changed() {
+				s.DiffContext = int(v)
+			}
+		})
+		ui.Checkbox(c, &s.IgnoreWhitespace, a.t("Ignore whitespace in diffs"))
+		ui.Checkbox(c, &s.ShowIgnored, a.t("Show ignored files"))
+		ui.Checkbox(c, &s.ConfirmRollback, a.t("Confirm before rollback"))
+		ui.Checkbox(c, &s.ConfirmForcePush, a.t("Confirm force push"))
+		ui.Field(c, a.t("Update method"), func() {
+			ui.Select(c, &s.UpdateMethod, []string{"merge", "rebase"})
+		})
+		ui.Checkbox(c, &s.AutoUpdateOnReject, a.t("Update when a push is rejected"))
+		ui.Checkbox(c, &s.OpenInNewWindow, a.t("Open a repository in a new window"))
+		ui.Checkbox(c, &s.AutoFetch, a.t("Fetch automatically"))
+		ui.Field(c, a.t("Fetch every (minutes)"), func() {
+			v := float64(s.AutoFetchMinutes)
+			if ui.NumberInput(c, &v, 1, 1440, 1).Changed() {
+				s.AutoFetchMinutes = int(v)
+			}
+		})
+		ui.Checkbox(c, &s.CommitCheckCRLF, a.t("Warn about CRLF"))
+		ui.Checkbox(c, &s.CommitCheckNames, a.t("Warn about invalid names"))
+		ui.Checkbox(c, &s.CommitCheckHead, a.t("Warn about detached HEAD"))
+		ui.Field(c, a.t("Large file warning (MB)"), func() {
+			v := float64(s.CommitCheckLargeMB)
+			if ui.NumberInput(c, &v, 0, 1000, 1).Changed() {
+				s.CommitCheckLargeMB = int(v)
+			}
+		})
+		ui.Field(c, a.t("Commit template"), func() {
+			ui.TextArea(c, &s.CommitTemplate).Height(70)
+		})
+		ui.Field(c, a.t("Protected branches"), func() {
+			joined := strings.Join(s.ProtectedBranches, "\n")
+			if ui.TextArea(c, &joined).Changed() {
+				s.ProtectedBranches = splitLines(joined)
+			}
+			ui.Text(c, a.t("One pattern per line")).FontSize(10).TextColor(c.Theme().TextMuted)
 		})
 	})
 	if a.dialog.text != "" {
 		ui.Text(c, a.dialog.text).FontSize(10).TextColor(c.Theme().Danger)
 	}
-	ui.Row(c).Children(func() {
-		if ui.Button(c, a.t("Restore Defaults")).Clicked() {
-			a.dialog.draft = a.ws.DefaultSettings()
-		}
-		ui.Spacer(c).Grow(1)
-	})
-	a.buttons(c, a.t("Save"), func() {
-		draft := a.dialog.draft
-		a.closeDialog()
-		a.busy++
-		go func() {
-			saved, err := a.ws.SaveSettings(draft)
-			mygo.RunOnMain(func() {
-				a.busy--
-				if err != nil {
-					a.fail(err)
-					return
-				}
-				a.settings = saved
-				a.lang = resolveLang(saved.Language)
-				applyMenu(saved.Language)
-				for _, tab := range a.tabs {
-					if tab.kind == tabDiff {
-						tab.opts.Context = saved.DiffContext
-						tab.opts.IgnoreWhitespace = saved.IgnoreWhitespace
-						a.loadDiff(tab)
-					}
-				}
-				a.refresh()
-			})
-		}()
-	})
+
 }
 
 func splitLines(s string) []string {
@@ -1379,7 +1458,7 @@ func (a *nativeApp) openCompareTab(from, to string, files []git.Change) {
 // ----- quick open -------------------------------------------------------
 
 func (a *nativeApp) quickOpenView(c *ui.Context) {
-	t := c.Theme()
+	p := palette(c.Theme())
 	c.OnWindowShortcut(0, ui.KeyDown, func() {
 		if a.quickSel < len(a.quickIndex)-1 {
 			a.quickSel++
@@ -1395,38 +1474,71 @@ func (a *nativeApp) quickOpenView(c *ui.Context) {
 	c.OnWindowShortcut(0, ui.KeyEnter, func() { a.chooseQuick() })
 	c.OnWindowShortcut(0, ui.KeyEscape, func() { a.quickOpen = false })
 	ui.Overlay(c, func() {
-		panel := ui.Column(c).Absolute().Top(80).LeftPercent(20).WidthPercent(60).MaxWidth(720).Padding(12).Gap(8).Background(t.Surface).Radius(12)
-		panel.BorderWidth(1).BorderColor(t.Border)
+		back := ui.Box(c).Absolute().Fill().Background(ui.RGBA(10, 14, 22, 0.32))
+		if back.Clicked() {
+			a.quickOpen = false
+			return
+		}
+		panel := ui.Column(c).Absolute().Top(92).LeftPercent(50).TranslatePercent(-50, 0).
+			Width(660).MaxWidthPercent(86).Background(ui.Hex(p.raised)).Radius(10).
+			Border(1, ui.Hex(p.border)).Shadow(0, 24, 60, 0, ui.RGBA(20, 20, 40, 0.28))
 		panel.Children(func() {
-			in := ui.TextInput(c, &a.quickQuery).Placeholder(a.t("Search files and commits")).AutoFocus()
-			if in.Changed() {
-				a.rebuildQuick()
-			}
-			if in.Submitted() {
-				a.chooseQuick()
-			}
-			if uiContextKey(c, ui.KeyEscape) {
-				a.quickOpen = false
-			}
-			ui.Scroll(c).MaxHeight(420).Children(func() {
-				ui.Column(c).Gap(1).Children(func() {
+			ui.Row(c).Height(46).PaddingX(14).Gap(8).AlignItems(ui.Center).
+				BorderWidth(0, 0, 1, 0).BorderColor(ui.Hex(p.border)).Children(func() {
+				ui.Row(c).TextColor(ui.Hex(p.muted)).Center().Children(func() {
+					a.icon(c, "search", 15)
+				})
+				in := ui.TextInputBase(c, &a.quickQuery).FontSize(13).Placeholder(a.t("Search files and commits")).Grow(1).AutoFocus().FocusRing(false)
+				if in.Changed() {
+					a.rebuildQuick()
+				}
+				if in.Submitted() {
+					a.chooseQuick()
+				}
+				a.kbd(c, "Esc")
+			})
+			ui.Scroll(c).MaxHeight(390).Background(ui.Hex(p.raised)).BorderWidth(0).Radius(0).Children(func() {
+				ui.Column(c).Padding(6).Gap(1).Children(func() {
+					if len(a.quickIndex) == 0 {
+						ui.Text(c, a.t("No matching files")).FontSize(11).TextColor(ui.Hex(p.muted)).
+							Padding(14, 10)
+					}
 					for i, hit := range a.quickIndex {
 						if i > 40 {
 							break
 						}
 						i, hit := i, hit
-						row := ui.ButtonBase(c).Padding(3, 8).Radius(4)
+						row := ui.ButtonBase(c).Height(30).PaddingX(8).Radius(5).Gap(8).FillWidth().AlignItems(ui.Center)
 						if i == a.quickSel {
-							row.Background(t.SurfaceHover)
+							row.Background(ui.Hex(p.selection))
+						} else if row.Hovered() {
+							row.Background(ui.Hex(p.hover))
 						}
 						row.Children(func() {
-							ui.Row(c).Gap(8).Children(func() {
-								ui.Text(c, hit.title).FontSize(12)
-								ui.Spacer(c).Grow(1)
-								if hit.detail != "" {
-									ui.Text(c, hit.detail).FontSize(10).TextColor(t.TextMuted)
-								}
+							icon := "file"
+							if hit.commit {
+								icon = "commit"
+							}
+							ui.Row(c).TextColor(ui.Hex(p.muted)).Center().Children(func() {
+								a.icon(c, icon, 14)
 							})
+							title := hit.title
+							dir := ""
+							if !hit.commit {
+								title = filepath.Base(hit.path)
+								dir = filepath.Dir(hit.path)
+								if dir == "." {
+									dir = ""
+								}
+							}
+							ui.Text(c, title).FontSize(12).TextColor(ui.Hex(p.fgSoft)).MaxLines(1)
+							if dir != "" {
+								ui.Text(c, dir+"/").FontSize(10.5).TextColor(ui.Hex(p.muted2)).MaxLines(1)
+							}
+							ui.Spacer(c).Grow(1)
+							if hit.detail != "" {
+								ui.Text(c, hit.detail).FontSize(10).TextColor(ui.Hex(p.muted2)).MaxLines(1)
+							}
 						})
 						if row.Clicked() {
 							a.quickSel = i
@@ -1434,6 +1546,19 @@ func (a *nativeApp) quickOpenView(c *ui.Context) {
 						}
 					}
 				})
+			})
+			ui.Row(c).Height(30).PaddingX(12).Gap(10).AlignItems(ui.Center).
+				BorderWidth(1, 0, 0, 0).BorderColor(ui.Hex(p.border)).Background(ui.Hex(p.panel)).Children(func() {
+				for _, h := range []struct{ key, label string }{
+					{"↑↓", a.t("Select")},
+					{"Enter", a.t("Open")},
+					{"Esc", a.t("Close")},
+				} {
+					ui.Row(c).Gap(4).AlignItems(ui.Center).Children(func() {
+						a.kbd(c, h.key)
+						ui.Text(c, h.label).FontSize(9.5).TextColor(ui.Hex(p.muted2))
+					})
+				}
 			})
 		})
 	})

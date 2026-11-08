@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"path/filepath"
 	"strings"
-	"time"
 
 	"github.com/egoist/mygo"
 	"github.com/egoist/mygo/ui"
@@ -480,7 +479,8 @@ func (a *nativeApp) openLogTab() {
 	if !a.repoOpen {
 		return
 	}
-	a.sideTab = 3
+	a.logFold = false
+	a.logDirty = true
 	a.refresh()
 }
 
@@ -730,21 +730,6 @@ func (a *nativeApp) changelistName(path string) string {
 		}
 	}
 	return ""
-}
-
-func parseDay(s string, end bool) int64 {
-	s = strings.TrimSpace(s)
-	if s == "" {
-		return 0
-	}
-	t, err := time.ParseInLocation("2006-01-02", s, time.Local)
-	if err != nil {
-		return 0
-	}
-	if end {
-		t = t.Add(24*time.Hour - time.Second)
-	}
-	return t.Unix()
 }
 
 func (a *nativeApp) markEquivalents() {

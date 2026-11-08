@@ -68,7 +68,7 @@ func openMergeEditor(a *nativeApp, path string) {
 		Height:          800,
 		MinWidth:        900,
 		MinHeight:       560,
-		BackgroundColor: "light-dark(#f5f5f7, #141416)",
+		BackgroundColor: "light-dark(#f5f5f7, #1c1d21)",
 		Content:         ui.View(m.view),
 	})
 	m.win.OnClosed(func() {
@@ -315,7 +315,7 @@ func (m *mergeWindow) side(c *ui.Context, title string, state *editor.State, sid
 				m.acceptAll(side)
 			}
 		})
-		state.Theme = editor.DefaultTheme(t)
+		state.Theme = editorTheme(t)
 		editor.View(c, state).Grow(1).FillWidth()
 	})
 }
@@ -349,7 +349,7 @@ func (m *mergeWindow) resultPane(c *ui.Context) {
 		if m.resultState == nil {
 			m.resultState = &editor.State{Buffer: m.result, LineHeight: 1.5}
 		}
-		m.resultState.Theme = editor.DefaultTheme(t)
+		m.resultState.Theme = editorTheme(t)
 		editor.View(c, m.resultState).Grow(1).FillWidth()
 	})
 }

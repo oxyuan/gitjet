@@ -55,7 +55,8 @@
 - 控制台：执行 `git` 命令或 `!` 开头的任意程序，输出流式显示；「操作」页显示命令与输出日志
 - 设置：语言、主题、界面缩放、Git 路径、SSH 命令、Fetch 标签策略、diff 上下文、空白处理、自动 Fetch、提交检查、提交模板、受保护分支、危险操作确认
 - 最近仓库、原生文件夹选择、系统剪贴板、在文件管理器中显示
-- 中英文界面，跟随系统语言；浅色/深色主题跟随系统或手动选择
+- 界面与旧版保持一致：左侧工具窗（文件 / 提交 / 分支 / 控制台）、右侧编辑器、底部可折叠的历史面板与状态栏；浅色/深色主题跟随系统或手动选择
+- 中英文界面，跟随系统语言；原生图标、分栏、悬停/选中态和快捷键沿用旧版
 - 每个窗口是独立进程，可同时打开多个仓库
 
 ## 构建
@@ -89,7 +90,7 @@ flowchart LR
 | 目录 | 内容 |
 |---|---|
 | `internal/git/` | 状态、diff、日志、动作、blame、rewrite、worktree/submodule/LFS、console |
-| `internal/app/` | `ui_*.go` 原生视图与对话框、`service.go` 服务层、`settings.go`、`lsp.go`、`journal.go` |
+| `internal/app/` | `ui_*.go` 原生视图与对话框、`ui_style.go` 调色板与矢量图标、`service.go` 服务层、`settings.go`、`lsp.go`、`journal.go` |
 | `internal/lsp/` | 语言服务器探测与消息分帧 |
 | `internal/proc/` | Windows 隐藏控制台窗口 |
 | `resources/` | 应用图标 |
@@ -110,7 +111,7 @@ flowchart LR
 | `⌘/Ctrl+,` | 设置 |
 | `⌘/Ctrl+S` | 保存当前源码 |
 | `⌘/Ctrl+F` | 编辑器内查找 / 替换 |
-| `⌘/Ctrl+9` / `⌘/Ctrl+0` | 提交 / 日志工具窗口 |
+| `⌘/Ctrl+9` / `⌘/Ctrl+0` | 提交面板 / 历史停靠面板 |
 | `⌘/Ctrl+Shift+E` | 文件工具窗口 |
 | `⌘/Ctrl+Shift+9` | 控制台 |
 | `F12` / `⌘/Ctrl+点击` | 跳转到定义（编辑器） |

@@ -40,6 +40,7 @@ type docTab struct {
 	from     string
 	gotoLine int
 	opts     git.DiffOptions
+	status   string
 
 	// diff
 	diff        *editor.DiffState
@@ -112,17 +113,17 @@ type nativeApp struct {
 	recent     []RecentRepo
 
 	// sidebar
-	sideTab     int
-	sideSplit   float32
-	changes     []changeRow
-	changeList  ui.ListState
-	changeSel   int
-	checked     map[string]bool
-	checkedInit bool
-	commitForm  commitForm
-	focusCommit int
-	history     []string
-	showStaged  bool
+	sideTab           int
+	sideSplit         float32
+	changes           []changeRow
+	changeSel         int
+	checked           map[string]bool
+	checkedInit       bool
+	commitForm        commitForm
+	focusCommit       int
+	history           []string
+	showStaged        bool
+	showCommitOptions bool
 
 	files      []git.RepoFile
 	fileTree   []fileRow
@@ -130,34 +131,41 @@ type nativeApp struct {
 	fileSel    int
 	fileFilter string
 
-	branches   []repoRefRow
-	branchList ui.ListState
-	branchSel  int
-	recentBr   []string
-	tags       []repoRefRow
+	branches     []repoRefRow
+	branchList   ui.ListState
+	branchSel    int
+	branchSearch string
+	branchClosed map[string]bool
+	recentBr     []string
+	tags         []repoRefRow
 
-	log          git.LogResult
-	logList      ui.ListState
-	logPick      ui.Selection[string]
-	logSel       int
-	logOpts      git.LogOptions
-	logSearch    string
-	logAll       bool
-	logDirty     bool
-	logAuthor    string
-	logRegex     bool
-	logCase      bool
-	logSince     string
-	logUntil     string
-	equivalent   map[string]bool
-	openDirs     map[string]bool
-	journal      []JournalEntry
-	graph        []graphRow
-	repoTab      int
-	systemDark   bool
-	systemKnown  bool
-	appliedTheme string
-	appliedScale int
+	log              git.LogResult
+	logList          ui.ListState
+	logPick          ui.Selection[string]
+	logSel           int
+	logOpts          git.LogOptions
+	logSearch        string
+	logAll           bool
+	logDirty         bool
+	logFold          bool
+	editorSplit      float32
+	logSplit         float32
+	logDetail        *git.CommitDetail
+	logDetailHash    string
+	logDetailLoading bool
+	logAuthor        string
+	logRegex         bool
+	logCase          bool
+	equivalent       map[string]bool
+	openDirs         map[string]bool
+	journal          []JournalEntry
+	graph            []graphRow
+	repoTab          int
+	systemDark       bool
+	systemKnown      bool
+	appliedTheme     string
+	appliedScale     int
+	theme            *ui.Theme
 
 	// editor
 	tabs      []*docTab
@@ -270,17 +278,20 @@ func newNativeApp() *nativeApp {
 		lang:       resolveLang(c.settings.Language),
 		checked:    map[string]bool{},
 		showStaged: true,
-		sideSplit:  380,
+		sideSplit:  356,
 		equivalent: map[string]bool{},
 		openDirs:   map[string]bool{},
 		logOpts: git.LogOptions{
 			Limit: 300,
 		},
-		logSel:    -1,
-		logDirty:  true,
-		changeSel: -1,
-		fileSel:   -1,
-		branchSel: -1,
+		logSel:       -1,
+		logDirty:     true,
+		editorSplit:  650,
+		logSplit:     900,
+		changeSel:    -1,
+		fileSel:      -1,
+		branchSel:    -1,
+		branchClosed: map[string]bool{},
 	}
 	a.commitForm.Message = strings.TrimSpace(c.settings.CommitTemplate)
 	c.onChange = func() { mygo.RunOnMain(a.changed) }
@@ -304,6 +315,7 @@ func (a *nativeApp) ready() {
 	} else {
 		a.loadRecent()
 	}
+
 }
 
 func (a *nativeApp) openWindow() {
@@ -320,7 +332,7 @@ func (a *nativeApp) openWindow() {
 		TitleBarStyle:        mygo.TitleBarHidden,
 		TitleBarHeight:       52,
 		TrafficLightPosition: &mygo.Point{X: 20, Y: 19},
-		BackgroundColor:      "light-dark(#f5f5f7, #141416)",
+		BackgroundColor:      "light-dark(#f5f5f7, #1c1d21)",
 		StateKey:             stateKey,
 		Content:              ui.View(a.view),
 	})
@@ -331,6 +343,15 @@ func (a *nativeApp) openWindow() {
 // view builds one frame of the window.
 func (a *nativeApp) view(c *ui.Context) {
 	a.applyAppearance(c)
+	if a.theme == nil {
+		a.theme = gitjetTheme(a.systemDark)
+	}
+	ui.Themed(c, a.theme).Fill().Children(func() {
+		a.viewBody(c)
+	})
+}
+
+func (a *nativeApp) viewBody(c *ui.Context) {
 	c.OnWindowShortcut(ui.Cmd|ui.Shift, ui.KeyB, a.findReferences)
 	c.OnWindowShortcut(ui.Shift, ui.KeyF12, a.findReferences)
 	c.OnWindowShortcut(ui.Cmd, ui.KeyS, func() {
@@ -341,11 +362,21 @@ func (a *nativeApp) view(c *ui.Context) {
 			}
 		}
 	})
-	if a.repoOpen {
-		a.mainView(c)
-	} else {
-		a.welcomeView(c)
-	}
+	c.OnWindowShortcut(ui.Cmd, ui.KeyEnter, func() {
+		if a.repoOpen && !a.dialogOpen() {
+			a.commitForm.PushAfter = false
+			a.commitForm.RebaseAfter = false
+			a.requestCommit()
+		}
+	})
+	c.OnWindowShortcut(ui.Ctrl, ui.KeyEnter, func() {
+		if a.repoOpen && !a.dialogOpen() {
+			a.commitForm.PushAfter = false
+			a.commitForm.RebaseAfter = false
+			a.requestCommit()
+		}
+	})
+	a.mainView(c)
 	a.dialogView(c)
 	if a.notice != "" {
 		c.Toast(a.notice)
@@ -361,18 +392,14 @@ func (a *nativeApp) applyAppearance(c *ui.Context) {
 	s := a.settings
 	if a.appliedTheme != s.Theme || !a.systemKnown {
 		a.appliedTheme = s.Theme
+		dark := a.systemDark
 		switch s.Theme {
 		case "light":
-			c.SetTheme(ui.LightTheme())
+			dark = false
 		case "dark":
-			c.SetTheme(ui.DarkTheme())
-		default:
-			if a.systemDark {
-				c.SetTheme(ui.DarkTheme())
-			} else {
-				c.SetTheme(ui.LightTheme())
-			}
+			dark = true
 		}
+		a.theme = gitjetTheme(dark)
 	}
 	if s.UIScale > 0 && a.appliedScale != s.UIScale {
 		a.appliedScale = s.UIScale
@@ -856,7 +883,10 @@ func (a *nativeApp) command(cmd string) {
 		case "files":
 			a.sideTab = 2
 		case "log":
-			a.sideTab = 3
+			a.logFold = false
+			if a.editorSplit < 360 {
+				a.editorSplit = 360
+			}
 		case "console":
 			a.sideTab = 4
 			a.consoleOpen = true

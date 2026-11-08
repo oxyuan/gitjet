@@ -3,7 +3,6 @@ package app
 import (
 	"encoding/base64"
 	"fmt"
-	"path/filepath"
 	"strings"
 
 	"github.com/egoist/mygo/ui"
@@ -160,6 +159,7 @@ func (a *nativeApp) buildDiff(tab *docTab, fd git.FileDiff) {
 	tab.loaded = true
 	tab.err = ""
 	tab.truncated = fd.Truncated
+	tab.status = fd.Status
 	if fd.Binary || a.isImage(fd.Path) {
 		tab.binary = true
 		if a.isImage(fd.Path) {
@@ -179,7 +179,7 @@ func (a *nativeApp) buildDiff(tab *docTab, fd git.FileDiff) {
 			} else {
 				st.ContextLines = a.settings.DiffContext
 			}
-			st.Theme = editor.DefaultTheme(ui.LightTheme())
+			st.Theme = editorTheme(gitjetTheme(false))
 			st.RenderAnnotation = a.renderDiffAnnotation
 			tab.diff = st
 			tab.title = fd.Path
@@ -211,7 +211,7 @@ func (a *nativeApp) buildDiff(tab *docTab, fd git.FileDiff) {
 	} else {
 		st.ContextLines = a.settings.DiffContext
 	}
-	st.Theme = editor.DefaultTheme(ui.LightTheme())
+	st.Theme = editorTheme(gitjetTheme(false))
 	st.RenderAnnotation = a.renderDiffAnnotation
 	tab.diff = st
 	tab.title = fd.Path
@@ -534,7 +534,7 @@ func (a *nativeApp) diffView(c *ui.Context, tab *docTab) {
 			})
 			return
 		}
-		tab.diff.Theme = editor.DefaultTheme(t)
+		tab.diff.Theme = editorTheme(t)
 		tab.diff.Wrap = a.diffWrap(tab)
 		tab.diff.Annotations = tab.diff.Annotations[:0]
 		if tab.diffBlameOn {
@@ -545,8 +545,34 @@ func (a *nativeApp) diffView(c *ui.Context, tab *docTab) {
 				tab.diff.Annotations = append(tab.diff.Annotations, editor.DiffAnnotation{Side: editor.DiffNew, Line: i, Height: 15, Key: diffBlameKey{tab: tab, line: i}})
 			}
 		}
+		if tab.diff.Layout == editor.DiffSplit {
+			oldLabel, newLabel := a.diffSideLabels(tab)
+			ui.Row(c).Height(22).AlignItems(ui.Center).Background(ui.Hex(palette(c.Theme()).panel2)).
+				BorderWidth(0, 0, 1, 0).BorderColor(ui.Hex(palette(c.Theme()).border)).Children(func() {
+				ui.Text(c, oldLabel).FontSize(10.5).TextColor(ui.Hex(palette(c.Theme()).muted)).
+					PaddingX(10).WidthPercent(50)
+				ui.Box(c).Width(1).FillHeight().Background(ui.Hex(palette(c.Theme()).border))
+				ui.Text(c, newLabel).FontSize(10.5).TextColor(ui.Hex(palette(c.Theme()).muted)).PaddingX(10).Grow(1)
+			})
+		}
 		editor.DiffView(c, tab.diff).Grow(1).FillWidth()
 	})
+}
+
+func (a *nativeApp) diffSideLabels(tab *docTab) (string, string) {
+	switch tab.opts.Target {
+	case git.DiffWorkingTree:
+		return a.t("Index"), a.t("Working Tree")
+	case git.DiffStaged:
+		return "HEAD", a.t("Index")
+	case git.DiffHead:
+		return "HEAD", a.t("Working Tree")
+	case git.DiffCommit:
+		return tab.opts.Revision + "^", tab.opts.Revision
+	case git.DiffRange:
+		return tab.opts.From, tab.opts.Revision
+	}
+	return a.t("Before"), a.t("After")
 }
 
 func (a *nativeApp) imageDiffView(c *ui.Context, tab *docTab) {
@@ -597,122 +623,156 @@ func (a *nativeApp) imageDiffView(c *ui.Context, tab *docTab) {
 }
 
 func (a *nativeApp) diffToolbar(c *ui.Context, tab *docTab) {
-	t := c.Theme()
-	ui.Row(c).Padding(6, 10).Gap(8).AlignItems(ui.Center).BorderWidth(0, 0, 1, 0).BorderColor(t.Border).Children(func() {
-		ui.Text(c, filepath.Base(tab.path)).FontSize(12).FontWeight(600)
-		switch tab.opts.Target {
-		case git.DiffWorkingTree, git.DiffStaged, git.DiffHead:
-			if ui.Button(c, a.t("Index ↔ Worktree")).Clicked() {
-				a.openDiff(git.DiffOptions{Path: tab.path, OldPath: tab.opts.OldPath, Target: git.DiffWorkingTree, Context: a.settings.DiffContext})
+	p := palette(c.Theme())
+	ui.Column(c).BorderWidth(0, 0, 1, 0).BorderColor(ui.Hex(p.border)).Children(func() {
+		// Title row: what file, what it changed, and the ways out.
+		ui.Row(c).Height(34).Padding(0, 8, 0, 10).Gap(7).AlignItems(ui.Center).Background(ui.Hex(p.panel)).Children(func() {
+			status := tab.status
+			if status == "" {
+				status = "modified"
 			}
-			if ui.Button(c, a.t("HEAD ↔ Index")).Clicked() {
-				a.openDiff(git.DiffOptions{Path: tab.path, OldPath: tab.opts.OldPath, Target: git.DiffStaged, Context: a.settings.DiffContext})
+			ui.Text(c, statusLetterKind(status)).FontSize(11).Font("monospace").FontWeight(700).
+				TextColor(statusKindColor(p, status))
+			ui.Row(c).TextColor(fileTint(tab.path)).Center().Children(func() {
+				a.icon(c, "file", 15)
+			})
+			ui.Text(c, tab.path).FontSize(12).Font("monospace").TextColor(ui.Hex(p.fgSoft)).MaxLines(1)
+			if tab.opts.OldPath != "" && tab.opts.OldPath != tab.path {
+				ui.Text(c, "← "+tab.opts.OldPath).FontSize(10.5).TextColor(ui.Hex(p.muted2)).MaxLines(1)
 			}
-			if ui.Button(c, a.t("HEAD ↔ Worktree")).Clicked() {
-				a.openDiff(git.DiffOptions{Path: tab.path, OldPath: tab.opts.OldPath, Target: git.DiffHead, Context: a.settings.DiffContext})
-			}
-		}
-		if tab.opts.OldPath != "" && tab.opts.OldPath != tab.path {
-			ui.Text(c, "← "+tab.opts.OldPath).FontSize(10).TextColor(t.TextMuted)
-		}
-		if tab.diff != nil {
-			add, del := tab.diff.Stats()
-			ui.Text(c, fmt.Sprintf("+%d −%d", add, del)).FontSize(10).TextColor(t.TextMuted)
-		}
-		ui.Spacer(c).Grow(1)
-		layout := 0
-		if tab.diff != nil && tab.diff.Layout == editor.DiffUnified {
-			layout = 1
-		}
-		if ui.Segmented(c, &layout, a.t("Split"), a.t("Unified")).Changed() {
 			if tab.diff != nil {
-				if layout == 0 {
+				add, del := tab.diff.Stats()
+				ui.Text(c, fmt.Sprintf("+%d", add)).FontSize(10.5).Font("monospace").TextColor(ui.Hex(p.added))
+				ui.Text(c, fmt.Sprintf("−%d", del)).FontSize(10.5).Font("monospace").TextColor(ui.Hex(p.deleted))
+			}
+			ui.Spacer(c).Grow(1)
+			if a.toolbarButton(c, "file", a.t("Open File"), false) {
+				a.openSource(tab.path, tab.revision)
+			}
+			target := tab.opts.Target
+			if target != git.DiffCommit && target != git.DiffRange {
+				if a.toolbarButton(c, "external", a.t("Diff Tool"), false) {
+					a.externalDiff(tab.opts)
+				}
+			}
+			if _, clicked := a.smallIconButton(c, "copy", a.t("Copy Path"), false); clicked {
+				a.copyText(tab.path)
+			}
+			more := ui.ButtonBase(c).Size(26, 26).Radius(4).Center().Tooltip(a.t("Compare"))
+			if more.Hovered() {
+				more.Background(ui.Hex(p.hover))
+			}
+			more.Children(func() {
+				ui.Row(c).TextColor(ui.Hex(p.fgSoft)).Center().Children(func() {
+					a.icon(c, "more", 16)
+				})
+			})
+			more.PopoverMenuButton(func(m *ui.Menu) {
+				switch target {
+				case git.DiffWorkingTree, git.DiffStaged, git.DiffHead:
+					if m.Item(a.t("Index ↔ Worktree")).Chosen() {
+						a.openDiff(git.DiffOptions{Path: tab.path, OldPath: tab.opts.OldPath, Target: git.DiffWorkingTree, Context: a.settings.DiffContext})
+					}
+					if m.Item(a.t("HEAD ↔ Index")).Chosen() {
+						a.openDiff(git.DiffOptions{Path: tab.path, OldPath: tab.opts.OldPath, Target: git.DiffStaged, Context: a.settings.DiffContext})
+					}
+					if m.Item(a.t("HEAD ↔ Worktree")).Chosen() {
+						a.openDiff(git.DiffOptions{Path: tab.path, OldPath: tab.opts.OldPath, Target: git.DiffHead, Context: a.settings.DiffContext})
+					}
+					m.Separator()
+				}
+				if m.Item(a.t("Annotate")).Checked(tab.diffBlameOn).Chosen() {
+					tab.diffBlameOn = !tab.diffBlameOn
+				}
+				if m.Item(a.t("Copy Path")).Chosen() {
+					a.copyText(tab.path)
+				}
+			})
+		})
+		// Toolbar row: layout, wrapping, whitespace, navigation, staging.
+		ui.Row(c).Height(30).PaddingX(6).Gap(2).AlignItems(ui.Center).
+			Background(ui.Hex(p.panel2)).BorderWidth(1, 0, 0, 0).BorderColor(ui.Hex(p.border)).Children(func() {
+			layout := 0
+			if tab.diff != nil && tab.diff.Layout == editor.DiffUnified {
+				layout = 1
+			}
+			if next := a.iconSegment(c, layout, "columns", "rows"); next != layout && tab.diff != nil {
+				if next == 0 {
 					tab.diff.Layout = editor.DiffSplit
 				} else {
 					tab.diff.Layout = editor.DiffUnified
 				}
 			}
-		}
-		wrap := tab.wrapOn
-		if ui.Checkbox(c, &wrap, a.t("Wrap")).Changed() {
-			tab.wrapOn = wrap
-		}
-		ignore := tab.opts.IgnoreWhitespace
-		if ui.Checkbox(c, &ignore, a.t("Ignore whitespace")).Changed() {
-			tab.opts.IgnoreWhitespace = ignore
-			a.loadDiff(tab)
-		}
-		eol := tab.opts.IgnoreWhitespaceEOL
-		if ui.Checkbox(c, &eol, a.t("Ignore EOL")).Changed() {
-			tab.opts.IgnoreWhitespaceEOL = eol
-			a.loadDiff(tab)
-		}
-		if tab.diff != nil {
-			if i, inside := tab.diff.CurrentHunk(); inside {
-				if ui.Button(c, "↑").Clicked() {
+			wrap := tab.wrapOn
+			if a.toolbarToggle(c, "rows", a.t("Wrap"), wrap) {
+				tab.wrapOn = !wrap
+			}
+			if a.toolbarToggle(c, "eye", a.t("Whitespace"), tab.opts.IgnoreWhitespace) {
+				tab.opts.IgnoreWhitespace = !tab.opts.IgnoreWhitespace
+				a.loadDiff(tab)
+			}
+			if a.toolbarToggle(c, "eye", a.t("Ignore EOL"), tab.opts.IgnoreWhitespaceEOL) {
+				tab.opts.IgnoreWhitespaceEOL = !tab.opts.IgnoreWhitespaceEOL
+				a.loadDiff(tab)
+			}
+			toolbarRule(c)
+			if tab.diff != nil {
+				n := len(tab.diff.Hunks())
+				i, inside := tab.diff.CurrentHunk()
+				if _, clicked := a.smallIconButton(c, "prevDiff", a.t("Previous change"), n == 0); clicked && n > 0 {
 					tab.diff.GoToHunk(i - 1)
 				}
-				if ui.Button(c, "↓").Clicked() {
+				if _, clicked := a.smallIconButton(c, "nextDiff", a.t("Next change"), n == 0); clicked && n > 0 {
 					tab.diff.GoToHunk(i + 1)
 				}
-				ui.Text(c, fmt.Sprintf("%d/%d", i+1, len(tab.diff.Hunks()))).FontSize(10).TextColor(t.TextMuted)
-			} else if n := len(tab.diff.Hunks()); n > 0 {
-				if ui.Button(c, "↑").Clicked() {
-					tab.diff.GoToHunk(n - 1)
+				label := fmt.Sprintf("%d/%d", i+1, n)
+				if !inside {
+					label = fmt.Sprintf("–/%d", n)
 				}
-				if ui.Button(c, "↓").Clicked() {
-					tab.diff.GoToHunk(0)
+				ui.Text(c, label).FontSize(10.5).TextColor(ui.Hex(p.muted2)).PaddingX(4)
+			}
+			ui.Spacer(c).Grow(1)
+			target := tab.opts.Target
+			if target == git.DiffWorkingTree || target == git.DiffStaged {
+				action := a.applyAction(tab)
+				fileIcon, fileLabel := "stage", a.t("Stage File")
+				hunkIcon, hunkLabel := "stage", a.t("Stage Hunk")
+				lineIcon, lineLabel := "stage", a.t("Stage Lines")
+				if action == "unstage" {
+					fileIcon, fileLabel = "unstage", a.t("Unstage File")
+					hunkIcon, hunkLabel = "unstage", a.t("Unstage Hunk")
+					lineIcon, lineLabel = "unstage", a.t("Unstage Lines")
 				}
-				ui.Text(c, fmt.Sprintf("0/%d", n)).FontSize(10).TextColor(t.TextMuted)
-			}
-		}
-		target := tab.opts.Target
-		if target == git.DiffWorkingTree || target == git.DiffStaged {
-			action := a.applyAction(tab)
-			fileLabel, hunkLabel, linesLabel := a.t("Stage File"), a.t("Stage Hunk"), a.t("Stage Lines")
-			if action == "unstage" {
-				fileLabel, hunkLabel, linesLabel = a.t("Unstage File"), a.t("Unstage Hunk"), a.t("Unstage Lines")
-			}
-			if ui.Button(c, fileLabel).Clicked() {
-				a.diffAction(tab, -1, nil, action)
-			}
-			if target == git.DiffWorkingTree && ui.Button(c, a.t("Rollback File")).Clicked() {
-				a.diffAction(tab, -1, nil, "rollback")
-			}
-			if tab.diff != nil {
-				if i, inside := tab.diff.CurrentHunk(); inside {
-					if ui.Button(c, hunkLabel).Clicked() {
-						a.diffAction(tab, i, nil, action)
-					}
-					if target == git.DiffWorkingTree && ui.Button(c, a.t("Rollback Hunk")).Clicked() {
-						a.diffAction(tab, i, nil, "rollback")
+				if a.toolbarButton(c, fileIcon, fileLabel, false) {
+					a.diffAction(tab, -1, nil, action)
+				}
+				if target == git.DiffWorkingTree {
+					if a.toolbarButton(c, "undo", a.t("Rollback File"), false) {
+						a.diffAction(tab, -1, nil, "rollback")
 					}
 				}
-				if tab.hasSel {
-					if ui.Button(c, linesLabel).Clicked() {
-						a.diffAction(tab, -1, selectedLines(tab), action)
+				if tab.diff != nil {
+					if i, inside := tab.diff.CurrentHunk(); inside {
+						toolbarRule(c)
+						if a.toolbarButton(c, hunkIcon, hunkLabel, false) {
+							a.diffAction(tab, i, nil, action)
+						}
+						if target == git.DiffWorkingTree && a.toolbarButton(c, "undo", a.t("Rollback Hunk"), false) {
+							a.diffAction(tab, i, nil, "rollback")
+						}
 					}
-					if target == git.DiffWorkingTree && ui.Button(c, a.t("Rollback Lines")).Clicked() {
-						a.diffAction(tab, -1, selectedLines(tab), "rollback")
+					if tab.hasSel {
+						toolbarRule(c)
+						if a.toolbarButton(c, lineIcon, fmt.Sprintf("%s (%d)", lineLabel, len(selectedLines(tab))), false) {
+							a.diffAction(tab, -1, selectedLines(tab), action)
+						}
+						if target == git.DiffWorkingTree && a.toolbarButton(c, "undo", a.t("Rollback Lines"), false) {
+							a.diffAction(tab, -1, selectedLines(tab), "rollback")
+						}
 					}
 				}
 			}
-		}
-		blame := tab.diffBlameOn
-		if ui.Checkbox(c, &blame, a.t("Annotate")).Changed() {
-			tab.diffBlameOn = blame
-		}
-		if ui.Button(c, a.t("Open File")).Clicked() {
-			a.openSource(tab.path, tab.revision)
-		}
-		if target != git.DiffCommit && target != git.DiffRange {
-			if ui.Button(c, a.t("Diff Tool")).Clicked() {
-				a.externalDiff(tab.opts)
-			}
-		}
-		if ui.Button(c, a.t("Copy Path")).Clicked() {
-			a.copyText(tab.path)
-		}
+		})
 	})
 }
 
@@ -763,12 +823,12 @@ func (a *nativeApp) sourceView(c *ui.Context, tab *docTab) {
 		if tab.blameOn {
 			ui.Row(c).Fill().AlignItems(ui.Stretch).Children(func() {
 				a.blameColumn(c, tab)
-				tab.src.Theme = editor.DefaultTheme(t)
+				tab.src.Theme = editorTheme(t)
 				editor.View(c, tab.src).Grow(1).FillWidth()
 			})
 			return
 		}
-		tab.src.Theme = editor.DefaultTheme(t)
+		tab.src.Theme = editorTheme(t)
 		a.setBlameInlay(tab)
 		if a.lsp != nil {
 			a.lsp.sync(tab)
@@ -803,70 +863,98 @@ func (a *nativeApp) setBlameInlay(tab *docTab) {
 }
 
 func (a *nativeApp) sourceToolbar(c *ui.Context, tab *docTab) {
-	t := c.Theme()
-	ui.Row(c).Padding(6, 10).Gap(8).AlignItems(ui.Center).BorderWidth(0, 0, 1, 0).BorderColor(t.Border).Children(func() {
+	p := palette(c.Theme())
+	ui.Column(c).BorderWidth(0, 0, 1, 0).BorderColor(ui.Hex(p.border)).Children(func() {
 		rev := tab.revision
-		if rev == "" {
-			rev = a.t("Working Tree")
-		} else if rev == "INDEX" {
-			rev = a.t("Index")
-		} else if len(rev) > 10 {
-			rev = rev[:10]
-		}
-		ui.Text(c, filepath.Base(tab.path)).FontSize(12).FontWeight(600)
-		ui.Text(c, rev).FontSize(10).TextColor(t.TextMuted)
-		if tab.src != nil && tab.src.Buffer.Modified() {
-			ui.Text(c, "●").FontSize(9).TextColor(t.Warning)
-		}
-		ui.Spacer(c).Grow(1)
-		if ui.Button(c, a.t("Working Tree")).Clicked() {
-			a.openSource(tab.path, "")
-		}
-		if ui.Button(c, a.t("Index")).Clicked() {
-			a.openSource(tab.path, "INDEX")
-		}
-		if ui.Button(c, "HEAD").Clicked() {
-			a.openSource(tab.path, "HEAD")
-		}
-		if tab.src != nil {
-			wrap := tab.src.SoftWrap
-			if ui.Checkbox(c, &wrap, a.t("Wrap")).Changed() {
-				tab.src.SoftWrap = wrap
+		label := rev
+		switch rev {
+		case "":
+			label = a.t("Working Tree")
+		case "INDEX":
+			label = a.t("Index")
+		default:
+			if len(label) > 10 {
+				label = label[:10]
 			}
 		}
-		if tab.src != nil {
-			if ui.Button(c, "↑").Clicked() {
-				tab.src.Run(editor.PreviousHunk)
+		ui.Row(c).Height(34).Padding(0, 8, 0, 10).Gap(7).AlignItems(ui.Center).
+			Background(ui.Hex(p.panel)).Children(func() {
+			ui.Row(c).TextColor(ui.Hex(p.muted)).Center().Children(func() {
+				a.icon(c, "file", 15)
+			})
+			ui.Text(c, tab.path).FontSize(12).Font("monospace").TextColor(ui.Hex(p.fgSoft)).MaxLines(1)
+			ui.Text(c, label).FontSize(10.5).TextColor(ui.Hex(p.muted2)).MaxLines(1)
+			if tab.src != nil && tab.src.Buffer.Modified() {
+				ui.Box(c).Size(5, 5).Radius(3).Background(ui.Hex(p.accent))
 			}
-			if ui.Button(c, "↓").Clicked() {
-				tab.src.Run(editor.NextHunk)
+			ui.Spacer(c).Grow(1)
+			if tab.revision == "" {
+				if a.toolbarButton(c, "save", a.t("Save"), false) {
+					a.saveSource(tab)
+				}
+				if a.toolbarButton(c, "diff", a.t("Show Diff"), false) {
+					a.openDiff(git.DiffOptions{Path: tab.path, Target: git.DiffWorkingTree, Context: a.settings.DiffContext})
+				}
 			}
-		}
-		if tab.revision == "" {
-			if ui.Button(c, a.t("Save")).Clicked() {
-				a.saveSource(tab)
+			if _, clicked := a.smallIconButton(c, "close", a.t("Close"), false); clicked {
+				a.closeActiveTab()
 			}
-			if ui.Button(c, a.t("Show Diff")).Clicked() {
-				a.openDiff(git.DiffOptions{Path: tab.path, Target: git.DiffWorkingTree, Context: a.settings.DiffContext})
+		})
+		ui.Row(c).Height(30).PaddingX(6).Gap(2).AlignItems(ui.Center).
+			Background(ui.Hex(p.panel2)).BorderWidth(1, 0, 0, 0).BorderColor(ui.Hex(p.border)).Children(func() {
+			seg := ui.Row(c).Height(22).Radius(5).Border(1, ui.Hex(p.border)).
+				Background(ui.Hex(p.input)).Children(func() {
+				choices := []struct{ label, rev string }{
+					{a.t("Working Tree"), ""},
+					{a.t("Index"), "INDEX"},
+					{"HEAD", "HEAD"},
+				}
+				for _, choice := range choices {
+					choice := choice
+					on := tab.revision == choice.rev
+					b := ui.ButtonBase(c).Height(20).PaddingX(7).Center()
+					if on {
+						b.Background(ui.Hex(p.selection))
+					} else if b.Hovered() {
+						b.Background(ui.Hex(p.hover))
+					}
+					b.Children(func() {
+						col := p.muted
+						if on {
+							col = p.fg
+						}
+						ui.Text(c, choice.label).FontSize(11).TextColor(ui.Hex(col))
+					})
+					if b.Clicked() {
+						a.openSource(tab.path, choice.rev)
+					}
+				}
+			})
+			_ = seg
+			if tab.src != nil {
+				if a.toolbarToggle(c, "rows", a.t("Wrap"), tab.src.SoftWrap) {
+					tab.src.SoftWrap = !tab.src.SoftWrap
+				}
+				toolbarRule(c)
+				if _, clicked := a.smallIconButton(c, "prevDiff", a.t("Previous change"), false); clicked {
+					tab.src.Run(editor.PreviousHunk)
+				}
+				if _, clicked := a.smallIconButton(c, "nextDiff", a.t("Next change"), false); clicked {
+					tab.src.Run(editor.NextHunk)
+				}
 			}
-		}
-		blame := tab.blameOn
-		if ui.Checkbox(c, &blame, a.t("Annotate")).Changed() {
-			tab.blameOn = blame
-		}
-		if tab.revision == "" {
-			ignoreWs := tab.blameIgnore
-			if ui.Checkbox(c, &ignoreWs, a.t("Ignore whitespace")).Changed() {
-				tab.blameIgnore = ignoreWs
+			ui.Spacer(c).Grow(1)
+			if a.toolbarToggle(c, "user", a.t("Annotate"), tab.blameOn) {
+				tab.blameOn = !tab.blameOn
+			}
+			if tab.revision == "" && a.toolbarToggle(c, "eye", a.t("Ignore whitespace"), tab.blameIgnore) {
+				tab.blameIgnore = !tab.blameIgnore
 				a.loadBlame(tab)
 			}
-		}
-		if ui.Button(c, a.t("History")).Clicked() {
-			a.openLocalHistory(tab)
-		}
-		if ui.Button(c, a.t("Close")).Clicked() {
-			a.closeActiveTab()
-		}
+			if a.toolbarButton(c, "clock", a.t("History"), false) {
+				a.openLocalHistory(tab)
+			}
+		})
 	})
 }
 
