@@ -327,9 +327,8 @@ rebase/am/cherry-pick, diff of renames and binary files, and the console's
 
 ## Known Rough Edges
 
-- The README's directory listing is stale (`BranchPopup.tsx`, `LogPanel.tsx`
-  do not exist; real names are `BranchList.tsx`, `LogDock.tsx`). Trust the
-  filesystem.
+- The README's screenshots live in `docs/` and were captured from the
+  packaged app on a demo repository; refresh them when the layout changes.
 - `Repo.prefix` is assigned in `Open` and never read.
 - The Git console implies `git`: the page prepends it unless the line starts
   with `!` or already names `git`. Keep the input's `autoCapitalize="off"` —
