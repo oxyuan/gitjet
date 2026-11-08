@@ -6,6 +6,8 @@ import (
 
 	"github.com/egoist/mygo/ui"
 	"github.com/egoist/mygo/ui/editor"
+
+	"gitjet/internal/git"
 )
 
 // appColors are the window's own colors: the palette GitJet had before the
@@ -193,10 +195,10 @@ func gitjetTheme(dark bool) *ui.Theme {
 	t.Inverse = ui.Hex(p.fg)
 	t.InverseText = ui.Hex(p.bg)
 	t.Scrollbar = ui.Hex(p.scrollbar)
-	t.ScrollbarWidth = 6
-	t.Radius = 6
+	t.ScrollbarWidth = 12
+	t.Radius = 9
 	t.Spacing = 4
-	t.FontSize = 13
+	t.FontSize = 12.5
 	t.TooltipDelay = 600 * time.Millisecond
 	return t
 }
@@ -437,11 +439,31 @@ func (a *nativeApp) toggleTextButton(c *ui.Context, label string, on bool) bool 
 	return b.Clicked()
 }
 
-func (a *nativeApp) refBadge(c *ui.Context, label string) {
+func (a *nativeApp) refBadge(c *ui.Context, ref git.CommitRef) {
 	p := palette(c.Theme())
-	ui.Box(c).Height(17).PaddingX(5).Radius(4).Background(ui.Hex(p.accentSoft)).
-		Center().Children(func() {
-		ui.Text(c, label).FontSize(9.5).TextColor(ui.Hex(p.accent)).MaxLines(1)
+	bg := ui.Hex(p.accentSoft)
+	fg := ui.Hex(p.accent)
+	icon := "branch"
+	switch {
+	case ref.Type == "tag":
+		bg = ui.RGBA(169, 97, 30, 0.12)
+		fg = ui.Hex(p.untracked)
+		icon = "tag"
+	case ref.Type == "remote":
+		bg = ui.RGBA(122, 79, 208, 0.12)
+		fg = ui.Hex(p.renamed)
+		icon = "fetch"
+	case ref.Head:
+		bg = ui.RGBA(43, 124, 74, 0.14)
+		fg = ui.Hex(p.added)
+		icon = "check"
+	}
+	ui.Box(c).Height(18).PaddingX(6).Radius(5).Gap(3).AlignItems(ui.Center).
+		Background(bg).MaxWidth(150).Children(func() {
+		ui.Row(c).TextColor(fg).Center().Children(func() {
+			a.icon(c, icon, 9)
+		})
+		ui.Text(c, ref.Name).FontSize(9.5).FontWeight(600).TextColor(fg).MaxLines(1)
 	})
 }
 

@@ -1109,6 +1109,10 @@ func (a *nativeApp) logHeader(c *ui.Context) {
 		}
 		if n := a.logPick.Len(); n > 0 {
 			ui.Text(c, fmt.Sprintf("%d %s", n, a.t("selected"))).FontSize(10).TextColor(ui.Hex(p.accent))
+			sel, _ := a.kitIconButton(c, "more", a.t("Selected commits"), 22, 13, false, false, false)
+			sel.PopoverMenuButton(func(m *ui.Menu) {
+				a.logSelectionMenu(m)
+			})
 			if a.miniTextButton(c, a.t("Clear"), false) {
 				a.logPick.Clear()
 			}
@@ -1155,7 +1159,14 @@ func (a *nativeApp) logListView(c *ui.Context) {
 				return
 			}
 			cm := a.log.Commits[i]
-			row := ui.Row(c).Height(26).PaddingX(9).Gap(8).AlignItems(ui.Center)
+			row := ui.Row(c).Height(26).PaddingX(9).Gap(8).AlignItems(ui.Center).Radius(7).Margin(1, 0).ClipX()
+			bg := ui.Transparent
+			if i == a.logSel {
+				bg = ui.Hex(p.selection)
+			} else if row.Hovered() {
+				bg = ui.Hex(p.hover)
+			}
+			row.Background(motionColor(row, "kit-log-row", bg))
 			row.Children(func() {
 				a.graphCellSized(c, i, 26)
 				ui.Text(c, cm.Short).FontSize(10.5).Font("monospace").TextColor(ui.Hex(p.muted2)).Width(58)
@@ -1164,7 +1175,7 @@ func (a *nativeApp) logListView(c *ui.Context) {
 					if j >= 2 {
 						break
 					}
-					a.refBadge(c, ref.Name)
+					a.refBadge(c, ref)
 				}
 				ui.Text(c, cm.Author).FontSize(10.5).TextColor(ui.Hex(p.muted)).MaxLines(1).Width(92)
 				ui.Text(c, a.stamp(cm.AuthorTime)).FontSize(10.5).TextColor(ui.Hex(p.muted2)).MaxLines(1)
@@ -1173,20 +1184,21 @@ func (a *nativeApp) logListView(c *ui.Context) {
 				a.openCommitTab(cm.Hash)
 			}
 			row.ContextMenu(func(m *ui.Menu) {
-				if m.Item(a.t("Open Commit")).Chosen() {
-					a.openCommitTab(cm.Hash)
-				}
-				if m.Item(a.t("Copy Revision Number")).Chosen() {
-					a.copyText(cm.Hash)
-				}
-				if m.Item(a.t("Create Branch")).Chosen() {
-					a.openCreateBranchDialog(cm.Hash)
-				}
-				if m.Item(a.t("Create Tag")).Chosen() {
-					a.openCreateTagDialog(cm.Hash)
-				}
+				a.logCommitMenu(m, cm)
 			})
-		}).Grow(1)
+		}).Grow(1).Padding(5, 6, 10, 6)
+		if a.log.HasMore {
+			more := ui.ButtonBase(c).Height(28).PaddingX(8).Radius(6).AlignItems(ui.Center).FillWidth().Justify(ui.Center)
+			if more.Hovered() {
+				more.Background(ui.Hex(p.hover))
+			}
+			more.Children(func() {
+				ui.Text(c, a.t("Load more")).FontSize(11.5).TextColor(ui.Hex(p.accent))
+			})
+			if more.Clicked() {
+				a.loadMoreLog()
+			}
+		}
 		if list.Changed() {
 			if a.logSel >= 0 && a.logSel < len(a.log.Commits) {
 				a.loadLogDetail(a.log.Commits[a.logSel].Hash)
@@ -1249,7 +1261,7 @@ func (a *nativeApp) logDetails(c *ui.Context) {
 				ui.Text(c, d.Subject).FontSize(12.5).FontWeight(600).TextColor(ui.Hex(p.fg)).MaxLines(2)
 				ui.Row(c).Gap(6).AlignItems(ui.Center).Children(func() {
 					for _, r := range d.Refs {
-						a.refBadge(c, r.Name)
+						a.refBadge(c, r)
 					}
 					ui.Text(c, d.Author).FontSize(10.5).TextColor(ui.Hex(p.muted))
 					ui.Text(c, a.stamp(d.AuthorTime)).FontSize(10.5).TextColor(ui.Hex(p.muted2))
@@ -2148,35 +2160,35 @@ func (a *nativeApp) graphCellSized(c *ui.Context, row int, height float32) {
 			}
 			c := colors[lane%len(colors)]
 			if lane < len(g.faint) && g.faint[lane] {
-				c = c.Alpha(0.35)
+				c = c.Alpha(0.3)
 			}
-			p.Line(x(lane), r.Y, x(lane), mid, 2, c)
+			p.Line(x(lane), r.Y, x(lane), mid, 1.6, c)
 		}
 		for lane, hash := range g.after {
 			if hash == "" {
 				continue
 			}
-			p.Line(x(lane), mid, x(lane), r.Y+r.H, 2, colors[lane%len(colors)])
+			p.Line(x(lane), mid, x(lane), r.Y+r.H, 1.6, colors[lane%len(colors)])
 		}
 		for _, target := range g.edges {
-			p.Line(x(g.lane), mid, x(target), r.Y+r.H, 2, colors[g.lane%len(colors)])
+			p.Line(x(g.lane), mid, x(target), r.Y+r.H, 1.6, colors[g.lane%len(colors)])
 		}
 		c := colors[g.lane%len(colors)]
 		cx := x(g.lane)
-		p.Fill(ui.Rect{X: cx - 4.5, Y: mid - 4.5, W: 9, H: 9}, c.Alpha(0.18), 4.5)
-		p.Fill(ui.Rect{X: cx - 3.5, Y: mid - 3.5, W: 7, H: 7}, c, 3.5)
-		p.Fill(ui.Rect{X: cx - 1, Y: mid - 1, W: 2, H: 2}, bg, 1)
+		p.Fill(ui.Rect{X: cx - 4.6, Y: mid - 4.6, W: 9.2, H: 9.2}, bg, 4.6)
+		p.Stroke(ui.Rect{X: cx - 4.6, Y: mid - 4.6, W: 9.2, H: 9.2}, c, 4.6, 1.6)
 	})
 }
 
 func graphColors(t *ui.Theme) []ui.Color {
+	p := palette(t)
 	return []ui.Color{
-		t.Accent,
-		t.Success,
-		t.Warning,
-		t.Danger,
-		ui.Hex("#a855f7"),
-		ui.Hex("#06b6d4"),
+		ui.Hex(p.lane0),
+		ui.Hex(p.lane1),
+		ui.Hex(p.lane2),
+		ui.Hex(p.lane3),
+		ui.Hex(p.lane4),
+		ui.Hex(p.lane5),
 	}
 }
 
@@ -2374,3 +2386,82 @@ func sortRepoRefs(refs []git.RepoRef) {
 }
 
 var _ = editor.NewBuffer
+
+// logCommitMenu is the history row's menu: the page's commit operations,
+// including the ones that were implemented but unreachable before.
+func (a *nativeApp) logCommitMenu(m *ui.Menu, cm git.Commit) {
+	if m.Item(a.t("Open Commit")).Chosen() {
+		a.openCommitTab(cm.Hash)
+	}
+	if m.Item(a.t("Edit History…")).Chosen() {
+		a.openRewrite(cm.Hash)
+	}
+	m.Separator()
+	if m.Item(a.t("Checkout")).Chosen() {
+		a.checkout(cm.Hash)
+	}
+	m.Submenu(a.t("Reset"), func(sm *ui.Menu) {
+		if sm.Item(a.t("Soft")).Chosen() {
+			a.busyRun("reset", func() error { _, err := a.g.Reset(cm.Hash, "soft"); return err })
+		}
+		if sm.Item(a.t("Mixed")).Chosen() {
+			a.busyRun("reset", func() error { _, err := a.g.Reset(cm.Hash, "mixed"); return err })
+		}
+		if sm.Item(a.t("Hard")).Chosen() {
+			a.dialog = dialogState{kind: dialogConfirm, title: a.t("Reset"), message: fmt.Sprintf(a.t("Hard reset to %s?"), cm.Short), action: "hard-reset", target: cm.Hash}
+		}
+	})
+	if m.Item(a.t("Cherry-Pick")).Chosen() {
+		a.busyRun("cherry-pick", func() error { _, err := a.g.CherryPick([]string{cm.Hash}, false); return err })
+	}
+	if m.Item(a.t("Revert")).Chosen() {
+		a.busyRun("revert", func() error { _, err := a.g.Revert([]string{cm.Hash}); return err })
+	}
+	m.Submenu(a.t("Commit Fixup"), func(sm *ui.Menu) {
+		if sm.Item(a.t("Fixup")).Chosen() {
+			a.busyRun("fixup", func() error { _, err := a.g.CommitFixup(cm.Hash, false); return err })
+		}
+		if sm.Item(a.t("Squash")).Chosen() {
+			a.busyRun("fixup", func() error { _, err := a.g.CommitFixup(cm.Hash, true); return err })
+		}
+	})
+	m.Separator()
+	if m.Item(a.t("Copy Revision Number")).Chosen() {
+		a.copyText(cm.Hash)
+	}
+	if m.Item(a.t("Copy Commit Message")).Chosen() {
+		a.copyText(cm.Message)
+	}
+	if m.Item(a.t("Create Branch")).Chosen() {
+		a.openCreateBranchDialog(cm.Hash)
+	}
+	if m.Item(a.t("Create Tag")).Chosen() {
+		a.openCreateTagDialog(cm.Hash)
+	}
+	if len(a.remotes) > 0 && m.Item(a.t("Push Commits up to Here…")).Chosen() {
+		a.openPushDialogForHash(cm.Hash)
+	}
+}
+
+func (a *nativeApp) logSelectionMenu(m *ui.Menu) {
+	hashes := a.pickedHashes()
+	if len(hashes) == 0 {
+		return
+	}
+	if m.Item(a.t("Cherry-Pick Selected")).Chosen() {
+		a.busyRun("cherry-pick", func() error { _, err := a.g.CherryPick(hashes, false); return err })
+	}
+	if m.Item(a.t("Revert Selected")).Chosen() {
+		a.busyRun("revert", func() error { _, err := a.g.Revert(hashes); return err })
+	}
+	if m.Item(a.t("Edit History…")).Chosen() {
+		a.openRewrite(hashes[len(hashes)-1])
+	}
+	if len(a.remotes) > 0 && m.Item(a.t("Push Commits up to Here…")).Chosen() {
+		a.openPushDialogForHash(hashes[len(hashes)-1])
+	}
+	m.Separator()
+	if m.Item(a.t("Clear")).Chosen() {
+		a.logPick.Clear()
+	}
+}
