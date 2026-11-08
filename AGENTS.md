@@ -93,6 +93,12 @@ use it only for layout work. Vite's port is pinned to 5173 in **both**
   `GIT_TERMINAL_PROMPT=0`, `GIT_OPTIONAL_LOCKS=0`) is load-bearing: parsers and
   date ordering depend on the C locale, and `GIT_TERMINAL_PROMPT=0` stops the
   UI hanging on a credential prompt.
+- `SaveShelf` captures `git diff HEAD` and verifies it reverse-applies before
+  discarding anything: a shelf that skipped the index, as plain `git diff`
+  does, lost every staged change to the `reset --hard` that followed.
+- A rewrite plan records its branch (`planState.Branch`) and is ignored when
+  it belongs elsewhere; a stale plan used to be replayed or reset on
+  whatever branch happened to be checked out.
 - Mutating service methods (`Checkout`, `Merge`, `Rebase`, `CherryPick`,
   `Revert`, `Pull` without `--autostash`, `Rewrite`) run through
   `preserveLocalChanges` (`internal/app/service.go`): a dirty tree is stashed
@@ -126,6 +132,9 @@ use it only for layout work. Vite's port is pinned to 5173 in **both**
 
 - Every page-supplied path passes `cleanPath`/`cleanPaths` (repo-relative,
   rejects absolute and `..`). Note `cleanPaths` **sorts and dedupes**.
+- A path handed to git as a pathspec goes through `literalPath`: git reads
+  `web/[slug]/page.tsx` as a glob and would touch `web/s/page.tsx` too.
+  Escaping, not `:(literal)` magic, because `blame` rejects the magic.
 - Revisions and branch names reject empty values and a leading `-`; branch
   creation/rename also round-trip `git check-ref-format --branch`.
 - `internal/app` only adds its own check for `Reveal` (`filepath.Rel`).
