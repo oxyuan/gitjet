@@ -174,11 +174,18 @@ type nativeApp struct {
 	activeTab int
 
 	// quick open
-	quickOpen  bool
-	quickQuery string
-	quickSel   int
-	quickFiles []git.RepoFile
-	quickIndex []quickHit
+	quickOpen    bool
+	quickQuery   string
+	quickSel     int
+	quickFiles   []git.RepoFile
+	quickCommits []git.Commit
+	quickIndex   []quickHit
+	quickReq     int
+	quickLoading bool
+
+	// dialog footer, captured by buttons() while its body builds.
+	dialogOK string
+	dialogFn func()
 
 	// console
 	consoleOpen bool

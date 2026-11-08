@@ -135,7 +135,8 @@ func (a *nativeApp) dialogView(c *ui.Context) {
 		return
 	}
 	ui.Overlay(c, func() {
-		back := ui.Box(c).Absolute().Fill().Background(ui.RGBA(10, 15, 25, 0.38))
+		back := ui.Box(c).Absolute().Fill().Background(ui.RGBA(10, 14, 22, 0.32))
+		back.Opacity(motionFade(back, "kit-overlay", true))
 		if back.Clicked() {
 			a.closeDialog()
 			return
@@ -144,10 +145,41 @@ func (a *nativeApp) dialogView(c *ui.Context) {
 	})
 }
 
+func (a *nativeApp) dialogWidth() float32 {
+	switch a.dialog.kind {
+	case dialogSettings:
+		return 640
+	case dialogConfirm, dialogPrompt:
+		return 440
+	case dialogPush, dialogCommitDetail:
+		return 900
+	case dialogPull:
+		return 480
+	case dialogRebase:
+		return 520
+	case dialogBranch, dialogTag, dialogStash, dialogMerge:
+		return 460
+	case dialogStashFiles:
+		return 620
+	case dialogLocalHistory:
+		return 880
+	case dialogCleanup:
+		return 640
+	case dialogConflicts:
+		return 860
+	case dialogCompare:
+		return 680
+	default:
+		return 620
+	}
+}
+
 func (a *nativeApp) dialogCard(c *ui.Context) {
 	p := palette(c.Theme())
+	a.dialogOK = ""
+	a.dialogFn = nil
 	card := ui.Column(c).Absolute().LeftPercent(50).TopPercent(50).TranslatePercent(-50, -50).
-		Width(560).MaxWidthPercent(92).ZIndex(1).
+		Width(a.dialogWidth()).MaxWidthPercent(92).ZIndex(1).
 		Background(ui.Hex(p.raised)).Radius(16).Border(1, ui.Hex(p.border)).
 		Shadow(0, 30, 80, 0, ui.RGBA(16, 20, 40, 0.28))
 	if a.dialog.kind == dialogSettings {
@@ -240,6 +272,20 @@ func (a *nativeApp) dialogCard(c *ui.Context) {
 		})
 		if a.dialog.kind == dialogSettings {
 			a.settingsFooter(c)
+		}
+		if a.dialogFn != nil {
+			ui.Row(c).Height(56).Padding(12, 16).Gap(8).AlignItems(ui.Center).
+				BorderWidth(1, 0, 0, 0).BorderColor(ui.Hex(p.border)).Background(ui.Hex(p.panel)).Children(func() {
+				ui.Spacer(c).Grow(1)
+				if a.kitDialogButton(c, a.t("Cancel"), false, false) {
+					a.closeDialog()
+				}
+				if a.kitDialogPrimary(c, a.dialogOK, false) {
+					fn := a.dialogFn
+					a.dialogFn = nil
+					fn()
+				}
+			})
 		}
 	})
 }
@@ -371,15 +417,9 @@ func (a *nativeApp) dialogTitle() string {
 }
 
 func (a *nativeApp) buttons(c *ui.Context, ok string, fn func()) {
-	ui.Row(c).Gap(6).Children(func() {
-		ui.Spacer(c).Grow(1)
-		if a.kitDialogButton(c, a.t("Cancel"), false, false) {
-			a.closeDialog()
-		}
-		if ui.PrimaryButton(c, ok).Clicked() {
-			fn()
-		}
-	})
+	_ = c
+	a.dialogOK = ok
+	a.dialogFn = fn
 }
 
 func (a *nativeApp) confirmDialog(c *ui.Context) {
@@ -638,7 +678,7 @@ func (a *nativeApp) commitChecksDialog(c *ui.Context) {
 		if a.kitDialogButton(c, a.t("Cancel"), false, false) {
 			a.closeDialog()
 		}
-		if ui.PrimaryButton(c, a.t("Commit Anyway")).Clicked() {
+		if a.kitDialogPrimary(c, a.t("Commit Anyway"), false) {
 			form := a.commitForm
 			a.closeDialog()
 			a.commitNow(a.checkedPaths(), form)
@@ -1114,7 +1154,7 @@ func (a *nativeApp) cleanupDialog(c *ui.Context) {
 		if a.kitDialogButton(c, a.t("Cancel"), false, false) {
 			a.closeDialog()
 		}
-		if ui.PrimaryButton(c, a.t("Delete")).Clicked() {
+		if a.kitDialogButton(c, a.t("Delete"), true, false) {
 			var names []string
 			for name, on := range a.dialog.checks {
 				if on {
@@ -1475,22 +1515,23 @@ func (a *nativeApp) quickOpenView(c *ui.Context) {
 	c.OnWindowShortcut(0, ui.KeyEscape, func() { a.quickOpen = false })
 	ui.Overlay(c, func() {
 		back := ui.Box(c).Absolute().Fill().Background(ui.RGBA(10, 14, 22, 0.32))
+		back.Opacity(motionFade(back, "kit-quick-overlay", true))
 		if back.Clicked() {
 			a.quickOpen = false
 			return
 		}
-		panel := ui.Column(c).Absolute().Top(92).LeftPercent(50).TranslatePercent(-50, 0).
-			Width(660).MaxWidthPercent(86).Background(ui.Hex(p.raised)).Radius(10).
-			Border(1, ui.Hex(p.border)).Shadow(0, 24, 60, 0, ui.RGBA(20, 20, 40, 0.28))
+		panel := ui.Column(c).Absolute().TopPercent(11).LeftPercent(50).TranslatePercent(-50, 0).
+			Width(660).MaxWidthPercent(86).Background(ui.Hex(p.raised)).Radius(15).
+			Border(1, ui.Hex(p.border)).Shadow(0, 30, 80, 0, ui.RGBA(16, 20, 40, 0.22))
 		panel.Children(func() {
-			ui.Row(c).Height(46).PaddingX(14).Gap(8).AlignItems(ui.Center).
+			ui.Row(c).Height(56).Padding(14, 16).Gap(9).AlignItems(ui.Center).
 				BorderWidth(0, 0, 1, 0).BorderColor(ui.Hex(p.border)).Children(func() {
 				ui.Row(c).TextColor(ui.Hex(p.muted)).Center().Children(func() {
-					a.icon(c, "search", 15)
+					a.icon(c, "search", 16)
 				})
-				in := ui.TextInputBase(c, &a.quickQuery).FontSize(13).Placeholder(a.t("Search files and commits")).Grow(1).AutoFocus().FocusRing(false)
+				in := ui.TextInputBase(c, &a.quickQuery).FontSize(15).Placeholder(a.t("Search files and commits")).Grow(1).AutoFocus().FocusRing(false)
 				if in.Changed() {
-					a.rebuildQuick()
+					a.loadQuick(a.quickQuery)
 				}
 				if in.Submitted() {
 					a.chooseQuick()
@@ -1508,20 +1549,22 @@ func (a *nativeApp) quickOpenView(c *ui.Context) {
 							break
 						}
 						i, hit := i, hit
-						row := ui.ButtonBase(c).Height(30).PaddingX(8).Radius(5).Gap(8).FillWidth().AlignItems(ui.Center)
+						row := ui.ButtonBase(c).Height(34).PaddingX(9).Radius(7).Gap(8).FillWidth().AlignItems(ui.Center)
+						bg := ui.Transparent
 						if i == a.quickSel {
-							row.Background(ui.Hex(p.selection))
+							bg = ui.Hex(p.selection)
 						} else if row.Hovered() {
-							row.Background(ui.Hex(p.hover))
+							bg = ui.Hex(p.hover)
 						}
+						row.Background(motionColor(row, "kit-quick-row", bg))
 						row.Children(func() {
-							icon := "file"
 							if hit.commit {
-								icon = "commit"
+								ui.Row(c).TextColor(ui.Hex(p.accentAlt)).Center().Children(func() {
+									a.icon(c, "commit", 14)
+								})
+							} else {
+								a.kitFileBadge(c, hit.path, 14)
 							}
-							ui.Row(c).TextColor(ui.Hex(p.muted)).Center().Children(func() {
-								a.icon(c, icon, 14)
-							})
 							title := hit.title
 							dir := ""
 							if !hit.commit {
@@ -1870,7 +1913,7 @@ func (a *nativeApp) rewriteDialog(c *ui.Context) {
 		if a.kitDialogButton(c, a.t("Cancel"), false, false) {
 			a.closeDialog()
 		}
-		if ui.PrimaryButton(c, a.t("Rewrite")).Clicked() {
+		if a.kitDialogPrimary(c, a.t("Rewrite"), false) {
 			onto := a.dialog.onto
 			steps := append([]git.PlanStep(nil), a.dialog.steps...)
 			a.closeDialog()

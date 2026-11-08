@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"github.com/egoist/mygo"
 	"github.com/egoist/mygo/ui"
@@ -556,14 +557,52 @@ func (a *nativeApp) openQuickOpen() {
 	a.quickQuery = ""
 	a.quickSel = 0
 	a.quickIndex = nil
-	go func() {
-		files, _ := a.g.Files("")
+	a.quickFiles = nil
+	a.quickCommits = nil
+	a.loadQuick("")
+}
+
+// loadQuick queries the repository instead of filtering one preloaded
+// page, so a path after the first 200 is still findable. A slower answer
+// for an older query is dropped by the request number.
+func (a *nativeApp) loadQuick(query string) {
+	req := a.quickReq + 1
+	a.quickReq = req
+	a.quickLoading = true
+	term := strings.TrimSpace(query)
+	time.AfterFunc(120*time.Millisecond, func() {
+		files, fileErr := a.g.Files(query)
+		var commits []git.Commit
+		var commitErr error
+		if len(term) >= 2 {
+			result, err := a.g.Log(git.LogOptions{
+				All:    true,
+				Search: term,
+				Limit:  6,
+			})
+			if err == nil {
+				commits = result.Commits
+			} else {
+				commitErr = err
+			}
+		}
 		mygo.RunOnMain(func() {
+			if req != a.quickReq {
+				return
+			}
+			a.quickLoading = false
+			if fileErr != nil {
+				a.setNotice(fileErr.Error())
+			}
 			a.quickFiles = files
+			a.quickCommits = commits
+			if commitErr != nil && fileErr == nil {
+				a.setNotice(commitErr.Error())
+			}
 			a.rebuildQuick()
 			a.redraw()
 		})
-	}()
+	})
 }
 
 func (a *nativeApp) rebuildQuick() {
@@ -572,20 +611,17 @@ func (a *nativeApp) rebuildQuick() {
 	for _, f := range a.quickFiles {
 		if q == "" || strings.Contains(strings.ToLower(f.Path), q) {
 			a.quickIndex = append(a.quickIndex, quickHit{title: f.Path, path: f.Path})
-			if len(a.quickIndex) >= 100 {
-				break
-			}
+		}
+		if len(a.quickIndex) >= 100 {
+			break
 		}
 	}
 	if q != "" {
-		for i, commit := range a.log.Commits {
+		for _, commit := range a.quickCommits {
 			if len(a.quickIndex) >= 150 {
 				break
 			}
-			if strings.Contains(strings.ToLower(commit.Subject), q) || strings.Contains(strings.ToLower(commit.Author), q) {
-				a.quickIndex = append(a.quickIndex, quickHit{title: commit.Subject, detail: commit.Short + " · " + commit.Author, revision: commit.Hash, commit: true})
-				_ = i
-			}
+			a.quickIndex = append(a.quickIndex, quickHit{title: commit.Subject, detail: commit.Short + " · " + commit.Author, revision: commit.Hash, commit: true})
 		}
 	}
 	if a.quickSel >= len(a.quickIndex) {
@@ -594,6 +630,30 @@ func (a *nativeApp) rebuildQuick() {
 	if a.quickSel < 0 {
 		a.quickSel = 0
 	}
+}
+
+func (a *nativeApp) loadMoreLog() {
+	if !a.repoOpen || !a.log.HasMore {
+		return
+	}
+	opts := a.logOpts
+	opts.Skip = len(a.log.Commits)
+	a.busy++
+	go func() {
+		result, err := a.g.Log(opts)
+		mygo.RunOnMain(func() {
+			a.busy--
+			if err != nil {
+				a.fail(err)
+				return
+			}
+			a.log.Commits = append(a.log.Commits, result.Commits...)
+			a.log.HasMore = result.HasMore
+			a.graph = computeGraph(a.log.Commits)
+			a.logDirty = false
+			a.redraw()
+		})
+	}()
 }
 
 func (a *nativeApp) chooseQuick() {
