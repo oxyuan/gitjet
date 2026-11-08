@@ -437,6 +437,7 @@ var uiZH = map[string]string{
 	"Open Commit":                        "打开提交",
 	"Clear filters":                      "清除筛选",
 	"Filter":                             "筛选",
+	"Dock tabs":                          "停靠页签",
 	"Pull Branch…":                       "拉取分支…",
 	"General":                            "通用",
 	"Shortcuts":                          "快捷键",

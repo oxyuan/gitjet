@@ -109,16 +109,23 @@ func (a *nativeApp) toolWindow(c *ui.Context) {
 	p := palette(t)
 	ui.Column(c).FillHeight().Background(ui.Hex(p.panel).Mix(ui.Hex(p.bg), 0.12)).BorderWidth(0, 1, 0, 0).
 		BorderColor(ui.Hex(p.border)).Children(func() {
-		// The page ordered its tools Files, Commit, Branch, Console; the
-		// history lived in the dock below the editor, not here.
-		tabs := []struct {
+		// Tool order is the stored preference; the history lives in the dock
+		// below the editor, not here.
+		type toolTab struct {
 			index int
 			label string
-		}{
-			{2, a.t("Files")},
-			{0, a.t("Commit")},
-			{1, a.t("Branches")},
-			{4, a.t("Console")},
+		}
+		byName := map[string]toolTab{
+			"files":    {2, a.t("Files")},
+			"commit":   {0, a.t("Commit")},
+			"branches": {1, a.t("Branches")},
+			"console":  {4, a.t("Console")},
+		}
+		var tabs []toolTab
+		for _, name := range a.settings.ToolTabs {
+			if tab, ok := byName[name]; ok {
+				tabs = append(tabs, tab)
+			}
 		}
 		ui.Row(c).Height(48).PaddingX(10).PaddingY(8).Gap(4).AlignItems(ui.Center).
 			BorderWidth(0, 0, 1, 0).BorderColor(ui.Hex(p.border)).Children(func() {

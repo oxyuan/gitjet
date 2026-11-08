@@ -52,6 +52,7 @@ type Settings struct {
 	AutoUpdateOnReject bool         `json:"autoUpdateOnReject"`
 	OpenInNewWindow    bool         `json:"openInNewWindow"`
 	UIScale            int          `json:"uiScale"` // percent, 100 is the design size
+	ToolTabs           []string     `json:"toolTabs"`
 	Recent             []RecentRepo `json:"recent"`
 }
 
@@ -101,6 +102,7 @@ func defaultSettings() Settings {
 		CommitCheckHead:    true,
 		AutoFetchMinutes:   15,
 		UIScale:            100,
+		ToolTabs:           []string{"files", "commit", "branches", "console"},
 	}
 }
 
@@ -170,6 +172,19 @@ func (s *Settings) clamp() {
 		}
 	}
 	s.ProtectedBranches = patterns
+	known := map[string]bool{"files": true, "commit": true, "branches": true, "console": true}
+	var tabs []string
+	for _, name := range s.ToolTabs {
+		if known[name] && !containsString(tabs, name) {
+			tabs = append(tabs, name)
+		}
+	}
+	for _, name := range []string{"files", "commit", "branches", "console"} {
+		if !containsString(tabs, name) {
+			tabs = append(tabs, name)
+		}
+	}
+	s.ToolTabs = tabs
 }
 
 func saveSettings(s Settings) error {

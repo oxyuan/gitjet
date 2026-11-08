@@ -692,6 +692,20 @@ func (a *nativeApp) settingsDialog(c *ui.Context) {
 	}
 }
 
+func toolTabName(a *nativeApp, name string) string {
+	switch name {
+	case "files":
+		return a.t("Files")
+	case "commit":
+		return a.t("Commit")
+	case "branches":
+		return a.t("Branches")
+	case "console":
+		return a.t("Console")
+	}
+	return name
+}
+
 func splitLines(s string) []string {
 	var out []string
 	for _, line := range strings.Split(s, "\n") {
