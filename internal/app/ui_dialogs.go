@@ -1134,6 +1134,12 @@ func (a *nativeApp) blameDialog(c *ui.Context) {
 				return a.g.ApplyLines(git.DiffOptions{Path: path, Target: git.DiffWorkingTree, Context: -1}, []int{lineNo}, "rollback")
 			})
 		}
+		if ui.Button(c, a.t("Rollback Hunk")).Clicked() {
+			path := tab.path
+			lineNo := line + 1
+			a.closeDialog()
+			a.rollbackHunkAt(path, lineNo)
+		}
 		ui.Spacer(c).Grow(1)
 		if ui.Button(c, a.t("Close")).Clicked() {
 			a.closeDialog()
@@ -1366,6 +1372,20 @@ func (a *nativeApp) openCompareTab(from, to string, files []git.Change) {
 
 func (a *nativeApp) quickOpenView(c *ui.Context) {
 	t := c.Theme()
+	c.OnWindowShortcut(0, ui.KeyDown, func() {
+		if a.quickSel < len(a.quickIndex)-1 {
+			a.quickSel++
+			a.redraw()
+		}
+	})
+	c.OnWindowShortcut(0, ui.KeyUp, func() {
+		if a.quickSel > 0 {
+			a.quickSel--
+			a.redraw()
+		}
+	})
+	c.OnWindowShortcut(0, ui.KeyEnter, func() { a.chooseQuick() })
+	c.OnWindowShortcut(0, ui.KeyEscape, func() { a.quickOpen = false })
 	ui.Overlay(c, func() {
 		panel := ui.Column(c).Absolute().Top(80).LeftPercent(20).WidthPercent(60).MaxWidth(720).Padding(12).Gap(8).Background(t.Surface).Radius(12)
 		panel.BorderWidth(1).BorderColor(t.Border)

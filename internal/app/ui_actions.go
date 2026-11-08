@@ -834,3 +834,30 @@ func (a *nativeApp) selectedPaths(staged bool) []string {
 	}
 	return out
 }
+
+// rollbackHunkAt finds the worktree hunk holding a line and rolls it back.
+func (a *nativeApp) rollbackHunkAt(path string, line int) {
+	a.busy++
+	go func() {
+		opts := git.DiffOptions{Path: path, Target: git.DiffWorkingTree, Context: a.settings.DiffContext}
+		fd, err := a.g.Diff(opts)
+		if err == nil {
+			for i, h := range fd.Hunks {
+				start := h.NewStart
+				end := h.NewStart + h.NewLines
+				if line >= start && line <= end {
+					err = a.g.ApplyHunk(opts, i, "rollback")
+					break
+				}
+			}
+		}
+		mygo.RunOnMain(func() {
+			a.busy--
+			if err != nil {
+				a.fail(err)
+				return
+			}
+			a.refresh()
+		})
+	}()
+}

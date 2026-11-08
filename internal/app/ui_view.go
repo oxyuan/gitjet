@@ -535,6 +535,26 @@ func (a *nativeApp) tabStrip(c *ui.Context) {
 					a.tabs = nil
 					a.activeTab = 0
 				}
+				if m.Item(a.t("Close Unmodified")).Chosen() {
+					var keep []*docTab
+					for _, t := range a.tabs {
+						if t.dirty() {
+							keep = append(keep, t)
+						}
+					}
+					a.tabs = keep
+					if a.activeTab >= len(a.tabs) {
+						a.activeTab = len(a.tabs) - 1
+					}
+				}
+				if m.Item(a.t("Close to the Left")).Chosen() {
+					a.tabs = append([]*docTab(nil), a.tabs[i:]...)
+					a.activeTab = 0
+				}
+				if m.Item(a.t("Close to the Right")).Chosen() {
+					a.tabs = append([]*docTab(nil), a.tabs[:i+1]...)
+					a.activeTab = i
+				}
 			})
 			if ui.ButtonBase(c).Padding(2).Radius(4).Label("×").Clicked() {
 				a.closeTab(i)
@@ -1072,6 +1092,9 @@ func (a *nativeApp) logPane(c *ui.Context) {
 					}
 					ui.Text(c, ref.Name).FontSize(9).TextColor(t.Accent)
 				}
+				ui.Spacer(c).Grow(1)
+				ui.Text(c, cm.Author).FontSize(9).TextColor(t.TextMuted).MaxLines(1)
+				ui.Text(c, a.stamp(cm.AuthorTime)).FontSize(9).TextColor(t.TextMuted)
 			})
 			row.ContextMenu(func(m *ui.Menu) {
 				if a.logPick.Len() > 1 && a.logPick.Has(cm.Hash) {

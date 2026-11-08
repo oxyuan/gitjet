@@ -323,6 +323,7 @@ func (a *nativeApp) openWindow() {
 		Content:              ui.View(a.view),
 	})
 	a.win.OnClosed(func() { a.win = nil })
+	a.win.Focus()
 }
 
 // view builds one frame of the window.
@@ -345,7 +346,8 @@ func (a *nativeApp) view(c *ui.Context) {
 	}
 	a.dialogView(c)
 	if a.notice != "" {
-		ui.Text(c, a.notice).TextColor(c.Theme().Danger).Padding(6, 12)
+		c.Toast(a.notice)
+		a.notice = ""
 	}
 }
 
@@ -438,6 +440,9 @@ func (a *nativeApp) openPath(path string) {
 	}
 	a.loading = true
 	a.errText = ""
+	a.reloadGen.Add(1)
+	a.reloading.Store(false)
+	a.reloadPending.Store(false)
 	if a.repoOpen {
 		_ = a.g.LSPStop()
 		a.ws.Close()
@@ -481,6 +486,9 @@ func (a *nativeApp) openPath(path string) {
 }
 
 func (a *nativeApp) closeRepo() {
+	a.reloadGen.Add(1)
+	a.reloading.Store(false)
+	a.reloadPending.Store(false)
 	_ = a.g.LSPStop()
 	a.lsp = nil
 	a.lspStarting = false

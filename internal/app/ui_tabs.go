@@ -781,7 +781,7 @@ func (a *nativeApp) setBlameInlay(tab *docTab) {
 		return
 	}
 	pos := tab.src.CursorPos()
-	if pos.Line < 0 || pos.Line >= len(tab.blame) {
+	if pos.Line < 0 || pos.Line >= len(tab.blame) || pos.Line >= tab.src.Buffer.LineCount() {
 		tab.src.SetInlays(nil)
 		return
 	}
@@ -868,7 +868,7 @@ func (a *nativeApp) sourceToolbar(c *ui.Context, tab *docTab) {
 // frame's geometry.
 func (a *nativeApp) blameColumn(c *ui.Context, tab *docTab) {
 	t := c.Theme()
-	width := float32(180)
+	width := float32(210)
 	box := ui.Box(c).Width(width).FillHeight().Background(t.Surface).Clip()
 	box.BorderWidth(0, 1, 0, 0).BorderColor(t.Border)
 	box.Children(func() {
