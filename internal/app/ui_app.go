@@ -128,6 +128,10 @@ type nativeApp struct {
 	checked           map[string]bool
 	checkedInit       bool
 	commitForm        commitForm
+	commitComp        []string
+	commitCompStart   int
+	commitCompEnd     int
+	commitCaret       int
 	focusCommit       int
 	history           []string
 	showStaged        bool
@@ -296,7 +300,7 @@ func newNativeApp() *nativeApp {
 		settings:   c.settings,
 		lang:       resolveLang(c.settings.Language),
 		checked:    map[string]bool{},
-		showStaged: true,
+		showStaged: false,
 		sideSplit:  356,
 		equivalent: map[string]bool{},
 		openDirs:   map[string]bool{},
@@ -305,6 +309,7 @@ func newNativeApp() *nativeApp {
 		},
 		logSel:         -1,
 		logDirty:       true,
+		logAll:         true,
 		consoleProgram: "git",
 		fetchPrune:     true,
 		fetchTags:      true,
@@ -398,6 +403,11 @@ func (a *nativeApp) viewBody(c *ui.Context) {
 			a.commitForm.PushAfter = false
 			a.commitForm.RebaseAfter = false
 			a.requestCommit()
+		}
+	})
+	c.OnWindowShortcut(ui.Ctrl, ui.KeySpace, func() {
+		if a.repoOpen && !a.dialogOpen() && a.focusCommit == 0 {
+			a.openCommitCompletion(rune(a.commitCaret))
 		}
 	})
 	a.mainView(c)

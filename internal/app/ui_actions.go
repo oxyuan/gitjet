@@ -6,6 +6,7 @@ import (
 	"path/filepath"
 	"strings"
 	"time"
+	"unicode"
 
 	"github.com/egoist/mygo"
 	"github.com/egoist/mygo/ui"
@@ -694,6 +695,45 @@ func (a *nativeApp) rebuildQuick() {
 	if a.quickSel < 0 {
 		a.quickSel = 0
 	}
+}
+
+func (a *nativeApp) openCommitCompletion(caret rune) {
+	msg := a.commitForm.Message
+	runes := []rune(msg)
+	if caret < 0 || caret > rune(len(runes)) {
+		caret = rune(len(runes))
+	}
+	start := int(caret)
+	for start > 0 && !unicode.IsSpace(runes[start-1]) {
+		start--
+	}
+	if start == int(caret) {
+		a.commitComp = nil
+		return
+	}
+	token := strings.ToLower(string(runes[start:caret]))
+	var matches []string
+	for _, ch := range a.snapshot.Changes {
+		if strings.Contains(strings.ToLower(ch.Path), token) {
+			matches = append(matches, ch.Path)
+			if len(matches) >= 12 {
+				break
+			}
+		}
+	}
+	a.commitComp = matches
+	a.commitCompStart = len(string(runes[:start]))
+	a.commitCompEnd = len(string(runes[:caret]))
+}
+
+func (a *nativeApp) applyCommitCompletion(path string) {
+	msg := a.commitForm.Message
+	if a.commitCompStart < 0 || a.commitCompEnd < a.commitCompStart || a.commitCompEnd > len(msg) {
+		a.commitComp = nil
+		return
+	}
+	a.commitForm.Message = msg[:a.commitCompStart] + path + msg[a.commitCompEnd:]
+	a.commitComp = nil
 }
 
 func (a *nativeApp) scheduleLogFilter() {

@@ -345,7 +345,7 @@ func (a *nativeApp) commitPane(c *ui.Context) {
 					}
 					title := cl.Name
 					if cl.ID == a.snapshot.Changelists.Active {
-						title = a.t("active") + ": " + cl.Name
+						title = cl.Name + " (" + a.t("active") + ")"
 					}
 					key := "cl:" + cl.ID
 					a.changeSection(c, key, title, map[bool]string{true: "check", false: "list"}[cl.ID == a.snapshot.Changelists.Active], len(rows), func() {
@@ -590,7 +590,7 @@ func (a *nativeApp) changeSubgroup(c *ui.Context, title string, count int) {
 	p := palette(c.Theme())
 	ui.Row(c).Padding(7, 8, 3, 10).Gap(6).AlignItems(ui.Center).Children(func() {
 		ui.Text(c, title).FontSize(11.5).FontWeight(600).TextColor(ui.Hex(p.fgSoft))
-		ui.Text(c, fmtInt(count)).FontSize(10.5).TextColor(ui.Hex(p.muted2))
+		ui.Text(c, fmt.Sprintf("%d %s", count, a.t("files"))).FontSize(10.5).TextColor(ui.Hex(p.muted2))
 	})
 }
 
@@ -934,6 +934,25 @@ func (a *nativeApp) commitBox(c *ui.Context) {
 				if a.focusCommit > 0 {
 					msg.AutoFocus()
 					a.focusCommit = 0
+				}
+				if len(a.commitComp) > 0 {
+					ui.Column(c).Margin(4, 0, 0, 0).Gap(1).Radius(8).Background(ui.Hex(p.raised)).
+						Border(1, ui.Hex(p.border)).Shadow(0, 8, 24, 0, ui.RGBA(16, 20, 40, 0.14)).Children(func() {
+						for _, path := range a.commitComp {
+							path := path
+							row := ui.ButtonBase(c).Height(26).PaddingX(8).Radius(5).FillWidth().AlignItems(ui.Center)
+							if row.Hovered() {
+								row.Background(ui.Hex(p.selection))
+							}
+							row.Children(func() {
+								a.kitFileBadge(c, path, 14)
+								ui.Text(c, path).FontSize(11.5).Font("monospace").TextColor(ui.Hex(p.fgSoft)).MaxLines(1)
+							})
+							if row.Clicked() {
+								a.applyCommitCompletion(path)
+							}
+						}
+					})
 				}
 				ui.Row(c).Absolute().Top(8).Right(8).Gap(1).Children(func() {
 					history, _ := a.kitIconButton(c, "clock", a.t("Recent messages"), 24, 13, false, false, false)
