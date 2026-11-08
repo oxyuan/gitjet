@@ -771,7 +771,7 @@ func (a *nativeApp) commitBox(c *ui.Context) {
 				count++
 			}
 		}
-		canCommit := strings.TrimSpace(a.commitForm.Message) != "" || a.commitForm.Amend
+		canCommit := count > 0 || strings.TrimSpace(a.commitForm.Message) != "" || a.commitForm.Amend
 		ui.Row(c).Gap(0).Children(func() {
 			main := ui.ButtonBase(c).Height(30).Grow(1).Radius(5).Gap(6).Center().
 				Background(ui.Hex(p.accent)).Disabled(a.busy > 0 || !canCommit)
