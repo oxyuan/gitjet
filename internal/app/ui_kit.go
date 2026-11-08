@@ -378,6 +378,10 @@ func (a *nativeApp) kitDocTab(c *ui.Context, kind tabKind, title, path string, a
 			ui.Row(c).TextColor(ui.Hex(p.untracked)).Center().Children(func() {
 				a.icon(c, "folder", 14)
 			})
+		case tabCommit:
+			ui.Row(c).TextColor(ui.Hex(p.accentAlt)).Center().Children(func() {
+				a.icon(c, "commit", 14)
+			})
 		default:
 			a.kitFileBadge(c, path, 16)
 		}

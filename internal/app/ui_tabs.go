@@ -3,6 +3,7 @@ package app
 import (
 	"encoding/base64"
 	"fmt"
+	"path/filepath"
 	"strings"
 
 	"github.com/egoist/mygo/ui"
@@ -500,7 +501,87 @@ func (a *nativeApp) tabView(c *ui.Context, tab *docTab) {
 		a.sourceView(c, tab)
 	case tabRevisionTree:
 		a.revisionTreeView(c, tab)
+	case tabCommit:
+		a.commitView(c, tab)
 	}
+}
+
+func (a *nativeApp) commitView(c *ui.Context, tab *docTab) {
+	p := palette(c.Theme())
+	d := tab.commit
+	ui.Column(c).Fill().Background(ui.Hex(p.editor)).Children(func() {
+		ui.Column(c).Padding(12, 14, 10, 14).Gap(7).BorderWidth(0, 0, 1, 0).
+			BorderColor(ui.Hex(p.border)).Children(func() {
+			ui.Text(c, d.Subject).FontSize(14).FontWeight(650).TextColor(ui.Hex(p.fg)).MaxLines(2)
+			ui.Row(c).Gap(7).AlignItems(ui.Center).Children(func() {
+				for _, r := range d.Refs {
+					a.refBadge(c, r)
+				}
+				ui.Text(c, d.Author).FontSize(11).TextColor(ui.Hex(p.muted))
+				ui.Text(c, a.stamp(d.AuthorTime)).FontSize(10.5).TextColor(ui.Hex(p.muted2))
+				ui.Spacer(c).Grow(1)
+				if a.miniTextButton(c, d.Short, false) {
+					a.copyText(d.Hash)
+				}
+			})
+			ui.Row(c).Gap(10).Children(func() {
+				ui.Text(c, fmt.Sprintf("%d %s", d.Stats.Files, a.t("files"))).FontSize(10).TextColor(ui.Hex(p.muted))
+				ui.Text(c, fmt.Sprintf("+%d", d.Stats.Additions)).FontSize(10).TextColor(ui.Hex(p.success))
+				ui.Text(c, fmt.Sprintf("−%d", d.Stats.Deletions)).FontSize(10).TextColor(ui.Hex(p.danger))
+			})
+		})
+		ui.Scroll(c).Grow(1).Children(func() {
+			ui.Column(c).Padding(10, 14, 16, 14).Gap(6).Children(func() {
+				if d.Body != "" {
+					ui.Box(c).Padding(8, 10).Radius(8).Background(ui.Hex(p.code)).
+						Border(1, ui.Hex(p.border)).Children(func() {
+						ui.Text(c, strings.TrimSpace(d.Body)).FontSize(11.5).TextColor(ui.Hex(p.fgSoft)).Wrap()
+					})
+				}
+				ui.Text(c, strings.ToUpper(a.t("files"))).FontSize(10).FontWeight(650).
+					LetterSpacing(0.06).TextColor(ui.Hex(p.muted)).PaddingY(4)
+				ui.Column(c).Gap(1).Children(func() {
+					for _, f := range d.Files {
+						f := f
+						row := a.kitButtonRow(c, 30, 5, 6, 7, false)
+						row.Children(func() {
+							ui.Text(c, statusLetterKind(f.Status)).FontSize(10).Font("monospace").FontWeight(700).
+								Width(12).TextColor(statusKindColor(p, f.Status))
+							a.kitFileBadge(c, f.Path, 14)
+							dir := filepath.Dir(f.Path)
+							ui.Text(c, filepath.Base(f.Path)).FontSize(12).TextColor(ui.Hex(p.fgSoft)).MaxLines(1)
+							if dir != "." {
+								ui.Text(c, dir+"/").FontSize(10).TextColor(ui.Hex(p.muted2)).MaxLines(1)
+							}
+							ui.Spacer(c).Grow(1)
+							if f.Additions > 0 {
+								ui.Text(c, fmt.Sprintf("+%d", f.Additions)).FontSize(10).Font("monospace").TextColor(ui.Hex(p.success))
+							}
+							if f.Deletions > 0 {
+								ui.Text(c, fmt.Sprintf("−%d", f.Deletions)).FontSize(10).Font("monospace").TextColor(ui.Hex(p.danger))
+							}
+						})
+						if row.Clicked() {
+							a.openDiff(git.DiffOptions{Path: f.Path, OldPath: f.OldPath, Target: git.DiffCommit, Revision: d.Hash, Context: a.settings.DiffContext})
+						}
+						row.ContextMenu(func(m *ui.Menu) {
+							if m.Item(a.t("Open Source")).Chosen() {
+								a.openSource(f.Path, d.Hash)
+							}
+							if m.Item(a.t("Show History")).Chosen() {
+								a.showFileHistory(f.Path)
+							}
+						})
+					}
+				})
+				ui.Row(c).Gap(6).PaddingY(4).Children(func() {
+					if a.miniTextButton(c, a.t("Browse Revision"), false) {
+						a.openRevisionTree(d.Hash)
+					}
+				})
+			})
+		})
+	})
 }
 
 func (a *nativeApp) diffView(c *ui.Context, tab *docTab) {
@@ -653,9 +734,8 @@ func (a *nativeApp) diffToolbar(c *ui.Context, tab *docTab) {
 					a.externalDiff(tab.opts)
 				}
 			}
-			if _, clicked := a.smallIconButton(c, "copy", a.t("Copy Path"), false); clicked {
-				a.copyText(tab.path)
-			}
+			copy, _ := a.smallIconButton(c, "copy", a.t("Copy Path"), false)
+			copy.PopoverMenuButton(func(m *ui.Menu) { a.pathMenu(m, tab.path, 0) })
 			more, _ := a.kitIconButton(c, "more", a.t("Compare"), 26, 16, false, false, false)
 			more.PopoverMenuButton(func(m *ui.Menu) {
 				switch target {
@@ -884,6 +964,8 @@ func (a *nativeApp) sourceToolbar(c *ui.Context, tab *docTab) {
 					a.openDiff(git.DiffOptions{Path: tab.path, Target: git.DiffWorkingTree, Context: a.settings.DiffContext})
 				}
 			}
+			copy, _ := a.smallIconButton(c, "copy", a.t("Copy Path"), false)
+			copy.PopoverMenuButton(func(m *ui.Menu) { a.pathMenu(m, tab.path, 0) })
 			if _, clicked := a.smallIconButton(c, "close", a.t("Close"), false); clicked {
 				a.closeActiveTab()
 			}

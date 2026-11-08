@@ -27,6 +27,7 @@ const (
 	tabDiff tabKind = iota
 	tabSource
 	tabRevisionTree
+	tabCommit
 )
 
 // docTab is one editor tab: a diff, a source file, or the files of a
@@ -80,6 +81,9 @@ type docTab struct {
 
 	// revision tree
 	files []git.RepoFile
+
+	// commit
+	commit git.CommitDetail
 }
 
 // nativeApp is the state the window shows. Everything in it is read and
@@ -196,6 +200,8 @@ type nativeApp struct {
 	consoleLog     []string
 	consoleIn      string
 	consoleProgram string
+	fetchPrune     bool
+	fetchTags      bool
 	consoleHis     []string
 	consoleComp    []git.Completion
 
@@ -300,6 +306,8 @@ func newNativeApp() *nativeApp {
 		logSel:         -1,
 		logDirty:       true,
 		consoleProgram: "git",
+		fetchPrune:     true,
+		fetchTags:      true,
 		editorSplit:    650,
 		logSplit:       900,
 		changeSel:      -1,

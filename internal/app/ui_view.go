@@ -62,20 +62,21 @@ func (a *nativeApp) titleBar(c *ui.Context) {
 			fetch, clicked := a.kitIconButton(c, "fetch", a.t("Fetch"), 30, 16, !a.repoOpen, false, a.snapshot.State.Behind > 0)
 			fetch.ContextMenu(func(m *ui.Menu) {
 				if m.Item(a.t("All remotes")).Chosen() {
-					a.fetchWith(git.FetchOptions{All: true, Prune: true})
+					a.fetchWith(git.FetchOptions{All: true, Prune: a.fetchPrune, Tags: a.fetchTags})
 				}
 				if m.Item("origin").Chosen() {
-					a.fetchWith(git.FetchOptions{Remote: "origin", Prune: true})
+					a.fetchWith(git.FetchOptions{Remote: "origin", Prune: a.fetchPrune, Tags: a.fetchTags})
 				}
-				if m.Item(a.t("Prune")).Chosen() {
-					a.fetchWith(git.FetchOptions{All: true, Prune: true})
+				m.Separator()
+				if m.Item(a.t("Prune")).Checked(a.fetchPrune).Chosen() {
+					a.fetchPrune = !a.fetchPrune
 				}
-				if m.Item(a.t("Tags")).Chosen() {
-					a.fetchWith(git.FetchOptions{All: true, Prune: true, Tags: true})
+				if m.Item(a.t("Tags")).Checked(a.fetchTags).Chosen() {
+					a.fetchTags = !a.fetchTags
 				}
 			})
 			if clicked {
-				a.fetchWith(git.FetchOptions{All: true, Prune: true})
+				a.fetchWith(git.FetchOptions{All: true, Prune: a.fetchPrune, Tags: a.fetchTags})
 			}
 			if _, clicked := a.kitIconButton(c, "pull", a.t("Pull"), 30, 16, !a.repoOpen || a.busy > 0, false, a.snapshot.State.Behind > 0); clicked {
 				a.openPullDialog()
@@ -739,6 +740,10 @@ func (a *nativeApp) changeRowAt(c *ui.Context, i, depth int) {
 			}
 			if m.Item(a.t("Accept Theirs")).Chosen() {
 				a.takeSide(ch.Path, "theirs")
+			}
+			if m.Item(a.t("Mark Resolved")).Chosen() {
+				path := ch.Path
+				a.busyRun("resolve", func() error { return a.g.MarkResolved([]string{path}) })
 			}
 			return
 		}
@@ -2527,6 +2532,12 @@ func (a *nativeApp) openCommitTab(hash string) {
 	if hash == "" {
 		return
 	}
+	id := "commit:" + hash
+	if i := a.findTab(id); i >= 0 {
+		a.activeTab = i
+		a.redraw()
+		return
+	}
 	a.busy++
 	go func() {
 		detail, err := a.g.ShowCommit(hash)
@@ -2536,7 +2547,14 @@ func (a *nativeApp) openCommitTab(hash string) {
 				a.fail(err)
 				return
 			}
-			a.dialog = dialogState{kind: dialogCommitDetail, commit: detail, hash: hash}
+			tab := &docTab{kind: tabCommit, id: id, title: detail.Short, revision: hash, commit: detail}
+			if i := a.findTab(id); i >= 0 {
+				a.tabs[i] = tab
+				a.activeTab = i
+			} else {
+				a.tabs = append(a.tabs, tab)
+				a.activeTab = len(a.tabs) - 1
+			}
 			a.redraw()
 		})
 	}()
