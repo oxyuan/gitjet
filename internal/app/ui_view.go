@@ -1747,101 +1747,160 @@ func (a *nativeApp) branchSection(c *ui.Context, title string, rows []repoRefRow
 	if closed {
 		return
 	}
+	var order []string
+	grouped := map[string][]repoRefRow{}
 	for i := range rows {
-		if rows[i].group != group {
-			continue
-		}
 		ref := rows[i].ref
-		if a.branchSearch != "" && !strings.Contains(strings.ToLower(ref.Name), strings.ToLower(a.branchSearch)) {
+		if rows[i].group != group || (a.branchSearch != "" && !strings.Contains(strings.ToLower(ref.Name), strings.ToLower(a.branchSearch))) {
 			continue
 		}
-		selected := len(a.logOpts.Refs) == 1 && a.logOpts.Refs[0] == ref.Name
-		row := ui.ButtonBase(c).Height(26).PaddingStart(19).PaddingEnd(8).Radius(4).Gap(6).AlignItems(ui.Center).FillWidth().Justify(ui.Start)
-		if selected {
-			row.Background(ui.Hex(p.selection))
-		} else if row.Hovered() {
-			row.Background(ui.Hex(p.hover))
+		name := ref.Name
+		if group == "remote" {
+			if i := strings.IndexByte(name, '/'); i > 0 {
+				name = name[:i]
+			}
+		} else if i := strings.IndexByte(name, '/'); i > 0 {
+			name = name[:i]
+		} else {
+			name = a.t("main")
 		}
-		row.Children(func() {
-			ui.Row(c).TextColor(ui.Hex(p.accent)).Center().Children(func() {
-				a.icon(c, "branch", 12)
+		if _, ok := grouped[name]; !ok {
+			order = append(order, name)
+		}
+		grouped[name] = append(grouped[name], rows[i])
+	}
+	for _, name := range order {
+		key := group + ":" + name
+		closed := a.branchClosed[key]
+		head := ui.ButtonBase(c).Height(22).PaddingStart(19).PaddingEnd(8).Radius(4).Gap(5).
+			AlignItems(ui.Center).FillWidth().Justify(ui.Start)
+		if head.Hovered() {
+			head.Background(ui.Hex(p.hover))
+		}
+		head.Children(func() {
+			ui.Row(c).TextColor(ui.Hex(p.muted)).Center().Children(func() {
+				if closed {
+					a.icon(c, "chevronRight", 10)
+				} else {
+					a.icon(c, "chevronDown", 10)
+				}
 			})
-			ui.Text(c, ref.Name).FontSize(12).TextColor(ui.Hex(p.fgSoft)).MaxLines(1)
-			if ref.Head {
-				ui.Row(c).TextColor(ui.Hex(p.accent)).Center().Children(func() {
-					a.icon(c, "check", 11)
-				})
-			}
-			ui.Spacer(c).Grow(1)
-			if ref.Ahead > 0 {
-				ui.Text(c, "↑"+fmtInt(ref.Ahead)).FontSize(9.5).TextColor(ui.Hex(p.success))
-			}
-			if ref.Behind > 0 {
-				ui.Text(c, "↓"+fmtInt(ref.Behind)).FontSize(9.5).TextColor(ui.Hex(p.danger))
-			}
+			ui.Box(c).Size(6, 6).Radius(3).Background(branchToneColor(p, name))
+			ui.Text(c, name).FontSize(11).FontWeight(500).TextColor(ui.Hex(p.fgSoft))
+			ui.Text(c, fmtInt(len(grouped[name]))).FontSize(9.5).TextColor(ui.Hex(p.muted2))
 		})
-		if row.Clicked() {
-			a.loadBranchLog(ref.Name)
+		if head.Clicked() {
+			a.branchClosed[key] = !closed
 		}
-		if row.DoubleClicked() && !ref.Head {
-			a.checkout(ref.Name)
+		if closed {
+			continue
 		}
-		row.ContextMenu(func(m *ui.Menu) {
-			if !ref.Head && m.Item(a.t("Checkout")).Chosen() {
+		for _, row := range grouped[name] {
+			ref := row.ref
+			selected := len(a.logOpts.Refs) == 1 && a.logOpts.Refs[0] == ref.Name
+			btn := ui.ButtonBase(c).Height(26).PaddingStart(30).PaddingEnd(8).Radius(4).Gap(6).
+				AlignItems(ui.Center).FillWidth().Justify(ui.Start)
+			if selected {
+				btn.Background(ui.Hex(p.selection))
+			} else if btn.Hovered() {
+				btn.Background(ui.Hex(p.hover))
+			}
+			btn.Children(func() {
+				ui.Row(c).TextColor(ui.Hex(p.accent)).Center().Children(func() {
+					a.icon(c, "branch", 12)
+				})
+				ui.Text(c, ref.Name).FontSize(12).TextColor(ui.Hex(p.fgSoft)).MaxLines(1)
+				if ref.Head {
+					ui.Row(c).TextColor(ui.Hex(p.accent)).Center().Children(func() {
+						a.icon(c, "check", 11)
+					})
+				}
+				ui.Spacer(c).Grow(1)
+				if ref.Ahead > 0 {
+					ui.Text(c, "↑"+fmtInt(ref.Ahead)).FontSize(9.5).TextColor(ui.Hex(p.success))
+				}
+				if ref.Behind > 0 {
+					ui.Text(c, "↓"+fmtInt(ref.Behind)).FontSize(9.5).TextColor(ui.Hex(p.danger))
+				}
+			})
+			if btn.Clicked() {
+				a.loadBranchLog(ref.Name)
+			}
+			if btn.DoubleClicked() && !ref.Head {
 				a.checkout(ref.Name)
 			}
-			if m.Item(a.t("Checkout and Update")).Chosen() {
-				a.checkoutUpdate(ref.Name)
-			}
-			if m.Item(a.t("Show Log")).Chosen() {
-				a.openRefLog(ref)
-			}
-			if m.Item(a.t("Compare with Current")).Chosen() {
-				a.openCompare(ref.Name, a.snapshot.State.Branch)
-			}
-			if !ref.Head && m.Item(a.t("Merge into Current")).Chosen() {
-				a.openMergeDialog(ref.Name)
-			}
-			if !ref.Head && m.Item(a.t("Rebase Current onto This")).Chosen() {
-				a.openRebaseDialog(ref.Name)
-			}
-			m.Separator()
-			if m.Item(a.t("New Branch Here")).Chosen() {
-				a.openCreateBranchDialog(ref.Name)
-			}
-			if m.Item(a.t("Copy Name")).Chosen() {
-				a.copyText(ref.Name)
-			}
-			if m.Item(a.t("Copy Revision Number")).Chosen() {
-				a.copyText(ref.Hash)
-			}
-			if group == "local" && !ref.Head {
-				m.Separator()
-				if m.Item(a.t("Rename")).Chosen() {
-					a.promptRenameBranch(ref.Name)
-				}
-				if m.Item(a.t("Delete")).Chosen() {
-					a.deleteBranch(ref.Name)
-				}
-				if m.Item(a.t("Set Upstream")).Chosen() {
-					a.openUpstreamDialog(ref.Name)
-				}
-				if m.Item(a.t("Reset to Remote")).Chosen() {
-					name := ref.Name
-					a.busyRun("reset", func() error {
-						_, err := a.g.ResetToRemote(name)
-						return err
-					})
-				}
-				if m.Item(a.t("Update Selected")).Chosen() {
-					name := ref.Name
-					a.busyRun("update", func() error {
-						_, err := a.g.UpdateSelected(name)
-						return err
-					})
-				}
-			}
-		})
+			btn.ContextMenu(func(m *ui.Menu) { a.branchContextMenu(m, ref, group) })
+		}
+	}
+}
+
+func (a *nativeApp) branchContextMenu(m *ui.Menu, ref git.RepoRef, group string) {
+	if !ref.Head && m.Item(a.t("Checkout")).Chosen() {
+		a.checkout(ref.Name)
+	}
+	if m.Item(a.t("Checkout and Update")).Chosen() {
+		a.checkoutUpdate(ref.Name)
+	}
+	if m.Item(a.t("Show Log")).Chosen() {
+		a.openRefLog(ref)
+	}
+	if m.Item(a.t("Compare with Current")).Chosen() {
+		a.openCompare(ref.Name, a.snapshot.State.Branch)
+	}
+	if !ref.Head && m.Item(a.t("Merge into Current")).Chosen() {
+		a.openMergeDialog(ref.Name)
+	}
+	if !ref.Head && m.Item(a.t("Rebase Current onto This")).Chosen() {
+		a.openRebaseDialog(ref.Name)
+	}
+	m.Separator()
+	if m.Item(a.t("New Branch Here")).Chosen() {
+		a.openCreateBranchDialog(ref.Name)
+	}
+	if m.Item(a.t("Copy Name")).Chosen() {
+		a.copyText(ref.Name)
+	}
+	if m.Item(a.t("Copy Revision Number")).Chosen() {
+		a.copyText(ref.Hash)
+	}
+	if group == "local" && !ref.Head {
+		m.Separator()
+		if m.Item(a.t("Rename")).Chosen() {
+			a.promptRenameBranch(ref.Name)
+		}
+		if m.Item(a.t("Delete")).Chosen() {
+			a.deleteBranch(ref.Name)
+		}
+		if m.Item(a.t("Set Upstream")).Chosen() {
+			a.openUpstreamDialog(ref.Name)
+		}
+		if m.Item(a.t("Reset to Remote")).Chosen() {
+			name := ref.Name
+			a.busyRun("reset", func() error {
+				_, err := a.g.ResetToRemote(name)
+				return err
+			})
+		}
+		if m.Item(a.t("Update Selected")).Chosen() {
+			name := ref.Name
+			a.busyRun("update", func() error {
+				_, err := a.g.UpdateSelected(name)
+				return err
+			})
+		}
+	}
+}
+
+func branchToneColor(p appColors, name string) ui.Color {
+	switch len(name) % 4 {
+	case 0:
+		return ui.Hex(p.lane0)
+	case 1:
+		return ui.Hex(p.lane1)
+	case 2:
+		return ui.Hex(p.lane2)
+	default:
+		return ui.Hex(p.lane3)
 	}
 }
 
