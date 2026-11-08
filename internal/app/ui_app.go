@@ -171,6 +171,11 @@ type nativeApp struct {
 	logAll           bool
 	logDirty         bool
 	logFilterGen     int
+	logHashW         float32
+	logAuthorW       float32
+	logTimeW         float32
+	logGripKey       string
+	logGripStart     float32
 	logFold          bool
 	editorSplit      float32
 	logSplit         float32
@@ -321,6 +326,9 @@ func newNativeApp() *nativeApp {
 		logSel:         -1,
 		logDirty:       true,
 		logAll:         true,
+		logHashW:       58,
+		logAuthorW:     92,
+		logTimeW:       46,
 		consoleProgram: "git",
 		fetchPrune:     true,
 		fetchTags:      true,

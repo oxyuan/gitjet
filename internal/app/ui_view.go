@@ -1268,6 +1268,13 @@ func (a *nativeApp) logListView(c *ui.Context) {
 			}
 			return a.log.Commits[i].Subject
 		}
+		ui.Row(c).Height(9).PaddingX(9).Gap(8).AlignItems(ui.Center).Children(func() {
+			a.graphHeaderSpacer(c)
+			a.logGrip(c, "hash", &a.logHashW, 40, 180)
+			ui.Spacer(c).Grow(1)
+			a.logGrip(c, "author", &a.logAuthorW, 50, 220)
+			a.logGrip(c, "time", &a.logTimeW, 32, 100)
+		})
 		list := ui.List(c, &a.logList, len(a.log.Commits), func(i int) {
 			if i < 0 || i >= len(a.log.Commits) {
 				return
@@ -1283,7 +1290,7 @@ func (a *nativeApp) logListView(c *ui.Context) {
 			row.Background(motionColor(row, "kit-log-row", bg))
 			row.Children(func() {
 				a.graphCellSized(c, i, 26)
-				ui.Text(c, cm.Short).FontSize(10.5).Font("monospace").TextColor(ui.Hex(p.muted2)).Width(58)
+				ui.Text(c, cm.Short).FontSize(10.5).Font("monospace").TextColor(ui.Hex(p.muted2)).Width(a.logHashW)
 				ui.Text(c, cm.Subject).FontSize(12).TextColor(ui.Hex(p.fgSoft)).MaxLines(1).Grow(1)
 				for j, ref := range cm.Refs {
 					if j >= 2 {
@@ -1291,8 +1298,8 @@ func (a *nativeApp) logListView(c *ui.Context) {
 					}
 					a.refBadge(c, ref)
 				}
-				ui.Text(c, cm.Author).FontSize(10.5).TextColor(ui.Hex(p.muted)).MaxLines(1).Width(92)
-				ui.Text(c, a.stamp(cm.AuthorTime)).FontSize(10.5).TextColor(ui.Hex(p.muted2)).MaxLines(1)
+				ui.Text(c, cm.Author).FontSize(10.5).TextColor(ui.Hex(p.muted)).MaxLines(1).Width(a.logAuthorW)
+				ui.Text(c, a.stamp(cm.AuthorTime)).FontSize(10.5).TextColor(ui.Hex(p.muted2)).Width(a.logTimeW)
 			})
 			if row.RowDoubleClicked() {
 				a.openCommitTab(cm.Hash)
@@ -2334,6 +2341,42 @@ func (a *nativeApp) tagSection(c *ui.Context) {
 				a.deleteTag(ref.Name)
 			}
 		})
+	}
+}
+
+func (a *nativeApp) graphHeaderSpacer(c *ui.Context) {
+	w := graphWidth(a.graph)
+	if w < 32 {
+		w = 32
+	}
+	ui.Spacer(c).Width(w)
+}
+
+func (a *nativeApp) logGrip(c *ui.Context, key string, width *float32, lo, hi float32) {
+	p := palette(c.Theme())
+	g := ui.Box(c).Width(5).Height(9).Cursor(ui.CursorResizeColumn)
+	g.Draw(func(pt *ui.Painter, r ui.Rect) {
+		col := ui.Hex(p.border)
+		if g.Hovered() || a.logGripKey == key {
+			col = ui.Hex(p.accent)
+		}
+		pt.Fill(ui.Rect{X: r.X + r.W/2 - 0.5, Y: r.Y, W: 1, H: r.H}, col, 0)
+	})
+	if dx, _, dragging := g.Dragged(); dragging {
+		if a.logGripKey != key {
+			a.logGripKey = key
+			a.logGripStart = *width
+		}
+		v := a.logGripStart + dx
+		if v < lo {
+			v = lo
+		}
+		if v > hi {
+			v = hi
+		}
+		*width = v
+	} else if a.logGripKey == key {
+		a.logGripKey = ""
 	}
 }
 
