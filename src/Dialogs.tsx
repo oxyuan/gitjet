@@ -292,6 +292,8 @@ const T = {
     "conflicts.title": "Resolve Conflicts",
     "conflicts.ours": "Take ours",
     "conflicts.theirs": "Take theirs",
+    "conflicts.oursMany": "Take ours for {n} files",
+    "conflicts.theirsMany": "Take theirs for {n} files",
     "conflicts.allOurs": "All ours",
     "conflicts.allTheirs": "All theirs",
     "conflicts.open": "Merge…",
@@ -559,6 +561,8 @@ const T = {
     "cleanup.cancel": "取消",
     "conflicts.title": "解决冲突",
     "conflicts.ours": "采用我方",
+    "conflicts.oursMany": "为 {n} 个文件采用我方",
+    "conflicts.theirsMany": "为 {n} 个文件采用对方",
     "conflicts.theirs": "采用对方",
     "conflicts.allOurs": "全部采用我方",
     "conflicts.allTheirs": "全部采用对方",
@@ -2774,11 +2778,15 @@ export function ConflictSummaryDialog({
   onContinue: () => void;
 }) {
   const t = useT(T);
-  const [selected, setSelected] = useState("");
+  const [selected, setSelected] = useState<Set<string>>(new Set());
   const [open, setOpen] = useState(true);
   const [showDirs, setShowDirs] = useState(true);
   const [menu, setMenu] = useState<{ x: number; y: number; items: ContextItem[] } | null>(null);
-  const current = conflicts.find((c) => c.path === selected) ?? conflicts[0];
+  const current = conflicts.find((c) => selected.has(c.path)) ?? conflicts[0];
+  // The selection outlives the files it names: a side taken from the row menu
+  // removes a path, and acting on it again would "take a side" for a path that
+  // is no longer unmerged (git would delete it).
+  const chosen = conflicts.filter((c) => selected.has(c.path)).map((c) => c.path);
   const stateLabel = (state: string) =>
     state === "added"
       ? t("conflicts.added")
@@ -2806,12 +2814,26 @@ export function ConflictSummaryDialog({
     return (
       <div
         key={c.path}
-        className={cx("conflict-row2", current?.path === c.path && "selected")}
-        onClick={() => setSelected(c.path)}
+        className={cx("conflict-row2", selected.has(c.path) && "selected")}
+        onClick={(event) => {
+          if (event.metaKey || event.ctrlKey) {
+            setSelected((prev) => {
+              const next = new Set(prev);
+              if (next.has(c.path)) next.delete(c.path);
+              else next.add(c.path);
+              return next;
+            });
+            return;
+          }
+          setSelected(new Set([c.path]));
+        }}
         onDoubleClick={() => onOpen(c.path)}
         onContextMenu={(event) => {
           event.preventDefault();
-          setSelected(c.path);
+          if (!selected.has(c.path)) setSelected(new Set([c.path]));
+          // A row inside the selection acts on the whole selection, the way a
+          // tree in an IDE does.
+          const targets = selected.has(c.path) ? [...selected].filter((p) => conflicts.some((f) => f.path === p)) : [c.path];
           setMenu({
             x: event.clientX,
             y: event.clientY,
@@ -2819,16 +2841,16 @@ export function ConflictSummaryDialog({
               { label: t("conflicts.open"), icon: "merge", onClick: () => onOpen(c.path) },
               { separator: true },
               {
-                label: t("conflicts.ours"),
+                label: targets.length > 1 ? t("conflicts.oursMany", { n: targets.length }) : t("conflicts.ours"),
                 icon: "ours",
                 disabled: !c.oursState,
-                onClick: () => onTakeSide([c.path], "ours"),
+                onClick: () => onTakeSide(targets, "ours"),
               },
               {
-                label: t("conflicts.theirs"),
+                label: targets.length > 1 ? t("conflicts.theirsMany", { n: targets.length }) : t("conflicts.theirs"),
                 icon: "theirs",
                 disabled: !c.theirsState,
-                onClick: () => onTakeSide([c.path], "theirs"),
+                onClick: () => onTakeSide(targets, "theirs"),
               },
             ],
           });
@@ -2886,6 +2908,15 @@ export function ConflictSummaryDialog({
       <div className="conflict-dialog-toolbar">
         <Button size="small" onClick={onResolveSimple} disabled={conflicts.length === 0}>
           <Icon name="sparkle" size={12} /> {t("conflicts.solveSimple")}
+        </Button>
+        <span className="spacer" />
+        <Button size="small" onClick={() => onTakeSide(chosen, "ours")} disabled={chosen.length === 0}>
+          {t("conflicts.ours")}
+          {chosen.length > 1 ? ` (${chosen.length})` : ""}
+        </Button>
+        <Button size="small" onClick={() => onTakeSide(chosen, "theirs")} disabled={chosen.length === 0}>
+          {t("conflicts.theirs")}
+          {chosen.length > 1 ? ` (${chosen.length})` : ""}
         </Button>
         <IconButton
           icon="eye"
