@@ -297,3 +297,34 @@ func TestRewriteReordersIndependentCommits(t *testing.T) {
 		t.Fatalf("c.txt is missing: %v", err)
 	}
 }
+
+func TestStalePlanIsNotReplayedOnAnotherBranch(t *testing.T) {
+	repo, dir := newTestRepo(t)
+	runGit(t, dir, "switch", "-q", "-c", "other")
+	writeFile(t, dir, "other.txt", "other\n")
+	runGit(t, dir, "add", "other.txt")
+	runGit(t, dir, "commit", "-q", "-m", "other work")
+	runGit(t, dir, "switch", "-q", "main")
+
+	// A plan left behind by a conflict names the branch it belonged to.
+	head := runGit(t, dir, "rev-parse", "HEAD")
+	plan := &planState{
+		Onto:     "HEAD~1",
+		Branch:   "feature",
+		Original: head,
+		Steps:    []PlanStep{{Hash: head, Action: PlanPick}},
+	}
+	if err := repo.writePlan(plan); err != nil {
+		t.Fatalf("writePlan: %v", err)
+	}
+	before := runGit(t, dir, "rev-parse", "HEAD")
+	if out, err := repo.AbortOperation(context.Background()); err == nil {
+		t.Fatalf("AbortOperation replayed a plan of another branch: %q", out)
+	}
+	if after := runGit(t, dir, "rev-parse", "HEAD"); after != before {
+		t.Fatalf("HEAD moved from %s to %s", before, after)
+	}
+	if _, ok := repo.readPlan(); ok {
+		t.Fatal("the stale plan was kept")
+	}
+}

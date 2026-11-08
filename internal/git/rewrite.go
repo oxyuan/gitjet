@@ -47,7 +47,10 @@ type PlanStep struct {
 // planState is the plan that is being replayed, saved in the git dir so a
 // conflict can be continued without losing the rest of the plan.
 type planState struct {
-	Onto     string     `json:"onto"`
+	Onto string `json:"onto"`
+	// Branch is the branch whose commits the plan rewrites. A plan left
+	// behind by a conflict belongs to that branch and to no other.
+	Branch   string     `json:"branch"`
 	Original string     `json:"original"`
 	Steps    []PlanStep `json:"steps"`
 	Index    int        `json:"index"`
@@ -174,7 +177,11 @@ func (r *Repo) Rewrite(ctx context.Context, onto string, steps []PlanStep) (stri
 	if err != nil {
 		return "", err
 	}
-	state := &planState{Onto: onto, Original: strings.TrimSpace(original), Steps: steps}
+	branch := ""
+	if out, err := r.run(ctx, "symbolic-ref", "--short", "-q", "HEAD"); err == nil {
+		branch = strings.TrimSpace(out)
+	}
+	state := &planState{Onto: onto, Branch: branch, Original: strings.TrimSpace(original), Steps: steps}
 	if _, err := r.run(ctx, "reset", "--hard", onto); err != nil {
 		return "", err
 	}
@@ -376,7 +383,35 @@ func (r *Repo) abortPlan(ctx context.Context) (string, bool, error) {
 	if !ok {
 		return "", false, nil
 	}
+	if !r.planIsCurrent(ctx, state) {
+		// The plan belongs to another branch or to a rewrite that was
+		// finished elsewhere: resetting here would destroy unrelated work.
+		r.clearPlan()
+		return "", false, nil
+	}
 	r.clearPlan()
 	out, err := r.run(ctx, "reset", "--hard", state.Original)
 	return strings.TrimSpace(out), true, err
+}
+
+// planIsCurrent reports whether the saved plan still describes what this
+// checkout is doing. A plan outlives a crash or an external abort, and
+// replaying it on a different branch rewrites or resets the wrong history.
+func (r *Repo) planIsCurrent(ctx context.Context, state *planState) bool {
+	if state == nil {
+		return false
+	}
+	branch := ""
+	if out, err := r.run(ctx, "symbolic-ref", "--short", "-q", "HEAD"); err == nil {
+		branch = strings.TrimSpace(out)
+	}
+	if state.Branch != "" && branch != state.Branch {
+		return false
+	}
+	// A plan that is not paused and has no step waiting in git is orphaned.
+	if state.Paused {
+		return true
+	}
+	op, _, _ := r.operation()
+	return op == "cherry-pick" || op == "rebase" || op == "rebase-interactive"
 }

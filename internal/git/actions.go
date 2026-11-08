@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"sort"
 	"strconv"
 	"strings"
 )
@@ -118,7 +119,7 @@ func (r *Repo) Stage(ctx context.Context, paths []string) error {
 	if len(clean) == 0 {
 		return errors.New("no paths were given")
 	}
-	args := append([]string{"add", "-A", "--"}, clean...)
+	args := append([]string{"add", "-A", "--"}, literalPaths(clean)...)
 	_, err = r.writeRun(ctx, args...)
 	return err
 }
@@ -132,7 +133,7 @@ func (r *Repo) Unstage(ctx context.Context, paths []string) error {
 	if len(clean) == 0 {
 		return errors.New("no paths were given")
 	}
-	args := append([]string{"reset", "-q", "--"}, clean...)
+	args := append([]string{"reset", "-q", "--"}, literalPaths(clean)...)
 	_, err = r.writeRun(ctx, args...)
 	return err
 }
@@ -151,6 +152,12 @@ func (r *Repo) Rollback(ctx context.Context, paths []string) error {
 	}
 	r.write.Lock()
 	defer r.write.Unlock()
+	return r.rollbackLocked(ctx, clean)
+}
+
+// rollbackLocked is Rollback for a caller that already holds the write
+// lock; paths must be clean.
+func (r *Repo) rollbackLocked(ctx context.Context, clean []string) error {
 	// Remember renames: the old path is what HEAD has.
 	status, _ := r.Status(ctx, false)
 	oldPaths := map[string]string{}
@@ -160,15 +167,15 @@ func (r *Repo) Rollback(ctx context.Context, paths []string) error {
 		}
 	}
 	for _, p := range clean {
-		_, _ = r.run(ctx, "reset", "-q", "--", p)
+		_, _ = r.run(ctx, "reset", "-q", "--", literalPath(p))
 		restore := p
 		if o := oldPaths[p]; o != "" && o != p {
 			restore = o
-			if _, err := r.run(ctx, "checkout", "HEAD", "--", p); err == nil {
+			if _, err := r.run(ctx, "checkout", "HEAD", "--", literalPath(p)); err == nil {
 				_ = os.Remove(r.AbsPath(p))
 			}
 		}
-		if _, err := r.run(ctx, "checkout", "HEAD", "--", restore); err != nil {
+		if _, err := r.run(ctx, "checkout", "HEAD", "--", literalPath(restore)); err != nil {
 			// Not in HEAD: an added file, which rollback deletes.
 			if err := os.RemoveAll(r.AbsPath(p)); err != nil && !os.IsNotExist(err) {
 				return err
@@ -178,8 +185,9 @@ func (r *Repo) Rollback(ctx context.Context, paths []string) error {
 	return nil
 }
 
-// Commit stages the selected paths, unstages the selected staged paths
-// that were left out, and commits the index.
+// Commit commits what the user selected. With Paths it commits exactly
+// those paths' working-tree content and leaves every other staged change
+// staged: the index of the files that were not checked is not touched.
 func (r *Repo) Commit(ctx context.Context, opts CommitOptions) (CommitResult, error) {
 	if strings.TrimSpace(opts.Message) == "" && !opts.Amend {
 		return CommitResult{}, errors.New("a commit needs a message")
@@ -191,28 +199,19 @@ func (r *Repo) Commit(ctx context.Context, opts CommitOptions) (CommitResult, er
 	}
 	r.write.Lock()
 	defer r.write.Unlock()
+	var commitPaths []string
 	if len(opts.Paths) > 0 {
 		clean, err := cleanPaths(opts.Paths)
 		if err != nil {
 			return CommitResult{}, err
 		}
-		selected := map[string]bool{}
-		for _, p := range clean {
-			selected[p] = true
-		}
-		// Unstage what is checked out of the selection, so that commit
-		// contains exactly what the user checked.
-		for _, c := range r.stagedPaths(ctx) {
-			if !selected[c] {
-				if _, err := r.run(ctx, "reset", "-q", "--", c); err != nil {
-					return CommitResult{}, err
-				}
-			}
-		}
-		args := append([]string{"add", "-A", "--"}, clean...)
+		// An untracked file has to exist in the index before --only can
+		// name it; the worktree content is what gets committed either way.
+		args := append([]string{"add", "-A", "--"}, literalPaths(clean)...)
 		if _, err := r.run(ctx, args...); err != nil {
 			return CommitResult{}, err
 		}
+		commitPaths = clean
 	}
 	args := []string{"commit"}
 	if opts.Amend {
@@ -243,6 +242,12 @@ func (r *Repo) Commit(ctx context.Context, opts CommitOptions) (CommitResult, er
 	if msg := strings.TrimSpace(opts.Message); msg != "" {
 		args = append(args, "-m", msg)
 	}
+	if len(commitPaths) > 0 {
+		// --only commits these paths from the working tree and keeps the
+		// staged state of everything else, unlike a reset of the index.
+		args = append(args, "--only", "--")
+		args = append(args, literalPaths(commitPaths)...)
+	}
 	out, err := r.run(ctx, args...)
 	if err != nil {
 		return CommitResult{}, err
@@ -256,21 +261,6 @@ func (r *Repo) Commit(ctx context.Context, opts CommitOptions) (CommitResult, er
 		res.Subject = strings.TrimSpace(subject)
 	}
 	return res, nil
-}
-
-// stagedPaths returns the paths with index changes.
-func (r *Repo) stagedPaths(ctx context.Context) []string {
-	out, err := r.run(ctx, "diff", "--cached", "--name-only", "-z", "--no-color")
-	if err != nil {
-		return nil
-	}
-	var paths []string
-	for _, p := range strings.Split(out, "\x00") {
-		if p != "" {
-			paths = append(paths, p)
-		}
-	}
-	return paths
 }
 
 // LastCommitMessage returns HEAD's full message, for the amend dialog.
@@ -289,9 +279,15 @@ func (r *Repo) Checkout(ctx context.Context, ref string) (string, error) {
 	r.write.Lock()
 	defer r.write.Unlock()
 	if r.hasRef(ctx, "refs/heads/"+ref) {
+		if err := r.refuseIgnoredOverwrites(ctx, ref); err != nil {
+			return "", err
+		}
 		return r.run(ctx, "switch", ref)
 	}
 	if r.hasRef(ctx, "refs/tags/"+ref) {
+		if err := r.refuseIgnoredOverwrites(ctx, ref); err != nil {
+			return "", err
+		}
 		return r.run(ctx, "switch", "--detach", ref)
 	}
 	for _, remote := range r.remoteNames(ctx) {
@@ -300,11 +296,17 @@ func (r *Repo) Checkout(ctx context.Context, ref string) (string, error) {
 			if local == "HEAD" {
 				return "", errors.New("cannot check out a remote HEAD")
 			}
+			if err := r.refuseIgnoredOverwrites(ctx, ref); err != nil {
+				return "", err
+			}
 			if r.hasRef(ctx, "refs/heads/"+local) {
 				return r.run(ctx, "switch", local)
 			}
 			return r.run(ctx, "switch", "-c", local, "--track", ref)
 		}
+	}
+	if err := r.refuseIgnoredOverwrites(ctx, ref); err != nil {
+		return "", err
 	}
 	return r.run(ctx, "switch", "--detach", ref)
 }
@@ -312,6 +314,56 @@ func (r *Repo) Checkout(ctx context.Context, ref string) (string, error) {
 func (r *Repo) hasRef(ctx context.Context, full string) bool {
 	_, err := r.run(ctx, "show-ref", "--verify", "--quiet", full)
 	return err == nil
+}
+
+// ignoredOverwrites lists the paths a checkout of rev would silently
+// write over: tracked in rev, ignored by the working tree's rules, and
+// therefore untracked right now. Git replaces those files without saying
+// anything, which loses whatever the user keeps there.
+func (r *Repo) ignoredOverwrites(ctx context.Context, rev string) []string {
+	if strings.TrimSpace(rev) == "" {
+		return nil
+	}
+	ignoredOut, err := r.run(ctx, "ls-files", "--others", "--ignored", "--exclude-standard", "-z")
+	if err != nil {
+		return nil
+	}
+	ignored := map[string]bool{}
+	for _, p := range strings.Split(ignoredOut, "\x00") {
+		if p != "" {
+			ignored[p] = true
+		}
+	}
+	if len(ignored) == 0 {
+		return nil
+	}
+	treeOut, err := r.run(ctx, "ls-tree", "-r", "--name-only", "-z", rev)
+	if err != nil {
+		return nil
+	}
+	var hits []string
+	for _, p := range strings.Split(treeOut, "\x00") {
+		if p != "" && ignored[p] {
+			hits = append(hits, p)
+		}
+	}
+	sort.Strings(hits)
+	return hits
+}
+
+// refuseIgnoredOverwrites stops an operation that would replace files the
+// ignore rules keep out of git but that the target still tracks.
+func (r *Repo) refuseIgnoredOverwrites(ctx context.Context, rev string) error {
+	hits := r.ignoredOverwrites(ctx, rev)
+	if len(hits) == 0 {
+		return nil
+	}
+	const shown = 5
+	list := strings.Join(hits[:min(len(hits), shown)], ", ")
+	if len(hits) > shown {
+		list += ", ..."
+	}
+	return fmt.Errorf("%s would be overwritten by files this branch keeps ignored: %s", rev, list)
 }
 
 func (r *Repo) remoteNames(ctx context.Context) []string {
@@ -418,6 +470,9 @@ func (r *Repo) Merge(ctx context.Context, ref string, opts MergeOptions) (string
 	if opts.Message != "" {
 		args = append(args, "-m", opts.Message)
 	}
+	if err := r.refuseIgnoredOverwrites(ctx, ref); err != nil {
+		return "", err
+	}
 	args = append(args, ref)
 	return r.writeRun(ctx, args...)
 }
@@ -429,12 +484,15 @@ type RebaseOptions struct {
 	// Branch rebases another branch instead of the checked-out one.
 	Branch    string `json:"branch"`
 	Autostash bool   `json:"autostash"`
+	// Empty decides what happens to a commit that becomes empty while it
+	// is replayed: "keep" keeps it, "drop" removes it and "stop" pauses on
+	// it. Empty leaves git's default, which is "drop". This replaces the
+	// older --keep-empty switch, which only restated that default.
+	Empty string `json:"empty"`
 	// UpdateRefs moves branches that point into the rebased range.
 	UpdateRefs bool `json:"updateRefs"`
 	// RebaseMerges recreates merge commits instead of flattening them.
 	RebaseMerges bool `json:"rebaseMerges"`
-	// KeepEmpty keeps commits that become empty.
-	KeepEmpty bool `json:"keepEmpty"`
 	// Root rebases every commit of the branch, not only those after onto.
 	Root bool `json:"root"`
 	// AutoSquash is tri-state: "" leaves the git config in charge, "true"
@@ -465,6 +523,11 @@ func (r *Repo) Rebase(ctx context.Context, opts RebaseOptions) (string, error) {
 	default:
 		return "", errors.New("autosquash must be true, false or unset")
 	}
+	switch opts.Empty {
+	case "", "keep", "drop", "stop":
+	default:
+		return "", errors.New("empty commits must be kept, dropped or stopped at")
+	}
 	args := []string{"rebase"}
 	if opts.Root {
 		args = append(args, "--root")
@@ -478,8 +541,8 @@ func (r *Repo) Rebase(ctx context.Context, opts RebaseOptions) (string, error) {
 	if opts.RebaseMerges {
 		args = append(args, "--rebase-merges")
 	}
-	if opts.KeepEmpty {
-		args = append(args, "--keep-empty")
+	if opts.Empty != "" {
+		args = append(args, "--empty="+opts.Empty)
 	}
 	if opts.AutoSquash == "true" {
 		args = append(args, "--autosquash")
@@ -487,6 +550,9 @@ func (r *Repo) Rebase(ctx context.Context, opts RebaseOptions) (string, error) {
 		args = append(args, "--no-autosquash")
 	}
 	if onto != "" {
+		if err := r.refuseIgnoredOverwrites(ctx, onto); err != nil {
+			return "", err
+		}
 		args = append(args, onto)
 	}
 	if opts.Branch != "" {
@@ -495,7 +561,9 @@ func (r *Repo) Rebase(ctx context.Context, opts RebaseOptions) (string, error) {
 	return r.writeRun(ctx, args...)
 }
 
-// CherryPick applies commits to the current branch, oldest first.
+// CherryPick applies commits to the current branch, oldest first. A merge
+// commit needs a mainline to apply, which this app does not ask for, so it
+// is refused with the reason instead of git's bare "no -m option" error.
 func (r *Repo) CherryPick(ctx context.Context, hashes []string, noCommit bool) (string, error) {
 	args := []string{"cherry-pick"}
 	if noCommit {
@@ -504,6 +572,11 @@ func (r *Repo) CherryPick(ctx context.Context, hashes []string, noCommit bool) (
 	clean, err := cleanRevisions(hashes)
 	if err != nil {
 		return "", err
+	}
+	for _, hash := range clean {
+		if parents, perr := r.parents(ctx, hash); perr == nil && len(parents) > 1 {
+			return "", fmt.Errorf("%s is a merge commit: pick the branch it was merged into instead", short(hash))
+		}
 	}
 	args = append(args, clean...)
 	return r.writeRun(ctx, args...)
@@ -514,6 +587,11 @@ func (r *Repo) Revert(ctx context.Context, hashes []string) (string, error) {
 	clean, err := cleanRevisions(hashes)
 	if err != nil {
 		return "", err
+	}
+	for _, hash := range clean {
+		if parents, perr := r.parents(ctx, hash); perr == nil && len(parents) > 1 {
+			return "", fmt.Errorf("%s is a merge commit: revert the commits it brought in instead", short(hash))
+		}
 	}
 	return r.writeRun(ctx, append([]string{"revert", "--no-edit"}, clean...)...)
 }
@@ -622,11 +700,28 @@ func (r *Repo) Fetch(ctx context.Context, opts FetchOptions, emit func(string)) 
 	return r.stream(ctx, emit, args...)
 }
 
-// Pull fetches and integrates the upstream, streaming progress.
+// Pull fetches and integrates the upstream, streaming progress. It holds
+// the write lock: a pull rewrites the index and the working tree, and a
+// stage or commit running beside it would race for index.lock.
 func (r *Repo) Pull(ctx context.Context, opts PullOptions, emit func(string)) (string, error) {
+	if opts.FFOnly && opts.NoFF {
+		return "", errors.New("a pull cannot both require and forbid a fast-forward")
+	}
 	args := []string{"pull", "--progress", "--no-edit"}
 	if opts.Rebase {
 		args = append(args, "--rebase")
+	}
+	if opts.FFOnly {
+		args = append(args, "--ff-only")
+	}
+	if opts.NoFF {
+		args = append(args, "--no-ff")
+	}
+	if opts.Squash {
+		args = append(args, "--squash")
+	}
+	if opts.NoCommit {
+		args = append(args, "--no-commit")
 	}
 	if opts.Autostash {
 		args = append(args, "--autostash")
@@ -647,6 +742,8 @@ func (r *Repo) Pull(ctx context.Context, opts PullOptions, emit func(string)) (s
 			args = append(args, opts.Branch)
 		}
 	}
+	r.write.Lock()
+	defer r.write.Unlock()
 	return r.stream(ctx, emit, args...)
 }
 
@@ -712,7 +809,7 @@ func (r *Repo) StashPush(ctx context.Context, opts StashOptions) (string, error)
 			return "", err
 		}
 		args = append(args, "--")
-		args = append(args, clean...)
+		args = append(args, literalPaths(clean)...)
 	}
 	r.write.Lock()
 	defer r.write.Unlock()
@@ -798,7 +895,7 @@ type ConflictContent struct {
 // link or a submodule is distinguishable from a text file before the tree is
 // checked out. Without stages the working tree decides.
 func (r *Repo) conflictKind(ctx context.Context, path string) string {
-	if out, err := r.run(ctx, "ls-files", "-u", "-z", "--", path); err == nil {
+	if out, err := r.run(ctx, "ls-files", "-u", "-z", "--", literalPath(path)); err == nil {
 		for _, record := range strings.Split(out, "\x00") {
 			meta, _, ok := strings.Cut(record, "\t")
 			if !ok {
@@ -892,7 +989,7 @@ func (r *Repo) SaveResolution(ctx context.Context, path, content string, stage b
 	if !stage {
 		return nil
 	}
-	_, err = r.run(ctx, "add", "-A", "--", clean)
+	_, err = r.run(ctx, "add", "-A", "--", literalPath(clean))
 	return err
 }
 
@@ -929,13 +1026,13 @@ func (r *Repo) TakeConflictSide(ctx context.Context, path, side string) error {
 		if err := os.Remove(r.AbsPath(clean)); err != nil && !os.IsNotExist(err) {
 			return err
 		}
-		_, err = r.run(ctx, "add", "-A", "--", clean)
+		_, err = r.run(ctx, "add", "-A", "--", literalPath(clean))
 		return err
 	}
-	if _, err := r.run(ctx, "checkout", "--"+side, "--", clean); err != nil {
+	if _, err := r.run(ctx, "checkout", "--"+side, "--", literalPath(clean)); err != nil {
 		return err
 	}
-	_, err = r.run(ctx, "add", "--", clean)
+	_, err = r.run(ctx, "add", "--", literalPath(clean))
 	return err
 }
 
@@ -990,6 +1087,13 @@ func (r *Repo) ContinueOperation(ctx context.Context) (string, error) {
 	// A plan always stops on a conflicting cherry-pick, so continue that
 	// step and replay the rest.
 	plan, hasPlan := r.readPlan()
+	if hasPlan && plan != nil && !r.planIsCurrent(ctx, plan) {
+		// Stale plan: the rewrite it records is not what this checkout is
+		// doing any more, and replaying it would cherry-pick onto an
+		// unrelated branch.
+		r.clearPlan()
+		hasPlan = false
+	}
 	if hasPlan && plan != nil {
 		out := ""
 		committed := false
@@ -1083,7 +1187,7 @@ func (r *Repo) Ignore(ctx context.Context, paths []string) (string, error) {
 	r.write.Lock()
 	defer r.write.Unlock()
 
-	pathspec := append([]string{"--"}, clean...)
+	pathspec := append([]string{"--"}, literalPaths(clean)...)
 	unmerged, err := r.run(ctx, append([]string{"ls-files", "-u", "-z"}, pathspec...)...)
 	if err != nil {
 		return "", err
@@ -1107,7 +1211,7 @@ func (r *Repo) Ignore(ctx context.Context, paths []string) (string, error) {
 		}
 	}
 	if len(roots) > 0 {
-		rmArgs := append([]string{"rm", "-r", "--cached", "--quiet", "-f", "--"}, roots...)
+		rmArgs := append([]string{"rm", "-r", "--cached", "--quiet", "-f", "--"}, literalPaths(roots)...)
 		if _, err := r.run(ctx, rmArgs...); err != nil {
 			return "", err
 		}

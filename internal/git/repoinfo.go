@@ -157,15 +157,18 @@ func (r *Repo) operationLabels(ctx context.Context) (ours, theirs string) {
 	case "merge":
 		return head(), r.refName(ctx, "MERGE_HEAD")
 	case "rebase", "rebase-interactive":
-		ours = strings.TrimPrefix(read("rebase-merge/head-name"), "refs/heads/")
-		if ours == "" {
-			ours = strings.TrimPrefix(read("rebase-apply/head-name"), "refs/heads/")
+		// A rebase rewrites history the other way round: stage 2 ("ours")
+		// is the new base, and stage 3 ("theirs") is the commit being
+		// replayed from the branch that is being rebased.
+		theirs = strings.TrimPrefix(read("rebase-merge/head-name"), "refs/heads/")
+		if theirs == "" {
+			theirs = strings.TrimPrefix(read("rebase-apply/head-name"), "refs/heads/")
 		}
 		onto := read("rebase-merge/onto")
 		if onto == "" {
 			onto = read("rebase-apply/onto")
 		}
-		return ours, r.refName(ctx, onto)
+		return r.refName(ctx, onto), theirs
 	case "cherry-pick":
 		return head(), r.refName(ctx, "CHERRY_PICK_HEAD")
 	case "revert":
@@ -245,7 +248,6 @@ func (r *Repo) operationName() string {
 	name, _, _ := r.operation()
 	return name
 }
-
 
 func (r *Repo) remoteURL(ctx context.Context) string {
 	for _, remote := range []string{"origin"} {

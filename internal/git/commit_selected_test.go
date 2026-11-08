@@ -74,3 +74,29 @@ func TestCommitSelectedSignsOff(t *testing.T) {
 		t.Fatalf("message has no sign-off:\n%s", body)
 	}
 }
+
+func TestCommitSelectedAmendsInsteadOfAddingACommit(t *testing.T) {
+	repo, dir := newTestRepo(t)
+	writeFile(t, dir, "a.txt", "one\nsecond\n")
+	root := runGit(t, dir, "rev-list", "--max-parents=0", "HEAD")
+
+	res, err := repo.CommitSelected(context.Background(), CommitOptions{
+		Amend: true, Message: "amended", Paths: []string{"a.txt"},
+	})
+	if err != nil {
+		t.Fatalf("CommitSelected: %v", err)
+	}
+	if count := runGit(t, dir, "rev-list", "--count", "HEAD"); count != "1" {
+		t.Fatalf("HEAD has %s commits, want the amend to replace the first", count)
+	}
+	if parents := runGit(t, dir, "rev-list", "--parents", "-n", "1", "HEAD"); strings.Contains(parents, root) {
+		t.Fatalf("the amended commit kept the old commit as a parent: %q", parents)
+	}
+	if subject := runGit(t, dir, "log", "-1", "--format=%s"); subject != "amended" {
+		t.Fatalf("subject = %q", subject)
+	}
+	if content := runGit(t, dir, "show", "HEAD:a.txt"); content != "one\nsecond" {
+		t.Fatalf("HEAD:a.txt = %q", content)
+	}
+	_ = res
+}

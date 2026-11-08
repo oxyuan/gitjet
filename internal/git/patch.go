@@ -43,9 +43,15 @@ func (r *Repo) CreatePatch(ctx context.Context, opts PatchOptions) (string, erro
 			if err != nil {
 				return "", err
 			}
-			base := emptyTree
+			base := ""
 			if len(parents) > 0 {
 				base = parents[0]
+			} else {
+				empty, err := r.emptyTreeObject(ctx)
+				if err != nil {
+					return "", err
+				}
+				base = empty
 			}
 			args = append(args, base, rev)
 		}
@@ -58,7 +64,7 @@ func (r *Repo) CreatePatch(ctx context.Context, opts PatchOptions) (string, erro
 			return "", err
 		}
 		args = append(args, "--")
-		args = append(args, clean...)
+		args = append(args, literalPaths(clean)...)
 	}
 	return r.run(ctx, args...)
 }
@@ -111,6 +117,12 @@ func (r *Repo) shelfFile(name string) (string, error) {
 
 // SaveShelf saves the selected changes as a patch and then discards them
 // from the working tree, which is what "Shelve Changes" does.
+//
+// The patch is HEAD against the working tree, so it also holds what is
+// staged: "git diff" alone skips the index, and the reset that follows
+// would throw that work away for good. Before anything is removed the
+// patch is checked to reproduce exactly the current changes in reverse,
+// so a patch that cannot be restored never costs the user their tree.
 func (r *Repo) SaveShelf(ctx context.Context, name string, opts PatchOptions) (Shelf, error) {
 	name = strings.TrimSpace(name)
 	file, err := r.shelfFile(name)
@@ -120,12 +132,29 @@ func (r *Repo) SaveShelf(ctx context.Context, name string, opts PatchOptions) (S
 	if _, err := os.Stat(file); err == nil {
 		return Shelf{}, fmt.Errorf("a shelf named %q already exists", name)
 	}
-	patch, err := r.CreatePatch(ctx, opts)
+	r.write.Lock()
+	defer r.write.Unlock()
+	args := []string{"diff", "--no-color", "--no-ext-diff", "--binary", "HEAD"}
+	paths := opts.Paths
+	if len(paths) > 0 {
+		clean, err := cleanPaths(paths)
+		if err != nil {
+			return Shelf{}, err
+		}
+		args = append(args, "--")
+		args = append(args, literalPaths(clean)...)
+	}
+	patch, err := r.run(ctx, args...)
 	if err != nil {
 		return Shelf{}, err
 	}
 	if strings.TrimSpace(patch) == "" {
 		return Shelf{}, errors.New("there are no changes to shelve")
+	}
+	// The patch has to describe the working tree exactly, or restoring it
+	// later would fail after the changes are already gone.
+	if _, err := r.runInput(ctx, patch, "apply", "--check", "--reverse", "--whitespace=nowarn", "-"); err != nil {
+		return Shelf{}, errors.New("these changes cannot be shelved safely: the patch does not restore them exactly")
 	}
 	if err := os.MkdirAll(r.shelfDir(), 0o755); err != nil {
 		return Shelf{}, err
@@ -135,10 +164,12 @@ func (r *Repo) SaveShelf(ctx context.Context, name string, opts PatchOptions) (S
 	}
 	// Shelving takes the changes away: keep them only in the patch.
 	if len(opts.Paths) > 0 {
-		if err := r.Rollback(ctx, opts.Paths); err != nil {
+		if err := r.rollbackLocked(ctx, opts.Paths); err != nil {
+			_ = os.Remove(file)
 			return Shelf{}, err
 		}
-	} else if _, err := r.Reset(ctx, "HEAD", "hard"); err != nil {
+	} else if _, err := r.run(ctx, "reset", "--hard", "HEAD"); err != nil {
+		_ = os.Remove(file)
 		return Shelf{}, err
 	}
 	return shelfFromPatch(name, file, patch)

@@ -123,3 +123,35 @@ func TestClearStashesDropsEveryEntry(t *testing.T) {
 		t.Fatalf("stashes = %+v after clear", stashes)
 	}
 }
+
+func TestSaveShelfKeepsStagedWorkAndStagedNewFiles(t *testing.T) {
+	repo, dir := newTestRepo(t)
+	writeFile(t, dir, "a.txt", "one\nstaged\n")
+	runGit(t, dir, "add", "a.txt")
+	writeFile(t, dir, "a.txt", "one\nstaged\nunstaged\n")
+	writeFile(t, dir, "fresh.txt", "brand new\n")
+	runGit(t, dir, "add", "fresh.txt")
+
+	if _, err := repo.SaveShelf(context.Background(), "all", PatchOptions{}); err != nil {
+		t.Fatalf("SaveShelf: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(dir, "fresh.txt")); !os.IsNotExist(err) {
+		t.Fatalf("the staged new file survived the shelve: %v", err)
+	}
+	text, _ := os.ReadFile(filepath.Join(dir, "a.txt"))
+	if string(text) != "one\ntwo\n" {
+		t.Fatalf("the working tree was not cleaned: %q", text)
+	}
+	if _, err := repo.ApplyShelf(context.Background(), "all", false); err != nil {
+		t.Fatalf("ApplyShelf: %v", err)
+	}
+	// Shelving and restoring is a round trip: the staged line comes back
+	// with the unstaged one, and so does the new file.
+	text, _ = os.ReadFile(filepath.Join(dir, "a.txt"))
+	if string(text) != "one\nstaged\nunstaged\n" {
+		t.Fatalf("a.txt after restore = %q", text)
+	}
+	if text, _ := os.ReadFile(filepath.Join(dir, "fresh.txt")); string(text) != "brand new\n" {
+		t.Fatalf("fresh.txt after restore = %q", text)
+	}
+}

@@ -27,11 +27,24 @@ func (r *Repo) UndoCommit(ctx context.Context) (CommitResult, error) {
 	if out, err := r.run(ctx, "log", "-1", "--format=%B"); err == nil {
 		message = strings.TrimRight(out, "\n")
 	}
+	// Having no parent is not the same as being the root commit: a shallow
+	// clone stops at a boundary commit, and deleting the ref there would
+	// throw the whole branch away.
+	if head, herr := r.run(ctx, "rev-parse", "HEAD"); herr == nil {
+		if r.isShallowCommit(ctx, strings.TrimSpace(head)) {
+			return CommitResult{}, errors.New("this is the first commit of a shallow clone: fetch more history before undoing it")
+		}
+	}
 	parents, err := r.parents(ctx, "HEAD")
 	if err != nil {
 		return CommitResult{}, err
 	}
 	if len(parents) == 0 {
+		// Deleting HEAD only works while HEAD names a branch; a detached
+		// HEAD would lose the file itself.
+		if _, err := r.run(ctx, "symbolic-ref", "-q", "HEAD"); err != nil {
+			return CommitResult{}, errors.New("HEAD is detached and this is its first commit: nothing is left to undo it to")
+		}
 		// The root commit: dropping HEAD leaves everything staged, which
 		// git spells as deleting the ref.
 		if _, err := r.run(ctx, "update-ref", "-d", "HEAD"); err != nil {
@@ -43,6 +56,28 @@ func (r *Repo) UndoCommit(ctx context.Context) (CommitResult, error) {
 		}
 	}
 	return CommitResult{Subject: subject, Output: message}, nil
+}
+
+// isShallowCommit reports whether hash is one of the boundary commits a
+// shallow clone stops at. Those look like root commits but are not.
+func (r *Repo) isShallowCommit(ctx context.Context, hash string) bool {
+	if hash == "" {
+		return false
+	}
+	out, err := r.run(ctx, "rev-parse", "--is-shallow-repository")
+	if err != nil || strings.TrimSpace(out) != "true" {
+		return false
+	}
+	data, err := os.ReadFile(filepath.Join(r.gitDir, "shallow"))
+	if err != nil {
+		return false
+	}
+	for _, line := range strings.Split(string(data), "\n") {
+		if strings.TrimSpace(line) == hash {
+			return true
+		}
+	}
+	return false
 }
 
 // CommitFixup records the staged changes as a fixup! or squash! commit for

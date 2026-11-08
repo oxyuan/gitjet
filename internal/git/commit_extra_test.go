@@ -121,3 +121,23 @@ func TestCheckCommitRespectsTheLargeFileLimit(t *testing.T) {
 		t.Fatal(err)
 	}
 }
+
+func TestUndoCommitRefusesAShallowBoundary(t *testing.T) {
+	_, source := newTestRepo(t)
+	writeFile(t, source, "b.txt", "second\n")
+	runGit(t, source, "add", "b.txt")
+	runGit(t, source, "commit", "-q", "-m", "second")
+
+	clone := filepath.Join(t.TempDir(), "shallow")
+	runGit(t, t.TempDir(), "clone", "-q", "--depth", "1", "file://"+source, clone)
+	repo, err := Open(context.Background(), clone, "")
+	if err != nil {
+		t.Fatalf("Open: %v", err)
+	}
+	if _, err := repo.UndoCommit(context.Background()); err == nil {
+		t.Fatal("UndoCommit deleted the branch of a shallow clone")
+	}
+	if branches := runGit(t, clone, "branch", "--format=%(refname:short)"); !strings.Contains(branches, "main") {
+		t.Fatalf("branch was deleted: %q", branches)
+	}
+}

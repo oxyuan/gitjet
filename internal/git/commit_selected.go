@@ -35,7 +35,7 @@ func (r *Repo) signoffTrailer(ctx context.Context) string {
 // this is IDEA's in-memory "extract changes into a commit".
 func (r *Repo) CommitSelected(ctx context.Context, opts CommitOptions) (CommitResult, error) {
 	msg := strings.TrimSpace(opts.Message)
-	if msg == "" {
+	if msg == "" && !opts.Amend {
 		return CommitResult{}, errors.New("a commit needs a message")
 	}
 	clean, err := cleanPaths(opts.Paths)
@@ -51,6 +51,16 @@ func (r *Repo) CommitSelected(ctx context.Context, opts CommitOptions) (CommitRe
 	head := ""
 	if out, err := r.run(ctx, "rev-parse", "--verify", "--quiet", "HEAD"); err == nil {
 		head = strings.TrimSpace(out)
+	}
+	if opts.Amend {
+		if head == "" {
+			return CommitResult{}, errors.New("there is no commit to amend")
+		}
+		if msg == "" {
+			if out, err := r.run(ctx, "log", "-1", "--format=%B"); err == nil {
+				msg = strings.TrimRight(out, "\n")
+			}
+		}
 	}
 	tempIndex := filepath.Join(r.gitDir, "gitjet-selected-index")
 	_ = os.Remove(tempIndex)
@@ -81,7 +91,7 @@ func (r *Repo) CommitSelected(ctx context.Context, opts CommitOptions) (CommitRe
 			args = append(args, head)
 		}
 		args = append(args, "--")
-		args = append(args, tracked...)
+		args = append(args, literalPaths(tracked)...)
 		patch, err := r.run(ctx, args...)
 		if err != nil {
 			return CommitResult{}, err
@@ -100,7 +110,7 @@ func (r *Repo) CommitSelected(ctx context.Context, opts CommitOptions) (CommitRe
 		if looksBinary(string(content)) {
 			// A binary file cannot be expressed by syntheticNewFile's text
 			// patch; stage it whole in the temporary index instead.
-			if _, err := r.runEnv(ctx, env, "add", "--", path); err != nil {
+			if _, err := r.runEnv(ctx, env, "add", "--", literalPath(path)); err != nil {
 				return CommitResult{}, err
 			}
 			continue
@@ -120,7 +130,17 @@ func (r *Repo) CommitSelected(ctx context.Context, opts CommitOptions) (CommitRe
 	}
 	tree = strings.TrimSpace(tree)
 	args := []string{"commit-tree", tree}
-	if head != "" {
+	if opts.Amend {
+		// Amending replaces the commit: its parents are inherited, not
+		// the commit itself.
+		parents, perr := r.parents(ctx, head)
+		if perr != nil {
+			return CommitResult{}, perr
+		}
+		for _, parent := range parents {
+			args = append(args, "-p", parent)
+		}
+	} else if head != "" {
 		args = append(args, "-p", head)
 	}
 	if opts.SignOff {
@@ -148,13 +168,17 @@ func (r *Repo) CommitSelected(ctx context.Context, opts CommitOptions) (CommitRe
 		return CommitResult{}, err
 	}
 	hash := strings.TrimSpace(out)
-	if _, err := r.run(ctx, "update-ref", "-m", "commit selected changes", "HEAD", hash); err != nil {
+	reason := "commit selected changes"
+	if opts.Amend {
+		reason = "amend with selected changes"
+	}
+	if _, err := r.run(ctx, "update-ref", "-m", reason, "HEAD", hash); err != nil {
 		return CommitResult{}, err
 	}
 	// The real index now follows the new HEAD for those paths only, so the
 	// selected changes are committed and everything else stays as staged
 	// (or unstaged) as it was.
-	if _, err := r.run(ctx, append([]string{"reset", "-q", "HEAD", "--"}, clean...)...); err != nil {
+	if _, err := r.run(ctx, append([]string{"reset", "-q", "HEAD", "--"}, literalPaths(clean)...)...); err != nil {
 		return CommitResult{}, err
 	}
 	res := CommitResult{Hash: hash, Short: short(hash), Subject: msg}

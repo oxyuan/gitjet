@@ -98,3 +98,28 @@ func TestSkipOperationDropsAConflictingCherryPick(t *testing.T) {
 		t.Fatalf("tip = %s, want %s (the skipped commit must not be replayed)", tip, head)
 	}
 }
+
+func TestRebaseConflictNamesTheSidesTheWayGitStagesThem(t *testing.T) {
+	repo, dir := newTestRepo(t)
+	writeFile(t, dir, "a.txt", "feature\n")
+	runGit(t, dir, "switch", "-q", "-c", "feature")
+	runGit(t, dir, "commit", "-q", "-am", "feature change")
+	runGit(t, dir, "switch", "-q", "main")
+	writeFile(t, dir, "a.txt", "main\n")
+	runGit(t, dir, "commit", "-q", "-am", "main change")
+	runGit(t, dir, "switch", "-q", "feature")
+	_, _ = repo.Rebase(context.Background(), RebaseOptions{Onto: "main"})
+
+	st, err := repo.Status(context.Background(), false)
+	if err != nil {
+		t.Fatalf("Status: %v", err)
+	}
+	if st.State.OpOurs == "" || st.State.OpTheirs == "" {
+		t.Fatalf("operation labels are empty: %+v", st.State)
+	}
+	// Stage 2 ("ours") holds the new base, stage 3 ("theirs") the commit
+	// being replayed: the labels have to name them in that order.
+	if st.State.OpOurs != "main" || st.State.OpTheirs != "feature" {
+		t.Fatalf("ours = %q, theirs = %q, want main and feature", st.State.OpOurs, st.State.OpTheirs)
+	}
+}

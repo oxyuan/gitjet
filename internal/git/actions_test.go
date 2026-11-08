@@ -100,3 +100,39 @@ func TestIgnoreEscapesGlobCharacters(t *testing.T) {
 	}
 	runGit(t, dir, "check-ignore", "-q", "a[1].txt")
 }
+
+func TestCommitOfSelectedPathsLeavesOtherStagedFilesAlone(t *testing.T) {
+	repo, dir := newTestRepo(t)
+	writeFile(t, dir, "a.txt", "one\nselected\n")
+	writeFile(t, dir, "b.txt", "b staged\n")
+	runGit(t, dir, "add", "a.txt", "b.txt")
+
+	if _, err := repo.Commit(context.Background(), CommitOptions{Message: "only a", Paths: []string{"a.txt"}}); err != nil {
+		t.Fatalf("Commit: %v", err)
+	}
+	staged := runGit(t, dir, "diff", "--cached", "--name-only")
+	if strings.TrimSpace(staged) != "b.txt" {
+		t.Fatalf("staged after the commit = %q, want b.txt", staged)
+	}
+	committed := runGit(t, dir, "show", "--name-only", "--format=", "HEAD")
+	if strings.TrimSpace(committed) != "a.txt" {
+		t.Fatalf("the commit contains %q", committed)
+	}
+}
+
+func TestDiffOfABracketPathNamesOnlyThatFile(t *testing.T) {
+	repo, dir := newTestRepo(t)
+	writeFile(t, dir, "a[1].txt", "one\nbracket\n")
+	writeFile(t, dir, "a1.txt", "one\nother file\n")
+	runGit(t, dir, "add", "a[1].txt", "a1.txt")
+	runGit(t, dir, "commit", "-q", "-m", "both")
+	writeFile(t, dir, "a[1].txt", "one\nbracket changed\n")
+
+	d, err := repo.FileDiff(context.Background(), DiffOptions{Path: "a[1].txt", Target: DiffWorkingTree, Context: 3, NoText: true})
+	if err != nil {
+		t.Fatalf("FileDiff: %v", err)
+	}
+	if !strings.Contains(d.Patch, "bracket changed") || strings.Contains(d.Patch, "other file") {
+		t.Fatalf("the patch of a[1].txt covers the wrong file:\n%s", d.Patch)
+	}
+}
