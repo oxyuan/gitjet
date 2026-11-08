@@ -28,7 +28,7 @@
 - 源码视图编辑工作区文件，索引与历史版本只读；`⌘/Ctrl+S` 保存
 - 左侧变更条对应 hunk，点击回滚；行号菜单显示 blame，可查看提交、文件版本或按行历史
 - Blame 注解列可开关，自动读取 `.git-blame-ignore-revs`，可忽略空白改动
-- LSP：自动探测并启动 gopls、clangd、typescript-language-server、rust-analyzer、jdtls、pyright，提供补全、悬停、跳转定义与诊断；没有服务器时退回 `git grep`
+- LSP：自动探测并启动 gopls、clangd、typescript-language-server、rust-analyzer、jdtls、pyright，提供补全、悬停、跳转定义、引用与诊断；没有服务器时退回 `git grep`
 - 文件树、快速打开（文件名/路径，输入两个字以上同时搜提交信息与作者）
 - 源码与 diff 之间切换，复制绝对路径、仓库相对路径、`@路径`、带行号路径或终端转义路径
 

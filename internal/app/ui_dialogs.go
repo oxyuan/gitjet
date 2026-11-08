@@ -834,8 +834,13 @@ func (a *nativeApp) stashDialog(c *ui.Context) {
 	ui.Field(c, a.t("Message"), func() { ui.TextInput(c, &d.text) })
 	ui.Checkbox(c, &d.flag1, a.t("Include untracked files"))
 	ui.Checkbox(c, &d.flag2, a.t("Keep the index"))
+	ui.Checkbox(c, &d.flag3, a.t("Selected only"))
 	a.buttons(c, a.t("Stash"), func() {
-		opts := git.StashOptions{Message: strings.TrimSpace(d.text), IncludeUntracked: d.flag1, KeepIndex: d.flag2}
+		var paths []string
+		if d.flag3 {
+			paths = a.selectedPaths(false)
+		}
+		opts := git.StashOptions{Message: strings.TrimSpace(d.text), IncludeUntracked: d.flag1, KeepIndex: d.flag2, Paths: paths}
 		a.closeDialog()
 		a.busyRun("stash", func() error {
 			_, err := a.g.StashPush(opts)
@@ -1500,6 +1505,9 @@ func (a *nativeApp) patchDialog(c *ui.Context) {
 	ui.Row(c).Gap(6).Children(func() {
 		if ui.Button(c, a.t("Save Patch")).Clicked() {
 			opts := git.PatchOptions{Staged: d.flag1, From: strings.TrimSpace(d.from), Revision: strings.TrimSpace(d.to)}
+			if d.flag3 {
+				opts.Paths = a.selectedPaths(false)
+			}
 			a.closeDialog()
 			a.busyRun("patch", func() error {
 				_, err := a.g.SavePatch(opts, "changes.patch")
@@ -1508,6 +1516,9 @@ func (a *nativeApp) patchDialog(c *ui.Context) {
 		}
 		if ui.Button(c, a.t("Copy Patch")).Clicked() {
 			opts := git.PatchOptions{Staged: d.flag1, From: strings.TrimSpace(d.from), Revision: strings.TrimSpace(d.to)}
+			if d.flag3 {
+				opts.Paths = a.selectedPaths(false)
+			}
 			go func() {
 				patch, err := a.g.CreatePatch(opts)
 				mygo.RunOnMain(func() {
@@ -1539,6 +1550,7 @@ func (a *nativeApp) patchDialog(c *ui.Context) {
 		}
 	})
 	ui.Checkbox(c, &d.flag1, a.t("Staged changes only"))
+	ui.Checkbox(c, &d.flag3, a.t("Selected only"))
 	ui.Field(c, a.t("Paste a patch"), func() {
 		ui.TextArea(c, &d.text).Height(100)
 	})
@@ -1629,6 +1641,7 @@ func (a *nativeApp) openRebaseDialog(onto string) {
 func (a *nativeApp) rebaseDialog(c *ui.Context) {
 	d := &a.dialog
 	ui.Field(c, a.t("Onto"), func() { ui.TextInput(c, &d.from) })
+	ui.Field(c, a.t("Branch"), func() { ui.TextInput(c, &d.text3).Placeholder(a.t("The checked-out branch when empty")) })
 	ui.Checkbox(c, &d.flag1, a.t("Autostash"))
 	ui.Checkbox(c, &d.flag2, a.t("Update refs"))
 	ui.Checkbox(c, &d.flag3, a.t("Rebase merges"))
@@ -1640,6 +1653,7 @@ func (a *nativeApp) rebaseDialog(c *ui.Context) {
 	a.buttons(c, a.t("Rebase"), func() {
 		opts := git.RebaseOptions{
 			Onto:         strings.TrimSpace(d.from),
+			Branch:       strings.TrimSpace(d.text3),
 			Autostash:    d.flag1,
 			UpdateRefs:   d.flag2,
 			RebaseMerges: d.flag3,
@@ -1760,7 +1774,7 @@ func (a *nativeApp) shelfDialog(c *ui.Context) {
 	t := c.Theme()
 	ui.Row(c).Gap(6).Children(func() {
 		if ui.Button(c, a.t("Save Current Changes")).Clicked() {
-			a.dialog = dialogState{kind: dialogPrompt, title: a.t("Save Shelf"), message: a.t("Name"), action: "save-shelf"}
+			a.dialog = dialogState{kind: dialogPrompt, title: a.t("Save Shelf"), message: a.t("Name"), action: "save-shelf", paths: a.selectedPaths(false)}
 		}
 		ui.Spacer(c).Grow(1)
 		if ui.Button(c, a.t("Close")).Clicked() {
@@ -2070,9 +2084,10 @@ func (a *nativeApp) applyPrompt() {
 		}
 	case "save-shelf":
 		name := strings.TrimSpace(target)
+		paths := d.paths
 		if name != "" {
 			a.busyRun("shelf", func() error {
-				_, err := a.g.SaveShelf(name, git.PatchOptions{})
+				_, err := a.g.SaveShelf(name, git.PatchOptions{Paths: paths})
 				return err
 			})
 		}

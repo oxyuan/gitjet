@@ -31,6 +31,7 @@ type mergeWindow struct {
 	blocks      []mergeBlock
 	choice      []mergeChoice
 	selected    int
+	sync        bool
 	details     git.MergeDetails
 }
 
@@ -59,7 +60,7 @@ func openMergeEditor(a *nativeApp, path string) {
 		m.win.Focus()
 		return
 	}
-	m := &mergeWindow{app: a, path: path}
+	m := &mergeWindow{app: a, path: path, sync: true}
 	nativeMergeWindows[path] = m
 	m.win = mygo.NewWindow(mygo.WindowOptions{
 		Title:           "Merge " + path,
@@ -249,6 +250,11 @@ func (m *mergeWindow) view(c *ui.Context) {
 			ui.Column(c).Fill().Center().Children(func() { ui.Spinner(c) })
 			return
 		}
+		if m.sync && m.resultState != nil {
+			y := m.resultState.ScrollY()
+			m.ours.SetScrollY(y)
+			m.theirs.SetScrollY(y)
+		}
 		ui.Row(c).Grow(1).AlignItems(ui.Stretch).Children(func() {
 			ours := m.app.snapshot.State.OpOurs
 			if ours == "" {
@@ -270,6 +276,7 @@ func (m *mergeWindow) view(c *ui.Context) {
 				}
 			}
 			ui.Text(c, fmt.Sprintf("%d of %d blocks unresolved", unresolved, len(m.blocks))).FontSize(10).TextColor(t.TextMuted)
+			ui.Checkbox(c, &m.sync, m.app.t("Sync scroll"))
 			ui.Spacer(c).Grow(1)
 			if ui.Button(c, m.app.t("Accept All Ours")).Clicked() {
 				m.acceptAll("ours")

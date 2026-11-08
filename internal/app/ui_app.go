@@ -844,6 +844,10 @@ func (a *nativeApp) chooseAndOpen() {
 	if err != nil || len(paths) == 0 {
 		return
 	}
+	if a.repoOpen && a.settings.OpenInNewWindow {
+		_ = a.ws.OpenInWindow(paths[0])
+		return
+	}
 	a.openPath(paths[0])
 }
 

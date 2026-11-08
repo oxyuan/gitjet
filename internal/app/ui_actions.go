@@ -445,6 +445,7 @@ func (a *nativeApp) takeSide(path, side string) {
 }
 
 func (a *nativeApp) openRefLog(ref git.RepoRef) {
+	a.logAll = false
 	a.logOpts.Refs = []string{ref.FullName}
 	if a.logOpts.Refs[0] == "" {
 		a.logOpts.Refs = []string{ref.Name}
@@ -455,6 +456,7 @@ func (a *nativeApp) openRefLog(ref git.RepoRef) {
 }
 
 func (a *nativeApp) showFileHistory(path string) {
+	a.logAll = false
 	a.logOpts.Refs = nil
 	a.logOpts.Path = path
 	a.logOpts.Line = 0
@@ -463,6 +465,7 @@ func (a *nativeApp) showFileHistory(path string) {
 }
 
 func (a *nativeApp) showLineHistory(path string, line int) {
+	a.logAll = false
 	a.logOpts.Refs = nil
 	a.logOpts.Path = path
 	a.logOpts.Line = line
