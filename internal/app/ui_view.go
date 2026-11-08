@@ -57,9 +57,20 @@ func (a *nativeApp) titleBar(c *ui.Context) {
 			if ui.Button(c, a.t("Refresh")).Disabled(a.busy > 0).Clicked() {
 				a.refresh()
 			}
-			if ui.Button(c, a.t("Fetch")).Disabled(a.busy > 0).Clicked() {
-				a.fetch()
-			}
+			ui.MenuButton(c, a.t("Fetch"), func(m *ui.Menu) {
+				if m.Item(a.t("All remotes")).Chosen() {
+					a.fetchWith(git.FetchOptions{All: true, Prune: true})
+				}
+				if m.Item(a.t("Origin")).Chosen() {
+					a.fetchWith(git.FetchOptions{Remote: "origin", Prune: true})
+				}
+				if m.Item(a.t("Prune")).Chosen() {
+					a.fetchWith(git.FetchOptions{All: true, Prune: true})
+				}
+				if m.Item(a.t("Tags")).Chosen() {
+					a.fetchWith(git.FetchOptions{All: true, Prune: true, Tags: true})
+				}
+			})
 			if ui.Button(c, a.t("Pull")).Disabled(a.busy > 0).Clicked() {
 				a.openPullDialog()
 			}
@@ -386,7 +397,11 @@ func (a *nativeApp) stashSection(c *ui.Context) {
 func (a *nativeApp) commitBox(c *ui.Context) {
 	t := c.Theme()
 	ui.Column(c).Padding(8).Gap(6).BorderWidth(1, 0, 0, 0).BorderColor(t.Border).Children(func() {
-		ui.TextArea(c, &a.commitForm.Message).Height(88).Placeholder(a.t("Commit message"))
+		msg := ui.TextArea(c, &a.commitForm.Message).Height(88).Placeholder(a.t("Commit message"))
+		if a.focusCommit > 0 {
+			msg.AutoFocus()
+			a.focusCommit = 0
+		}
 		ui.Row(c).Gap(6).Children(func() {
 			ui.Checkbox(c, &a.commitForm.Amend, a.t("Amend"))
 			ui.Checkbox(c, &a.commitForm.SignOff, a.t("Sign-off"))

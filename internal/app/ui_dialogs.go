@@ -49,6 +49,7 @@ const (
 	dialogRewrite
 	dialogMerge
 	dialogRebase
+	dialogReferences
 )
 
 // dialogState is the open dialog and everything it edits.
@@ -104,6 +105,14 @@ type dialogState struct {
 	plan       []git.PlanCommit
 	steps      []git.PlanStep
 	onto       string
+	refs       []refHit
+}
+
+type refHit struct {
+	path string
+	line int
+	col  int
+	text string
 }
 
 func (a *nativeApp) dialogOpen() bool { return a.dialog.kind != dialogNone }
@@ -199,6 +208,8 @@ func (a *nativeApp) dialogCard(c *ui.Context) {
 			a.mergeDialog(c)
 		case dialogRebase:
 			a.rebaseDialog(c)
+		case dialogReferences:
+			a.referencesDialog(c)
 		}
 	})
 }
@@ -1115,6 +1126,14 @@ func (a *nativeApp) blameDialog(c *ui.Context) {
 		if ui.Button(c, a.t("Copy Revision Number")).Clicked() {
 			a.copyText(l.Commit)
 		}
+		if ui.Button(c, a.t("Rollback This Line")).Clicked() {
+			path := tab.path
+			lineNo := line + 1
+			a.closeDialog()
+			a.busyRun("rollback", func() error {
+				return a.g.ApplyLines(git.DiffOptions{Path: path, Target: git.DiffWorkingTree, Context: -1}, []int{lineNo}, "rollback")
+			})
+		}
 		ui.Spacer(c).Grow(1)
 		if ui.Button(c, a.t("Close")).Clicked() {
 			a.closeDialog()
@@ -1514,6 +1533,37 @@ func (a *nativeApp) patchDialog(c *ui.Context) {
 	}
 }
 
+func (a *nativeApp) referencesDialog(c *ui.Context) {
+	t := c.Theme()
+	if len(a.dialog.refs) == 0 {
+		ui.Text(c, a.t("No references")).FontSize(11).TextColor(t.TextMuted)
+	}
+	ui.Scroll(c).MaxHeight(360).Children(func() {
+		ui.Column(c).Gap(1).Children(func() {
+			for _, hit := range a.dialog.refs {
+				hit := hit
+				row := ui.ButtonBase(c).Padding(3, 8).Radius(4)
+				row.Children(func() {
+					ui.Text(c, fmt.Sprintf("%s:%d", hit.path, hit.line)).FontSize(11)
+					if hit.text != "" {
+						ui.Text(c, strings.TrimSpace(hit.text)).FontSize(9).TextColor(t.TextMuted)
+					}
+				})
+				if row.Clicked() {
+					a.closeDialog()
+					a.openAt(hit.path, hit.line)
+				}
+			}
+		})
+	})
+	ui.Row(c).Children(func() {
+		ui.Spacer(c).Grow(1)
+		if ui.Button(c, a.t("Close")).Clicked() {
+			a.closeDialog()
+		}
+	})
+}
+
 func (a *nativeApp) openMergeDialog(ref string) {
 	a.dialog = dialogState{kind: dialogMerge, from: ref, title: a.t("Merge")}
 }
@@ -1545,8 +1595,15 @@ func (a *nativeApp) mergeDialog(c *ui.Context) {
 	})
 }
 
+func autosquashValue(v string) string {
+	if v == "true" || v == "false" {
+		return v
+	}
+	return ""
+}
+
 func (a *nativeApp) openRebaseDialog(onto string) {
-	a.dialog = dialogState{kind: dialogRebase, from: onto, title: a.t("Rebase")}
+	a.dialog = dialogState{kind: dialogRebase, from: onto, title: a.t("Rebase"), text2: "system"}
 }
 
 func (a *nativeApp) rebaseDialog(c *ui.Context) {
@@ -1557,6 +1614,9 @@ func (a *nativeApp) rebaseDialog(c *ui.Context) {
 	ui.Checkbox(c, &d.flag3, a.t("Rebase merges"))
 	ui.Checkbox(c, &d.flag4, a.t("Keep empty commits"))
 	ui.Checkbox(c, &d.flag5, a.t("Rebase the root"))
+	ui.Field(c, a.t("Autosquash"), func() {
+		ui.Select(c, &d.text2, []string{"system", "true", "false"})
+	})
 	a.buttons(c, a.t("Rebase"), func() {
 		opts := git.RebaseOptions{
 			Onto:         strings.TrimSpace(d.from),
@@ -1565,6 +1625,7 @@ func (a *nativeApp) rebaseDialog(c *ui.Context) {
 			RebaseMerges: d.flag3,
 			KeepEmpty:    d.flag4,
 			Root:         d.flag5,
+			AutoSquash:   autosquashValue(d.text2),
 		}
 		a.closeDialog()
 		a.busyRun("rebase", func() error {

@@ -102,7 +102,8 @@ flowchart LR
 | `⌘/Ctrl+O` | 打开仓库 |
 | `⌘/Ctrl+P` | 快速打开文件 / 提交 |
 | `⌘/Ctrl+R` | 刷新 |
-| `⌘/Ctrl+K` | 提交 |
+| `⌘/Ctrl+K` | 聚焦提交信息 |
+| `⌘/Ctrl+Enter` | 提交 |
 | `⌘/Ctrl+Shift+K` | Push |
 | `⌘/Ctrl+T` | Pull |
 | `⌘/Ctrl+Shift+S` | Stash |

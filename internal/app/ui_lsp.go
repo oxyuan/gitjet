@@ -390,6 +390,107 @@ func (c *lspClient) serves(langID string) bool {
 	return c.family == langID
 }
 
+// ----- references -------------------------------------------------------
+
+func (a *nativeApp) findReferences() {
+	tab := a.activeSourceTab()
+	if tab == nil || tab.src == nil {
+		return
+	}
+	word, _, _ := wordAt(tab.src.Buffer, tab.src.Cursor())
+	if word == "" {
+		return
+	}
+	if a.lsp != nil && a.lsp.ready && tab.revision == "" {
+		uri := pathToURI(a.absPath(tab.path))
+		if a.lsp.docs[uri] == nil {
+			a.lsp.didOpen(tab)
+		}
+		text := tab.src.Buffer.String()
+		line, char := offsetToLSP(text, tab.src.Cursor())
+		a.lsp.request("textDocument/references", map[string]any{
+			"textDocument": map[string]any{"uri": uri},
+			"position":     map[string]any{"line": line, "character": char},
+			"context":      map[string]any{"includeDeclaration": true},
+		}, func(result json.RawMessage, rerr *rpcError) {
+			if rerr != nil {
+				return
+			}
+			hits := referenceLocations(result, a)
+			if len(hits) > 0 {
+				a.dialog = dialogState{kind: dialogReferences, refs: hits, title: a.t("References: ") + word}
+				a.redraw()
+			}
+		})
+		return
+	}
+	a.lookupReferences(word)
+}
+
+func (a *nativeApp) lookupReferences(word string) {
+	go func() {
+		res, err := a.g.SearchSymbol(word, 300)
+		mygo.RunOnMain(func() {
+			if err != nil {
+				a.fail(err)
+				return
+			}
+			hits := make([]refHit, 0, len(res.Hits))
+			for _, h := range res.Hits {
+				hits = append(hits, refHit{path: h.Path, line: h.Line, col: h.Column, text: h.Text})
+			}
+			a.dialog = dialogState{kind: dialogReferences, refs: hits, title: a.t("References: ") + word}
+			a.redraw()
+		})
+	}()
+}
+
+func referenceLocations(raw json.RawMessage, a *nativeApp) []refHit {
+	var locs []struct {
+		URI   string `json:"uri"`
+		Range struct {
+			Start struct {
+				Line      int `json:"line"`
+				Character int `json:"character"`
+			} `json:"start"`
+		} `json:"range"`
+	}
+	if json.Unmarshal(raw, &locs) != nil {
+		return nil
+	}
+	out := make([]refHit, 0, len(locs))
+	for _, l := range locs {
+		path := a.relPath(uriToPath(l.URI))
+		if path == "" {
+			continue
+		}
+		out = append(out, refHit{path: path, line: l.Range.Start.Line + 1, col: l.Range.Start.Character + 1})
+	}
+	return out
+}
+
+func (a *nativeApp) openAt(path string, line int) {
+	a.openSource(path, "")
+	if tab := a.findSourceTab(path, ""); tab != nil {
+		tab.gotoLine = line
+		if tab.src != nil && line > 0 {
+			tab.src.GoTo(editor.Pos{Line: line - 1})
+			tab.src.ScrollTo(line - 1)
+		}
+	}
+}
+
+func (a *nativeApp) activeSourceTab() *docTab {
+	if a.activeTab < 0 || a.activeTab >= len(a.tabs) {
+		return nil
+	}
+	tab := a.tabs[a.activeTab]
+	if tab.kind == tabSource {
+		return tab
+	}
+	return nil
+}
+
 // ----- requests used by the editor -------------------------------------
 
 func (a *nativeApp) lspDefinitionRequest(tab *docTab, offset int) bool {

@@ -74,7 +74,8 @@ func buildMenu(l lang) *mygo.Menu {
 			{Role: mygo.RoleToggleFullScreen},
 		}},
 		{Label: l.tr("menu.git"), Submenu: []*mygo.MenuItem{
-			{Label: l.tr("menu.commit"), Accelerator: "CmdOrCtrl+K", Click: send("commit")},
+			{Label: l.tr("menu.commitMessage"), Accelerator: "CmdOrCtrl+K", Click: send("commit")},
+			{Label: l.tr("menu.commit"), Accelerator: "CmdOrCtrl+Enter", Click: send("commit-now")},
 			{Label: l.tr("menu.push"), Accelerator: "CmdOrCtrl+Shift+K", Click: send("push")},
 			{Label: l.tr("menu.pull"), Accelerator: "CmdOrCtrl+T", Click: send("pull")},
 			{Label: l.tr("menu.fetch"), Click: send("fetch")},

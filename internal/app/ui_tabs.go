@@ -423,6 +423,10 @@ func (a *nativeApp) loadSource(tab *docTab) {
 				return
 			}
 			tab.base = base
+			if tab.src != nil && tab.gotoLine > 0 {
+				tab.src.GoTo(editor.Pos{Line: tab.gotoLine - 1})
+				tab.src.ScrollTo(tab.gotoLine - 1)
+			}
 			a.loadBlame(tab)
 			a.redraw()
 		})
@@ -699,6 +703,11 @@ func (a *nativeApp) sourceView(c *ui.Context, tab *docTab) {
 		if tab.src == nil {
 			if tab.file.Exists {
 				tab.src = a.newSourceState(tab)
+				if tab.gotoLine > 0 {
+					tab.src.GoTo(editor.Pos{Line: tab.gotoLine - 1})
+					tab.src.ScrollTo(tab.gotoLine - 1)
+					tab.gotoLine = 0
+				}
 				if a.lsp != nil {
 					a.lsp.didOpen(tab)
 					if ds := a.lsp.diags[tab.path]; len(ds) > 0 {
@@ -719,11 +728,33 @@ func (a *nativeApp) sourceView(c *ui.Context, tab *docTab) {
 			return
 		}
 		tab.src.Theme = editor.DefaultTheme(t)
+		a.setBlameInlay(tab)
 		if a.lsp != nil {
 			a.lsp.sync(tab)
 		}
 		editor.View(c, tab.src).Grow(1).FillWidth()
 	})
+}
+
+// setBlameInlay shows the commit that last changed the cursor line at the
+// end of it, as the IDE's inline blame does.
+func (a *nativeApp) setBlameInlay(tab *docTab) {
+	if tab.src == nil || len(tab.blame) == 0 {
+		return
+	}
+	pos := tab.src.CursorPos()
+	if pos.Line < 0 || pos.Line >= len(tab.blame) {
+		tab.src.SetInlays(nil)
+		return
+	}
+	l := tab.blame[pos.Line]
+	start := tab.src.Buffer.Offset(editor.Pos{Line: pos.Line})
+	end := start + len(tab.src.Buffer.Line(pos.Line))
+	label := fmt.Sprintf("  %s · %s · %s", l.Author, l.Short, a.stamp(l.Time))
+	if l.Uncommitted {
+		label = "  " + a.t("You · uncommitted")
+	}
+	tab.src.SetInlays([]editor.Inlay{{Offset: end, Text: label}})
 }
 
 func (a *nativeApp) sourceToolbar(c *ui.Context, tab *docTab) {

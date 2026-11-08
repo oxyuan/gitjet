@@ -38,6 +38,7 @@ type docTab struct {
 	path     string
 	revision string
 	from     string
+	gotoLine int
 	opts     git.DiffOptions
 
 	// diff
@@ -118,6 +119,7 @@ type nativeApp struct {
 	checked     map[string]bool
 	checkedInit bool
 	commitForm  commitForm
+	focusCommit int
 	history     []string
 	showStaged  bool
 
@@ -321,6 +323,8 @@ func (a *nativeApp) openWindow() {
 // view builds one frame of the window.
 func (a *nativeApp) view(c *ui.Context) {
 	a.applyAppearance(c)
+	c.OnWindowShortcut(ui.Cmd|ui.Shift, ui.KeyB, a.findReferences)
+	c.OnWindowShortcut(ui.Shift, ui.KeyF12, a.findReferences)
 	c.OnWindowShortcut(ui.Cmd, ui.KeyS, func() {
 		if a.activeTab >= 0 && a.activeTab < len(a.tabs) {
 			tab := a.tabs[a.activeTab]
@@ -743,6 +747,9 @@ func (a *nativeApp) command(cmd string) {
 	case cmd == "quickopen":
 		a.openQuickOpen()
 	case cmd == "commit":
+		a.sideTab = 0
+		a.focusCommit++
+	case cmd == "commit-now":
 		a.requestCommit()
 	case cmd == "fetch":
 		a.fetch()

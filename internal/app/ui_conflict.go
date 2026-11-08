@@ -185,6 +185,20 @@ func normalizeNewlines(s string) string {
 
 func (m *mergeWindow) view(c *ui.Context) {
 	t := c.Theme()
+	c.OnWindowShortcut(0, ui.KeyF7, func() {
+		if len(m.blocks) > 0 {
+			m.selected = (m.selected + 1) % len(m.blocks)
+			m.win.Invalidate()
+		}
+	})
+	c.OnWindowShortcut(ui.Shift, ui.KeyF7, func() {
+		if len(m.blocks) > 0 {
+			m.selected = (m.selected + len(m.blocks) - 1) % len(m.blocks)
+			m.win.Invalidate()
+		}
+	})
+	c.OnWindowShortcut(ui.Alt, ui.KeyLeft, func() { m.choose(m.selected, blockOurs); m.win.Invalidate() })
+	c.OnWindowShortcut(ui.Alt, ui.KeyRight, func() { m.choose(m.selected, blockTheirs); m.win.Invalidate() })
 	ui.Column(c).Fill().Background(t.Background).Children(func() {
 		ui.Row(c).Height(46).Padding(0, 12).Gap(8).AlignItems(ui.Center).BorderWidth(0, 0, 1, 0).BorderColor(t.Border).Children(func() {
 			ui.Text(c, "Merge "+m.path).FontSize(13).FontWeight(600)

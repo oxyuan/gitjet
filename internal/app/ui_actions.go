@@ -286,7 +286,10 @@ func (a *nativeApp) doAbortOperation() {
 // ----- fetch and network ------------------------------------------------
 
 func (a *nativeApp) fetch() {
-	opts := git.FetchOptions{All: true, Prune: true, Tags: false}
+	a.fetchWith(git.FetchOptions{All: true, Prune: true, Tags: false})
+}
+
+func (a *nativeApp) fetchWith(opts git.FetchOptions) {
 	a.busy++
 	a.consoleOpen = true
 	a.redraw()
