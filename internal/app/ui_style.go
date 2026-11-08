@@ -197,7 +197,7 @@ func gitjetTheme(dark bool) *ui.Theme {
 	t.Scrollbar = ui.Hex(p.scrollbar)
 	t.ScrollbarWidth = 12
 	t.Radius = 9
-	t.Spacing = 4
+	t.Spacing = 5
 	t.FontSize = 12.5
 	t.TooltipDelay = 600 * time.Millisecond
 	return t
