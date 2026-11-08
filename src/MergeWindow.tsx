@@ -35,6 +35,7 @@ export function MergeWindow({ path }: { path: string }) {
   const [details, setDetails] = useState<MergeDetails | null>(null);
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
+  const [dirty, setDirty] = useState(false);
   const [root, setRoot] = useState("");
   const busyRef = useRef(false);
   const lang = resolveLang(boot?.settings.language ?? "system");
@@ -94,8 +95,8 @@ export function MergeWindow({ path }: { path: string }) {
   useEffect(() => {
     if (!boot) return;
     const absolute = root ? `${root}/${path}` : path;
-    document.title = t.title.replace("{path}", absolute);
-  }, [boot, root, path, t]);
+    document.title = `${dirty ? "• " : ""}${t.title.replace("{path}", absolute)}`;
+  }, [boot, root, path, t, dirty]);
 
   const run = async (fn: () => Promise<void>) => {
     if (busyRef.current) return;
@@ -160,10 +161,13 @@ export function MergeWindow({ path }: { path: string }) {
         oursLabel={boot?.repo?.state.opOurs ?? ""}
         theirsLabel={boot?.repo?.state.opTheirs ?? ""}
         busy={busy}
-        onSave={(content, stage) =>
+        onSave={(content, stage, advance) =>
           void run(async () => {
             await Git.saveResolution(path, content, stage);
-            await finish();
+            // Apply Changes hands over to the next conflict; Save and Close
+            // returns to the conflict list, as the IDE does.
+            if (advance) await finish();
+            else await Workspace.closeWindow();
           })
         }
         onTakeSide={(side) =>
@@ -173,7 +177,7 @@ export function MergeWindow({ path }: { path: string }) {
           })
         }
         onClose={() => void Workspace.closeWindow()}
-        onDirtyChange={() => {}}
+        onDirtyChange={setDirty}
       />
     </div>
     </LangProvider>

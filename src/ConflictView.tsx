@@ -99,6 +99,10 @@ const T = {
     highlightLines: "Lines",
     highlightWords: "Words",
     highlightChars: "Characters",
+    discardTitle: "Unsaved Resolution",
+    discardMessage: "This file's resolution has not been saved. Closing now discards it.",
+    keepEditing: "Keep Editing",
+    discardClose: "Discard and Close",
     appearance: "Appearance",
     commit: "Commit",
     author: "Author",
@@ -176,6 +180,10 @@ const T = {
     highlightLines: "行数",
     highlightWords: "单词",
     highlightChars: "字符",
+    discardTitle: "未保存的解决结果",
+    discardMessage: "该文件的解决结果尚未保存，关闭将丢弃这些更改。",
+    keepEditing: "继续编辑",
+    discardClose: "丢弃并关闭",
     appearance: "外观",
     commit: "提交",
     author: "作者",
@@ -428,7 +436,7 @@ export function ConflictView({
   oursLabel: string;
   theirsLabel: string;
   busy: boolean;
-  onSave: (content: string, stage: boolean) => void;
+  onSave: (content: string, stage: boolean, advance: boolean) => void;
   onTakeSide: (side: "ours" | "theirs") => void;
   onClose: () => void;
   onShowHistory?: (line: number) => void;
@@ -490,7 +498,8 @@ export function ConflictView({
     { leftText: string; rightText: string; leftLabel: string; rightLabel: string } | null
   >(null);
   const [detailsSide, setDetailsSide] = useState<"ours" | "theirs" | null>(null);
-  const [pendingSave, setPendingSave] = useState<{ stage: boolean } | null>(null);
+  const [pendingSave, setPendingSave] = useState<{ stage: boolean; advance: boolean } | null>(null);
+  const [confirmClose, setConfirmClose] = useState(false);
 
   const oursRef = useRef<HTMLDivElement>(null);
   const resultRef = useRef<HTMLDivElement>(null);
@@ -505,7 +514,7 @@ export function ConflictView({
   const lock = useRef(0);
   const autoScrollRef = useRef(autoScroll);
   autoScrollRef.current = autoScroll;
-  const requestSaveRef = useRef<(stage: boolean) => void>(() => {});
+  const requestSaveRef = useRef<(stage: boolean, advance: boolean) => void>(() => {});
   const scrolledToFirst = useRef(false);
   const journal = useRef<{ entries: JournalEntry[]; at: number }>({ entries: [], at: 0 });
   const lastAction = useRef<"decision" | "edit" | null>(null);
@@ -518,6 +527,12 @@ export function ConflictView({
     () => resultTextRef.current !== initialRef.current || journal.current.at > 0,
     [],
   );
+
+  /** Closing an unsaved result discards work, so ask first, as the IDE does. */
+  const requestClose = useCallback(() => {
+    if (isDirty()) setConfirmClose(true);
+    else onClose();
+  }, [isDirty, onClose]);
 
   const dirtyRef = useRef(onDirtyChange);
   dirtyRef.current = onDirtyChange;
@@ -573,10 +588,12 @@ export function ConflictView({
   }, [markerLabels, model]);
 
   const requestSave = useCallback(
-    (stage: boolean) => {
+    (stage: boolean, advance: boolean) => {
       if (busyRef.current || conflict.binary) return;
-      if (countUnresolved(blocksRef.current) > 0) setPendingSave({ stage: false });
-      else saveRef.current(withLineEnding(resultTextRef.current, endingRef.current), stage);
+      // A file saved with markers cannot be staged; the prompt offers to write
+      // it as-is and the operation stays unmerged.
+      if (countUnresolved(blocksRef.current) > 0) setPendingSave({ stage: false, advance });
+      else saveRef.current(withLineEnding(resultTextRef.current, endingRef.current), stage, advance);
     },
     [conflict.binary],
   );
@@ -1198,7 +1215,7 @@ export function ConflictView({
       whitespace: showWhitespace,
       onScroll: (line) => sync("result", line),
       onSelection: (start) => syncCurrentRef.current(start),
-      onSaveRequest: () => requestSaveRef.current(true),
+      onSaveRequest: () => requestSaveRef.current(true, true),
       onUndoRequest: () => undoRef.current(),
       onRedoRequest: () => redoRef.current(),
       onChange: (doc, blocks) => changeRef.current(doc, blocks),
@@ -1354,7 +1371,7 @@ export function ConflictView({
             <span className="diff-status st-conflict">!</span>
             <span className="diff-path">{path}</span>
             <span className="spacer" />
-            <IconButton icon="close" title={t("close")} small onClick={onClose} />
+            <IconButton icon="close" title={t("close")} small onClick={requestClose} />
           </div>
         </header>
         <div className="diff-empty">
@@ -1369,7 +1386,7 @@ export function ConflictView({
           <Button size="small" onClick={() => onTakeSide("theirs")} disabled={busy || (!conflict.hasTheirs && !conflict.hasOurs)}>
             {t("acceptRight")}
           </Button>
-          <Button size="small" onClick={onClose}>
+          <Button size="small" onClick={requestClose}>
             {t("cancel")}
           </Button>
         </footer>
@@ -1447,7 +1464,7 @@ export function ConflictView({
             {changesText}, {conflictsText}
           </span>
           <IconButton icon="settings" title={t("viewOptions")} small onClick={openViewMenu} />
-          <IconButton icon="close" title={t("close")} small onClick={onClose} />
+          <IconButton icon="close" title={t("close")} small onClick={requestClose} />
         </div>
       </header>
 
@@ -1516,13 +1533,13 @@ export function ConflictView({
         <Button size="small" onClick={() => applyWholeSide("theirs")} disabled={busy || (!conflict.hasTheirs && conflict.hasOurs)}>
           {t("acceptRight")}
         </Button>
-        <Button size="small" onClick={() => requestSave(false)} disabled={busy}>
+        <Button size="small" onClick={() => requestSave(false, false)} disabled={busy}>
           {t("saveAndClose")}
         </Button>
         <Button
           size="small"
           variant="primary"
-          onClick={() => requestSave(true)}
+          onClick={() => requestSave(true, true)}
           disabled={!canApply}
           title={t("applyHint")}
         >
@@ -1544,7 +1561,11 @@ export function ConflictView({
               <Button
                 variant="primary"
                 onClick={() => {
-                  saveRef.current(withLineEnding(textForDisk(), endingRef.current), pendingSave.stage);
+                  saveRef.current(
+                    withLineEnding(textForDisk(), endingRef.current),
+                    pendingSave.stage,
+                    pendingSave.advance,
+                  );
                   setPendingSave(null);
                 }}
               >
@@ -1558,6 +1579,10 @@ export function ConflictView({
           </div>
         </Modal>
       )}
+          title={t("discardTitle")}
+                {t("keepEditing")}
+                {t("discardClose")}
+          <div className="confirm-message">{t("discardMessage")}</div>
       {compare && (
         <CompareVersions
           left={versionText(compare.left)}
