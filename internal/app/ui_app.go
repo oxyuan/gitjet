@@ -20,6 +20,12 @@ import (
 // services in service.go stay the only place that runs git; this layer owns
 // what the window shows and calls them.
 
+type noticeItem struct {
+	id    int
+	text  string
+	isErr bool
+}
+
 // tabKind is what an editor tab shows.
 type tabKind uint8
 
@@ -100,14 +106,13 @@ type nativeApp struct {
 	startup   string
 	secondary bool
 
-	repoOpen    bool
-	loading     bool
-	errText     string
-	busy        int
-	notice      string
-	noticeError bool
-	noticeSeq   int
-	redraws     uint64
+	repoOpen  bool
+	loading   bool
+	errText   string
+	busy      int
+	notices   []noticeItem
+	noticeSeq int
+	redraws   uint64
 
 	snapshot   git.ChangesSnapshot
 	refs       git.RefsSnapshot
@@ -421,32 +426,44 @@ func (a *nativeApp) viewBody(c *ui.Context) {
 }
 
 func (a *nativeApp) noticeView(c *ui.Context) {
-	if a.notice == "" {
+	if len(a.notices) == 0 {
 		return
 	}
 	p := palette(c.Theme())
-	tint := ui.Hex(p.accent)
-	icon := "check"
-	if a.noticeError {
-		tint = ui.Hex(p.danger)
-		icon = "warning"
-	}
-	card := ui.Column(c).Absolute().Bottom(38).Right(12).Width(340).Padding(10, 12).Radius(12).
-		Background(ui.Hex(p.raised)).Border(1, ui.Hex(p.border)).
-		Shadow(0, 18, 48, 0, ui.RGBA(16, 20, 40, 0.18))
-	card.Children(func() {
-		ui.Row(c).Gap(8).AlignItems(ui.Center).Children(func() {
-			ui.Box(c).Size(22, 22).Radius(7).Background(tint.Alpha(0.12)).Center().Children(func() {
-				ui.Row(c).TextColor(tint).Center().Children(func() {
-					a.icon(c, icon, 13)
+	for i, n := range a.notices {
+		n := n
+		tint := ui.Hex(p.accent)
+		icon := "check"
+		if n.isErr {
+			tint = ui.Hex(p.danger)
+			icon = "warning"
+		}
+		card := ui.Column(c).Absolute().Bottom(38+float32(i)*64).Right(12).Width(340).Padding(10, 12).Radius(12).
+			Background(ui.Hex(p.raised)).Border(1, ui.Hex(p.border)).
+			Shadow(0, 18, 48, 0, ui.RGBA(16, 20, 40, 0.18))
+		card.Children(func() {
+			ui.Row(c).Gap(8).AlignItems(ui.Center).Children(func() {
+				ui.Box(c).Size(22, 22).Radius(7).Background(tint.Alpha(0.12)).Center().Children(func() {
+					ui.Row(c).TextColor(tint).Center().Children(func() {
+						a.icon(c, icon, 13)
+					})
 				})
+				ui.Text(c, n.text).FontSize(11.5).TextColor(ui.Hex(p.fgSoft)).Grow(1).MaxLines(4)
+				if _, clicked := a.kitIconButton(c, "close", a.t("Close"), 22, 12, false, false, false); clicked {
+					a.dismissNotice(n.id)
+				}
 			})
-			ui.Text(c, a.notice).FontSize(11.5).TextColor(ui.Hex(p.fgSoft)).Grow(1).MaxLines(4)
-			if _, clicked := a.kitIconButton(c, "close", a.t("Close"), 22, 12, false, false, false); clicked {
-				a.notice = ""
-			}
 		})
-	})
+	}
+}
+
+func (a *nativeApp) dismissNotice(id int) {
+	for i, n := range a.notices {
+		if n.id == id {
+			a.notices = append(a.notices[:i], a.notices[i+1:]...)
+			return
+		}
+	}
 }
 
 func (a *nativeApp) applyAppearance(c *ui.Context) {
@@ -487,29 +504,33 @@ func (a *nativeApp) fail(err error) {
 		return
 	}
 	a.errText = err.Error()
-	a.setNotice(err.Error())
-	a.noticeError = true
+	a.pushNotice(err.Error(), true, 9*time.Second)
 	a.redraw()
 }
 
 func (a *nativeApp) clearNotice() {
-	a.notice = ""
+	a.notices = nil
 	a.errText = ""
 }
 
 func (a *nativeApp) setNotice(s string) {
-	a.notice = s
-	a.noticeError = false
-	a.noticeSeq++
-	seq := a.noticeSeq
-	time.AfterFunc(4*time.Second, func() {
-		mygo.RunOnMain(func() {
-			if seq == a.noticeSeq {
-				a.notice = ""
-			}
-		})
-	})
+	a.pushNotice(s, false, 4*time.Second)
 	a.redraw()
+}
+
+func (a *nativeApp) pushNotice(text string, isErr bool, ttl time.Duration) {
+	if text == "" {
+		return
+	}
+	a.noticeSeq++
+	id := a.noticeSeq
+	a.notices = append(a.notices, noticeItem{id: id, text: text, isErr: isErr})
+	if len(a.notices) > 4 {
+		a.notices = a.notices[len(a.notices)-4:]
+	}
+	time.AfterFunc(ttl, func() {
+		mygo.RunOnMain(func() { a.dismissNotice(id) })
+	})
 }
 
 // busyRun runs fn off the main thread and reloads the view afterwards.
