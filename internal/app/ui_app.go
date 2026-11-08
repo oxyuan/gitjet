@@ -81,6 +81,8 @@ type docTab struct {
 	fileSize    int64
 	history     []git.LocalHistoryEntry
 	readOnly    bool
+	blameLine   int
+	blameOpen   bool
 	saveErr     string
 	lastSaved   uint64
 	sourceLang  string

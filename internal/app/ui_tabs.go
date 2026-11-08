@@ -401,7 +401,11 @@ func (a *nativeApp) newSourceState(tab *docTab) *editor.State {
 	st.OnDefinition = func(off int) { a.jumpToDefinition(tab, off) }
 	st.OnHover = func(r editor.HoverRequest) { a.hover(tab, r) }
 	st.OnCompletion = func(r editor.CompletionRequest) { a.complete(tab, r) }
-	st.OnGutterClick = func(line int) { a.gutterMenu(tab, line) }
+	st.OnGutterClick = func(line int) {
+		tab.blameLine = line
+		tab.blameOpen = true
+		a.redraw()
+	}
 	st.ContextMenu = func(m *ui.Menu) {
 		pos := st.CursorPos()
 		a.pathMenu(m, path, pos.Line+1)
@@ -903,7 +907,10 @@ func (a *nativeApp) sourceView(c *ui.Context, tab *docTab) {
 		if a.lsp != nil {
 			a.lsp.sync(tab)
 		}
-		editor.View(c, tab.src).Grow(1).FillWidth()
+		ed := editor.View(c, tab.src).Grow(1).FillWidth()
+		if tab.blameOpen && tab.blameLine >= 0 && tab.blameLine < len(tab.blame) {
+			ui.Popover(c, ed, &tab.blameOpen, func() { a.blamePopover(c, tab) })
+		}
 	})
 }
 
@@ -930,6 +937,34 @@ func (a *nativeApp) setBlameInlay(tab *docTab) {
 		label = "  " + a.t("You · uncommitted")
 	}
 	tab.src.SetInlays([]editor.Inlay{{Offset: end, Text: label}})
+}
+
+func (a *nativeApp) blamePopover(c *ui.Context, tab *docTab) {
+	p := palette(c.Theme())
+	if tab.blameLine < 0 || tab.blameLine >= len(tab.blame) {
+		return
+	}
+	l := tab.blame[tab.blameLine]
+	ui.Column(c).Width(300).Gap(6).Children(func() {
+		if l.Uncommitted {
+			ui.Text(c, a.t("You · uncommitted")).FontSize(11.5).FontWeight(600).TextColor(ui.Hex(p.warning))
+		} else {
+			ui.Text(c, fmt.Sprintf("%s · %s", l.Author, l.Short)).FontSize(11.5).FontWeight(600).TextColor(ui.Hex(p.fg))
+			ui.Text(c, l.Summary).FontSize(10.5).TextColor(ui.Hex(p.muted)).MaxLines(2)
+			ui.Text(c, a.stamp(l.Time)).FontSize(9.5).TextColor(ui.Hex(p.muted2))
+		}
+		if a.miniTextButton(c, a.t("Show Commit"), false) {
+			tab.blameOpen = false
+			a.openCommitTab(l.Commit)
+		}
+		if a.miniTextButton(c, a.t("History of This Line"), false) {
+			tab.blameOpen = false
+			a.showFileHistory(tab.path)
+		}
+		if a.miniTextButton(c, a.t("Copy Revision Number"), false) {
+			a.copyText(l.Commit)
+		}
+	})
 }
 
 func (a *nativeApp) sourceToolbar(c *ui.Context, tab *docTab) {

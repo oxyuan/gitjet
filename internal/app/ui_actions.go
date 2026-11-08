@@ -806,13 +806,6 @@ func (a *nativeApp) complete(tab *docTab, r editor.CompletionRequest) {
 	a.lspComplete(tab, r)
 }
 
-func (a *nativeApp) gutterMenu(tab *docTab, line int) {
-	if line < 0 || line >= len(tab.blame) {
-		return
-	}
-	a.dialog = dialogState{kind: dialogBlame, tab: tab, line: line}
-}
-
 func selectedLines(tab *docTab) []int {
 	if tab == nil || !tab.hasSel {
 		return nil
