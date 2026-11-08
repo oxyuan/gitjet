@@ -250,6 +250,19 @@ describe("buildMergeView", () => {
     }
   });
 
+  it("keeps a section open when every change inside it is one-sided", () => {
+    // git stopped on adjacent lines (no unchanged line between them) and wrote
+    // one section; the three-way model sees two one-sided changes. Auto-merging
+    // both would decide a region git asked the reader about.
+    const merged = computeMerge("a\nb\nc\n", "a\nB\nc\n", "a\nb\nC\n");
+    expect(kinds(merged.ranges)).toEqual(["modified", "modified"]);
+    const working = "a\n<<<<<<< HEAD\nB\nc\n||||||| base\nb\nc\n=======\nb\nC\n>>>>>>> other\n";
+    const view = buildMergeView(merged, working);
+    expect(view.open).toEqual([0, 1]);
+    expect(view.text).toBe("a\nB\nC\n");
+    expect(view.blocks.every((block) => !block.resolved)).toBe(true);
+  });
+
   it("keeps a conflict open when its markers cannot be read", () => {
     // A document that itself starts a line with the opening marker makes the
     // section boundaries ambiguous. Guessing "already resolved" there staged a

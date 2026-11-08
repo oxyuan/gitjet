@@ -715,6 +715,8 @@ export function buildMergeView(model: MergeModel, working: string): MergeView {
   const lines: string[] = [];
   const spans: { index: number; from: number; to: number }[] = [];
   const open: number[] = [];
+  /** The marker section each range landed in; absent means plain merged text. */
+  const sectionOf = new Map<number, number>();
   b = 0;
   for (const range of model.ranges) {
     for (let i = b; i < range.baseStart; i++) lines.push(model.baseLines[i]!);
@@ -724,9 +726,10 @@ export function buildMergeView(model: MergeModel, working: string): MergeView {
       from: map?.start[span.from] ?? span.from,
       to: map ? (sameLine ? map.start[span.to]! : map.end[span.to]!) : span.to,
     };
-    const section = map ? sections.find((candidate) => inSection(mapped, candidate)) : undefined;
+    const section = map ? sections.findIndex((candidate) => inSection(mapped, candidate)) : -1;
+    if (section >= 0) sectionOf.set(range.index, section);
     let rangeLines: string[];
-    if (!compare || section) {
+    if (!compare || section >= 0) {
       // Git grouped this range into a conflict section: a one-sided change is
       // still an auto-merge, a conflicted one waits for a decision.
       rangeLines = range.kind === "conflict" ? range.ours : chosenLines(range);
@@ -736,10 +739,25 @@ export function buildMergeView(model: MergeModel, working: string): MergeView {
     const from = lines.length;
     lines.push(...rangeLines);
     spans.push({ index: range.index, from, to: lines.length });
-    if (range.kind === "conflict" && (!compare || section !== undefined)) open.push(range.index);
+    if (range.kind === "conflict" && (!compare || section >= 0)) open.push(range.index);
     b = range.baseEnd;
   }
   for (let i = b; i < model.baseLines.length; i++) lines.push(model.baseLines[i]!);
+
+  // A section git still wraps in markers is an unresolved region even when no
+  // range inside it is a conflict of its own: the two sides changed adjacent
+  // lines, left no unchanged line between them, and git stopped there. Merging
+  // both sides silently would decide a region git asked the reader about.
+  const decided = new Set<number>();
+  for (const index of open) {
+    const section = sectionOf.get(index);
+    if (section !== undefined) decided.add(section);
+  }
+  for (const range of model.ranges) {
+    const section = sectionOf.get(range.index);
+    if (section !== undefined && !decided.has(section)) open.push(range.index);
+  }
+  open.sort((a, b) => a - b);
 
   const text = lines.join("\n") + (model.trailingNewline && lines.length > 0 ? "\n" : "");
   const starts = lineStartsOf(text);

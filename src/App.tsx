@@ -52,7 +52,7 @@ import { RepoExtrasDialog } from "./RepoExtrasDialog";
 import { FileIcon, Icon } from "./icons";
 import { useFileMenu } from "./FileMenu";
 import { LangProvider, count, resolveLang, useT, type Lang } from "./i18n";
-import { computeMerge, conflictLabels, resolveSimpleConflicts } from "./merge";
+import { buildMergeView, computeMerge, conflictLabels, resolveSimpleConflicts } from "./merge";
 import { normalizeText } from "./editorText";
 import { LogDock, type LogFilters } from "./LogDock";
 import { FileTree, type ChangeView } from "./FileTree";
@@ -2223,6 +2223,15 @@ function AppShell({ onLangChange }: { onLangChange: (lang: Lang) => void }) {
         const model = computeMerge(normalizeText(content.base), normalizeText(content.ours), normalizeText(content.theirs), {
           labels,
         });
+        // A section git left behind without a conflicting range of its own is a
+        // region the model would merge silently; leave that file to the merge
+        // window instead of staging a merge git would not have accepted.
+        const view = buildMergeView(model, content.working);
+        const unexplained = view.open.filter((index) => model.ranges[index]?.kind !== "conflict");
+        if (unexplained.length > 0) {
+          remaining += unexplained.length;
+          continue;
+        }
         const simple = resolveSimpleConflicts(model);
         await Git.saveResolution(conflict.path, simple.text, simple.remaining === 0);
         if (simple.remaining === 0) {
