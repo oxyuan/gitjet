@@ -1035,3 +1035,89 @@ func (a *nativeApp) rollbackHunkAt(path string, line int) {
 		})
 	}()
 }
+
+var fileTypeKeys = []struct {
+	key ui.Key
+	ch  rune
+}{
+	{ui.KeyA, 'a'}, {ui.KeyB, 'b'}, {ui.KeyC, 'c'}, {ui.KeyD, 'd'}, {ui.KeyE, 'e'},
+	{ui.KeyF, 'f'}, {ui.KeyG, 'g'}, {ui.KeyH, 'h'}, {ui.KeyI, 'i'}, {ui.KeyJ, 'j'},
+	{ui.KeyK, 'k'}, {ui.KeyL, 'l'}, {ui.KeyM, 'm'}, {ui.KeyN, 'n'}, {ui.KeyO, 'o'},
+	{ui.KeyP, 'p'}, {ui.KeyQ, 'q'}, {ui.KeyR, 'r'}, {ui.KeyS, 's'}, {ui.KeyT, 't'},
+	{ui.KeyU, 'u'}, {ui.KeyV, 'v'}, {ui.KeyW, 'w'}, {ui.KeyX, 'x'}, {ui.KeyY, 'y'},
+	{ui.KeyZ, 'z'}, {ui.Key0, '0'}, {ui.Key1, '1'}, {ui.Key2, '2'}, {ui.Key3, '3'},
+	{ui.Key4, '4'}, {ui.Key5, '5'}, {ui.Key6, '6'}, {ui.Key7, '7'}, {ui.Key8, '8'},
+	{ui.Key9, '9'},
+}
+
+func (a *nativeApp) registerFileTypeahead(c *ui.Context) {
+	if !a.repoOpen || a.sideTab != 2 || a.dialogOpen() || a.quickOpen || c.FocusTakesText() {
+		return
+	}
+	for _, item := range fileTypeKeys {
+		item := item
+		c.OnWindowShortcut(0, item.key, func() { a.fileTypeChar(item.ch) })
+	}
+	c.OnWindowShortcut(0, ui.KeyBackspace, func() {
+		if a.fileTypeBuf != "" {
+			a.fileTypeBuf = a.fileTypeBuf[:len(a.fileTypeBuf)-1]
+			a.matchFileType()
+		}
+	})
+	c.OnWindowShortcut(0, ui.KeyEscape, func() { a.fileTypeBuf = "" })
+	c.OnWindowShortcut(0, ui.KeyEnter, func() {
+		if a.fileSel >= 0 && a.fileSel < len(a.fileTree) {
+			f := a.fileTree[a.fileSel]
+			if f.dir {
+				a.toggleDir(f.path)
+			} else {
+				a.openSource(f.path, "")
+			}
+		}
+	})
+	c.OnWindowShortcut(0, ui.KeyUp, func() { a.stepFile(-1) })
+	c.OnWindowShortcut(0, ui.KeyDown, func() { a.stepFile(1) })
+}
+
+func (a *nativeApp) fileTypeChar(ch rune) {
+	if time.Since(a.fileTypeAt) > 900*time.Millisecond {
+		a.fileTypeBuf = ""
+	}
+	a.fileTypeAt = time.Now()
+	a.fileTypeBuf += string(ch)
+	a.matchFileType()
+}
+
+func (a *nativeApp) matchFileType() {
+	q := strings.ToLower(a.fileTypeBuf)
+	if q == "" || len(a.fileTree) == 0 {
+		return
+	}
+	start := a.fileSel
+	if start < 0 || start >= len(a.fileTree) {
+		start = -1
+	}
+	for step := 1; step <= len(a.fileTree); step++ {
+		i := (start + step) % len(a.fileTree)
+		f := a.fileTree[i]
+		if strings.Contains(strings.ToLower(f.name), q) || strings.Contains(strings.ToLower(f.path), q) {
+			a.fileSel = i
+			a.fileList.ScrollIntoView(i)
+			a.redraw()
+			return
+		}
+	}
+}
+
+func (a *nativeApp) stepFile(delta int) {
+	if len(a.fileTree) == 0 {
+		return
+	}
+	if a.fileSel < 0 {
+		a.fileSel = 0
+	} else {
+		a.fileSel = max(0, min(len(a.fileTree)-1, a.fileSel+delta))
+	}
+	a.fileList.ScrollIntoView(a.fileSel)
+	a.redraw()
+}

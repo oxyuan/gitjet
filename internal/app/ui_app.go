@@ -139,11 +139,13 @@ type nativeApp struct {
 	showStaged        bool
 	showCommitOptions bool
 
-	files      []git.RepoFile
-	fileTree   []fileRow
-	fileList   ui.ListState
-	fileSel    int
-	fileFilter string
+	files       []git.RepoFile
+	fileTree    []fileRow
+	fileList    ui.ListState
+	fileSel     int
+	fileFilter  string
+	fileTypeBuf string
+	fileTypeAt  time.Time
 
 	branches     []repoRefRow
 	branchList   ui.ListState
@@ -412,6 +414,7 @@ func (a *nativeApp) viewBody(c *ui.Context) {
 			a.openCommitCompletion(rune(a.commitCaret))
 		}
 	})
+	a.registerFileTypeahead(c)
 	a.mainView(c)
 	a.dialogView(c)
 	a.noticeView(c)
