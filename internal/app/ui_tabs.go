@@ -88,7 +88,7 @@ func (a *nativeApp) openDiff(opts git.DiffOptions) {
 		a.redraw()
 		return
 	}
-	tab := &docTab{kind: tabDiff, id: id, title: opts.Path, path: opts.Path, revision: opts.Revision, opts: opts}
+	tab := &docTab{kind: tabDiff, id: id, title: opts.Path, path: opts.Path, revision: opts.Revision, opts: opts, wrapOn: true}
 	a.tabs = append(a.tabs, tab)
 	a.activeTab = len(a.tabs) - 1
 	a.loadDiff(tab)
@@ -338,7 +338,7 @@ func (a *nativeApp) loadDiffImage(tab *docTab, fd git.FileDiff) {
 }
 
 func (a *nativeApp) diffWrap(tab *docTab) bool {
-	return true
+	return tab.wrapOn
 }
 
 // openSource opens a file at a revision: "" for the working tree, "INDEX"
@@ -603,6 +603,10 @@ func (a *nativeApp) diffToolbar(c *ui.Context, tab *docTab) {
 				}
 			}
 		}
+		wrap := tab.wrapOn
+		if ui.Checkbox(c, &wrap, a.t("Wrap")).Changed() {
+			tab.wrapOn = wrap
+		}
 		ignore := a.settings.IgnoreWhitespace
 		if ui.Checkbox(c, &ignore, a.t("Ignore whitespace")).Changed() {
 			a.settings.IgnoreWhitespace = ignore
@@ -739,7 +743,11 @@ func (a *nativeApp) sourceView(c *ui.Context, tab *docTab) {
 // setBlameInlay shows the commit that last changed the cursor line at the
 // end of it, as the IDE's inline blame does.
 func (a *nativeApp) setBlameInlay(tab *docTab) {
-	if tab.src == nil || len(tab.blame) == 0 {
+	if tab.src == nil {
+		return
+	}
+	if len(tab.blame) == 0 {
+		tab.src.SetInlays(nil)
 		return
 	}
 	pos := tab.src.CursorPos()
@@ -900,16 +908,25 @@ func (a *nativeApp) saveSource(tab *docTab) {
 		return
 	}
 	text := tab.src.Buffer.String()
-	a.busyRun("save", func() error {
-		return a.g.SaveFile(tab.path, text)
-	})
-	tab.src.Buffer.MarkSaved()
-	if a.lsp != nil {
-		a.lsp.didSave(tab)
-	}
-	tab.title = tab.path
-	a.loadBlame(tab)
+	a.busy++
 	a.redraw()
+	go func() {
+		err := a.g.SaveFile(tab.path, text)
+		mygoMain(func() {
+			a.busy--
+			if err != nil {
+				a.fail(err)
+				return
+			}
+			tab.src.Buffer.MarkSaved()
+			if a.lsp != nil {
+				a.lsp.didSave(tab)
+			}
+			tab.title = tab.path
+			a.loadBlame(tab)
+			a.refresh()
+		})
+	}()
 }
 
 func (a *nativeApp) revisionTreeView(c *ui.Context, tab *docTab) {

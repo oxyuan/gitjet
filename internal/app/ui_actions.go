@@ -86,7 +86,9 @@ func cleanList(paths []string) []string {
 func (a *nativeApp) diffAction(tab *docTab, hunk int, lines []int, action string) {
 	opts := tab.opts
 	opts.IgnoreWhitespace = a.settings.IgnoreWhitespace
-	a.busyRun(action, func() error {
+	a.busy++
+	a.redraw()
+	go func() {
 		var err error
 		switch {
 		case len(lines) > 0:
@@ -96,8 +98,16 @@ func (a *nativeApp) diffAction(tab *docTab, hunk int, lines []int, action string
 		default:
 			err = a.g.ApplyFile(opts, action)
 		}
-		return err
-	})
+		mygoMain(func() {
+			a.busy--
+			if err != nil {
+				a.fail(err)
+				return
+			}
+			a.refresh()
+			a.loadDiff(tab)
+		})
+	}()
 }
 
 func (a *nativeApp) applyAction(tab *docTab) string {

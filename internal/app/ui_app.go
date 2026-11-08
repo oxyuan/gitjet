@@ -52,6 +52,7 @@ type docTab struct {
 	blameOld    []git.BlameLine
 	blameNew    []git.BlameLine
 	diffBlameOn bool
+	wrapOn      bool
 
 	// source
 	src         *editor.State
@@ -135,23 +136,27 @@ type nativeApp struct {
 	recentBr   []string
 	tags       []repoRefRow
 
-	log        git.LogResult
-	logList    ui.ListState
-	logPick    ui.Selection[string]
-	logSel     int
-	logOpts    git.LogOptions
-	logSearch  string
-	logAll     bool
-	logAuthor  string
-	logRegex   bool
-	logCase    bool
-	logSince   string
-	logUntil   string
-	equivalent map[string]bool
-	openDirs   map[string]bool
-	journal    []JournalEntry
-	graph      []graphRow
-	repoTab    int
+	log          git.LogResult
+	logList      ui.ListState
+	logPick      ui.Selection[string]
+	logSel       int
+	logOpts      git.LogOptions
+	logSearch    string
+	logAll       bool
+	logAuthor    string
+	logRegex     bool
+	logCase      bool
+	logSince     string
+	logUntil     string
+	equivalent   map[string]bool
+	openDirs     map[string]bool
+	journal      []JournalEntry
+	graph        []graphRow
+	repoTab      int
+	systemDark   bool
+	systemKnown  bool
+	appliedTheme string
+	appliedScale int
 
 	// editor
 	tabs      []*docTab
@@ -345,14 +350,28 @@ func (a *nativeApp) view(c *ui.Context) {
 }
 
 func (a *nativeApp) applyAppearance(c *ui.Context) {
-	s := a.settings
-	switch s.Theme {
-	case "light":
-		c.SetTheme(ui.LightTheme())
-	case "dark":
-		c.SetTheme(ui.DarkTheme())
+	if !a.systemKnown {
+		a.systemDark = c.Theme().Dark
+		a.systemKnown = true
 	}
-	if s.UIScale > 0 {
+	s := a.settings
+	if a.appliedTheme != s.Theme || !a.systemKnown {
+		a.appliedTheme = s.Theme
+		switch s.Theme {
+		case "light":
+			c.SetTheme(ui.LightTheme())
+		case "dark":
+			c.SetTheme(ui.DarkTheme())
+		default:
+			if a.systemDark {
+				c.SetTheme(ui.DarkTheme())
+			} else {
+				c.SetTheme(ui.LightTheme())
+			}
+		}
+	}
+	if s.UIScale > 0 && a.appliedScale != s.UIScale {
+		a.appliedScale = s.UIScale
 		c.SetZoom(float32(s.UIScale) / 100)
 	}
 }
