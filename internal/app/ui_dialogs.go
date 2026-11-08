@@ -373,7 +373,7 @@ func (a *nativeApp) dialogTitle() string {
 func (a *nativeApp) buttons(c *ui.Context, ok string, fn func()) {
 	ui.Row(c).Gap(6).Children(func() {
 		ui.Spacer(c).Grow(1)
-		if ui.Button(c, a.t("Cancel")).Clicked() {
+		if a.kitDialogButton(c, a.t("Cancel"), false, false) {
 			a.closeDialog()
 		}
 		if ui.PrimaryButton(c, ok).Clicked() {
@@ -537,7 +537,7 @@ func (a *nativeApp) settingsDialog(c *ui.Context) {
 		ui.Field(c, a.t("Git executable"), func() {
 			ui.Row(c).Gap(6).Children(func() {
 				ui.TextInput(c, &s.GitPath).Placeholder(a.t("Found on PATH when empty")).Grow(1)
-				if ui.Button(c, a.t("Detect")).Clicked() {
+				if a.kitDialogButton(c, a.t("Detect"), false, false) {
 					path := s.GitPath
 					go func() {
 						version, err := a.ws.ValidateGit(path)
@@ -635,7 +635,7 @@ func (a *nativeApp) commitChecksDialog(c *ui.Context) {
 	})
 	ui.Row(c).Gap(8).Children(func() {
 		ui.Spacer(c).Grow(1)
-		if ui.Button(c, a.t("Cancel")).Clicked() {
+		if a.kitDialogButton(c, a.t("Cancel"), false, false) {
 			a.closeDialog()
 		}
 		if ui.PrimaryButton(c, a.t("Commit Anyway")).Clicked() {
@@ -682,7 +682,7 @@ func (a *nativeApp) commitDetailDialog(c *ui.Context) {
 		})
 	})
 	ui.Row(c).Gap(6).Children(func() {
-		if ui.Button(c, a.t("Cherry-Pick")).Clicked() {
+		if a.kitDialogButton(c, a.t("Cherry-Pick"), false, false) {
 			hash := d.Hash
 			a.closeDialog()
 			a.busyRun("cherry-pick", func() error {
@@ -690,7 +690,7 @@ func (a *nativeApp) commitDetailDialog(c *ui.Context) {
 				return err
 			})
 		}
-		if ui.Button(c, a.t("Revert")).Clicked() {
+		if a.kitDialogButton(c, a.t("Revert"), false, false) {
 			hash := d.Hash
 			a.closeDialog()
 			a.busyRun("revert", func() error {
@@ -698,15 +698,15 @@ func (a *nativeApp) commitDetailDialog(c *ui.Context) {
 				return err
 			})
 		}
-		if ui.Button(c, a.t("New Branch")).Clicked() {
+		if a.kitDialogButton(c, a.t("New Branch"), false, false) {
 			hash := d.Hash
 			a.openCreateBranchDialog(hash)
 		}
-		if ui.Button(c, a.t("New Tag")).Clicked() {
+		if a.kitDialogButton(c, a.t("New Tag"), false, false) {
 			hash := d.Hash
 			a.openCreateTagDialog(hash)
 		}
-		if ui.Button(c, a.t("Checkout")).Clicked() {
+		if a.kitDialogButton(c, a.t("Checkout"), false, false) {
 			hash := d.Hash
 			a.closeDialog()
 			a.checkout(hash)
@@ -728,7 +728,7 @@ func (a *nativeApp) commitDetailDialog(c *ui.Context) {
 				}
 			}
 		})
-		if ui.Button(c, a.t("Fixup")).Clicked() {
+		if a.kitDialogButton(c, a.t("Fixup"), false, false) {
 			hash := d.Hash
 			a.closeDialog()
 			a.busyRun("fixup", func() error {
@@ -736,7 +736,7 @@ func (a *nativeApp) commitDetailDialog(c *ui.Context) {
 				return err
 			})
 		}
-		if ui.Button(c, a.t("Squash")).Clicked() {
+		if a.kitDialogButton(c, a.t("Squash"), false, false) {
 			hash := d.Hash
 			a.closeDialog()
 			a.busyRun("squash", func() error {
@@ -745,7 +745,7 @@ func (a *nativeApp) commitDetailDialog(c *ui.Context) {
 			})
 		}
 		ui.Spacer(c).Grow(1)
-		if ui.Button(c, a.t("Close")).Clicked() {
+		if a.kitDialogButton(c, a.t("Close"), false, false) {
 			a.closeDialog()
 		}
 	})
@@ -1021,14 +1021,14 @@ func (a *nativeApp) remotesDialog(c *ui.Context) {
 				ui.Text(c, r.Name).FontSize(12).FontWeight(600)
 				ui.Text(c, r.URL).FontSize(10).TextColor(t.TextMuted)
 				ui.Spacer(c).Grow(1)
-				if ui.Button(c, a.t("Edit")).Clicked() {
+				if a.kitDialogButton(c, a.t("Edit"), false, false) {
 					a.dialog.text = r.Name
 					a.dialog.text2 = r.URL
 				}
-				if ui.Button(c, a.t("Rename")).Clicked() {
+				if a.kitDialogButton(c, a.t("Rename"), false, false) {
 					a.dialog = dialogState{kind: dialogPrompt, title: a.t("Rename Remote"), message: a.t("New name"), action: "rename-remote", target: r.Name, text: r.Name}
 				}
-				if ui.Button(c, a.t("Remove")).Clicked() {
+				if a.kitDialogButton(c, a.t("Remove"), false, false) {
 					name := r.Name
 					a.busyRun("remote", func() error { return a.g.RemoveRemote(name) })
 				}
@@ -1038,7 +1038,7 @@ func (a *nativeApp) remotesDialog(c *ui.Context) {
 	ui.Field(c, a.t("Name"), func() { ui.TextInput(c, &a.dialog.text) })
 	ui.Field(c, a.t("URL"), func() { ui.TextInput(c, &a.dialog.text2) })
 	ui.Row(c).Gap(6).Children(func() {
-		if ui.Button(c, a.t("Save")).Clicked() {
+		if a.kitDialogButton(c, a.t("Save"), false, false) {
 			name, url := strings.TrimSpace(a.dialog.text), strings.TrimSpace(a.dialog.text2)
 			if name != "" && url != "" {
 				exists := false
@@ -1056,7 +1056,7 @@ func (a *nativeApp) remotesDialog(c *ui.Context) {
 			}
 		}
 		ui.Spacer(c).Grow(1)
-		if ui.Button(c, a.t("Close")).Clicked() {
+		if a.kitDialogButton(c, a.t("Close"), false, false) {
 			a.closeDialog()
 		}
 	})
@@ -1111,7 +1111,7 @@ func (a *nativeApp) cleanupDialog(c *ui.Context) {
 	}
 	ui.Row(c).Gap(6).Children(func() {
 		ui.Spacer(c).Grow(1)
-		if ui.Button(c, a.t("Cancel")).Clicked() {
+		if a.kitDialogButton(c, a.t("Cancel"), false, false) {
 			a.closeDialog()
 		}
 		if ui.PrimaryButton(c, a.t("Delete")).Clicked() {
@@ -1165,17 +1165,17 @@ func (a *nativeApp) conflictsDialog(c *ui.Context) {
 		})
 	})
 	ui.Row(c).Gap(6).Children(func() {
-		if ui.Button(c, a.t("Accept All Ours")).Clicked() {
+		if a.kitDialogButton(c, a.t("Accept All Ours"), false, false) {
 			a.takeAllSides("ours")
 		}
-		if ui.Button(c, a.t("Accept All Theirs")).Clicked() {
+		if a.kitDialogButton(c, a.t("Accept All Theirs"), false, false) {
 			a.takeAllSides("theirs")
 		}
-		if ui.Button(c, a.t("Resolve Simple Conflicts")).Clicked() {
+		if a.kitDialogButton(c, a.t("Resolve Simple Conflicts"), false, false) {
 			a.resolveSimpleConflicts()
 		}
 		ui.Spacer(c).Grow(1)
-		if ui.Button(c, a.t("Close")).Clicked() {
+		if a.kitDialogButton(c, a.t("Close"), false, false) {
 			a.closeDialog()
 		}
 	})
@@ -1195,25 +1195,25 @@ func (a *nativeApp) blameDialog(c *ui.Context) {
 	ui.Text(c, fmt.Sprintf("%s · %s", l.Author, a.stamp(l.Time))).FontSize(10).TextColor(c.Theme().TextMuted)
 	ui.Text(c, l.Text).FontSize(10).Font("monospace").MaxLines(5)
 	ui.Row(c).Gap(6).Children(func() {
-		if ui.Button(c, a.t("Show Commit")).Clicked() {
+		if a.kitDialogButton(c, a.t("Show Commit"), false, false) {
 			a.closeDialog()
 			a.openCommitTab(l.Commit)
 		}
-		if ui.Button(c, a.t("Show File at This Commit")).Clicked() {
+		if a.kitDialogButton(c, a.t("Show File at This Commit"), false, false) {
 			path := tab.path
 			rev := l.Commit
 			a.closeDialog()
 			a.openSource(path, rev)
 		}
-		if ui.Button(c, a.t("History of This Line")).Clicked() {
+		if a.kitDialogButton(c, a.t("History of This Line"), false, false) {
 			path := tab.path
 			a.closeDialog()
 			a.showLineHistory(path, line+1)
 		}
-		if ui.Button(c, a.t("Copy Revision Number")).Clicked() {
+		if a.kitDialogButton(c, a.t("Copy Revision Number"), false, false) {
 			a.copyText(l.Commit)
 		}
-		if ui.Button(c, a.t("Rollback This Line")).Clicked() {
+		if a.kitDialogButton(c, a.t("Rollback This Line"), false, false) {
 			path := tab.path
 			lineNo := line + 1
 			a.closeDialog()
@@ -1221,14 +1221,14 @@ func (a *nativeApp) blameDialog(c *ui.Context) {
 				return a.g.ApplyLines(git.DiffOptions{Path: path, Target: git.DiffWorkingTree, Context: -1}, []int{lineNo}, "rollback")
 			})
 		}
-		if ui.Button(c, a.t("Rollback Hunk")).Clicked() {
+		if a.kitDialogButton(c, a.t("Rollback Hunk"), false, false) {
 			path := tab.path
 			lineNo := line + 1
 			a.closeDialog()
 			a.rollbackHunkAt(path, lineNo)
 		}
 		ui.Spacer(c).Grow(1)
-		if ui.Button(c, a.t("Close")).Clicked() {
+		if a.kitDialogButton(c, a.t("Close"), false, false) {
 			a.closeDialog()
 		}
 	})
@@ -1300,7 +1300,7 @@ func (a *nativeApp) localHistoryDialog(c *ui.Context) {
 	})
 	ui.Row(c).Gap(6).Children(func() {
 		ui.Spacer(c).Grow(1)
-		if ui.Button(c, a.t("Close")).Clicked() {
+		if a.kitDialogButton(c, a.t("Close"), false, false) {
 			a.closeDialog()
 		}
 	})
@@ -1323,21 +1323,21 @@ func (a *nativeApp) repoToolsDialog(c *ui.Context) {
 				ui.Text(c, w.Path).FontSize(11)
 				ui.Text(c, w.Branch).FontSize(10).TextColor(t.TextMuted)
 				ui.Spacer(c).Grow(1)
-				if ui.Button(c, a.t("Open")).Clicked() {
+				if a.kitDialogButton(c, a.t("Open"), false, false) {
 					_ = a.ws.OpenInWindow(w.Path)
 				}
-				if !w.Locked && ui.Button(c, a.t("Lock")).Clicked() {
+				if !w.Locked && a.kitDialogButton(c, a.t("Lock"), false, false) {
 					path := w.Path
 					a.dialog = dialogState{kind: dialogPrompt, title: a.t("Lock Worktree"), message: a.t("Reason"), action: "lock-worktree", target: path}
 				}
-				if !w.Main && ui.Button(c, a.t("Remove")).Clicked() {
+				if !w.Main && a.kitDialogButton(c, a.t("Remove"), false, false) {
 					path := w.Path
 					a.busyRun("worktree", func() error {
 						_, err := a.g.RemoveWorktree(path, false)
 						return err
 					})
 				}
-				if w.Locked && ui.Button(c, a.t("Unlock")).Clicked() {
+				if w.Locked && a.kitDialogButton(c, a.t("Unlock"), false, false) {
 					path := w.Path
 					a.busyRun("worktree", func() error {
 						_, err := a.g.UnlockWorktree(path)
@@ -1347,10 +1347,10 @@ func (a *nativeApp) repoToolsDialog(c *ui.Context) {
 			})
 		}
 		ui.Row(c).Gap(6).Children(func() {
-			if ui.Button(c, a.t("New Worktree")).Clicked() {
+			if a.kitDialogButton(c, a.t("New Worktree"), false, false) {
 				a.openWorktreeDialog()
 			}
-			if ui.Button(c, a.t("Prune")).Clicked() {
+			if a.kitDialogButton(c, a.t("Prune"), false, false) {
 				a.busyRun("worktree", func() error {
 					_, err := a.g.PruneWorktrees()
 					return err
@@ -1362,16 +1362,16 @@ func (a *nativeApp) repoToolsDialog(c *ui.Context) {
 			ui.Text(c, fmt.Sprintf("%s · %s · %s", sm.Path, sm.Short, sm.State)).FontSize(11)
 		}
 		ui.Row(c).Gap(6).Children(func() {
-			if ui.Button(c, a.t("Add Submodule")).Clicked() {
+			if a.kitDialogButton(c, a.t("Add Submodule"), false, false) {
 				a.openSubmoduleDialog()
 			}
-			if ui.Button(c, a.t("Update")).Clicked() {
+			if a.kitDialogButton(c, a.t("Update"), false, false) {
 				a.busyRun("submodule", func() error {
 					_, err := a.g.UpdateSubmodules(true)
 					return err
 				})
 			}
-			if ui.Button(c, a.t("Sync")).Clicked() {
+			if a.kitDialogButton(c, a.t("Sync"), false, false) {
 				a.busyRun("submodule", func() error {
 					_, err := a.g.SyncSubmodules()
 					return err
@@ -1380,25 +1380,25 @@ func (a *nativeApp) repoToolsDialog(c *ui.Context) {
 		})
 	case 2:
 		ui.Text(c, fmt.Sprintf("Git LFS %s · %d tracked files", a.lfs.Version, len(a.lfs.Files))).FontSize(11)
-		if ui.Button(c, a.t("Git LFS")).Clicked() {
+		if a.kitDialogButton(c, a.t("Git LFS"), false, false) {
 			a.openLFSDialog()
 		}
 	case 3:
 		ui.Row(c).Gap(6).Children(func() {
-			if ui.Button(c, a.t("Manage Shelves")).Clicked() {
+			if a.kitDialogButton(c, a.t("Manage Shelves"), false, false) {
 				a.openShelfDialog()
 			}
 		})
 	case 4:
-		if ui.Button(c, a.t("Patches")).Clicked() {
+		if a.kitDialogButton(c, a.t("Patches"), false, false) {
 			a.openPatchDialog()
 		}
 	case 5:
-		if ui.Button(c, a.t("Open Journal")).Clicked() {
+		if a.kitDialogButton(c, a.t("Open Journal"), false, false) {
 			a.openJournalDialog()
 		}
 		if a.snapshot.State.Shallow {
-			if ui.Button(c, a.t("Fetch Full History")).Clicked() {
+			if a.kitDialogButton(c, a.t("Fetch Full History"), false, false) {
 				a.busyRun("unshallow", func() error {
 					_, err := a.g.Unshallow(nil)
 					return err
@@ -1408,7 +1408,7 @@ func (a *nativeApp) repoToolsDialog(c *ui.Context) {
 	}
 	ui.Row(c).Children(func() {
 		ui.Spacer(c).Grow(1)
-		if ui.Button(c, a.t("Close")).Clicked() {
+		if a.kitDialogButton(c, a.t("Close"), false, false) {
 			a.closeDialog()
 		}
 	})
@@ -1616,7 +1616,7 @@ func (a *nativeApp) stashFilesDialog(c *ui.Context) {
 	})
 	ui.Row(c).Children(func() {
 		ui.Spacer(c).Grow(1)
-		if ui.Button(c, a.t("Close")).Clicked() {
+		if a.kitDialogButton(c, a.t("Close"), false, false) {
 			a.closeDialog()
 		}
 	})
@@ -1631,7 +1631,7 @@ func (a *nativeApp) patchDialog(c *ui.Context) {
 	ui.Field(c, a.t("From revision"), func() { ui.TextInput(c, &d.from).Placeholder(a.t("Optional")) })
 	ui.Field(c, a.t("To revision"), func() { ui.TextInput(c, &d.to).Placeholder(a.t("Optional")) })
 	ui.Row(c).Gap(6).Children(func() {
-		if ui.Button(c, a.t("Save Patch")).Clicked() {
+		if a.kitDialogButton(c, a.t("Save Patch"), false, false) {
 			opts := git.PatchOptions{Staged: d.flag1, From: strings.TrimSpace(d.from), Revision: strings.TrimSpace(d.to)}
 			if d.flag3 {
 				opts.Paths = a.selectedPaths(false)
@@ -1642,7 +1642,7 @@ func (a *nativeApp) patchDialog(c *ui.Context) {
 				return err
 			})
 		}
-		if ui.Button(c, a.t("Copy Patch")).Clicked() {
+		if a.kitDialogButton(c, a.t("Copy Patch"), false, false) {
 			opts := git.PatchOptions{Staged: d.flag1, From: strings.TrimSpace(d.from), Revision: strings.TrimSpace(d.to)}
 			if d.flag3 {
 				opts.Paths = a.selectedPaths(false)
@@ -1658,14 +1658,14 @@ func (a *nativeApp) patchDialog(c *ui.Context) {
 				})
 			}()
 		}
-		if ui.Button(c, a.t("Apply Patch File")).Clicked() {
+		if a.kitDialogButton(c, a.t("Apply Patch File"), false, false) {
 			a.closeDialog()
 			a.busyRun("patch", func() error {
 				_, err := a.g.ApplyPatchFile(false)
 				return err
 			})
 		}
-		if ui.Button(c, a.t("Apply Reverse")).Clicked() {
+		if a.kitDialogButton(c, a.t("Apply Reverse"), false, false) {
 			a.closeDialog()
 			a.busyRun("patch", func() error {
 				_, err := a.g.ApplyPatchFile(true)
@@ -1673,7 +1673,7 @@ func (a *nativeApp) patchDialog(c *ui.Context) {
 			})
 		}
 		ui.Spacer(c).Grow(1)
-		if ui.Button(c, a.t("Close")).Clicked() {
+		if a.kitDialogButton(c, a.t("Close"), false, false) {
 			a.closeDialog()
 		}
 	})
@@ -1682,7 +1682,7 @@ func (a *nativeApp) patchDialog(c *ui.Context) {
 	ui.Field(c, a.t("Paste a patch"), func() {
 		ui.TextArea(c, &d.text).Height(100)
 	})
-	if ui.Button(c, a.t("Apply Pasted Patch")).Clicked() {
+	if a.kitDialogButton(c, a.t("Apply Pasted Patch"), false, false) {
 		patch := d.text
 		reverse := d.flag2
 		a.closeDialog()
@@ -1718,7 +1718,7 @@ func (a *nativeApp) referencesDialog(c *ui.Context) {
 	})
 	ui.Row(c).Children(func() {
 		ui.Spacer(c).Grow(1)
-		if ui.Button(c, a.t("Close")).Clicked() {
+		if a.kitDialogButton(c, a.t("Close"), false, false) {
 			a.closeDialog()
 		}
 	})
@@ -1852,11 +1852,11 @@ func (a *nativeApp) rewriteDialog(c *ui.Context) {
 					}
 				}
 			})
-			if ui.Button(c, "↑").Clicked() && i > 0 {
+			if a.kitDialogButton(c, "↑", false, false) && i > 0 {
 				a.dialog.plan[i-1], a.dialog.plan[i] = a.dialog.plan[i], a.dialog.plan[i-1]
 				a.dialog.steps[i-1], a.dialog.steps[i] = a.dialog.steps[i], a.dialog.steps[i-1]
 			}
-			if ui.Button(c, "↓").Clicked() && i < len(a.dialog.plan)-1 {
+			if a.kitDialogButton(c, "↓", false, false) && i < len(a.dialog.plan)-1 {
 				a.dialog.plan[i+1], a.dialog.plan[i] = a.dialog.plan[i], a.dialog.plan[i+1]
 				a.dialog.steps[i+1], a.dialog.steps[i] = a.dialog.steps[i], a.dialog.steps[i+1]
 			}
@@ -1867,7 +1867,7 @@ func (a *nativeApp) rewriteDialog(c *ui.Context) {
 	}
 	ui.Row(c).Gap(6).Children(func() {
 		ui.Spacer(c).Grow(1)
-		if ui.Button(c, a.t("Cancel")).Clicked() {
+		if a.kitDialogButton(c, a.t("Cancel"), false, false) {
 			a.closeDialog()
 		}
 		if ui.PrimaryButton(c, a.t("Rewrite")).Clicked() {
@@ -1901,11 +1901,11 @@ func (a *nativeApp) openShelfDialog() {
 func (a *nativeApp) shelfDialog(c *ui.Context) {
 	t := c.Theme()
 	ui.Row(c).Gap(6).Children(func() {
-		if ui.Button(c, a.t("Save Current Changes")).Clicked() {
+		if a.kitDialogButton(c, a.t("Save Current Changes"), false, false) {
 			a.dialog = dialogState{kind: dialogPrompt, title: a.t("Save Shelf"), message: a.t("Name"), action: "save-shelf", paths: a.selectedPaths(false)}
 		}
 		ui.Spacer(c).Grow(1)
-		if ui.Button(c, a.t("Close")).Clicked() {
+		if a.kitDialogButton(c, a.t("Close"), false, false) {
 			a.closeDialog()
 		}
 	})
@@ -1988,13 +1988,13 @@ func (a *nativeApp) openJournalDialog() {
 func (a *nativeApp) journalDialog(c *ui.Context) {
 	t := c.Theme()
 	ui.Row(c).Gap(6).Children(func() {
-		if ui.Button(c, a.t("Reveal Log File")).Clicked() {
+		if a.kitDialogButton(c, a.t("Reveal Log File"), false, false) {
 			if _, err := a.g.RevealJournal(); err != nil {
 				a.fail(err)
 			}
 		}
 		ui.Spacer(c).Grow(1)
-		if ui.Button(c, a.t("Close")).Clicked() {
+		if a.kitDialogButton(c, a.t("Close"), false, false) {
 			a.closeDialog()
 		}
 	})
@@ -2072,28 +2072,28 @@ func (a *nativeApp) lfsDialog(c *ui.Context) {
 		ui.TextInput(c, &a.dialog.patterns).Placeholder("*.psd, *.zip")
 	})
 	ui.Row(c).Gap(6).Children(func() {
-		if ui.Button(c, a.t("Track")).Clicked() {
+		if a.kitDialogButton(c, a.t("Track"), false, false) {
 			patterns := splitPatterns(a.dialog.patterns)
 			a.busyRun("lfs", func() error {
 				_, err := a.g.LFSTrack(patterns)
 				return err
 			})
 		}
-		if ui.Button(c, a.t("Untrack")).Clicked() {
+		if a.kitDialogButton(c, a.t("Untrack"), false, false) {
 			patterns := splitPatterns(a.dialog.patterns)
 			a.busyRun("lfs", func() error {
 				_, err := a.g.LFSUntrack(patterns)
 				return err
 			})
 		}
-		if ui.Button(c, a.t("Pull LFS Files")).Clicked() {
+		if a.kitDialogButton(c, a.t("Pull LFS Files"), false, false) {
 			a.busyRun("lfs", func() error {
 				_, err := a.g.LFSPull(nil)
 				return err
 			})
 		}
 		ui.Spacer(c).Grow(1)
-		if ui.Button(c, a.t("Close")).Clicked() {
+		if a.kitDialogButton(c, a.t("Close"), false, false) {
 			a.closeDialog()
 		}
 	})
