@@ -2267,27 +2267,6 @@ func (g *Git) CleanupCandidates() (git.BranchCleanup, error) {
 	return repo.CleanupCandidates(context.Background())
 }
 
-// DeleteBranches deletes several branches at once, reporting how many went.
-func (g *Git) DeleteBranches(names []string, force bool) (int, error) {
-	repo, err := g.c.currentRepo()
-	if err != nil {
-		return 0, err
-	}
-	deleted := 0
-	var firstErr error
-	for _, name := range names {
-		if err := repo.DeleteBranch(context.Background(), name, force); err != nil {
-			if firstErr == nil {
-				firstErr = fmt.Errorf("%s: %w", name, err)
-			}
-			continue
-		}
-		deleted++
-	}
-	g.notify()
-	return deleted, firstErr
-}
-
 // TakeSideAll takes ours or theirs for several conflicted paths.
 func (g *Git) TakeSideAll(paths []string, side string) error {
 	repo, err := g.c.currentRepo()

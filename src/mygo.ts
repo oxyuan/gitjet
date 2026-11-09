@@ -957,10 +957,6 @@ export const Git = {
   deleteBranch(name: string, force: boolean): Promise<void> {
     return call("Git.DeleteBranch", name, force);
   },
-  /** DeleteBranches deletes several branches at once, reporting how many went. */
-  deleteBranches(names: string[], force: boolean): Promise<number> {
-    return call("Git.DeleteBranches", names, force);
-  },
   /**
    * DeleteChangelist removes a changelist and moves its files to the
    * default one.

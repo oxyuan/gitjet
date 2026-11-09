@@ -307,6 +307,7 @@ const T = {
     rewriteRoot: "The root commit cannot be rewritten",
     resolveConflicts: "Resolve Conflicts…",
     cleanupDone: "Deleted {n} branches",
+    cleanupForceMessage: "{n} branches still hold unmerged commits. Force delete them?",
     cleanupMenu: "Clean Up Branches…",
     repoTools: "Repository Tools…",
     worktreesMenu: "Worktrees…",
@@ -539,6 +540,7 @@ const T = {
     rewriteRoot: "根提交无法重写",
     resolveConflicts: "解决冲突…",
     cleanupDone: "已删除 {n} 个分支",
+    cleanupForceMessage: "{n} 个分支仍含未合并提交。强制删除？",
     cleanupMenu: "清理分支…",
     repoTools: "仓库工具…",
     worktreesMenu: "工作树…",
@@ -2190,12 +2192,43 @@ function AppShell({ onLangChange }: { onLangChange: (lang: Lang) => void }) {
 
   const deleteCleanupBranches = async (names: string[]) => {
     setDialog(null);
+    const unmerged: string[] = [];
+    const failed: string[] = [];
     await withBusy(async () => {
-      const deleted = await Git.deleteBranches(names, true);
-      notify("success", t("cleanupDone", { n: deleted }));
-      await reload(false);
-      void loadLog(true);
+      for (const name of names) {
+        try {
+          await Git.deleteBranch(name, false);
+        } catch (err) {
+          const message = err instanceof Error ? err.message : String(err);
+          if (/not fully merged/i.test(message)) unmerged.push(name);
+          else failed.push(name);
+        }
+      }
     });
+    let deleted = names.length - unmerged.length - failed.length;
+    if (unmerged.length > 0) {
+      const force = await ask({
+        title: t("branchNotMergedTitle"),
+        message: t("cleanupForceMessage", { n: unmerged.length }),
+        detail: unmerged.join("\n"),
+        confirmLabel: t("forceDelete"),
+        danger: true,
+      });
+      if (force) {
+        for (const name of unmerged) {
+          try {
+            await Git.deleteBranch(name, true);
+            deleted++;
+          } catch {
+            failed.push(name);
+          }
+        }
+      }
+    }
+    await reload(false);
+    void loadLog(true);
+    if (failed.length > 0) notify("error", t("deleteBranchFailed"), failed.join(", "));
+    else notify("success", t("cleanupDone", { n: deleted }));
   };
 
   const takeSideAll = async (paths: string[], side: "ours" | "theirs") => {
