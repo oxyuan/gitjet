@@ -4,7 +4,7 @@ import { Git } from "./mygo";
 import type { Hook, LFSStatus, Shelf, Submodule, Worktree } from "./mygo";
 import { Icon } from "./icons";
 import { useT } from "./i18n";
-import { Button, Checkbox, Field, Modal, Spinner, TextInput, cx } from "./ui";
+import { Button, Checkbox, ConfirmDialog, Field, Modal, Spinner, TextInput, cx } from "./ui";
 
 const T = {
   en: {
@@ -49,6 +49,8 @@ const T = {
     prunable: "prunable",
     openWindow: "Open in Window",
     remove: "Remove",
+    removeTitle: "Remove worktree",
+    removeMessage: "Delete the working tree at {path}? The folder is removed; the branch is kept.",
     prune: "Prune",
     addTitle: "New worktree",
     path: "Folder",
@@ -113,6 +115,8 @@ const T = {
     prunable: "可清理",
     openWindow: "在新窗口打开",
     remove: "移除",
+    removeTitle: "移除工作树",
+    removeMessage: "删除 {path} 的工作树？文件夹会被移除，分支保留。",
     prune: "清理",
     addTitle: "新建工作树",
     path: "目录",
@@ -191,6 +195,7 @@ export function RepoExtrasDialog({
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
   const [path, setPath] = useState("");
+  const [removing, setRemoving] = useState<Worktree | null>(null);
   const [branch, setBranch] = useState("");
   const [createBranch, setCreateBranch] = useState(true);
 
@@ -291,8 +296,8 @@ export function RepoExtrasDialog({
                 ) : (
                   <Button onClick={() => void act(() => Git.lockWorktree(tree.path, ""))}>{t("lock")}</Button>
                 )}
-                {!tree.main && (
-                  <Button variant="danger" onClick={() => void act(() => Git.removeWorktree(tree.path, false))}>
+                {!tree.main && tree.path !== root && (
+                  <Button variant="danger" onClick={() => setRemoving(tree)}>
                     {t("remove")}
                   </Button>
                 )}
@@ -538,6 +543,20 @@ export function RepoExtrasDialog({
             </div>
           )}
         </div>
+      )}
+      {removing && (
+        <ConfirmDialog
+          title={t("removeTitle")}
+          message={t("removeMessage", { path: removing.path })}
+          confirmLabel={t("remove")}
+          danger
+          onConfirm={() => {
+            const tree = removing;
+            setRemoving(null);
+            void act(() => Git.removeWorktree(tree.path, false));
+          }}
+          onCancel={() => setRemoving(null)}
+        />
       )}
     </Modal>
   );
