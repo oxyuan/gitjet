@@ -72,7 +72,13 @@ export const editorTheme = EditorView.theme({
   },
   ".cm-lineNumbers .cm-gutterElement": { padding: "0 8px 0 10px", minWidth: "38px" },
   ".cm-activeLineGutter": { backgroundColor: "transparent", color: "var(--fg-soft)" },
-  ".cm-activeLine": { backgroundColor: "color-mix(in srgb, var(--fg) 4%, transparent)" },
+  // A layer, not a colour: a merge band paints the line's background, and the
+  // caret's line must tint that band rather than replace it.
+  ".cm-activeLine": {
+    backgroundColor: "transparent",
+    backgroundImage:
+      "linear-gradient(color-mix(in srgb, var(--fg) 4%, transparent), color-mix(in srgb, var(--fg) 4%, transparent))",
+  },
   ".cm-cursor": { borderLeftColor: "var(--fg)" },
   ".cm-panels": { backgroundColor: "var(--panel)", color: "var(--fg)" },
   ".cm-searchMatch": { backgroundColor: "color-mix(in srgb, var(--warning) 30%, transparent)" },
