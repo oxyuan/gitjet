@@ -38,6 +38,7 @@ const T = {
     merge: "Merge into current",
     rebase: "Rebase current onto this",
     deleteBranch: "Delete branch",
+    deleteRemoteBranch: "Delete remote branch",
     deleteTag: "Delete tag",
     copyName: "Copy branch name",
     copyTagName: "Copy tag name",
@@ -76,6 +77,7 @@ const T = {
     merge: "Merge 到当前分支",
     rebase: "Rebase 当前分支到此",
     deleteBranch: "删除分支",
+    deleteRemoteBranch: "删除远程分支",
     deleteTag: "删除标签",
     copyName: "复制分支名",
     copyTagName: "复制标签名",
@@ -237,8 +239,13 @@ export function BranchList({
       { separator: true },
       { label: t("copyName"), icon: "copy", onClick: () => onCopy(leaf.name) },
     ];
-    if (leaf.remote === "" && !leaf.current) {
-      items.push({ label: t("deleteBranch"), icon: "trash", danger: true, onClick: () => onDelete(leaf.name) });
+    if (!leaf.current) {
+      items.push({
+        label: leaf.remote === "" ? t("deleteBranch") : t("deleteRemoteBranch"),
+        icon: "trash",
+        danger: true,
+        onClick: () => onDelete(leaf.name),
+      });
     }
     setMenu({ x, y, items });
   };
