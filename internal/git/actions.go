@@ -537,11 +537,17 @@ func (r *Repo) CherryPick(ctx context.Context, hashes []string, noCommit bool) (
 	return r.writeRun(ctx, args...)
 }
 
-// Revert creates commits that undo commits.
+// Revert creates commits that undo commits. The page hands commits oldest
+// first, as cherry-pick needs them; a revert has to run newest first, or
+// undoing a parent removes the lines its child changed and the run stops
+// on a conflict that a terminal user never sees.
 func (r *Repo) Revert(ctx context.Context, hashes []string) (string, error) {
 	clean, err := cleanRevisions(hashes)
 	if err != nil {
 		return "", err
+	}
+	for i, j := 0, len(clean)-1; i < j; i, j = i+1, j-1 {
+		clean[i], clean[j] = clean[j], clean[i]
 	}
 	for _, hash := range clean {
 		if parents, perr := r.parents(ctx, hash); perr == nil && len(parents) > 1 {

@@ -218,3 +218,28 @@ func TestRebaseAutosquashFoldsAFixupCommit(t *testing.T) {
 		t.Fatalf("HEAD:a.txt = %q, want the fixup content folded in", content)
 	}
 }
+
+func TestRevertAppliesNewestCommitFirst(t *testing.T) {
+	repo, dir := newTestRepo(t)
+	writeFile(t, dir, "a.txt", "1\n3\n")
+	runGit(t, dir, "add", "a.txt")
+	runGit(t, dir, "commit", "-qm", "base")
+	writeFile(t, dir, "a.txt", "1\nx\n3\n")
+	runGit(t, dir, "commit", "-qam", "add x")
+	older := runGit(t, dir, "rev-parse", "HEAD")
+	writeFile(t, dir, "a.txt", "1\ny\n3\n")
+	runGit(t, dir, "commit", "-qam", "change x to y")
+	newer := runGit(t, dir, "rev-parse", "HEAD")
+
+	// The page sends oldest first, as it does for cherry-pick.
+	if _, err := repo.Revert(context.Background(), []string{older, newer}); err != nil {
+		t.Fatalf("Revert: %v", err)
+	}
+	content, rerr := os.ReadFile(filepath.Join(dir, "a.txt"))
+	if rerr != nil || string(content) != "1\n3\n" {
+		t.Fatalf("a.txt = %q, %v; want both commits undone", content, rerr)
+	}
+	if status := runGit(t, dir, "status", "--porcelain"); status != "" {
+		t.Fatalf("status = %q, want a clean tree", status)
+	}
+}
