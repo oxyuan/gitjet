@@ -212,15 +212,21 @@ describe("computeMerge", () => {
 });
 
 describe("tryResolveRange", () => {
-  it("resolves a whitespace-only conflict when whitespace is ignored", () => {
+  it("resolves a whitespace-only conflict", () => {
     const model = computeMerge("a\n", "a \n", "  a\n");
     const range = model.ranges[0]!;
     expect(range.kind).toBe("conflict");
-    expect(tryResolveRange(range)).toBeNull();
-    expect(tryResolveRange(range, true)).toEqual(["a "]);
+    expect(tryResolveRange(range)).toEqual(["  a "]);
   });
 
-  it("attributes each line to the side that changed it", () => {
+  it("merges a conflict whose sides edited different words of one line", () => {
+    const model = computeMerge("x = 1\n", "x = 2\n", "y = 1\n");
+    const range = model.ranges[0]!;
+    expect(range.kind).toBe("conflict");
+    expect(tryResolveRange(range)).toEqual(["y = 2"]);
+  });
+
+  it("takes each side's line when the other left it alone", () => {
     const range: MergeRange = {
       index: 0,
       kind: "conflict",

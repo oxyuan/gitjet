@@ -171,7 +171,15 @@ use it only for layout work. Vite's port is pinned to 5173 in **both**
   `FileDiff.language` is what selects the grammar; it is derived from the path.
 - Pure logic lives in React-free modules with a colocated test: `diff.ts`,
   `graph.ts`, `changes.ts`, `branches.ts`, `merge.ts`, `explorer.ts`,
-  `syntax.ts`, `paths.ts`, `tabs.ts`. Keep them free of `react`/`dom` imports.
+  `syntax.ts`, `paths.ts`, `tabs.ts`, `myers.ts`, `ideaDiff.ts`,
+  `wordmerge.ts`. Keep them free of `react`/`dom` imports.
+- The conflict view's wand resolves a range with the IDE's own text merge:
+  `wordmerge.ts` ports `MergeResolveUtil.tryResolve` (word/newline chunks,
+  whitespace-sensitive pass then a whitespace-ignoring one), and `ideaDiff.ts`
+  ports `com.intellij.util.diff.Diff` so the alignments match the IDE's.
+  Modify/delete conflicts are not auto-resolvable there, exactly as in IDEA:
+  they need a side choice. `merge.ts`'s `tryResolveRange` is the one entry
+  point; `myers.ts` stays the line diff behind the merge view.
 - The dock's tab order is `gitjet.toolTabs`, a stored permutation repaired by
   `normalizeTabOrder` (unknown names dropped, missing ones appended). It is
   edited only in Settings → General ("Dock tabs"), whose arrows call

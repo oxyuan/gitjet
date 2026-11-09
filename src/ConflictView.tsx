@@ -738,6 +738,24 @@ export function ConflictView({
     ),
   };
 
+  /** Conflicts the IDE's word-level text merge can settle, worked out once per
+   *  model the way the IDE decides a conflict's resolution strategy when it
+   *  builds the ranges. */
+  const resolvableConflicts = useMemo(() => {
+    const out = new Set<number>();
+    for (const range of ranges) {
+      if (range.kind === "conflict" && tryResolveRange(range) !== null) out.add(range.index);
+    }
+    return out;
+  }, [ranges]);
+  /** The wand needs an untouched conflict it can merge; with nothing left it
+   *  is disabled, as in the IDE. */
+  const wandable = ranges.some((range) => {
+    if (!resolvableConflicts.has(range.index)) return false;
+    const state = blocksRef.current.get(range.index);
+    return !!state && !state.left && !state.right;
+  });
+
   /** The file as Git must see it. Only a completely decided result is written;
    *  with anything still undecided the file goes back exactly as the merge
    *  found it (Git's own markers), which is what the IDE's save does. */
@@ -1178,13 +1196,13 @@ export function ConflictView({
     [commitDecision, ranges],
   );
 
-  /** Resolve one conflict with the line attribution the wand uses. */
+  /** Resolve one conflict with the word-level text merge the wand uses. */
   const autoResolveOne = useCallback(
     (index: number) => {
       const range = model.ranges[index];
       const state = blocksRef.current.get(index);
       if (!range || !state || decided(state) || state.left || state.right) return;
-      const lines = tryResolveRange(range) ?? tryResolveRange(range, true);
+      const lines = tryResolveRange(range);
       if (!lines) return;
       commitDecision([{ index, before: state, after: { lines, left: true, right: true, oneside: false } }]);
     },
@@ -1197,7 +1215,7 @@ export function ConflictView({
       if (decided(state) || state.left || state.right) continue;
       const range = ranges[index];
       if (!range || range.kind !== "conflict") continue;
-      const resolved = tryResolveRange(range) ?? tryResolveRange(range, true);
+      const resolved = tryResolveRange(range);
       if (!resolved) continue;
       changes.push({ index, before: state, after: { lines: resolved, left: true, right: true, oneside: false } });
     }
@@ -1322,9 +1340,7 @@ export function ConflictView({
       target && (side === "ours" ? target.oursChanged : side === "theirs" ? target.theirsChanged : false)
         ? target
         : null;
-    const resolvable = conflictTarget
-      ? tryResolveRange(conflictTarget) ?? tryResolveRange(conflictTarget, true)
-      : null;
+    const resolvable = conflictTarget !== null && resolvableConflicts.has(conflictTarget.index);
     const items: ContextItem[] = [];
     if (side === "result") {
       items.push({
@@ -1344,7 +1360,7 @@ export function ConflictView({
       items.push({
         label: t("resolveAutomatically"),
         icon: "sparkle",
-        disabled: !conflictTarget || decided(state) || state?.left === true || state?.right === true || resolvable === null,
+        disabled: !conflictTarget || decided(state) || state?.left === true || state?.right === true || !resolvable,
         onClick: () => conflictTarget && autoResolveOne(conflictTarget.index),
       });
       items.push({
@@ -1839,7 +1855,7 @@ export function ConflictView({
             title={t("resolveSimple")}
             small
             onClick={autoResolve}
-            disabled={unresolved === 0}
+            disabled={!wandable}
           />
           {onAutoMerge && (
             <IconButton

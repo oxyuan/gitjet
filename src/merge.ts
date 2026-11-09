@@ -5,6 +5,8 @@
  */
 
 import type { ConflictContent } from "./mygo";
+import { myersOps, type DiffOp } from "./myers";
+import { tryResolveText } from "./wordmerge";
 
 export interface DiffHunk {
   baseStart: number;
@@ -61,10 +63,6 @@ export interface MergeOptions {
 
 type LineEq = (a: string, b: string) => boolean;
 
-type DiffOp =
-  | { kind: "equal" | "delete"; aStart: number; aEnd: number; bStart: number; bEnd: number }
-  | { kind: "insert"; aStart: number; aEnd: number; bStart: number; bEnd: number };
-
 const exact: LineEq = (a, b) => a === b;
 
 /** splitLines keeps the caller's trailing-newline fact out of the lines. */
@@ -76,116 +74,7 @@ export function splitLines(text: string): { lines: string[]; trailingNewline: bo
   return { lines, trailingNewline };
 }
 
-/** Myers diff over lines. Common prefix and suffix are trimmed first, which
- *  keeps the edit graph small for the usual case of two similar files. */
-function diffOps(a: string[], b: string[], eq: LineEq): DiffOp[] {
-  let prefix = 0;
-  while (prefix < a.length && prefix < b.length && eq(a[prefix]!, b[prefix]!)) prefix++;
-  let suffix = 0;
-  while (
-    suffix < a.length - prefix &&
-    suffix < b.length - prefix &&
-    eq(a[a.length - 1 - suffix]!, b[b.length - 1 - suffix]!)
-  ) {
-    suffix++;
-  }
-
-  const n = a.length - prefix - suffix;
-  const m = b.length - prefix - suffix;
-  const ops: DiffOp[] = [];
-  const fallback = (): DiffOp[] => {
-    if (prefix > 0) ops.push({ kind: "equal", aStart: 0, aEnd: prefix, bStart: 0, bEnd: prefix });
-    if (n > 0) ops.push({ kind: "delete", aStart: prefix, aEnd: prefix + n, bStart: prefix, bEnd: prefix });
-    if (m > 0) ops.push({ kind: "insert", aStart: prefix, aEnd: prefix, bStart: prefix, bEnd: prefix + m });
-    if (suffix > 0) {
-      ops.push({
-        kind: "equal",
-        aStart: a.length - suffix,
-        aEnd: a.length,
-        bStart: b.length - suffix,
-        bEnd: b.length,
-      });
-    }
-    return ops;
-  };
-
-  const max = n + m;
-  if (n === 0 || m === 0) return fallback();
-  {
-    const offset = max + 1;
-    const v = new Int32Array(2 * max + 3).fill(-1);
-    v[offset + 1] = 0;
-    const trace: Int32Array[] = [];
-    let done = false;
-    for (let d = 0; d <= max && !done; d++) {
-      // A pathological diff is not worth an out-of-memory crash: when the
-      // trace outgrows its budget, treat the different middle as one change.
-      if ((d + 1) * (2 * max + 3) > 4_000_000) return fallback();
-      trace.push(v.slice());
-      for (let k = -d; k <= d; k += 2) {
-        let x: number;
-        if (k === -d || (k !== d && v[offset + k - 1]! < v[offset + k + 1]!)) x = v[offset + k + 1]!;
-        else x = v[offset + k - 1]! + 1;
-        let y = x - k;
-        while (x < n && y < m && x >= 0 && y >= 0 && eq(a[prefix + x]!, b[prefix + y]!)) {
-          x++;
-          y++;
-        }
-        v[offset + k] = x;
-        if (x >= n && y >= m) {
-          done = true;
-          break;
-        }
-      }
-    }
-
-    if (!done) return fallback();
-    if (prefix > 0) ops.push({ kind: "equal", aStart: 0, aEnd: prefix, bStart: 0, bEnd: prefix });
-    const middle: DiffOp[] = [];
-    let x = n;
-    let y = m;
-    for (let d = trace.length - 1; d >= 0; d--) {
-      const vd = trace[d]!;
-      const k = x - y;
-      const prevK =
-        k === -d || (k !== d && vd[offset + k - 1]! < vd[offset + k + 1]!) ? k + 1 : k - 1;
-      const prevX = vd[offset + prevK]!;
-      const prevY = prevX - prevK;
-      while (x > prevX && y > prevY) {
-        middle.push({
-          kind: "equal",
-          aStart: prefix + x - 1,
-          aEnd: prefix + x,
-          bStart: prefix + y - 1,
-          bEnd: prefix + y,
-        });
-        x--;
-        y--;
-      }
-      if (d === 0) break;
-      if (x === prevX) {
-        middle.push({ kind: "insert", aStart: prefix + x, aEnd: prefix + x, bStart: prefix + y - 1, bEnd: prefix + y });
-        y--;
-      } else {
-        middle.push({ kind: "delete", aStart: prefix + x - 1, aEnd: prefix + x, bStart: prefix + y, bEnd: prefix + y });
-        x--;
-      }
-    }
-    ops.push(...middle.reverse());
-  }
-
-  if (suffix > 0) {
-    ops.push({
-      kind: "equal",
-      aStart: a.length - suffix,
-      aEnd: a.length,
-      bStart: b.length - suffix,
-      bEnd: b.length,
-    });
-  }
-  return ops;
-}
-
+const diffOps = myersOps;
 
 /** diffHunks collapses adjacent insert/delete operations into one changed
  *  region, which is the unit the merge view navigates. */
@@ -455,43 +344,16 @@ export function chosenLines(range: MergeRange, eq: LineEq = exact): string[] {
 }
 
 /**
- * Tries the line-attribution merge IDEA's wand performs: a line is taken from
- * the side that changed it, and the block stays a conflict only when both
- * sides changed the same line differently.
+ * The IDE's "resolve simple conflict": IDEA merges the range's three texts at
+ * word level (`MergeResolveUtil.tryResolve`), which resolves far more than
+ * per-line attribution does — one side may rewrite a line's first word while
+ * the other rewrites its last. A non-conflict range still takes the side that
+ * changed it.
  */
 export function tryResolveRange(range: MergeRange, ignoreWhitespace = false): string[] | null {
-  const eq = ignoreWhitespace ? whitespaceInsensitive : exact;
-  if (range.kind !== "conflict") return chosenLines(range, eq);
-  // One side deleted the block while the other kept or changed it: the IDE
-  // treats that as simple and keeps the side that still has text.
-  if (range.ours.length === 0 && range.theirs.length > 0) return range.theirs;
-  if (range.theirs.length === 0 && range.ours.length > 0) return range.ours;
-  const total = Math.max(range.base.length, range.ours.length, range.theirs.length);
-  const out: string[] = [];
-  for (let i = 0; i < total; i++) {
-    const b = range.base[i];
-    const o = range.ours[i];
-    const t = range.theirs[i];
-    const oSame = lineEqual(o, b, eq);
-    const tSame = lineEqual(t, b, eq);
-    if (oSame && tSame) {
-      if (o !== undefined) out.push(o);
-    } else if (!oSame && tSame) {
-      if (o !== undefined) out.push(o);
-    } else if (oSame && !tSame) {
-      if (t !== undefined) out.push(t);
-    } else if (o !== undefined && t !== undefined && eq(o, t)) {
-      out.push(o);
-    } else {
-      return null;
-    }
-  }
-  return out;
-}
-
-function lineEqual(a: string | undefined, b: string | undefined, eq: LineEq): boolean {
-  if (a === undefined || b === undefined) return a === b;
-  return eq(a, b);
+  if (range.kind !== "conflict") return chosenLines(range, ignoreWhitespace ? whitespaceInsensitive : exact);
+  const merged = tryResolveText(range.ours.join("\n"), range.base.join("\n"), range.theirs.join("\n"));
+  return merged === null ? null : merged.split("\n");
 }
 
 /** Character offsets of the composed result's line starts. */
@@ -674,7 +536,7 @@ export function resolveSimpleConflicts(
   for (const range of model.ranges) {
     for (let i = b; i < range.baseStart; i++) lines.push(model.baseLines[i]!);
     if (range.kind === "conflict") {
-      const resolved = tryResolveRange(range, ignoreWhitespace) ?? tryResolveRange(range, true);
+      const resolved = tryResolveRange(range, ignoreWhitespace);
       if (resolved) {
         lines.push(...resolved);
       } else {
