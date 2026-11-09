@@ -142,17 +142,13 @@ func (r *Repo) FileDiff(ctx context.Context, opts DiffOptions) (FileDiff, error)
 	}
 	d.Patch = patch
 	d.HasChanges = len(d.Hunks) > 0 || d.Binary || d.Status != "modified"
-	if d.Binary || opts.NoText || isSynthetic(opts) {
+	if d.Binary || opts.NoText {
 		d.OldLabel, d.NewLabel = labelsFor(opts)
 		return d, nil
 	}
 	r.fillText(ctx, &d, opts, path)
 	d.OldLabel, d.NewLabel = labelsFor(opts)
 	return d, nil
-}
-
-func isSynthetic(opts DiffOptions) bool {
-	return opts.Target == DiffWorkingTree && opts.Revision == "" && opts.From == ""
 }
 
 func labelsFor(opts DiffOptions) (string, string) {
@@ -481,8 +477,13 @@ func (r *Repo) fillText(ctx context.Context, d *FileDiff, opts DiffOptions, path
 	default:
 		if opts.Revision != "" {
 			oldText, _ = readBlob(opts.Revision, oldPath)
-		} else {
-			oldText, _ = readBlob("HEAD", oldPath)
+		} else if out, truncated, err := r.runLimited(ctx, limit, "show", ":"+oldPath); err == nil {
+			// The worktree diff compares the index with the file, so the
+			// left side is the staged version, not HEAD.
+			oldText = out
+			if truncated {
+				d.Truncated = true
+			}
 		}
 		newText, _ = readFile(path)
 		if newText == "" {
