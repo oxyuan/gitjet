@@ -493,10 +493,16 @@ func (r *Repo) Rebase(ctx context.Context, opts RebaseOptions) (string, error) {
 	if opts.Empty != "" {
 		args = append(args, "--empty="+opts.Empty)
 	}
-	if opts.AutoSquash == "true" {
-		args = append(args, "--autosquash")
-	} else if opts.AutoSquash == "false" {
-		args = append(args, "--no-autosquash")
+	if opts.AutoSquash != "" {
+		// --autosquash only rewrites a todo list, which exists only in an
+		// interactive rebase; without -i git accepts the flag and does
+		// nothing, leaving fixup!/squash! commits in place.
+		args = append(args, "-i")
+		if opts.AutoSquash == "true" {
+			args = append(args, "--autosquash")
+		} else {
+			args = append(args, "--no-autosquash")
+		}
 	}
 	if onto != "" {
 		if err := r.refuseIgnoredOverwrites(ctx, onto); err != nil {

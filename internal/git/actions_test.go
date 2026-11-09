@@ -196,3 +196,25 @@ func TestMarkResolvedEscapesThePath(t *testing.T) {
 		t.Fatalf("staged = %q, want only the named path", staged)
 	}
 }
+
+func TestRebaseAutosquashFoldsAFixupCommit(t *testing.T) {
+	repo, dir := newTestRepo(t)
+	head := runGit(t, dir, "rev-parse", "HEAD")
+	writeFile(t, dir, "a.txt", "one\nchanged\n")
+	runGit(t, dir, "add", "a.txt")
+	if _, err := repo.CommitFixup(context.Background(), head, false); err != nil {
+		t.Fatalf("CommitFixup: %v", err)
+	}
+	if count := runGit(t, dir, "rev-list", "--count", "HEAD"); count != "2" {
+		t.Fatalf("commits before rebase = %s, want the fixup commit", count)
+	}
+	if _, err := repo.Rebase(context.Background(), RebaseOptions{Root: true, AutoSquash: "true"}); err != nil {
+		t.Fatalf("Rebase: %v", err)
+	}
+	if count := runGit(t, dir, "rev-list", "--count", "HEAD"); count != "1" {
+		t.Fatalf("commits after autosquash = %s, want the fixup folded", count)
+	}
+	if content := runGit(t, dir, "show", "HEAD:a.txt"); content != "one\nchanged" {
+		t.Fatalf("HEAD:a.txt = %q, want the fixup content folded in", content)
+	}
+}
