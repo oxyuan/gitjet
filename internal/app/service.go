@@ -2402,6 +2402,13 @@ func appendNote(out, note string) string {
 // preserveLocalChanges stashes uncommitted work, runs fn, then restores
 // it, the way an IDE offers to shelve changes an operation would
 // overwrite. label names the action in the stash message and the note.
+//
+// The stash is found by its message instead of assuming stash@{0}: another
+// stash can appear between the push and the pop, and popping the wrong one
+// loses the wrong work. When the operation stops with conflicts or leaves
+// a sequencer in progress, the stash is deliberately kept: git cannot pop
+// into an unmerged index, and popping later onto the resolved tree is the
+// user's call.
 func preserveLocalChanges(ctx context.Context, repo *git.Repo, label string, fn func() (string, error)) (string, error) {
 	st, err := repo.Status(ctx, false)
 	if err != nil || len(st.Changes) == 0 {
@@ -2413,13 +2420,28 @@ func preserveLocalChanges(ctx context.Context, repo *git.Repo, label string, fn 
 		// rather than being rejected by the stash step.
 		return fn()
 	}
-	note := "local changes were stashed before " + label + " and restored after it"
-	if _, err := repo.StashPush(ctx, git.StashOptions{Message: "gitjet: before " + label, IncludeUntracked: true}); err != nil {
+	message := "gitjet: before " + label
+	if _, err := repo.StashPush(ctx, git.StashOptions{Message: message, IncludeUntracked: true}); err != nil {
 		return "", fmt.Errorf("your local changes could not be saved before %s: %w", label, err)
 	}
 	out, opErr := fn()
-	if _, popErr := repo.StashRestore(ctx, 0); popErr != nil {
-		kept := "your local changes could not be restored and are in stash@{0}: " + popErr.Error()
+	index, found := findStash(ctx, repo, message)
+	if !found {
+		kept := "your local changes are no longer in the stash: the entry saved before " + label + " was not found"
+		if opErr != nil {
+			return appendNote(out, kept), fmt.Errorf("%v; %s", opErr, kept)
+		}
+		return appendNote(out, kept), errors.New(kept)
+	}
+	if after, serr := repo.Status(ctx, false); serr == nil && (after.State.Operation != "" || hasUnmerged(after.Changes)) {
+		kept := fmt.Sprintf("your local changes are kept in stash@{%d} until %s finishes", index, after.State.Operation)
+		if opErr != nil {
+			return appendNote(out, kept), opErr
+		}
+		return appendNote(out, kept), nil
+	}
+	if _, popErr := repo.StashRestore(ctx, index); popErr != nil {
+		kept := fmt.Sprintf("your local changes could not be restored and are in stash@{%d}: %v", index, popErr)
 		if opErr != nil {
 			return appendNote(out, kept), fmt.Errorf("%v; %s", opErr, kept)
 		}
@@ -2428,5 +2450,30 @@ func preserveLocalChanges(ctx context.Context, repo *git.Repo, label string, fn 
 	if opErr != nil {
 		return out, opErr
 	}
-	return appendNote(out, note), nil
+	return appendNote(out, "local changes were stashed before "+label+" and restored after it"), nil
+}
+
+// hasUnmerged reports a stopped operation's conflicting paths.
+func hasUnmerged(changes []git.Change) bool {
+	for _, c := range changes {
+		if c.Unmerged {
+			return true
+		}
+	}
+	return false
+}
+
+// findStash locates the entry preserveLocalChanges pushed, newest first, so
+// a stash created in between is never popped in its place.
+func findStash(ctx context.Context, repo *git.Repo, message string) (int, bool) {
+	stashes, err := repo.Stashes(ctx)
+	if err != nil {
+		return 0, false
+	}
+	for _, s := range stashes {
+		if strings.Contains(s.Message, message) {
+			return s.Index, true
+		}
+	}
+	return 0, false
 }
