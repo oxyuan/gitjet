@@ -103,6 +103,11 @@ const T = {
     allowEmpty: "Allow an empty commit",
     signCommit: "Sign the commit (GPG)",
     reformat: "Reflow the message to 72 columns",
+    stagedOnly: "Commit staged only",
+    commitAllChanges: "Commit All Changes",
+    reviewChanges: "Review changes",
+    threeWay: "Three-Sided Diff (HEAD · Index · Working Tree)",
+    repoLocalHistory: "Local History of the Repository…",
   },
   zh: {
     showDiff: "显示差异",
@@ -189,6 +194,11 @@ const T = {
     allowEmpty: "允许空提交",
     signCommit: "签名提交（GPG）",
     reformat: "按 72 列重排提交信息",
+    stagedOnly: "只提交暂存区",
+    commitAllChanges: "提交所有更改",
+    reviewChanges: "Review 更改",
+    threeWay: "三侧差异（HEAD · 暂存区 · 工作区）",
+    repoLocalHistory: "仓库本地历史…",
   },
 } as const;
 
@@ -213,6 +223,7 @@ export interface CommitForm {
   sign: boolean;
   authorName: string;
   authorEmail: string;
+  stagedOnly: boolean;
 }
 
 export interface CommitActions {
@@ -240,7 +251,11 @@ export interface CommitActions {
   onTakeSide: (path: string, side: "ours" | "theirs") => void;
   onMarkResolved: (paths: string[]) => void;
   onCommit: (push: boolean, rebase?: boolean) => void;
+  onCommitAll: () => void;
   onCommitSelected: () => void;
+  onShowThreeWay: (entry: FileEntry) => void;
+  onReview: () => void;
+  onRepoLocalHistory: () => void;
   onUndoCommit: () => void;
   onToggleAmend: (amend: boolean) => void;
   onCommitFormChange: (form: CommitForm) => void;
@@ -401,6 +416,7 @@ export function CommitPanel({
     const chosen = selected.has(entry.path) && selected.size > 1 ? [...selected] : [entry.path];
     const items: ContextItem[] = [
       { label: t("showDiff"), icon: "diff", onClick: () => actions.onShowDiff(entry) },
+      { label: t("threeWay"), icon: "columns", onClick: () => actions.onShowThreeWay(entry) },
       { label: t("openSourceFile"), icon: "file", onClick: () => actions.onOpenSource(entry.path, entry.staged ? "INDEX" : "") },
       { label: t("showHistory"), icon: "log", onClick: () => actions.onShowHistory(entry.path) },
       { label: t("compareHead"), icon: "diff", onClick: () => actions.onCompareHead(entry.path) },
@@ -652,7 +668,10 @@ export function CommitPanel({
   // git refuses every commit while the index has unmerged entries, so the
   // buttons say why instead of letting the command fail.
   const blocked = conflicts.length > 0;
-  const canCommit = !blocked && (uniqueChecked.length > 0 || staged.length > 0 || form.amend || [...checked].length > 0);
+  const canCommit = !blocked && (form.stagedOnly
+    ? staged.length > 0 || form.amend || form.allowEmpty
+    : uniqueChecked.length > 0 || staged.length > 0 || form.amend || [...checked].length > 0);
+  const commitCount = form.stagedOnly ? staged.length : uniqueChecked.length;
 
   return (
     <div className="commit-panel">
@@ -698,6 +717,18 @@ export function CommitPanel({
               x: rect.right - 180,
               y: rect.bottom,
               items: [
+                {
+                  label: t("reviewChanges"),
+                  icon: "diff",
+                  disabled: entries.length === 0,
+                  onClick: actions.onReview,
+                },
+                {
+                  label: t("repoLocalHistory"),
+                  icon: "clock",
+                  onClick: actions.onRepoLocalHistory,
+                },
+                { separator: true },
                 {
                   label: t("openSourceFileTitle"),
                   icon: "file",
@@ -989,7 +1020,7 @@ export function CommitPanel({
           <button className="commit-options-btn" onClick={() => setShowOptions((v) => !v)} title={t("commitOptions")}>
             <Icon name="settings" size={13} />
             {t("options")}
-            {(form.signOff || form.noVerify || form.allowEmpty || form.sign || form.authorName) && (
+            {(form.signOff || form.noVerify || form.allowEmpty || form.sign || form.stagedOnly || form.authorName) && (
               <span className="dot-badge" />
             )}
           </button>
@@ -1004,6 +1035,11 @@ export function CommitPanel({
                 checked={form.noVerify}
                 onChange={(v) => actions.onCommitFormChange({ ...form, noVerify: v })}
                 label={t("skipHooks")}
+              />
+              <Checkbox
+                checked={form.stagedOnly}
+                onChange={(v) => actions.onCommitFormChange({ ...form, stagedOnly: v })}
+                label={t("stagedOnly")}
               />
               <Checkbox
                 checked={form.allowEmpty}
@@ -1053,7 +1089,7 @@ export function CommitPanel({
             title={blocked ? t("commitBlockedTooltip") : t("commitTooltip")}
           >
             <Icon name="commit" />
-            {uniqueChecked.length > 0 ? t("commitCount", { n: uniqueChecked.length }) : t("commit")}
+            {commitCount > 0 ? t("commitCount", { n: commitCount }) : t("commit")}
           </button>
           <button
             className="btn btn-primary split-arrow"
@@ -1065,6 +1101,7 @@ export function CommitPanel({
                 items: [
                   { label: t("commitAndPush"), icon: "push", onClick: () => actions.onCommit(true) },
                   { label: t("commitAndRebase"), icon: "rebase", onClick: () => actions.onCommit(false, true) },
+                  { label: t("commitAllChanges"), icon: "commit", onClick: actions.onCommitAll },
                   { separator: true },
                   {
                     label: t("commitSelected"),

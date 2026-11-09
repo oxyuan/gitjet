@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { annotateDate, blameDepth } from "./annotate";
 import { blameMenuItems } from "./blameMenu";
-import { Git, type BlameLine, type DiffOptions, type FileDiff } from "./mygo";
+import { Git, type BlameLine, type DiffOptions, type FileDiff, type ThreeWayDiff } from "./mygo";
 import { buildDiffRows, changeBlockRows, changeBlockSelections, isCollapsed, type AlignedRow, type DiffRows, type WordSegment } from "./diff";
 import { ImageDiff } from "./ImageDiff";
 import { isImagePath } from "./images";
@@ -994,4 +994,152 @@ function UnifiedRows({
   });
   void diff;
   return <div className={cx("diff-rows unified", annotate && "annotate")}>{out}</div>;
+}
+
+const THREE_T = {
+  en: {
+    head: "HEAD",
+    index: "Index",
+    worktree: "Working Tree",
+    stageAll: "Stage All",
+    unstageAll: "Unstage All",
+    rollbackAll: "Discard Working Tree",
+    stageHunk: "Stage this hunk",
+    unstageHunk: "Unstage this hunk",
+    binary: "Binary file: the three sides cannot be shown as text.",
+    noChanges: "No changes",
+  },
+  zh: {
+    head: "HEAD",
+    index: "暂存区",
+    worktree: "工作区",
+    stageAll: "全部 Stage",
+    unstageAll: "全部 Unstage",
+    rollbackAll: "丢弃工作区更改",
+    stageHunk: "Stage 此代码块",
+    unstageHunk: "Unstage 此代码块",
+    binary: "二进制文件：无法以文本显示三侧内容。",
+    noChanges: "无更改",
+  },
+} as const;
+
+/** ThreeWayView shows a file at HEAD, in the index and in the working
+ *  tree at once, the way IDEA's staging area does, and lets each hunk of
+ *  either transition be applied. */
+export function ThreeWayView({
+  three,
+  onApplyHunk,
+  onApplyFile,
+  busy,
+}: {
+  three: ThreeWayDiff;
+  onApplyHunk: (side: "staged" | "unstaged", hunk: number, action: "stage" | "unstage" | "rollback") => void;
+  onApplyFile: (side: "staged" | "unstaged", action: "stage" | "unstage" | "rollback") => void;
+  busy?: boolean;
+}) {
+  const t = useT(THREE_T);
+  const lines = (text: string) => {
+    if (text === "") return [] as string[];
+    const parts = text.split("\n");
+    if (parts[parts.length - 1] === "") parts.pop();
+    return parts;
+  };
+  const headLines = useMemo(() => lines(three.head), [three.head]);
+  const indexLines = useMemo(() => lines(three.index), [three.index]);
+  const worktreeLines = useMemo(() => lines(three.worktree), [three.worktree]);
+  const stagedOld = useMemo(() => changedLines(three.staged, "old"), [three.staged]);
+  const stagedNew = useMemo(() => changedLines(three.staged, "new"), [three.staged]);
+  const unstagedOld = useMemo(() => changedLines(three.unstaged, "old"), [three.unstaged]);
+  const unstagedNew = useMemo(() => changedLines(three.unstaged, "new"), [three.unstaged]);
+
+  const pane = (title: string, text: string[], changed: Set<number>, tone: string) => (
+    <div className="three-pane">
+      <div className="three-pane-title">{title}</div>
+      <div className="three-pane-body">
+        {text.length === 0 ? (
+          <div className="three-pane-empty">{t("noChanges")}</div>
+        ) : (
+          text.map((line, i) => (
+            <div key={i} className={cx("three-line", changed.has(i + 1) && tone)}>
+              <span className="three-no">{i + 1}</span>
+              <span className="three-text">{line === "" ? "\u00a0" : line}</span>
+            </div>
+          ))
+        )}
+      </div>
+    </div>
+  );
+
+  return (
+    <div className="three-way">
+      <div className="diff-toolbar three-toolbar">
+        <span className="three-path" title={three.path}>
+          <FileIcon path={three.path} size={14} /> {three.path}
+        </span>
+        <span className="spacer" />
+        <button className="toolbar-text-btn" disabled={busy} onClick={() => onApplyFile("unstaged", "stage")}>
+          <Icon name="stage" /> {t("stageAll")}
+        </button>
+        <button className="toolbar-text-btn" disabled={busy} onClick={() => onApplyFile("staged", "unstage")}>
+          <Icon name="unstage" /> {t("unstageAll")}
+        </button>
+        <button className="toolbar-text-btn" disabled={busy} onClick={() => onApplyFile("unstaged", "rollback")}>
+          <Icon name="undo" /> {t("rollbackAll")}
+        </button>
+      </div>
+      <div className="three-hunks">
+        {three.unstaged.hunks.map((h, i) => (
+          <button
+            key={"u" + i}
+            className="three-hunk-chip"
+            disabled={busy}
+            title={t("stageHunk")}
+            onClick={() => onApplyHunk("unstaged", i, "stage")}
+          >
+            <Icon name="chevronRight" size={11} /> {h.header}
+          </button>
+        ))}
+        {three.staged.hunks.map((h, i) => (
+          <button
+            key={"s" + i}
+            className="three-hunk-chip staged"
+            disabled={busy}
+            title={t("unstageHunk")}
+            onClick={() => onApplyHunk("staged", i, "unstage")}
+          >
+            <Icon name="chevronLeft" size={11} /> {h.header}
+          </button>
+        ))}
+      </div>
+      {three.binary ? (
+        <p className="setting-hint">{t("binary")}</p>
+      ) : (
+        <div className="three-panes">
+          {pane(t("head"), headLines, stagedOld, "changed-staged")}
+          {pane(t("index"), indexLines, union(stagedNew, unstagedOld), "changed-index")}
+          {pane(t("worktree"), worktreeLines, unstagedNew, "changed-worktree")}
+        </div>
+      )}
+    </div>
+  );
+}
+
+/** changedLines collects the line numbers a diff marks as added or
+ *  deleted on one side. */
+function changedLines(diff: FileDiff, side: "old" | "new"): Set<number> {
+  const out = new Set<number>();
+  for (const hunk of diff.hunks) {
+    for (const line of hunk.lines) {
+      if (line.kind === "context") continue;
+      const no = side === "old" ? line.oldNo : line.newNo;
+      if (no > 0) out.add(no);
+    }
+  }
+  return out;
+}
+
+function union(a: Set<number>, b: Set<number>): Set<number> {
+  const out = new Set(a);
+  for (const n of b) out.add(n);
+  return out;
 }

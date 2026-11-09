@@ -7,6 +7,7 @@ import { FileIcon, Icon } from "./icons";
 import { useT } from "./i18n";
 import { count } from "./i18n";
 import {
+  Checkbox,
   ContextMenu,
   cx,
   formatStamp,
@@ -84,6 +85,14 @@ const T = {
     pushCommits: "Push Commits up to Here…",
     fixupCommit: "Create Fixup Commit",
     squashCommit: "Create Squash Commit",
+    amendSpecific: "Amend Staged Changes into This Commit…",
+    fixupBySubject: "Create Fixup Commit by Subject",
+    filterBranches: "Filter branches and tags",
+    allRefs: "All branches and tags",
+    showCommand: "Show Git Command",
+    commandTitle: "History command",
+    copyCommand: "Copy command",
+    closeCommand: "Close",
     resetSoft: "Reset Current Branch to Here — Soft",
     resetMixed: "Reset Current Branch to Here — Mixed",
     resetHard: "Reset Current Branch to Here — Hard",
@@ -161,6 +170,14 @@ const T = {
     pushCommits: "推送提交到此为止…",
     fixupCommit: "创建 Fixup 提交",
     squashCommit: "创建 Squash 提交",
+    amendSpecific: "将暂存更改并入此提交…",
+    fixupBySubject: "按提交信息创建 Fixup 提交",
+    filterBranches: "按分支和标签过滤",
+    allRefs: "所有分支和标签",
+    showCommand: "显示 Git 命令",
+    commandTitle: "历史命令",
+    copyCommand: "复制命令",
+    closeCommand: "关闭",
     resetSoft: "将当前分支 Reset 到此处 — Soft",
     resetMixed: "将当前分支 Reset 到此处 — Mixed",
     resetHard: "将当前分支 Reset 到此处 — Hard",
@@ -220,7 +237,8 @@ export function LogDock({
   authors,
   filters,
   onFilters,
-  scope,
+  refs,
+  onRefs,
   pathScope,
   onClearScope,
   onClearPathScope,
@@ -252,6 +270,8 @@ export function LogDock({
   onRevert,
   onFixupCommit,
   onSquashCommit,
+  onAmendCommit,
+  onFixupBySubject,
   onPushCommits,
   onBrowseRevision,
   onRewrite,
@@ -267,8 +287,9 @@ export function LogDock({
   authors: AuthorOption[];
   filters: LogFilters;
   onFilters: (next: LogFilters) => void;
-  /** Branch whose history is listed; "" when it follows HEAD. */
-  scope: string;
+  /** Branches or tags whose history is listed; empty means all. */
+  refs: string[];
+  onRefs: (refs: string[]) => void;
   pathScope: string;
   onClearScope: () => void;
   onClearPathScope: () => void;
@@ -303,6 +324,8 @@ export function LogDock({
   onRevert: (hashes: string[]) => void;
   onFixupCommit: (hash: string) => void;
   onSquashCommit: (hash: string) => void;
+  onAmendCommit: (hash: string) => void;
+  onFixupBySubject: (subject: string) => void;
   onPushCommits: (hash: string) => void;
   onBrowseRevision: (hash: string) => void;
   onRewrite: (oldest: Commit) => void;
@@ -312,6 +335,8 @@ export function LogDock({
   const [menu, setMenu] = useState<{ x: number; y: number; items: ContextItem[] } | null>(null);
 
   const [showFilters, setShowFilters] = useState(false);
+  const [showRefs, setShowRefs] = useState(false);
+  const [showCommand, setShowCommand] = useState(false);
   // The commit details' share of the dock; the edge between the history and
   // the details sets it and the dock keeps it across sessions.
   const [detailRatio, setDetailRatio] = useStoredState<number>("gitjet.logDetailRatio", 0.4);
@@ -528,6 +553,8 @@ export function LogDock({
         { label: t("pushCommits"), icon: "push", onClick: () => onPushCommits(commit.hash) },
         { label: t("fixupCommit"), icon: "commit", onClick: () => onFixupCommit(hashes[0]!) },
         { label: t("squashCommit"), icon: "commit", onClick: () => onSquashCommit(hashes[0]!) },
+        { label: t("amendSpecific"), icon: "commit", onClick: () => onAmendCommit(commit.hash) },
+        { label: t("fixupBySubject"), icon: "commit", onClick: () => onFixupBySubject(commit.subject) },
         { separator: true },
         { label: t("rewriteHistory"), icon: "commit", onClick: () => onRewrite(oldest) },
         { separator: true },
@@ -655,11 +682,41 @@ export function LogDock({
               )}
             </div>
             <AuthorPicker authors={authors} value={author} onChange={onAuthor} />
-            {scope && (
-              <button className="log-scope" title={t("clearScope")} onClick={onClearScope}>
+            <div className="log-filter-wrap">
+              <IconButton
+                icon="branch"
+                title={t("filterBranches")}
+                active={showRefs || refs.length > 0}
+                onClick={() => setShowRefs((v) => !v)}
+              />
+              {showRefs && (
+                <div className="log-filter-popover log-refs-popover" onMouseLeave={() => setShowRefs(false)}>
+                  <button className="log-ref-all" onClick={() => onRefs([])}>
+                    <Icon name="list" size={12} /> {t("allRefs")}
+                  </button>
+                  {[...new Set((result?.refs ?? []).map((r) => r.name))].sort().map((name) => (
+                    <Checkbox
+                      key={name}
+                      checked={refs.includes(name)}
+                      onChange={(on) =>
+                        onRefs(on ? [...refs, name] : refs.filter((r) => r !== name))
+                      }
+                      label={name}
+                    />
+                  ))}
+                </div>
+              )}
+            </div>
+            {refs.map((name) => (
+              <button key={name} className="log-scope" title={t("clearScope")} onClick={() => onRefs(refs.filter((r) => r !== name))}>
                 <Icon name="branch" size={11} />
-                <span>{t("scope", { branch: scope })}</span>
+                <span>{name}</span>
                 <Icon name="close" size={11} />
+              </button>
+            ))}
+            {refs.length === 0 && (
+              <button className="log-scope" title={t("clearScope")} onClick={onClearScope}>
+                <span>{t("allRefs")}</span>
               </button>
             )}
             {pathScope && (
@@ -670,6 +727,7 @@ export function LogDock({
               </button>
             )}
             <span className="spacer" />
+            <IconButton icon="console" title={t("showCommand")} active={showCommand} onClick={() => setShowCommand((v) => !v)} />
             <IconButton
               icon="cherry"
               title={t("markCherry")}
@@ -683,6 +741,20 @@ export function LogDock({
               disabled={!result?.hasMore || loading}
             />
           </div>
+          {showCommand && (
+            <div className="log-command">
+              <div className="log-command-head">
+                <span>{t("commandTitle")}</span>
+                <button className="mini-btn" onClick={() => onCopy(result?.command ?? "")}>
+                  {t("copyCommand")}
+                </button>
+                <button className="mini-btn" onClick={() => setShowCommand(false)}>
+                  {t("closeCommand")}
+                </button>
+              </div>
+              <pre>{result?.command ?? ""}</pre>
+            </div>
+          )}
           <div
             className="log-cols"
             style={

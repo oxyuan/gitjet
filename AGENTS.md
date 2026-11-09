@@ -96,6 +96,29 @@ use it only for layout work. Vite's port is pinned to 5173 in **both**
 - `SaveShelf` captures `git diff HEAD` and verifies it reverse-applies before
   discarding anything: a shelf that skipped the index, as plain `git diff`
   does, lost every staged change to the `reset --hard` that followed.
+  `includeUntracked` marks new files intent-to-add for one diff, then resets
+  the markers. A shelf also stores the HEAD→index patch, so applying it
+  restores which hunks were staged instead of flattening everything into
+  the working tree; new files and staged files are covered alike.
+- `CommitOptions.StagedOnly` commits the real index and ignores the path
+  list (the UI's "Commit staged only"); `CommitAllChanges` enumerates every
+  changed path, untracked included, for "Commit All".
+- `CheckCommit` always adds the identity, empty-change and GPG checks:
+  `git var GIT_AUTHOR_IDENT` failing, a clean status, `commit.gpgsign` with
+  a missing `gpg.program`, and signing with no pinentry on PATH (GitJet has
+  no terminal to prompt in). The old CRLF/large/name/detached checks stay.
+- `CommitFixupBySubject` resolves an exact subject only when one commit
+  carries it; `AmendCommit` creates an `amend!` fixup from the staged
+  changes and autosquashes with a no-op sequence editor, so descendants are
+  replayed by git and a conflict leaves the rebase for Continue/Abort.
+- The log page carries its exact `git log` command, and `LogOptions.Refs`
+  accepts several refs — the history's branch filter is a multi-select, not
+  a single branch.
+- A rewrite plan accepts `exec` and `break` steps between commits. `exec`
+  runs the user's shell line in the working tree; a failed command or a
+  break leaves the plan paused, and Continue skips the failed exec/break.
+  `planIsCurrent` treats those steps as current when no cherry-pick is
+  pending, because they have no commit to compare.
 - A rewrite plan records its branch (`planState.Branch`) and the step git is
   stopped on; `planIsCurrent` accepts it only while `CHERRY_PICK_HEAD` is
   that step (or the plan is paused on that branch). A stale plan is cleared
@@ -247,6 +270,18 @@ use it only for layout work. Vite's port is pinned to 5173 in **both**
   the keyboard cannot land on a file hidden inside a closed folder. The
   listener is registered once and reads the latest buffer and matches through
   a ref: re-subscribing per keystroke could drop characters.
+- `ThreeWayView` (`DiffView.tsx`) is a document kind of its own: three
+  read-only panes (HEAD, index, working tree) plus a hunk chip per side.
+  Each chip calls the ordinary `ApplyHunk`/`ApplyFile` with the side's own
+  `DiffOptions`, so staging code has no second implementation; the backend
+  `ThreeWay` reads both transitions through `FileDiff`, including the 8 MiB
+  cap and whitespace flags. The commit dialog can open it for any change.
+- The commit panel's "Commit staged only" sets `CommitOptions.StagedOnly`;
+  "Commit All" runs `Git.commitAll`, independent of the checkboxes. The
+  panel's Review action opens `ReviewDialog`, a file list beside the
+  existing `DiffView` against HEAD; `LocalHistoryDialog` takes `path:""`
+  for repository-wide history. Dialogs stay in `Dialogs.tsx` unless they
+  own a standalone file (`EditHistoryDialog.tsx`, `RepoExtrasDialog.tsx`).
 - A control beside a focused text field acts on the press, not on the click:
   pressing elsewhere blurs the field first, and the release click arrives late
   enough to be dropped, so the first click would only take the focus away.

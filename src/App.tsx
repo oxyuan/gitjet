@@ -21,13 +21,14 @@ import {
   type Settings,
   type SourceFile,
   type SymbolHit,
+  type ThreeWayDiff,
 } from "./mygo";
-import { CommitPanel, type CommitActions, type CommitForm, type FileEntry } from "./CommitPanel";
+import { CommitPanel, entriesFor, type CommitActions, type CommitForm, type FileEntry } from "./CommitPanel";
 import { ConsolePanel } from "./ConsolePanel";
 import { SourceTree } from "./SourceTree";
 import { normalizeTabOrder, type ToolTab, TOOL_TABS, TOOL_TAB_ICONS } from "./tabs";
 import { isProtectedBranch } from "./protected";
-import { DiffView } from "./DiffView";
+import { DiffView, ThreeWayView } from "./DiffView";
 import {
   ChangelistDialog,
   MergeDialog,
@@ -45,6 +46,7 @@ import {
   CleanupBranchesDialog,
   ConflictSummaryDialog,
   LocalHistoryDialog,
+  ReviewDialog,
 } from "./Dialogs";
 import { EditHistoryDialog } from "./EditHistoryDialog";
 import { CloneDialog, InitDialog, RemotesDialog } from "./RepoSetupDialogs";
@@ -262,6 +264,10 @@ const T = {
     externalDiffFailed: "The difftool could not be opened",
     commitChecksMessage: "{n} problems were found. Commit anyway?",
     commitAnyway: "Commit Anyway",
+    amendSpecificTitle: "Amend into this commit",
+    amendSpecificMessage: "Fold the staged changes into {hash} and replay the commits after it?",
+    amendNeedsStaged: "Stage the changes to amend into this commit first.",
+    fixupBySubject: "Fixup by subject",
     commitRebaseNoUpstream: "The branch has no upstream to rebase onto.",
     undoCommitTitle: "Undo the last commit",
     undoCommitMessage: "HEAD moves back one commit and its changes stay staged.",
@@ -289,6 +295,7 @@ const T = {
     noFileOpen: "No file open",
     emptyOpen: "Choose a file, a commit or a conflict to read it here.",
     kindDiff: "Diff",
+    kindThree: "Three-sided diff",
     kindSource: "Source",
     kindMerge: "Merge",
     kindCommit: "Commit",
@@ -496,6 +503,10 @@ const T = {
     externalDiffFailed: "无法打开差异工具",
     commitChecksMessage: "发现 {n} 个问题，仍要提交吗？",
     commitAnyway: "仍然提交",
+    amendSpecificTitle: "并入此提交",
+    amendSpecificMessage: "把暂存区的更改并入 {hash}，并重放它之后的提交？",
+    amendNeedsStaged: "请先暂存要并入此提交的更改。",
+    fixupBySubject: "按提交信息 Fixup",
     commitRebaseNoUpstream: "当前分支没有可 Rebase 的上游。",
     undoCommitTitle: "撤销上次提交",
     undoCommitMessage: "HEAD 回退一次提交，其更改保留在暂存区。",
@@ -522,6 +533,7 @@ const T = {
     noFileOpen: "没有打开的文件",
     emptyOpen: "选择文件、提交或冲突，在这里查看详情。",
     kindDiff: "差异",
+    kindThree: "三侧差异",
     kindSource: "源码",
     kindMerge: "Merge",
     kindCommit: "提交",
@@ -592,6 +604,7 @@ function ToolTabs({
 
 type Doc = { id: string; title: string } & (
   | { kind: "diff"; diff: FileDiff; opts: DiffOptions }
+  | { kind: "three"; three: ThreeWayDiff; opts: DiffOptions }
   | { kind: "file"; file: SourceFile; revision: string; line?: number }
   | { kind: "commit"; detail: CommitDetail }
   | { kind: "tree"; revision: string; files: RepoFile[] }
@@ -619,6 +632,7 @@ type Dialog =
   | { kind: "remotes" }
   | { kind: "rebase"; onto: string }
   | { kind: "localHistory"; path: string }
+  | { kind: "review" }
   | { kind: "pushCommits"; hash: string };
 
 interface ConfirmState {
@@ -640,6 +654,7 @@ const emptyForm: CommitForm = {
   sign: false,
   authorName: "",
   authorEmail: "",
+  stagedOnly: false,
 };
 
 export default function App() {
@@ -709,8 +724,9 @@ function AppShell({ onLangChange }: { onLangChange: (lang: Lang) => void }) {
   const [logPath, setLogPath] = useState("");
   // A line of that file, when the history was asked for from the gutter.
   const [logLine, setLogLine] = useState(0);
-  // Branch whose history is listed; "" follows the checked out branch.
-  const [logRef, setLogRef] = useState("");
+  // Branches whose history is listed; empty follows every local and
+  // remote branch.
+  const [logRefs, setLogRefs] = useState<string[]>([]);
   const [logResult, setLogResult] = useState<LogResult | null>(null);
   const [logLoading, setLogLoading] = useState(false);
   const [selectedCommit, setSelectedCommit] = useState<string | null>(null);
@@ -821,8 +837,8 @@ function AppShell({ onLangChange }: { onLangChange: (lang: Lang) => void }) {
         const s = settingsRef.current;
         const opts = {
           // No filter means every local and remote branch, not just HEAD.
-          all: !logRef && !logLine,
-          refs: logRef ? [logRef] : [],
+          all: logRefs.length === 0 && !logLine,
+          refs: logRefs,
           path: logPath,
           line: logLine,
           search: logSearch,
@@ -865,7 +881,7 @@ function AppShell({ onLangChange }: { onLangChange: (lang: Lang) => void }) {
         if (req === logReq.current) setLogLoading(false);
       }
     },
-    [fail, logAuthor, logFilters, logPath, logLine, logRef, logSearch, logResult?.commits.length, t],
+    [fail, logAuthor, logFilters, logPath, logLine, logRefs, logSearch, logResult?.commits.length, t],
   );
 
   const showFileRef = useRef<(path: string, revision?: string, line?: number) => Promise<void>>(async () => {});
@@ -1181,7 +1197,7 @@ function AppShell({ onLangChange }: { onLangChange: (lang: Lang) => void }) {
     if (!snapshot) return;
     void loadLog(true);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [logAuthor, logSearch, logPath, logLine, logRef, logFilters, snapshot?.state.head]);
+  }, [logAuthor, logSearch, logPath, logLine, logRefs, logFilters, snapshot?.state.head]);
 
   useEffect(() => {
     if (!snapshot) return;
@@ -1259,7 +1275,7 @@ function AppShell({ onLangChange }: { onLangChange: (lang: Lang) => void }) {
       setLogFile(null);
       setLogPath("");
       setLogLine(0);
-      setLogRef("");
+      setLogRefs([]);
       setSearchInput("");
       setLogSearch("");
       setLogAuthor("");
@@ -1402,6 +1418,23 @@ function AppShell({ onLangChange }: { onLangChange: (lang: Lang) => void }) {
       return;
     }
     void showDiff(diffOptionsForEntry(entry), entry.path);
+  };
+
+  const showThreeWay = async (entry: FileEntry) => {
+    if (entry.unmerged) {
+      void openConflict(entry.path);
+      return;
+    }
+    const opts = diffOptionsForEntry(entry);
+    setDiffBusy(true);
+    try {
+      const three = await Git.threeWay(opts);
+      openDoc({ id: `three:${entry.path}`, title: entry.path, kind: "three", three, opts });
+    } catch (err) {
+      fail(t("showDiffFailed"), err);
+    } finally {
+      setDiffBusy(false);
+    }
   };
 
   const showFileDiff = async (path: string, revision: string) => {
@@ -1548,6 +1581,38 @@ function AppShell({ onLangChange }: { onLangChange: (lang: Lang) => void }) {
       openDoc({ id: `diff:${opts.target}:${opts.revision}:${opts.path}`, title: opts.path, kind: "diff", diff, opts });
     });
 
+  /** Fold the index into an older commit, then replay its descendants. */
+  const amendSpecific = async (hash: string) => {
+    const snap = snapshotRef.current;
+    if (!snap?.changes.some((c) => c.staged)) {
+      notify("error", t("amendSpecificTitle"), t("amendNeedsStaged"));
+      return;
+    }
+    const commit = logResult?.commits.find((c) => c.hash === hash);
+    const ok = await ask({
+      title: t("amendSpecificTitle"),
+      message: t("amendSpecificMessage", { hash: commit?.short ?? hash.slice(0, 7) }),
+      confirmLabel: t("amendSpecificTitle"),
+    });
+    if (!ok) return;
+    await withBusy(async () => {
+      const result = await Git.amendCommit(hash, "");
+      notify("success", t("committed", { hash: result.short }), result.subject);
+      await reload(false);
+      void loadLog(true);
+    });
+  };
+
+  /** A fixup! commit aimed at the commit whose subject was picked. */
+  const fixupBySubject = async (subject: string) => {
+    await withBusy(async () => {
+      const result = await Git.commitFixupBySubject(subject, false);
+      notify("success", t("committed", { hash: result.short }), result.subject);
+      await reload(false);
+      void loadLog(true);
+    });
+  };
+
   /** A fixup! or squash! commit for hash, folded in by an autosquash rebase. */
   const commitFixup = async (hash: string, squash: boolean) => {
     await withBusy(async () => {
@@ -1587,6 +1652,44 @@ function AppShell({ onLangChange }: { onLangChange: (lang: Lang) => void }) {
       } catch {
         closeDoc(`diff:${opts.target}:${opts.revision}:${opts.path}`);
       }
+    });
+
+  const threeSideOpts = (doc: Extract<Doc, { kind: "three" }>, side: "staged" | "unstaged"): DiffOptions => ({
+    ...doc.opts,
+    target: side === "staged" ? "staged" : "worktree",
+    revision: "",
+    from: "",
+  });
+
+  const refreshThree = async (doc: Extract<Doc, { kind: "three" }>) => {
+    try {
+      const three = await Git.threeWay(doc.opts);
+      openDoc({ ...doc, three });
+    } catch {
+      closeDoc(doc.id);
+    }
+  };
+
+  const applyThreeHunk = (
+    side: "staged" | "unstaged",
+    hunk: number,
+    action: "stage" | "unstage" | "rollback",
+  ) =>
+    withBusy(async () => {
+      const active = docsRef.current.find((d) => d.id === activeIdRef.current);
+      if (active?.kind !== "three") return;
+      await Git.applyHunk(threeSideOpts(active, side), hunk, action);
+      await reload(false);
+      await refreshThree(active);
+    });
+
+  const applyThreeFile = (side: "staged" | "unstaged", action: "stage" | "unstage" | "rollback") =>
+    withBusy(async () => {
+      const active = docsRef.current.find((d) => d.id === activeIdRef.current);
+      if (active?.kind !== "three") return;
+      await Git.applyFile(threeSideOpts(active, side), action);
+      await reload(false);
+      await refreshThree(active);
     });
 
   /** Alt-click on a change bar: roll back only that line. */
@@ -1656,7 +1759,7 @@ function AppShell({ onLangChange }: { onLangChange: (lang: Lang) => void }) {
     });
   };
 
-  const commit = async (pushAfter: boolean, rebaseAfter = false, selectedOnly = false) => {
+  const commit = async (pushAfter: boolean, rebaseAfter = false, selectedOnly = false, allChanges = false) => {
     if (!snapshot) return;
     // Every commit is refused while the index holds unmerged entries, so say
     // what blocks it and show the files instead of surfacing git's error.
@@ -1666,12 +1769,16 @@ function AppShell({ onLangChange }: { onLangChange: (lang: Lang) => void }) {
       return;
     }
     const eligible = new Set<string>();
+    const stagedEligible = new Set<string>();
     for (const c of snapshot.changes) {
       if (c.unmerged || c.kind === "ignored" || c.kind === "conflict") continue;
       eligible.add(c.path);
+      if (c.staged) stagedEligible.add(c.path);
     }
-    const paths = [...checked].filter((p) => eligible.has(p));
-    if (paths.length === 0 && !form.amend && !form.allowEmpty) {
+    const paths = allChanges || form.stagedOnly ? [...eligible] : [...checked].filter((p) => eligible.has(p));
+    const stagedPaths = allChanges ? [...stagedEligible] : [...checked].filter((p) => stagedEligible.has(p));
+    const count = form.stagedOnly ? stagedEligible.size : paths.length;
+    if (count === 0 && !form.amend && !form.allowEmpty) {
       notify("error", t("nothingToCommit"), t("nothingToCommitMessage"));
       return;
     }
@@ -1687,7 +1794,8 @@ function AppShell({ onLangChange }: { onLangChange: (lang: Lang) => void }) {
       });
       if (!ok) return;
     }
-    const warnings = await Git.commitChecks(paths).catch(() => []);
+    const checkPaths = form.stagedOnly ? stagedPaths : paths;
+    const warnings = await Git.commitChecks(checkPaths).catch(() => []);
     if (warnings.length > 0) {
       const ok = await ask({
         title: t("commitChecksTitle"),
@@ -1709,12 +1817,14 @@ function AppShell({ onLangChange }: { onLangChange: (lang: Lang) => void }) {
       sign: form.sign,
       authorName: form.authorName,
       authorEmail: form.authorEmail,
+      stagedOnly: selectedOnly || allChanges ? false : form.stagedOnly,
     };
     if (selectedOnly && paths.length === 0) {
       notify("error", t("nothingToCommit"), t("commitSelectedNeedsFiles"));
       return;
     }
     const ok = await withBusy(async () => {
+      if (allChanges) return Git.commitAll(options);
       if (selectedOnly) return Git.commitSelected(options);
       return Git.commit(options);
     }, t("commitFailed"));
@@ -1923,7 +2033,7 @@ function AppShell({ onLangChange }: { onLangChange: (lang: Lang) => void }) {
     const out = await withBusy(() => Git.checkout(ref));
     if (out !== undefined) {
       notify("success", t("checkedOut"), ref);
-      setLogRef("");
+      setLogRefs([]);
       await reload(false);
       void loadLog(true);
     }
@@ -2003,8 +2113,8 @@ function AppShell({ onLangChange }: { onLangChange: (lang: Lang) => void }) {
       await withBusy(() => Git.deleteTag(name, ""));
       notify("success", t("tagDeleted"), name);
       // A deleted tag cannot stay the history scope.
-      if (logRef === name) {
-        setLogRef("");
+      if (logRefs.includes(name)) {
+        setLogRefs(logRefs.filter((r) => r !== name));
         setSelectedCommit(null);
         setLogDetail(null);
         setLogFile(null);
@@ -2355,7 +2465,7 @@ function AppShell({ onLangChange }: { onLangChange: (lang: Lang) => void }) {
   const createPatch = async (paths: string[]) => {
     await withBusy(async () => {
       const target = await Git.savePatch(
-        { paths, staged: false, revision: "", from: "" },
+        { paths, staged: false, revision: "", from: "", includeUntracked: false },
         "changes.patch",
       );
       if (target) notify("success", t("patchSaved"), target);
@@ -2546,7 +2656,7 @@ function AppShell({ onLangChange }: { onLangChange: (lang: Lang) => void }) {
     setLogLine(line);
     // A line's history is asked of the revision that line belongs to; the
     // index has no committed line numbers, so it keeps the branch in view.
-    if (revision && revision !== "INDEX") setLogRef(revision);
+    if (revision && revision !== "INDEX") setLogRefs([revision]);
     setTab("branch");
     // A folded dock would hide the answer the click asked for.
     setLogDockFolded(false);
@@ -2625,7 +2735,11 @@ function AppShell({ onLangChange }: { onLangChange: (lang: Lang) => void }) {
         await reload(false);
       }),
     onCommit: (pushAfter, rebaseAfter) => void commit(pushAfter, rebaseAfter ?? false),
+    onCommitAll: () => void commit(false, false, false, true),
     onCommitSelected: () => void commit(false, false, true),
+    onShowThreeWay: (entry) => void showThreeWay(entry),
+    onReview: () => setDialog({ kind: "review" }),
+    onRepoLocalHistory: () => setDialog({ kind: "localHistory", path: "" }),
     onUndoCommit: () => void undoCommit(),
     onToggleAmend: (amend) => void toggleAmend(amend),
     onCommitFormChange: setForm,
@@ -2818,9 +2932,9 @@ function AppShell({ onLangChange }: { onLangChange: (lang: Lang) => void }) {
                   refs={refs}
                   current={state?.branch ?? ""}
                   favorites={favorites}
-                  selected={logRef}
+                  selected={logRefs.length === 1 ? logRefs[0]! : ""}
                   onSelect={(name) => {
-                    setLogRef(name);
+                    setLogRefs([name]);
                     setSelectedCommit(null);
                     setLogDetail(null);
                     setLogFile(null);
@@ -2913,6 +3027,8 @@ function AppShell({ onLangChange }: { onLangChange: (lang: Lang) => void }) {
               const active = docsRef.current.find((d) => d.id === activeIdRef.current);
               if (active?.kind === "diff") void applyLines(active.opts, lines, action);
             }}
+            onApplyThreeHunk={applyThreeHunk}
+            onApplyThreeFile={applyThreeFile}
             onOpenFile={(path, revision) => void showFile(path, revision)}
             onOpenDiff={(path, revision) => void showFileDiff(path, revision)}
             onCopyPath={copyText}
@@ -2949,9 +3065,10 @@ function AppShell({ onLangChange }: { onLangChange: (lang: Lang) => void }) {
             authors={authors}
             filters={logFilters}
             onFilters={setLogFilters}
-            scope={logRef}
+            refs={logRefs}
+            onRefs={setLogRefs}
             pathScope={logPath ? (logLine > 0 ? `${logPath}:${logLine}` : logPath) : ""}
-            onClearScope={() => setLogRef("")}
+            onClearScope={() => setLogRefs([])}
             onClearPathScope={() => {
               setLogPath("");
               setLogLine(0);
@@ -3001,6 +3118,8 @@ function AppShell({ onLangChange }: { onLangChange: (lang: Lang) => void }) {
             onBrowseRevision={(hash) => void openRevisionTree(hash)}
             onFixupCommit={(hash) => void commitFixup(hash, false)}
             onSquashCommit={(hash) => void commitFixup(hash, true)}
+            onAmendCommit={(hash) => void amendSpecific(hash)}
+            onFixupBySubject={(subject) => void fixupBySubject(subject)}
             onRevert={(hashes) => void revert(hashes)}
             onRewrite={(oldest) => rewriteFrom(oldest)}
             onReset={(hash) => {
@@ -3133,6 +3252,13 @@ function AppShell({ onLangChange }: { onLangChange: (lang: Lang) => void }) {
               void loadLog(true);
             });
           }}
+        />
+      )}
+      {dialog?.kind === "review" && snapshot && (
+        <ReviewDialog
+          entries={entriesFor(snapshot)}
+          context={settings?.diffContext ?? -1}
+          onClose={() => setDialog(null)}
         />
       )}
       {dialog?.kind === "localHistory" && (
@@ -3433,6 +3559,8 @@ function kindLabel(doc: Doc, t: Translate): string {
   switch (doc.kind) {
     case "diff":
       return t("kindDiff");
+    case "three":
+      return t("kindThree");
     case "file":
       return t("kindSource");
     case "commit":
@@ -3445,6 +3573,8 @@ function kindLabel(doc: Doc, t: Translate): string {
 function docIcon(doc: Doc): "diff" | "file" | "merge" | "user" | "commit" | "folder" {
   switch (doc.kind) {
     case "diff":
+      return "diff";
+    case "three":
       return "diff";
     case "file":
       return "file";
@@ -3459,6 +3589,8 @@ function docIcon(doc: Doc): "diff" | "file" | "merge" | "user" | "commit" | "fol
 function docPath(doc: Doc): string {
   switch (doc.kind) {
     case "diff":
+      return doc.opts.path;
+    case "three":
       return doc.opts.path;
     case "file":
       return doc.file.path;
@@ -3478,6 +3610,8 @@ function tabTitle(doc: Doc, t: Translate): string {
   switch (doc.kind) {
     case "diff":
       return baseName(doc.opts.path);
+    case "three":
+      return `${baseName(doc.opts.path)} · 3`;
     case "file":
       return baseName(doc.file.path);
     case "commit":
@@ -3509,6 +3643,8 @@ function RightPane({
   onApplyHunk,
   onApplyFile,
   onApplyLines,
+  onApplyThreeHunk,
+  onApplyThreeFile,
   onOpenFile,
   onExternalDiff,
   onOpenDiff,
@@ -3549,6 +3685,8 @@ function RightPane({
   onApplyHunk: (hunk: number, action: "stage" | "unstage" | "rollback") => void;
   onApplyFile: (action: "stage" | "unstage" | "rollback") => void;
   onApplyLines: (lines: number[], action: "stage" | "unstage" | "rollback") => void;
+  onApplyThreeHunk: (side: "staged" | "unstaged", hunk: number, action: "stage" | "unstage" | "rollback") => void;
+  onApplyThreeFile: (side: "staged" | "unstaged", action: "stage" | "unstage" | "rollback") => void;
   onOpenFile: (path: string, revision: string) => void;
   onExternalDiff: (opts: DiffOptions) => void;
   onOpenDiff: (path: string, revision: string) => void;
@@ -3881,6 +4019,15 @@ function RightPane({
               ))}
             </div>
           </div>
+        )}
+        {active.kind === "three" && (
+          <ThreeWayView
+            key={active.id}
+            three={active.three}
+            onApplyHunk={(side, hunk, action) => onApplyThreeHunk(side, hunk, action)}
+            onApplyFile={(side, action) => onApplyThreeFile(side, action)}
+            busy={busy}
+          />
         )}
         {active.kind === "diff" && (
           <DiffView

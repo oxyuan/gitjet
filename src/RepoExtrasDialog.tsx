@@ -15,6 +15,8 @@ const T = {
     shelfEmpty: "No shelves",
     shelfFiles: "{n} files",
     shelfName: "Shelf name",
+    shelfUntracked: "Include untracked files",
+    shelfStaged: "restores index",
     shelveChanges: "Shelve changes",
     applyPatchFile: "Apply patch file…",
     lock: "Lock",
@@ -81,6 +83,8 @@ const T = {
     shelfEmpty: "没有搁置内容",
     shelfFiles: "{n} 个文件",
     shelfName: "搁置名称",
+    shelfUntracked: "包含未跟踪文件",
+    shelfStaged: "恢复暂存区",
     shelveChanges: "搁置当前更改",
     applyPatchFile: "应用补丁文件…",
     lock: "锁定",
@@ -188,6 +192,7 @@ export function RepoExtrasDialog({
   const [hooks, setHooks] = useState<Hook[] | null>(null);
   const [shelves, setShelves] = useState<Shelf[] | null>(null);
   const [shelfName, setShelfName] = useState("");
+  const [shelfUntracked, setShelfUntracked] = useState(true);
   const [subUrl, setSubUrl] = useState("");
   const [subPath, setSubPath] = useState("");
   const [subBranch, setSubBranch] = useState("");
@@ -387,6 +392,7 @@ export function RepoExtrasDialog({
                   <span className="repo-row-title">{shelf.name}</span>
                   <span className="muted repo-row-sub">
                     {t("shelfFiles", { n: shelf.files })}
+                    {shelf.staged ? ` · ${t("shelfStaged")}` : ""}
                     {shelf.preview ? ` · ${shelf.preview}` : ""}
                   </span>
                 </div>
@@ -403,6 +409,7 @@ export function RepoExtrasDialog({
             <Field label={t("shelfName")}>
               <TextInput value={shelfName} onChange={setShelfName} placeholder="work in progress" />
             </Field>
+            <Checkbox checked={shelfUntracked} onChange={setShelfUntracked} label={t("shelfUntracked")} />
             <div className="repo-actions">
               <Button
                 variant="primary"
@@ -414,6 +421,7 @@ export function RepoExtrasDialog({
                       staged: false,
                       revision: "",
                       from: "",
+                      includeUntracked: shelfUntracked,
                     });
                     setShelfName("");
                   })

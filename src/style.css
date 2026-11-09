@@ -9634,3 +9634,277 @@ body.resizing-row .log-detail-split::after {
   opacity: 0.6;
   cursor: default;
 }
+
+/* Three-way staging view: HEAD, index and working tree side by side. */
+.three-way {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  min-height: 0;
+}
+
+.three-toolbar {
+  flex-wrap: wrap;
+}
+
+.three-path {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  color: var(--fg-soft);
+}
+
+.three-hunks {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+  padding: 6px 10px;
+  border-bottom: 1px solid var(--border);
+}
+
+.three-hunk-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 7px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: transparent;
+  color: var(--fg-soft);
+  font: inherit;
+  font-size: 11px;
+  cursor: pointer;
+}
+
+.three-hunk-chip.staged {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+.three-hunk-chip:hover:not(:disabled) {
+  background: var(--hover);
+}
+
+.three-hunk-chip:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+.three-panes {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 1px;
+  flex: 1;
+  min-height: 0;
+  background: var(--border);
+}
+
+.three-pane {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+  background: var(--code-bg);
+}
+
+.three-pane-title {
+  padding: 4px 8px;
+  font-size: 11px;
+  color: var(--muted);
+  border-bottom: 1px solid var(--border);
+  background: var(--surface);
+}
+
+.three-pane-body {
+  overflow: auto;
+  flex: 1;
+  font-family: var(--font-mono);
+  font-size: var(--code-size);
+  line-height: 1.5;
+}
+
+.three-pane-empty {
+  padding: 8px;
+  color: var(--muted);
+  font-family: var(--font-ui);
+}
+
+.three-line {
+  display: flex;
+  min-height: 1.5em;
+  white-space: pre;
+}
+
+.three-no {
+  flex: 0 0 auto;
+  width: 3.5em;
+  padding-right: 8px;
+  text-align: right;
+  color: var(--muted-2);
+  user-select: none;
+}
+
+.three-text {
+  flex: 1;
+  padding-right: 8px;
+}
+
+.three-line.changed-staged {
+  background: color-mix(in srgb, var(--warning) 18%, transparent);
+}
+
+.three-line.changed-index {
+  background: color-mix(in srgb, var(--accent) 14%, transparent);
+}
+
+.three-line.changed-worktree {
+  background: color-mix(in srgb, var(--success) 14%, transparent);
+}
+
+/* Working-tree review: file list beside a full diff. */
+.review-layout {
+  display: grid;
+  grid-template-columns: 260px minmax(0, 1fr);
+  gap: 12px;
+  height: 64vh;
+  min-height: 0;
+}
+
+.review-files {
+  overflow: auto;
+  border-right: 1px solid var(--border);
+  padding-right: 8px;
+}
+
+.review-files-title {
+  font-size: 11px;
+  color: var(--muted);
+  padding: 4px 6px;
+}
+
+.review-file {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  width: 100%;
+  padding: 5px 6px;
+  border: 0;
+  border-radius: 4px;
+  background: transparent;
+  color: var(--fg);
+  font: inherit;
+  font-size: 12px;
+  text-align: left;
+  cursor: pointer;
+}
+
+.review-file:hover {
+  background: var(--hover);
+}
+
+.review-file.selected {
+  background: var(--selected);
+}
+
+.review-file-path {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.review-diff {
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+}
+
+.review-diff > .diff-view {
+  height: 100%;
+}
+
+/* The log's branch filter and exact command. */
+.log-refs-popover {
+  max-height: 320px;
+  overflow: auto;
+  min-width: 260px;
+}
+
+.log-refs-popover label {
+  display: flex;
+  padding: 2px 4px;
+  font-size: 12px;
+}
+
+.log-ref-all {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  width: 100%;
+  padding: 5px;
+  border: 0;
+  border-bottom: 1px solid var(--border);
+  background: transparent;
+  color: var(--fg);
+  font: inherit;
+  font-size: 12px;
+  text-align: left;
+  cursor: pointer;
+}
+
+.log-ref-all:hover {
+  background: var(--hover);
+}
+
+.log-command {
+  border-bottom: 1px solid var(--border);
+  background: var(--surface);
+  padding: 6px 10px;
+}
+
+.log-command-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 11px;
+  color: var(--muted);
+}
+
+.log-command pre {
+  margin: 4px 0 0;
+  padding: 6px 8px;
+  overflow: auto;
+  white-space: pre-wrap;
+  word-break: break-all;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--fg-soft);
+  background: var(--code-bg);
+  border-radius: 4px;
+}
+
+/* Exec and break lines in the rewrite editor. */
+.rewrite-insert {
+  display: flex;
+  gap: 8px;
+  margin-bottom: 8px;
+}
+
+.rewrite-action {
+  min-width: 90px;
+  font-size: 12px;
+  color: var(--accent);
+  font-family: var(--font-mono);
+}
+
+.local-history-path {
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 11px;
+  color: var(--muted);
+}
+

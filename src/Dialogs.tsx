@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState, type MouseEvent as ReactMouseEvent } from "react";
 import { buildChangeTree, directoryKeys } from "./changes";
+import type { FileEntry } from "./CommitPanel";
 import { DiffView } from "./DiffView";
 import { FileTree } from "./FileTree";
 import { SourceEditor } from "./SourceEditor";
@@ -274,13 +275,20 @@ const T = {
     "stashd.pop": "Pop",
     "stashd.apply": "Apply",
     "localHistory.title": "Local History — {path}",
+    "localHistory.repoTitle": "Local History — Repository",
     "localHistory.loading": "Reading the local history",
     "localHistory.empty": "No saved copies of this file yet",
+    "localHistory.repoEmpty": "No saved copies in this repository yet",
     "localHistory.unlabelled": "unlabelled",
     "localHistory.restore": "Restore This Copy",
     "localHistory.label": "Label",
     "localHistory.labelPlaceholder": "Name this copy",
     "localHistory.binary": "This copy cannot be shown as text.",
+    "review.title": "Review Changes",
+    "review.files": "Changed files",
+    "review.loading": "Reading the diff",
+    "review.empty": "There are no changes to review",
+    "review.failed": "The diff could not be read",
     "stashd.restoreIndex": "Reinstate the index (--index)",
     "stashd.compareLocal": "Compare with the working tree",
     "stashd.branch": "Restore on a new branch",
@@ -549,13 +557,20 @@ const T = {
     "stashd.pop": "弹出",
     "stashd.apply": "应用",
     "localHistory.title": "本地历史 — {path}",
+    "localHistory.repoTitle": "本地历史 — 仓库",
     "localHistory.loading": "正在读取本地历史",
     "localHistory.empty": "这个文件还没有历史副本",
+    "localHistory.repoEmpty": "这个仓库还没有历史副本",
     "localHistory.unlabelled": "未命名",
     "localHistory.restore": "恢复此副本",
     "localHistory.label": "标记",
     "localHistory.labelPlaceholder": "为此副本命名",
     "localHistory.binary": "此副本无法以文本显示。",
+    "review.title": "Review 更改",
+    "review.files": "已更改的文件",
+    "review.loading": "正在读取差异",
+    "review.empty": "没有可 Review 的更改",
+    "review.failed": "无法读取差异",
     "stashd.restoreIndex": "还原暂存区（--index）",
     "stashd.compareLocal": "与工作区比较",
     "stashd.branch": "恢复到新分支",
@@ -2627,14 +2642,14 @@ export function LocalHistoryDialog({
     setSelected(entry);
     setLabel(entry.label);
     try {
-      setText(await Git.localHistoryContent(path, entry.digest));
+      setText(await Git.localHistoryContent(entry.path, entry.digest));
     } catch {
       setText("");
     }
   };
   const load = async () => {
     try {
-      const list = await Git.localHistory(path);
+      const list = path ? await Git.localHistory(path) : await Git.localHistoryAll();
       setEntries(list);
       if (list.length > 0) await pick(list[0]!);
     } catch {
@@ -2647,13 +2662,13 @@ export function LocalHistoryDialog({
 
   const saveLabel = async () => {
     if (!selected) return;
-    await Git.labelLocalHistory(path, selected.digest, label).catch(() => {});
+    await Git.labelLocalHistory(selected.path, selected.digest, label).catch(() => {});
     await load();
   };
 
   return (
     <Modal
-      title={t("localHistory.title", { path })}
+      title={path ? t("localHistory.title", { path }) : t("localHistory.repoTitle")}
       icon="clock"
       width={880}
       onClose={onClose}
@@ -2663,7 +2678,7 @@ export function LocalHistoryDialog({
           <Button
             variant="primary"
             disabled={!selected}
-            onClick={() => selected && onRestore(path, selected.digest)}
+            onClick={() => selected && onRestore(selected.path, selected.digest)}
           >
             {t("localHistory.restore")}
           </Button>
@@ -2673,17 +2688,18 @@ export function LocalHistoryDialog({
       {entries === null ? (
         <Spinner label={t("localHistory.loading")} />
       ) : entries.length === 0 ? (
-        <p className="setting-hint">{t("localHistory.empty")}</p>
+        <p className="setting-hint">{path ? t("localHistory.empty") : t("localHistory.repoEmpty")}</p>
       ) : (
         <div className="local-history">
           <div className="local-history-list">
             {entries.map((entry) => (
               <button
-                key={entry.digest}
-                className={cx("local-history-row", selected?.digest === entry.digest && "selected")}
+                key={entry.path + ":" + entry.digest}
+                className={cx("local-history-row", selected?.digest === entry.digest && selected.path === entry.path && "selected")}
                 onClick={() => void pick(entry)}
               >
                 <span className="local-history-time">{formatWhen(entry.time)}</span>
+                {!path && <span className="local-history-path" title={entry.path}>{entry.path}</span>}
                 <span className="local-history-label">{entry.label || t("localHistory.unlabelled")}</span>
                 <span className="muted">{entry.size} B</span>
               </button>
@@ -2697,6 +2713,120 @@ export function LocalHistoryDialog({
               </Button>
             </div>
             <pre className="local-history-preview">{text || t("localHistory.binary")}</pre>
+          </div>
+        </div>
+      )}
+    </Modal>
+  );
+}
+
+/** ReviewDialog reads every working-tree change in one place, with the
+ *  same full-file diff the editor shows, before a commit. */
+export function ReviewDialog({
+  entries,
+  context,
+  onClose,
+}: {
+  entries: FileEntry[];
+  context: number;
+  onClose: () => void;
+}) {
+  const t = useT(T);
+  const files = useMemo(() => entries.filter((e) => !e.unmerged && !e.ignored), [entries]);
+  const [path, setPath] = useState<string>(files[0]?.path ?? "");
+  const [diff, setDiff] = useState<FileDiff | null>(null);
+  const [error, setError] = useState("");
+  const [loading, setLoading] = useState(false);
+  const [mode, setMode] = useState<"split" | "unified">("unified");
+  const [ignoreWhitespace, setIgnoreWhitespace] = useState(false);
+  const [wrap, setWrap] = useState(false);
+
+  const opts: DiffOptions = {
+    path,
+    target: "head",
+    revision: "",
+    from: "",
+    context,
+    ignoreWhitespace,
+    ignoreWhitespaceEol: false,
+    noText: false,
+  };
+
+  useEffect(() => {
+    if (!path) {
+      setDiff(null);
+      return;
+    }
+    let alive = true;
+    setLoading(true);
+    setError("");
+    Git.diff({ ...opts, path })
+      .then((result) => {
+        if (alive) setDiff(result);
+      })
+      .catch((err: unknown) => {
+        if (alive) {
+          setError(err instanceof Error ? err.message : String(err));
+          setDiff(null);
+        }
+      })
+      .finally(() => alive && setLoading(false));
+    return () => {
+      alive = false;
+    };
+  }, [path, context, ignoreWhitespace]);
+
+  return (
+    <Modal
+      title={t("review.title")}
+      icon="diff"
+      width={1180}
+      onClose={onClose}
+      footer={<Button onClick={onClose}>{t("common.close")}</Button>}
+    >
+      {files.length === 0 ? (
+        <p className="setting-hint">{t("review.empty")}</p>
+      ) : (
+        <div className="review-layout">
+          <div className="review-files">
+            <div className="review-files-title">{t("review.files")}</div>
+            {files.map((entry) => (
+              <button
+                key={entry.path + (entry.staged ? ":staged" : "")}
+                className={cx("review-file", entry.path === path && "selected")}
+                onClick={() => setPath(entry.path)}
+                title={entry.path}
+              >
+                <StatusMark kind={entry.kind} staged={entry.staged} />
+                <span className="review-file-path">{entry.path}</span>
+              </button>
+            ))}
+          </div>
+          <div className="review-diff">
+            {error ? (
+              <p className="dialog-error">{t("review.failed")}: {error}</p>
+            ) : loading && !diff ? (
+              <Spinner label={t("review.loading")} />
+            ) : diff ? (
+              <DiffView
+                diff={diff}
+                opts={{ ...opts, path }}
+                mode={mode}
+                setMode={setMode}
+                ignoreWhitespace={ignoreWhitespace}
+                onToggleWhitespace={() => setIgnoreWhitespace((v) => !v)}
+                onApply={() => {}}
+                onApplyFile={() => {}}
+                onApplyLines={() => {}}
+                onOpenFile={() => {}}
+                root=""
+                onCopyPath={() => {}}
+                busy={loading}
+                reloadKey={0}
+                wrap={wrap}
+                onToggleWrap={() => setWrap((v) => !v)}
+              />
+            ) : null}
           </div>
         </div>
       )}

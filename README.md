@@ -20,7 +20,7 @@ Go 调用你机器上的 git，React 画界面。hooks、filters、credential he
 ## ✨ 亮点
 
 - 🧩 **三栏冲突解决** —— 本地 / 结果 / 远程同屏，逐块接受或忽略，结果区可直接编辑。
-- 🕰️ **可视化改历史** —— pick / reword / squash / fixup / drop，冲突时暂停，可继续或中止。
+- 🕰️ **可视化改历史** —— pick / reword / squash / fixup / drop / edit / exec / break，冲突时暂停，可继续或中止。
 - 🗂️ **变更集** —— 改动按主题分组，一个仓库同时开几条线。
 - 🔍 **在差异旁读代码** —— LSP 跳转与悬停文档、行内 blame，点变更条回滚 hunk。
 - 🧬 **原生 git** —— 每条命令都是本机的 git，行为和终端一致。
@@ -38,10 +38,10 @@ Go 调用你机器上的 git，React 画界面。hooks、filters、credential he
 
 ## 🧰 功能一览
 
-- 🗂️ **工作区** —— 按文件、hunk 或选中行暂存与回滚；变更集；贮藏、补丁、搁置、本地历史。
-- ✍️ **提交** —— amend、sign-off、GPG 与签名校验、模板、只提交选中更改、提交前检查、撤销提交、fixup / squash。
+- 🗂️ **工作区** —— 按文件、hunk 或选中行暂存与回滚；HEAD / 暂存区 / 工作区三侧同屏；变更集；贮藏、补丁、搁置（含未跟踪文件与暂存状态）、文件与仓库级本地历史。
+- ✍️ **提交** —— amend、只提交暂存区 / 选中更改 / 全部更改、sign-off、GPG 与签名校验、模板、身份与 pinentry 检查、撤销提交、任意提交 amend 与按提交信息 fixup、提交前 Review。
 - 🌿 **分支与远端** —— 检出 / 更新、标签、清理已合并分支、工作树、子模块、LFS、钩子、push 预览与 refspec。
-- 🕰️ **历史** —— 多 lane 提交图、过滤与搜索、任意比较、cherry-pick / revert / reset、文件历史、blame。
+- 🕰️ **历史** —— 多 lane 提交图、多分支过滤与搜索、显示实际 git 命令、任意比较、cherry-pick / revert / reset、文件历史、blame。
 - 🔀 **冲突与重写** —— 三栏合并与内存三方合并（按 git 的 diff3 算法，不触碰工作区即可暂存结果）；merge / rebase / cherry-pick / revert 的继续、跳过与中止；交互式 rebase。
 - 👀 **阅读** —— 并排 / 统一差异、图片对照、可编辑源码、LSP、快速打开、多标签。
 - 🖥️ **工具** —— 控制台与操作日志、快捷键、主题与语言、最近仓库、系统集成。
