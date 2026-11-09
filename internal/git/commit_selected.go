@@ -9,36 +9,12 @@ import (
 	"strings"
 )
 
-// signoffTrailer is the line "git commit --signoff" would append.
-func (r *Repo) signoffTrailer(ctx context.Context) string {
-	out, err := r.run(ctx, "var", "GIT_COMMITTER_IDENT")
-	if err != nil {
-		return ""
-	}
-	ident := strings.TrimSpace(out)
-	open := strings.IndexByte(ident, '<')
-	close := strings.IndexByte(ident, '>')
-	if open < 0 || close < open {
-		return ""
-	}
-	name := strings.TrimSpace(ident[:open])
-	email := strings.TrimSpace(ident[open+1 : close])
-	if name == "" || email == "" {
-		return ""
-	}
-	return "Signed-off-by: " + name + " <" + email + ">"
-}
-
-// CommitSelected commits exactly the selected paths as they are on disk,
-// without touching the staging of anything else. The commit is built on a
-// temporary index, so partially staged files elsewhere keep their state —
-// this is IDEA's in-memory "extract changes into a commit".
+// CommitSelected is the commit-dialog entry that insists on an explicit
+// selection. It shares Commit's semantics: staged changes of the selected
+// paths are committed as staged, paths with nothing staged are taken from
+// the working tree, and nothing outside the selection is touched.
 func (r *Repo) CommitSelected(ctx context.Context, opts CommitOptions) (CommitResult, error) {
-	msg := strings.TrimSpace(opts.Message)
-	if msg == "" && !opts.Amend {
-		return CommitResult{}, errors.New("a commit needs a message")
-	}
-	clean, err := cleanPaths(opts.Paths)
+	clean, err := cleanCommitOptions(opts)
 	if err != nil {
 		return CommitResult{}, err
 	}
@@ -47,144 +23,198 @@ func (r *Repo) CommitSelected(ctx context.Context, opts CommitOptions) (CommitRe
 	}
 	r.write.Lock()
 	defer r.write.Unlock()
+	return r.commitLocked(ctx, opts, clean)
+}
 
-	head := ""
-	if out, err := r.run(ctx, "rev-parse", "--verify", "--quiet", "HEAD"); err == nil {
-		head = strings.TrimSpace(out)
+// cleanCommitOptions validates the commit form and returns the selected
+// paths. No paths means "commit the index".
+func cleanCommitOptions(opts CommitOptions) ([]string, error) {
+	if strings.TrimSpace(opts.Message) == "" && !opts.Amend {
+		return nil, errors.New("a commit needs a message")
 	}
-	if opts.Amend {
-		if head == "" {
-			return CommitResult{}, errors.New("there is no commit to amend")
-		}
-		if msg == "" {
-			if out, err := r.run(ctx, "log", "-1", "--format=%B"); err == nil {
-				msg = strings.TrimRight(out, "\n")
-			}
+	if opts.AuthorName != "" || opts.AuthorEmail != "" {
+		if strings.ContainsAny(opts.AuthorName+opts.AuthorEmail, "<>\n") {
+			return nil, errors.New("the author name or email contains characters git does not allow")
 		}
 	}
-	tempIndex := filepath.Join(r.gitDir, "gitjet-selected-index")
-	_ = os.Remove(tempIndex)
-	defer os.Remove(tempIndex)
-	env := []string{"GIT_INDEX_FILE=" + tempIndex}
+	if len(opts.Paths) == 0 {
+		return nil, nil
+	}
+	return cleanPaths(opts.Paths)
+}
 
-	if head == "" {
-		if _, err := r.runEnv(ctx, env, "read-tree", "--empty"); err != nil {
-			return CommitResult{}, err
-		}
-	} else if _, err := r.runEnv(ctx, env, "read-tree", head); err != nil {
-		return CommitResult{}, err
+// commitLocked builds the commit; r.write is held.
+//
+// The selected paths are the whole story: for every one of them, the
+// staged version wins when the index already has a change, and the
+// working tree is staged into a temporary index otherwise. A path that
+// only has an unstaged edit is therefore still committed by checking it,
+// while a partially staged file commits just the staged hunks and leaves
+// the rest in the working tree.
+func (r *Repo) commitLocked(ctx context.Context, opts CommitOptions, clean []string) (CommitResult, error) {
+	if len(clean) > 0 {
+		clean = r.expandRenames(ctx, clean)
 	}
-
-	// Tracked paths: one patch from HEAD to the working tree.
-	var tracked []string
-	var untracked []string
-	for _, path := range clean {
-		if r.isTracked(ctx, path) {
-			tracked = append(tracked, path)
-		} else if _, err := os.Stat(r.AbsPath(path)); err == nil {
-			untracked = append(untracked, path)
-		}
+	if r.sequencerBusy() || len(clean) == 0 {
+		// A merge, cherry-pick or revert is finished from the index: git
+		// refuses a partial commit while one is in progress, and the
+		// index is the operation's result.
+		return r.runCommit(ctx, opts, nil)
 	}
-	if len(tracked) > 0 {
-		args := []string{"diff", "--no-color", "--no-ext-diff", "--binary"}
-		if head != "" {
-			args = append(args, head)
-		}
-		args = append(args, "--")
-		args = append(args, literalPaths(tracked)...)
-		patch, err := r.run(ctx, args...)
-		if err != nil {
-			return CommitResult{}, err
-		}
-		if strings.TrimSpace(patch) != "" {
-			if _, err := r.runEnvInput(ctx, env, patch, "apply", "--cached", "--whitespace=nowarn", "-"); err != nil {
-				return CommitResult{}, err
-			}
-		}
-	}
-	for _, path := range untracked {
-		content, err := os.ReadFile(r.AbsPath(path))
-		if err != nil {
-			return CommitResult{}, err
-		}
-		if looksBinary(string(content)) {
-			// A binary file cannot be expressed by syntheticNewFile's text
-			// patch; stage it whole in the temporary index instead.
-			if _, err := r.runEnv(ctx, env, "add", "--", literalPath(path)); err != nil {
-				return CommitResult{}, err
-			}
-			continue
-		}
-		patch := syntheticNewFile(path, content)
-		if strings.TrimSpace(patch) == "" {
-			continue
-		}
-		if _, err := r.runEnvInput(ctx, env, patch, "apply", "--cached", "--whitespace=nowarn", "-"); err != nil {
-			return CommitResult{}, err
-		}
-	}
-
-	tree, err := r.runEnv(ctx, env, "write-tree")
+	staged, worktree := r.splitByStage(ctx, clean)
+	env, cleanup, err := r.tempIndexEnv(ctx)
 	if err != nil {
 		return CommitResult{}, err
 	}
-	tree = strings.TrimSpace(tree)
-	args := []string{"commit-tree", tree}
-	if opts.Amend {
-		// Amending replaces the commit: its parents are inherited, not
-		// the commit itself.
-		parents, perr := r.parents(ctx, head)
+	defer cleanup()
+	if len(staged) > 0 {
+		// The index already holds these changes; copy them into the
+		// temporary tree exactly as they are.
+		args := append([]string{"diff", "--cached", "--binary", "--no-color", "-M", "HEAD", "--"}, literalPaths(staged)...)
+		patch, perr := r.run(ctx, args...)
 		if perr != nil {
 			return CommitResult{}, perr
 		}
-		for _, parent := range parents {
-			args = append(args, "-p", parent)
+		if strings.TrimSpace(patch) != "" {
+			if _, aerr := r.runEnvInput(ctx, env, patch, "apply", "--cached", "--whitespace=nowarn", "-"); aerr != nil {
+				return CommitResult{}, aerr
+			}
 		}
-	} else if head != "" {
-		args = append(args, "-p", head)
 	}
-	if opts.SignOff {
-		if trailer := r.signoffTrailer(ctx); trailer != "" && !strings.Contains(msg, "Signed-off-by:") {
-			msg += "\n\n" + trailer
+	if len(worktree) > 0 {
+		args := append([]string{"add", "-A", "--"}, literalPaths(worktree)...)
+		if _, aerr := r.runEnv(ctx, env, args...); aerr != nil {
+			return CommitResult{}, aerr
 		}
+	}
+	res, err := r.runCommit(ctx, opts, env)
+	if err != nil {
+		return res, err
+	}
+	// The real index follows the new HEAD for the selected paths only, so
+	// their worktree content that was not committed stays as a change and
+	// every other staged path is untouched.
+	reset := append([]string{"reset", "-q", "HEAD", "--"}, literalPaths(clean)...)
+	if _, rerr := r.run(ctx, reset...); rerr != nil {
+		return res, rerr
+	}
+	return res, nil
+}
+
+// splitByStage says which selected paths carry an index-side change. A
+// renamed path puts both halves on the staged side, because the deletion
+// of the old path belongs to the same change.
+func (r *Repo) splitByStage(ctx context.Context, paths []string) (staged, worktree []string) {
+	stagedPaths := map[string]bool{}
+	out, err := r.run(ctx, "status", "--porcelain=v2", "-z", "--untracked-files=all")
+	if err == nil {
+		for _, c := range parseStatus(out).Changes {
+			if !c.Staged {
+				continue
+			}
+			stagedPaths[c.Path] = true
+			if c.OldPath != "" {
+				stagedPaths[c.OldPath] = true
+			}
+		}
+	}
+	for _, p := range paths {
+		if stagedPaths[p] {
+			staged = append(staged, p)
+		} else {
+			worktree = append(worktree, p)
+		}
+	}
+	return staged, worktree
+}
+
+// sequencerBusy reports a multi-step operation git has to finish itself.
+// A partial commit is impossible while one is in progress.
+func (r *Repo) sequencerBusy() bool {
+	if r.gitDir == "" {
+		return false
+	}
+	for _, name := range []string{"MERGE_HEAD", "CHERRY_PICK_HEAD", "REVERT_HEAD", "rebase-merge", "rebase-apply"} {
+		if _, err := os.Stat(filepath.Join(r.gitDir, name)); err == nil {
+			return true
+		}
+	}
+	return false
+}
+
+// tempIndexEnv starts a temporary index at HEAD and returns the
+// environment that points git at it, with a cleanup that removes it.
+func (r *Repo) tempIndexEnv(ctx context.Context) ([]string, func(), error) {
+	index := filepath.Join(r.gitDir, "gitjet-commit-index")
+	_ = os.Remove(index)
+	cleanup := func() { _ = os.Remove(index) }
+	env := []string{"GIT_INDEX_FILE=" + index}
+	if _, err := r.run(ctx, "rev-parse", "--verify", "--quiet", "HEAD"); err == nil {
+		if _, rerr := r.runEnv(ctx, env, "read-tree", "HEAD"); rerr != nil {
+			cleanup()
+			return nil, nil, rerr
+		}
+	} else if _, rerr := r.runEnv(ctx, env, "read-tree", "--empty"); rerr != nil {
+		cleanup()
+		return nil, nil, rerr
+	}
+	return env, cleanup, nil
+}
+
+// runCommit runs git commit itself, so hooks, signing and commit.gpgsign
+// are the user's own. A nil env uses the repository's real index.
+func (r *Repo) runCommit(ctx context.Context, opts CommitOptions, env []string) (CommitResult, error) {
+	args := []string{"commit"}
+	if opts.Amend {
+		args = append(args, "--amend")
+		if strings.TrimSpace(opts.Message) == "" {
+			args = append(args, "--no-edit")
+		}
+	}
+	if opts.AllowEmpty {
+		args = append(args, "--allow-empty")
 	}
 	if opts.Sign {
 		args = append(args, "-S")
 	}
-	args = append(args, "-m", msg)
-	commitEnv := append([]string{}, env...)
+	if opts.SignOff {
+		args = append(args, "--signoff")
+	}
+	if opts.NoVerify {
+		args = append(args, "--no-verify")
+	}
+	commitEnv := env
 	if opts.AuthorName != "" || opts.AuthorEmail != "" {
 		name := opts.AuthorName
 		if name == "" {
 			name = "GitJet"
 		}
-		commitEnv = append(commitEnv,
-			"GIT_AUTHOR_NAME="+name,
-			"GIT_AUTHOR_EMAIL="+opts.AuthorEmail,
-		)
+		commitEnv = append(append([]string{}, env...), "GIT_AUTHOR_NAME="+name, "GIT_AUTHOR_EMAIL="+opts.AuthorEmail)
+		args = append(args, "--author="+name+" <"+opts.AuthorEmail+">")
 	}
-	out, err := r.runEnv(ctx, commitEnv, args...)
+	if msg := strings.TrimSpace(opts.Message); msg != "" {
+		args = append(args, "-m", msg)
+	}
+	var out string
+	var err error
+	if commitEnv != nil {
+		out, err = r.runEnv(ctx, commitEnv, args...)
+	} else {
+		out, err = r.run(ctx, args...)
+	}
 	if err != nil {
 		return CommitResult{}, err
 	}
-	hash := strings.TrimSpace(out)
-	reason := "commit selected changes"
-	if opts.Amend {
-		reason = "amend with selected changes"
+	res := CommitResult{Output: strings.TrimSpace(out)}
+	if hash, herr := r.run(ctx, "rev-parse", "HEAD"); herr == nil {
+		res.Hash = strings.TrimSpace(hash)
+		res.Short = short(res.Hash)
 	}
-	if _, err := r.run(ctx, "update-ref", "-m", reason, "HEAD", hash); err != nil {
-		return CommitResult{}, err
+	if subject, serr := r.run(ctx, "log", "-1", "--format=%s"); serr == nil {
+		res.Subject = strings.TrimSpace(subject)
 	}
-	// The real index now follows the new HEAD for those paths only, so the
-	// selected changes are committed and everything else stays as staged
-	// (or unstaged) as it was.
-	if _, err := r.run(ctx, append([]string{"reset", "-q", "HEAD", "--"}, literalPaths(clean)...)...); err != nil {
-		return CommitResult{}, err
+	if res.Subject != "" {
+		res.Output = fmt.Sprintf("%s %s", res.Short, res.Subject)
 	}
-	res := CommitResult{Hash: hash, Short: short(hash), Subject: msg}
-	if first := strings.Split(msg, "\n")[0]; first != "" {
-		res.Subject = first
-	}
-	res.Output = fmt.Sprintf("%s %s", short(hash), res.Subject)
 	return res, nil
 }

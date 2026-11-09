@@ -109,7 +109,8 @@ type TagOptions struct {
 	Force    bool   `json:"force"`
 }
 
-// Stage adds paths to the index. Deletions are staged too.
+// Stage adds paths to the index. Deletions are staged too, and half of a
+// rename is completed with its other half.
 func (r *Repo) Stage(ctx context.Context, paths []string) error {
 	clean, err := cleanPaths(paths)
 	if err != nil {
@@ -118,12 +119,17 @@ func (r *Repo) Stage(ctx context.Context, paths []string) error {
 	if len(clean) == 0 {
 		return errors.New("no paths were given")
 	}
+	r.write.Lock()
+	defer r.write.Unlock()
+	clean = r.expandRenames(ctx, clean)
 	args := append([]string{"add", "-A", "--"}, literalPaths(clean)...)
-	_, err = r.writeRun(ctx, args...)
+	_, err = r.run(ctx, args...)
 	return err
 }
 
-// Unstage removes paths from the index, leaving the working tree alone.
+// Unstage removes paths from the index, leaving the working tree alone. A
+// rename is unstaged as one change, so the old path's deletion does not
+// stay behind in the index.
 func (r *Repo) Unstage(ctx context.Context, paths []string) error {
 	clean, err := cleanPaths(paths)
 	if err != nil {
@@ -132,8 +138,11 @@ func (r *Repo) Unstage(ctx context.Context, paths []string) error {
 	if len(clean) == 0 {
 		return errors.New("no paths were given")
 	}
+	r.write.Lock()
+	defer r.write.Unlock()
+	clean = r.expandRenames(ctx, clean)
 	args := append([]string{"reset", "-q", "--"}, literalPaths(clean)...)
-	_, err = r.writeRun(ctx, args...)
+	_, err = r.run(ctx, args...)
 	return err
 }
 
@@ -157,24 +166,26 @@ func (r *Repo) Rollback(ctx context.Context, paths []string) error {
 // rollbackLocked is Rollback for a caller that already holds the write
 // lock; paths must be clean.
 func (r *Repo) rollbackLocked(ctx context.Context, clean []string) error {
-	// Remember renames: the old path is what HEAD has.
-	status, _ := r.Status(ctx, false)
-	oldPaths := map[string]string{}
-	for _, c := range status.Changes {
-		if c.OldPath != "" {
-			oldPaths[c.Path] = c.OldPath
-		}
+	pairs := r.renamePairs(ctx)
+	expanded := r.expandRenames(ctx, clean)
+	for _, p := range expanded {
+		_, _ = r.run(ctx, "reset", "-q", "--", literalPath(p))
 	}
 	for _, p := range clean {
-		_, _ = r.run(ctx, "reset", "-q", "--", literalPath(p))
-		restore := p
-		if o := oldPaths[p]; o != "" && o != p {
-			restore = o
-			if _, err := r.run(ctx, "checkout", "HEAD", "--", literalPath(p)); err == nil {
-				_ = os.Remove(r.AbsPath(p))
+		if old := pairs[p]; old != "" {
+			// A rename: HEAD has the old path, and the renamed file on
+			// disk is a leftover that rollback has to remove. Checking
+			// out the new path cannot work here, so deleting it is the
+			// only way back to HEAD.
+			if _, err := r.run(ctx, "checkout", "HEAD", "--", literalPath(old)); err != nil {
+				return err
 			}
+			if err := os.RemoveAll(r.AbsPath(p)); err != nil && !os.IsNotExist(err) {
+				return err
+			}
+			continue
 		}
-		if _, err := r.run(ctx, "checkout", "HEAD", "--", literalPath(restore)); err != nil {
+		if _, err := r.run(ctx, "checkout", "HEAD", "--", literalPath(p)); err != nil {
 			// Not in HEAD: an added file, which rollback deletes.
 			if err := os.RemoveAll(r.AbsPath(p)); err != nil && !os.IsNotExist(err) {
 				return err
@@ -184,82 +195,21 @@ func (r *Repo) rollbackLocked(ctx context.Context, clean []string) error {
 	return nil
 }
 
-// Commit commits what the user selected. With Paths it commits exactly
-// those paths' working-tree content and leaves every other staged change
-// staged: the index of the files that were not checked is not touched.
+// Commit creates the commit the commit dialog described. Paths that have
+// staged changes are committed exactly as the index holds them; a path
+// with nothing staged is staged from the working tree into a temporary
+// index, so checking a file still means "commit this file" without
+// dragging along hunks the user left unstaged. Nothing outside the
+// checked paths is touched, and git commit runs, so hooks, signing and
+// commit.gpgsign behave as they do in a terminal.
 func (r *Repo) Commit(ctx context.Context, opts CommitOptions) (CommitResult, error) {
-	if strings.TrimSpace(opts.Message) == "" && !opts.Amend {
-		return CommitResult{}, errors.New("a commit needs a message")
-	}
-	if opts.AuthorName != "" || opts.AuthorEmail != "" {
-		if strings.ContainsAny(opts.AuthorName+opts.AuthorEmail, "<>\n") {
-			return CommitResult{}, errors.New("the author name or email contains characters git does not allow")
-		}
-	}
-	r.write.Lock()
-	defer r.write.Unlock()
-	var commitPaths []string
-	if len(opts.Paths) > 0 {
-		clean, err := cleanPaths(opts.Paths)
-		if err != nil {
-			return CommitResult{}, err
-		}
-		// An untracked file has to exist in the index before --only can
-		// name it; the worktree content is what gets committed either way.
-		args := append([]string{"add", "-A", "--"}, literalPaths(clean)...)
-		if _, err := r.run(ctx, args...); err != nil {
-			return CommitResult{}, err
-		}
-		commitPaths = clean
-	}
-	args := []string{"commit"}
-	if opts.Amend {
-		args = append(args, "--amend")
-		if strings.TrimSpace(opts.Message) == "" {
-			args = append(args, "--no-edit")
-		}
-	}
-	if opts.AllowEmpty {
-		args = append(args, "--allow-empty")
-	}
-	if opts.Sign {
-		args = append(args, "-S")
-	}
-	if opts.SignOff {
-		args = append(args, "--signoff")
-	}
-	if opts.NoVerify {
-		args = append(args, "--no-verify")
-	}
-	if opts.AuthorName != "" || opts.AuthorEmail != "" {
-		name := opts.AuthorName
-		if name == "" {
-			name = "GitJet"
-		}
-		args = append(args, "--author="+name+" <"+opts.AuthorEmail+">")
-	}
-	if msg := strings.TrimSpace(opts.Message); msg != "" {
-		args = append(args, "-m", msg)
-	}
-	if len(commitPaths) > 0 {
-		// --only commits these paths from the working tree and keeps the
-		// staged state of everything else, unlike a reset of the index.
-		args = append(args, "--only", "--")
-		args = append(args, literalPaths(commitPaths)...)
-	}
-	out, err := r.run(ctx, args...)
+	clean, err := cleanCommitOptions(opts)
 	if err != nil {
 		return CommitResult{}, err
 	}
-	res := CommitResult{Output: out}
-	if hash, err := r.run(ctx, "rev-parse", "HEAD"); err == nil {
-		res.Hash = strings.TrimSpace(hash)
-		res.Short = short(res.Hash)
-	}
-	if subject, err := r.run(ctx, "log", "-1", "--format=%s"); err == nil {
-		res.Subject = strings.TrimSpace(subject)
-	}
-	return res, nil
+	r.write.Lock()
+	defer r.write.Unlock()
+	return r.commitLocked(ctx, opts, clean)
 }
 
 // LastCommitMessage returns HEAD's full message, for the amend dialog.

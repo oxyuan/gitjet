@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 )
 
@@ -206,6 +207,49 @@ func parseStatus(out string) StatusResult {
 		}
 	}
 	return s
+}
+
+// renamePairs maps a renamed path to the path HEAD still has. Porcelain v2
+// reports a rename once, with the new path and its origin beside it.
+func (r *Repo) renamePairs(ctx context.Context) map[string]string {
+	pairs := map[string]string{}
+	out, err := r.run(ctx, "status", "--porcelain=v2", "-z", "--untracked-files=all")
+	if err != nil {
+		return pairs
+	}
+	for _, c := range parseStatus(out).Changes {
+		if c.OldPath != "" && c.OldPath != c.Path {
+			pairs[c.Path] = c.OldPath
+		}
+	}
+	return pairs
+}
+
+// expandRenames adds the other half of every rename the caller selected.
+// Git records a rename as one path but staging, unstaging or discarding it
+// has to name both the new and the old path, or half the change stays
+// behind in the index.
+func (r *Repo) expandRenames(ctx context.Context, paths []string) []string {
+	pairs := r.renamePairs(ctx)
+	seen := make(map[string]bool, len(paths)*2)
+	out := make([]string, 0, len(paths)*2)
+	add := func(p string) {
+		if p != "" && !seen[p] {
+			seen[p] = true
+			out = append(out, p)
+		}
+	}
+	for _, p := range paths {
+		add(p)
+	}
+	for newPath, oldPath := range pairs {
+		if seen[newPath] || seen[oldPath] {
+			add(newPath)
+			add(oldPath)
+		}
+	}
+	sort.Strings(out)
+	return out
 }
 
 func parseStatusHeader(state *RepoState, line string) {

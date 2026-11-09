@@ -136,3 +136,35 @@ func TestDiffOfABracketPathNamesOnlyThatFile(t *testing.T) {
 		t.Fatalf("the patch of a[1].txt covers the wrong file:\n%s", d.Patch)
 	}
 }
+
+func TestUnstageClearsBothSidesOfARename(t *testing.T) {
+	repo, dir := newTestRepo(t)
+	runGit(t, dir, "mv", "a.txt", "b.txt")
+	if err := repo.Unstage(context.Background(), []string{"b.txt"}); err != nil {
+		t.Fatalf("Unstage: %v", err)
+	}
+	if staged := runGit(t, dir, "diff", "--cached", "--name-status"); staged != "" {
+		t.Fatalf("staged after unstage = %q, want nothing", staged)
+	}
+	status := runGit(t, dir, "status", "--porcelain")
+	if !strings.Contains(status, "D a.txt") || !strings.Contains(status, "?? b.txt") {
+		t.Fatalf("status = %q, want the rename back as delete + untracked", status)
+	}
+}
+
+func TestRollbackRestoresARenameWithoutLeavingACopy(t *testing.T) {
+	repo, dir := newTestRepo(t)
+	runGit(t, dir, "mv", "a.txt", "b.txt")
+	if err := repo.Rollback(context.Background(), []string{"b.txt"}); err != nil {
+		t.Fatalf("Rollback: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(dir, "a.txt")); err != nil {
+		t.Fatalf("a.txt was not restored: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(dir, "b.txt")); !os.IsNotExist(err) {
+		t.Fatalf("b.txt is still on disk after rollback (err=%v)", err)
+	}
+	if status := runGit(t, dir, "status", "--porcelain"); status != "" {
+		t.Fatalf("status = %q, want clean", status)
+	}
+}
