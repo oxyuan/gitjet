@@ -1341,7 +1341,8 @@ export function PushDialog({
   const [targetEdited, setTargetEdited] = useState(false);
   const [recent, setRecent] = useState<string[]>([]);
   const [forceIfIncludes, setForceIfIncludes] = useState(false);
-  const [remote, setRemote] = useState(upstreamRef.remote || remotes.find((r) => r.name === "origin")?.name ?? remotes[0]?.name ?? "origin");
+  const fallbackRemote = remotes.find((r) => r.name === "origin")?.name ?? remotes[0]?.name ?? "origin";
+  const [remote, setRemote] = useState(upstreamRef.remote || fallbackRemote);
   const [preview, setPreview] = useState<PushPreview | null>(null);
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(true);
