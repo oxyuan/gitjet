@@ -1112,7 +1112,7 @@ export function CommitPanel({
                 ],
               });
             }}
-            disabled={busy || !canCommit}
+            disabled={busy}
             title={blocked ? t("commitBlockedTooltip") : t("commitAndPush")}
           >
             <Icon name="chevronUp" size={12} />

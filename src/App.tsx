@@ -1683,14 +1683,28 @@ function AppShell({ onLangChange }: { onLangChange: (lang: Lang) => void }) {
       await refreshThree(active);
     });
 
-  const applyThreeFile = (side: "staged" | "unstaged", action: "stage" | "unstage" | "rollback") =>
-    withBusy(async () => {
-      const active = docsRef.current.find((d) => d.id === activeIdRef.current);
-      if (active?.kind !== "three") return;
-      await Git.applyFile(threeSideOpts(active, side), action);
-      await reload(false);
-      await refreshThree(active);
-    });
+  const applyThreeFile = (side: "staged" | "unstaged", action: "stage" | "unstage" | "rollback") => {
+    const active = docsRef.current.find((d) => d.id === activeIdRef.current);
+    if (active?.kind !== "three") return;
+    const run = () =>
+      withBusy(async () => {
+        await Git.applyFile(threeSideOpts(active, side), action);
+        await reload(false);
+        await refreshThree(active);
+      });
+    if (action === "rollback") {
+      void ask({
+        title: t("rollbackFileTitle"),
+        message: t("rollbackFileMessage", { path: active.opts.path }),
+        confirmLabel: t("rollback"),
+        danger: true,
+      }).then((ok) => {
+        if (ok) void run();
+      });
+      return;
+    }
+    void run();
+  };
 
   /** Alt-click on a change bar: roll back only that line. */
   const rollbackEditorLine = async (path: string, line: number) => {

@@ -201,6 +201,13 @@ func TestLogResultCarriesTheCommandAndRefs(t *testing.T) {
 	}
 }
 
+func TestLogRejectsARefThatLooksLikeAnOption(t *testing.T) {
+	repo, _ := newTestRepo(t)
+	if _, err := repo.Log(context.Background(), LogOptions{Refs: []string{"--all"}}); err == nil {
+		t.Fatal("a ref starting with - must be refused")
+	}
+}
+
 func TestLocalHistoryAllListsEveryFile(t *testing.T) {
 	repo, dir := newTestRepo(t)
 	writeFile(t, dir, "a.txt", "a1\n")

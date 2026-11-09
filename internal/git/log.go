@@ -162,6 +162,11 @@ func (r *Repo) Log(ctx context.Context, opts LogOptions) (LogResult, error) {
 	}
 	args = append(args, logFormat)
 	if len(opts.Refs) > 0 && !opts.All {
+		for _, ref := range opts.Refs {
+			if strings.TrimSpace(ref) == "" || strings.HasPrefix(ref, "-") || strings.ContainsAny(ref, " \t\n") {
+				return LogResult{}, errors.New("invalid ref filter")
+			}
+		}
 		args = append(args, opts.Refs...)
 	}
 	if path != "" {
