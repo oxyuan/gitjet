@@ -43,7 +43,7 @@ There is no router, no state library, no ORM: dock/tab/dialog state lives in
 
 |Path|Purpose|
 |---|---|
-|`internal/git/`|Git execution and parsing: `git.go` (spawn/env/paths), `status.go`, `diff.go`, `log.go`, `actions.go`, `blame.go`, `console.go`, `files.go`, `repoinfo.go`, `rewrite.go` (commit plan replay), `repo_extra.go` (worktrees, cleanup, submodules, LFS, shallow), `lifecycle.go` (clone/init), `remotes.go`, `lines.go` (line-level patches), `patch.go` (patches and shelves), `update.go` (update/push subsets), `commit_extra.go` (undo, fixup, commit checks), `localhistory.go` (content snapshots), `commit_selected.go` (temporary-index commit), `cherry.go` (patch-id marks), `images.go` (image bytes), `trace.go` (command echo)|
+|`internal/git/`|Git execution and parsing: `git.go` (spawn/env/paths), `status.go`, `diff.go`, `log.go`, `actions.go`, `blame.go`, `console.go`, `files.go`, `repoinfo.go`, `rewrite.go` (commit plan replay), `repo_extra.go` (worktrees, cleanup, submodules, LFS, shallow), `lifecycle.go` (clone/init), `remotes.go`, `lines.go` (line-level patches), `patch.go` (patches and shelves), `update.go` (update/push subsets), `commit_extra.go` (undo, fixup, commit checks), `localhistory.go` (content snapshots), `commit_selected.go` (the commit machinery: temporary index, real `git commit`), `cherry.go` (patch-id marks), `images.go` (image bytes), `trace.go` (command echo)|
 |`internal/proc/`|`HideConsole` (`internal/proc`, `CREATE_NO_WINDOW` on Windows): applied to every console child GitJet starts|
 |`internal/app/`|Host: `run.go` (window/menu/events, recents, window tracking), `contextmenu.go` (the page's right-click menu), `service.go` (bound services, poll), `settings.go` (`core`, persistence), `i18n.go`, `lsp.go` (language server bridge)|
 |`src/`|React UI; `*.test.ts` next to the module under test. `EditHistoryDialog.tsx` (rewrite plan) and `RepoExtrasDialog.tsx` (worktrees/submodules/LFS) are the only standalone dialogs; the rest live in `Dialogs.tsx`|
@@ -96,14 +96,26 @@ use it only for layout work. Vite's port is pinned to 5173 in **both**
 - `SaveShelf` captures `git diff HEAD` and verifies it reverse-applies before
   discarding anything: a shelf that skipped the index, as plain `git diff`
   does, lost every staged change to the `reset --hard` that followed.
-- A rewrite plan records its branch (`planState.Branch`) and is ignored when
-  it belongs elsewhere; a stale plan used to be replayed or reset on
-  whatever branch happened to be checked out.
+- A rewrite plan records its branch (`planState.Branch`) and the step git is
+  stopped on; `planIsCurrent` accepts it only while `CHERRY_PICK_HEAD` is
+  that step (or the plan is paused on that branch). A stale plan is cleared
+  without moving HEAD; replaying or aborting it used to reset whatever
+  branch happened to be checked out.
+- A commit is index-aware: a checked path with a staged change commits the
+  index entry, a path with nothing staged is added to a temporary index from
+  the working tree, and `git commit` runs, so hooks, signing, `commit.gpgsign`
+  and `--amend`'s author preservation are the user's own. A merge,
+  cherry-pick or revert commits the real index (git refuses a partial commit
+  during one). `Commit` and `CommitSelected` share this machinery in
+  `commit_selected.go`.
 - Mutating service methods (`Checkout`, `Merge`, `Rebase`, `CherryPick`,
   `Revert`, `Pull` without `--autostash`, `Rewrite`) run through
   `preserveLocalChanges` (`internal/app/service.go`): a dirty tree is stashed
-  as `gitjet: before <action>` and restored with `stash pop --index`; a failed
-  restore keeps the stash and says so in the output. `Reset` is deliberately
+  as `gitjet: before <action>` and restored with `stash pop --index`; the
+  entry is found by that message, not assumed to be `stash@{0}`. When the
+  operation stops with unmerged paths the stash is deliberately kept (git
+  cannot pop into an unmerged index) and the output names it; a failed
+  restore keeps the stash and says so. `Reset` is deliberately
   not wrapped — a hard reset is asked for to discard changes.
 - Conflict resolution has two entry points that share one repository call:
   `MergePreview` merges the three index stages with `MergeText` (a diff3
@@ -121,7 +133,12 @@ use it only for layout work. Vite's port is pinned to 5173 in **both**
 - Pushing to a differently named remote branch is a refspec
   (`refs/heads/a:refs/heads/b`), never a rename: `PushOptions.RemoteBranch`
   carries the target, `PushPreview` reports against that ref, and the dialog's
-  editable target re-reads the preview (debounced).
+  editable target re-reads the preview (debounced). The dialog starts from
+  the branch's configured upstream, not `origin/<local name>`, and only
+  proposes `-u` when the branch has no upstream. A detached HEAD pushes
+  `HEAD:refs/heads/<target>`.
+- Branch cleanup tries `-d` per branch and asks before replacing the
+  unmerged remainder with `-D`; it is never a silent force delete.
 - Mutations are serialized by `Repo.write`. Use `writeRun` (locks) or lock
   manually like `Rollback`/`Commit`; **never** call `writeRun` while already
   holding the lock — `sync.Mutex` is not reentrant. Read methods stay lock-free
@@ -137,7 +154,13 @@ use it only for layout work. Vite's port is pinned to 5173 in **both**
 ### Paths and arguments from the page
 
 - Every page-supplied path passes `cleanPath`/`cleanPaths` (repo-relative,
-  rejects absolute and `..`). Note `cleanPaths` **sorts and dedupes**.
+  rejects absolute and `..`). Note `cleanPaths` **sorts and dedupes**;
+  whitespace is part of a git path and is never trimmed.
+- Line-level staging takes **signed** line numbers: positive is the new
+  side, negative the old side, so an added line 5 cannot select the deleted
+  line 5. `ApplyDiffLines` rebuilds the target file from the selection
+  instead of applying zero-context patches, which is what makes scattered
+  lines and unequal blocks exact.
 - A path handed to git as a pathspec goes through `literalPath`: git reads
   `web/[slug]/page.tsx` as a glob and would touch `web/s/page.tsx` too.
   Escaping, not `:(literal)` magic, because `blame` rejects the magic.
