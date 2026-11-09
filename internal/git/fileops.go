@@ -57,9 +57,14 @@ func (r *Repo) SaveFile(_ context.Context, path, text string) error {
 	r.write.Lock()
 	defer r.write.Unlock()
 	abs := r.AbsPath(clean)
-	st, err := os.Stat(abs)
+	st, err := os.Lstat(abs)
 	if err != nil {
 		return err
+	}
+	if st.Mode()&os.ModeSymlink != 0 {
+		// Writing through a symlink edits whatever it points at, which can
+		// be outside the repository; git only knows the link itself.
+		return fmt.Errorf("%s is a symbolic link", clean)
 	}
 	if st.IsDir() {
 		return fmt.Errorf("%s is a directory", clean)

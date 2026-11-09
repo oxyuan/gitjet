@@ -144,3 +144,22 @@ func TestFileOpsRejectGitDirectory(t *testing.T) {
 		}
 	}
 }
+
+func TestSaveFileRefusesASymlink(t *testing.T) {
+	repo, dir := newTestRepo(t)
+	outside := filepath.Join(t.TempDir(), "outside.txt")
+	if err := os.WriteFile(outside, []byte("safe\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	link := filepath.Join(dir, "link.txt")
+	if err := os.Symlink(outside, link); err != nil {
+		t.Skipf("symlink: %v", err)
+	}
+	if err := repo.SaveFile(context.Background(), "link.txt", "rewritten\n"); err == nil {
+		t.Fatal("SaveFile wrote through a symlink")
+	}
+	b, err := os.ReadFile(outside)
+	if err != nil || string(b) != "safe\n" {
+		t.Fatalf("the link target = %q, %v; want it untouched", b, err)
+	}
+}
