@@ -17,6 +17,17 @@ export interface DiffHunk {
 
 export type MergeKind = "inserted" | "deleted" | "modified" | "conflict";
 
+/** The band a range wears. IDEA colours a change by what happened to the text,
+ *  never by the pane that holds it: the two sides of a conflict carry one
+ *  colour, and the result carries it too. `resolved` drops the band. */
+export type MergeTone = MergeKind | "resolved";
+
+/** A range's band while it waits for a decision, and `resolved` once one is in. */
+export function rangeTone(range: Pick<MergeRange, "kind"> | undefined, resolved: boolean): MergeTone {
+  if (resolved) return "resolved";
+  return range ? range.kind : "conflict";
+}
+
 export interface MergeRange {
   /** Position in the range list; the view uses it as the block id. */
   index: number;

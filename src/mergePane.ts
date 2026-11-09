@@ -25,18 +25,16 @@ import {
 } from "@codemirror/view";
 import { defaultKeymap, history, historyKeymap, redo, undo } from "@codemirror/commands";
 import { codeFolding, foldEffect, syntaxHighlighting, unfoldAll } from "@codemirror/language";
-import { blockText } from "./merge";
+import { blockText, type MergeTone } from "./merge";
 import { editorHighlightStyle } from "./highlight";
 import { editorSelectionTheme, editorTheme, loadLanguage } from "./editor";
 import { ARROW_LEFT, ARROW_RIGHT } from "./icons";
-
-export type MergePaneTone = "ours" | "theirs" | "conflict" | "resolved" | "ignored";
 
 export interface MergePaneBlock {
   id: number;
   from: number;
   to: number;
-  tone: MergePaneTone;
+  tone: MergeTone;
   /** A side pane offers this arrow; the result pane keeps its status dot. */
   apply?: "ours" | "theirs";
   /** A change the reader can dismiss back to the base text. */
@@ -110,7 +108,7 @@ function buildDecorations(blocks: MergePaneBlock[], state: EditorState): Decorat
       ranges.push({
         from: markFrom,
         to: markTo,
-        deco: Decoration.mark({ class: `cm-merge-word ${block.apply ?? block.tone}` }),
+        deco: Decoration.mark({ class: `cm-merge-word ${block.tone}` }),
       });
     }
   }
@@ -125,7 +123,7 @@ function buildDecorations(blocks: MergePaneBlock[], state: EditorState): Decorat
 class BlockLineMarker extends GutterMarker {
   readonly elementClass: string;
 
-  constructor(tone: MergePaneTone) {
+  constructor(tone: MergeTone) {
     super();
     this.elementClass = `cm-merge-gutterline ${tone}`;
   }
@@ -172,7 +170,7 @@ class ApplyMarker extends GutterMarker {
     readonly apply: "ours" | "theirs" | undefined,
     readonly ignore: boolean,
     readonly revert: boolean,
-    readonly tone: MergePaneTone,
+    readonly tone: MergeTone,
     readonly title: string,
     readonly applyLabel: string,
     readonly ignoreLabel: string,

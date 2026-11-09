@@ -41,6 +41,14 @@
   --diff-del-bg: #fdf0f0;
   --diff-add-word: #b7e5c7;
   --diff-del-word: #f3c6c6;
+  /* Three-way merge bands, one per kind of change: a conflict is the same
+     salmon in every pane it touches, as the IDE paints it. The band is mixed
+     into the editor's background, and the word marks take the colour
+     undiluted. */
+  --merge-inserted: #b7e5c7;
+  --merge-deleted: #d8d8de;
+  --merge-modified: #c9d7f5;
+  --merge-conflict: #ffd5cc;
   --diff-hunk: #f2f2f6;
   --diff-current: #e9a23b;
   --scrollbar: rgba(0, 0, 0, 0.18);
@@ -105,6 +113,10 @@
   --diff-del-bg: #331e23;
   --diff-add-word: #2c5a3e;
   --diff-del-word: #673238;
+  --merge-inserted: #2f6b48;
+  --merge-deleted: #4a4b54;
+  --merge-modified: #4c63a0;
+  --merge-conflict: #a8514c;
   --diff-hunk: #2a2b31;
   --diff-current: #d2a33c;
   --scrollbar: rgba(255, 255, 255, 0.18);
@@ -170,6 +182,10 @@
     --diff-del-bg: #331e23;
     --diff-add-word: #2c5a3e;
     --diff-del-word: #673238;
+    --merge-inserted: #2f6b48;
+    --merge-deleted: #4a4b54;
+    --merge-modified: #4c63a0;
+    --merge-conflict: #a8514c;
     --diff-hunk: #2a2b31;
     --diff-current: #d2a33c;
     --scrollbar: rgba(255, 255, 255, 0.18);
@@ -2193,27 +2209,6 @@ body.col-resizing {
   color: var(--success);
 }
 
-.cm-merge-line.ours {
-  background: color-mix(in srgb, var(--diff-add-bg) 72%, transparent);
-}
-
-.cm-merge-line.theirs {
-  background: color-mix(in srgb, var(--accent-soft) 72%, transparent);
-}
-
-.cm-merge-line.conflict {
-  background: color-mix(in srgb, var(--diff-del-bg) 82%, transparent);
-}
-
-.cm-merge-line.resolved {
-  background: color-mix(in srgb, var(--diff-add-bg) 52%, transparent);
-}
-
-.cm-merge-line.ignored {
-  background: color-mix(in srgb, var(--border) 35%, transparent);
-  opacity: 0.72;
-}
-
 .compare-grid {
   display: grid;
   grid-template-columns: 1fr 1fr;
@@ -2268,16 +2263,6 @@ body.col-resizing {
 
 .compare-text {
   min-width: 0;
-}
-
-.cm-merge-word.ours {
-  background: var(--diff-add-word);
-  border-radius: 2px;
-}
-
-.cm-merge-word.theirs {
-  background: var(--diff-del-word);
-  border-radius: 2px;
 }
 
 .cm-merge-gutter {
@@ -9512,77 +9497,103 @@ body.resizing-row .log-detail-split::after {
   height: 100%;
 }
 
+/* One colour per kind of change, never per pane: both sides of a conflict
+   carry the same tint, and so does the result. The band is the type colour
+   mixed into the editor's own background rather than an alpha wash, so the
+   text, the gutter stripe and the connector between panes are literally the
+   same colour and cannot drift apart. */
+.merge3-link,
+.cm-editor .cm-line.cm-merge-line,
+.cm-editor .cm-gutterElement.cm-merge-gutterline {
+  --merge-band: var(--code-bg);
+  --merge-ink: transparent;
+}
+
+.merge3-link.inserted,
+.cm-editor .cm-line.cm-merge-line.inserted,
+.cm-editor .cm-gutterElement.cm-merge-gutterline.inserted {
+  --merge-band: color-mix(in srgb, var(--merge-inserted) 60%, var(--code-bg));
+  --merge-ink: var(--merge-inserted);
+}
+
+.merge3-link.deleted,
+.cm-editor .cm-line.cm-merge-line.deleted,
+.cm-editor .cm-gutterElement.cm-merge-gutterline.deleted {
+  --merge-band: color-mix(in srgb, var(--merge-deleted) 60%, var(--code-bg));
+  --merge-ink: var(--merge-deleted);
+}
+
+.merge3-link.modified,
+.cm-editor .cm-line.cm-merge-line.modified,
+.cm-editor .cm-gutterElement.cm-merge-gutterline.modified {
+  --merge-band: color-mix(in srgb, var(--merge-modified) 60%, var(--code-bg));
+  --merge-ink: var(--merge-modified);
+}
+
+.merge3-link.conflict,
+.cm-editor .cm-line.cm-merge-line.conflict,
+.cm-editor .cm-gutterElement.cm-merge-gutterline.conflict {
+  --merge-band: color-mix(in srgb, var(--merge-conflict) 60%, var(--code-bg));
+  --merge-ink: var(--merge-conflict);
+}
+
 .merge3-link {
+  fill: var(--merge-band);
   stroke: none;
 }
 
-.merge3-link.ours {
-  fill: color-mix(in srgb, var(--success) 13%, transparent);
+.cm-editor .cm-line.cm-merge-line {
+  background-color: var(--merge-band);
+  box-shadow: inset 2px 0 0 var(--merge-ink);
 }
 
-.merge3-link.theirs {
-  fill: color-mix(in srgb, var(--accent) 16%, transparent);
+.cm-editor .cm-gutterElement.cm-merge-gutterline {
+  background-color: var(--merge-band);
 }
 
-.merge3-link.conflict {
-  fill: color-mix(in srgb, var(--warning) 15%, transparent);
-}
-
+/* A decided block keeps no band, as in the IDE: the gutter mark carries the
+   decision, and the result's text is the decision. */
 .merge3-link.resolved {
-  fill: color-mix(in srgb, var(--success) 11%, transparent);
+  fill: color-mix(in srgb, var(--success) 10%, var(--code-bg));
 }
 
+.cm-editor .cm-line.cm-merge-line.resolved {
+  background-color: transparent;
+  box-shadow: none;
+}
+
+.cm-editor .cm-gutterElement.cm-merge-gutterline.resolved {
+  background-color: transparent;
+}
+
+/* The change the caret sits in is outlined, not repainted: the band's colour
+   is the change's kind, so a stronger fill would claim another kind. */
 .merge3-link.current {
-  fill: color-mix(in srgb, var(--warning) 28%, transparent);
+  stroke: color-mix(in srgb, var(--accent) 55%, transparent);
+  stroke-width: 1.5;
 }
 
-/* An unresolved block reads as a warm band with a left edge, not a red alert:
-   the gutter mark already says "decide this", and the band is what lines the
-   same change up across the three panes. */
-.cm-merge-line.conflict {
-  background: color-mix(in srgb, var(--warning) 14%, transparent);
-  box-shadow: inset 2px 0 0 color-mix(in srgb, var(--warning) 85%, transparent);
+/* Word-level differences inside a band take the type colour undiluted, which
+   is what makes them stand out against the washed band. Both sides of one
+   conflict are the same colour. */
+.cm-merge-word.inserted {
+  background: var(--merge-inserted);
+  border-radius: 2px;
 }
 
-.cm-merge-line.ours {
-  box-shadow: inset 2px 0 0 color-mix(in srgb, var(--success) 70%, transparent);
+.cm-merge-word.deleted {
+  background: var(--merge-deleted);
+  border-radius: 2px;
 }
 
-.cm-merge-line.theirs {
-  box-shadow: inset 2px 0 0 color-mix(in srgb, var(--accent) 70%, transparent);
+.cm-merge-word.modified {
+  background: var(--merge-modified);
+  border-radius: 2px;
 }
 
-.cm-merge-line.resolved {
-  box-shadow: inset 2px 0 0 color-mix(in srgb, var(--success) 55%, transparent);
-}
-
-/* Line numbers on the inner edge, so the result's column sits on both sides of
-   the result the way the IDE lays it out. */
-.cm-merge-numbers .cm-gutterElement {
-  min-width: 24px;
-  padding: 0 4px;
-  text-align: right;
-  color: var(--muted-2);
-  font-family: var(--font-mono);
-  font-size: 10.5px;
-}
-
-/* The block band runs through the gutters too, so a change is one stripe
-   across the pane instead of text with dark margins. */
-.cm-gutterElement.cm-merge-gutterline.ours {
-  background: color-mix(in srgb, var(--success) 7%, transparent);
-}
-
-.cm-gutterElement.cm-merge-gutterline.theirs {
-  background: color-mix(in srgb, var(--accent) 8%, transparent);
-}
-
-.cm-gutterElement.cm-merge-gutterline.conflict {
-  background: color-mix(in srgb, var(--warning) 8%, transparent);
-}
-
-.cm-gutterElement.cm-merge-gutterline.resolved {
-  background: color-mix(in srgb, var(--success) 6%, transparent);
+.cm-merge-word.conflict {
+  background: var(--merge-conflict);
+  border-radius: 2px;
 }
 
 /* The connector column is a gap between editors, not a panel of its own. */

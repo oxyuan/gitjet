@@ -6,6 +6,7 @@ import {
   conflictLabels,
   diffHunks,
   needsSideChoice,
+  rangeTone,
   splitLines,
   resolveSimpleConflicts,
   tryResolveRange,
@@ -250,6 +251,24 @@ describe("tryResolveRange", () => {
       theirs: ["B"],
     };
     expect(tryResolveRange(bothChangedSameLine)).toBeNull();
+  });
+});
+
+describe("rangeTone", () => {
+  it("names the kind of change the band is painted for", () => {
+    expect(rangeTone({ kind: "inserted" }, false)).toBe("inserted");
+    expect(rangeTone({ kind: "deleted" }, false)).toBe("deleted");
+    expect(rangeTone({ kind: "modified" }, false)).toBe("modified");
+    expect(rangeTone({ kind: "conflict" }, false)).toBe("conflict");
+  });
+
+  it("drops the band once the range is decided", () => {
+    expect(rangeTone({ kind: "conflict" }, true)).toBe("resolved");
+  });
+
+  it("falls back to the conflict band for a block the model does not know", () => {
+    expect(rangeTone(undefined, false)).toBe("conflict");
+    expect(rangeTone(undefined, true)).toBe("resolved");
   });
 });
 

@@ -180,6 +180,17 @@ use it only for layout work. Vite's port is pinned to 5173 in **both**
   Modify/delete conflicts are not auto-resolvable there, exactly as in IDEA:
   they need a side choice. `merge.ts`'s `tryResolveRange` is the one entry
   point; `myers.ts` stays the line diff behind the merge view.
+- A merge band is keyed by what happened to the text, never by the pane that
+  holds it: `rangeTone` (`merge.ts`) maps a range's kind to `inserted`,
+  `deleted`, `modified` or `conflict`, and every pane the range touches paints
+  that one colour — both sides of a conflict carry the same tint, as IDEA's
+  `DiffViewerHighlighters` does. A side drops its band as soon as that side is
+  decided, the result only when both are; a decided range has no band at all.
+  Bands are the tone mixed into `--code-bg` (`--merge-band`), so the text, the
+  gutter stripe and the connector are literally one colour; word marks take the
+  tone undiluted. The band rules outrank CodeMirror's own theme (hence the
+  `.cm-editor .cm-line.cm-merge-line` selectors): a caret line must tint a band,
+  not repaint it.
 - The dock's tab order is `gitjet.toolTabs`, a stored permutation repaired by
   `normalizeTabOrder` (unknown names dropped, missing ones appended). It is
   edited only in Settings → General ("Dock tabs"), whose arrows call

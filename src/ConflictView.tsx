@@ -6,17 +6,19 @@ import {
   conflictLabels,
   diffHunks,
   needsSideChoice,
+  rangeTone,
   splitLines,
   tryResolveRange,
   type MergeLabels,
   type MergeModel,
   type MergeRange,
+  type MergeTone,
   type MergeView,
   type WhitespaceMode,
 } from "./merge";
 import { charDiff, wordDiff } from "./diff";
 import { detectLineEnding, normalizeText, withLineEnding } from "./editorText";
-import { MergePane, type MergePaneBlock, type MergePaneTone } from "./mergePane";
+import { MergePane, type MergePaneBlock } from "./mergePane";
 import { Icon } from "./icons";
 import {
   Button,
@@ -284,6 +286,7 @@ function sameLines(a: string[], b: string[]): boolean {
 
 function sideBlocks(
   model: MergeModel,
+  states: ReadonlyMap<number, RangeState>,
   side: "ours" | "theirs",
   labels: { apply: string; t: (key: string) => string; chars: boolean; marks: boolean },
 ): MergePaneBlock[] {
@@ -298,11 +301,15 @@ function sideBlocks(
     const start = side === "ours" ? range.oursStart : range.theirsStart;
     const end = side === "ours" ? range.oursEnd : range.theirsEnd;
     const conflict = range.kind === "conflict";
+    const state = states.get(range.index);
+    // A side is settled on its own: taking it or ignoring it drops that side's
+    // band, while the result keeps its band until the other side is decided.
+    const resolved = side === "ours" ? state?.left === true : state?.right === true;
     blocks.push({
       id: range.index,
       from: offsetAt(offsets, start),
       to: offsetAt(offsets, end),
-      tone: conflict ? "conflict" : side,
+      tone: rangeTone(range, resolved),
       apply: side,
       ignore: true,
       marks: conflict && labels.marks ? conflictMarks(range, side, offsets, labels.chars) : [],
@@ -329,7 +336,7 @@ function resultBlocks(
       id: block.index,
       from: block.from,
       to: block.to,
-      tone: resolved ? "resolved" : conflict ? "conflict" : range?.oursChanged ? "ours" : "theirs",
+      tone: rangeTone(range, resolved),
       revert: revertable(range, state),
       title: resolved
         ? range
@@ -462,7 +469,7 @@ interface SyncAnchor {
 interface RibbonLink {
   id: number;
   side: "ours" | "theirs";
-  tone: MergePaneTone;
+  tone: MergeTone;
   points: string;
 }
 
@@ -631,7 +638,7 @@ export function ConflictView({
         next.push({
           id: block.id,
           side,
-          tone: range.kind === "conflict" ? (block.tone === "resolved" ? "resolved" : "conflict") : side,
+          tone: block.tone,
           points: `0,${y(head.top)} 100,${y(tail.top)} 100,${y(tail.bottom)} 0,${y(head.bottom)}`,
         });
       }
@@ -884,7 +891,7 @@ export function ConflictView({
         const resolved = decided(state);
         return {
           ...block,
-          tone: resolved ? "resolved" : range?.kind === "conflict" ? "conflict" : range?.oursChanged ? "ours" : "theirs",
+          tone: rangeTone(range, resolved),
           revert: revertable(range, state),
           title: resolved ? (range ? rangeType(range, tr) : t("resolvedBlock")) : t("conflictBlock"),
         } satisfies MergePaneBlock;
@@ -921,7 +928,7 @@ export function ConflictView({
             ...block,
             apply: open ? side : undefined,
             ignore: open,
-            tone: resolved ? "resolved" : range.kind === "conflict" ? "conflict" : side,
+            tone: rangeTone(range, !open),
             title: open
               ? `${t(side === "ours" ? "applyLocal" : "applyRemote")} · ${rangeType(range, tr)}`
               : rangeType(range, tr),
@@ -1509,7 +1516,7 @@ export function ConflictView({
       doc: conflict.ours,
       editable: false,
       language: conflict.language,
-      blocks: sideBlocks(model, "ours", {
+      blocks: sideBlocks(model, blocksRef.current, "ours", {
         apply: t("applyLocal"),
         t: tr,
         chars: highlightMode === "chars",
@@ -1552,7 +1559,7 @@ export function ConflictView({
       doc: conflict.theirs,
       editable: false,
       language: conflict.language,
-      blocks: sideBlocks(model, "theirs", {
+      blocks: sideBlocks(model, blocksRef.current, "theirs", {
         apply: t("applyRemote"),
         t: tr,
         chars: highlightMode === "chars",
