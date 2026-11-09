@@ -646,6 +646,15 @@ func (g *Git) Diff(opts git.DiffOptions) (git.FileDiff, error) {
 	return repo.FileDiff(context.Background(), opts)
 }
 
+// ThreeWay returns a file's HEAD, index and working tree contents.
+func (g *Git) ThreeWay(opts git.DiffOptions) (git.ThreeWayDiff, error) {
+	repo, err := g.c.currentRepo()
+	if err != nil {
+		return git.ThreeWayDiff{}, err
+	}
+	return repo.ThreeWay(context.Background(), opts)
+}
+
 // ApplyHunk stages, unstages or rolls back one hunk.
 func (g *Git) ApplyHunk(opts git.DiffOptions, hunkIndex int, action string) error {
 	repo, err := g.c.currentRepo()
@@ -702,6 +711,27 @@ func (g *Git) CommitSelected(opts git.CommitOptions) (git.CommitResult, error) {
 	return res, nil
 }
 
+// CommitAll commits every change the repository has, untracked files
+// included. It is the commit dialog's "Commit All" button, which must not
+// depend on which rows are checked.
+func (g *Git) CommitAll(opts git.CommitOptions) (git.CommitResult, error) {
+	repo, err := g.c.currentRepo()
+	if err != nil {
+		return git.CommitResult{}, err
+	}
+	ctx, trace := git.WithCommandTrace(context.Background())
+	started := time.Now()
+	res, err := repo.CommitAllChanges(ctx, opts)
+	g.journalOperation(repo, JournalEntry{Action: "commit-all", Commands: *trace, Output: res.Output}, err, started)
+	if err != nil {
+		return git.CommitResult{}, err
+	}
+	res.Output = appendCommands(res.Output, *trace)
+	g.rememberMessage(opts.Message)
+	g.notify()
+	return res, nil
+}
+
 // UndoCommit moves HEAD back one commit, keeping its changes staged.
 func (g *Git) UndoCommit() (git.CommitResult, error) {
 	repo, err := g.c.currentRepo()
@@ -729,6 +759,41 @@ func (g *Git) CommitFixup(hash string, squash bool) (git.CommitResult, error) {
 	started := time.Now()
 	res, err := repo.CommitFixup(ctx, hash, squash)
 	g.journalOperation(repo, JournalEntry{Action: "commit-fixup", Commands: *trace, Output: res.Output}, err, started)
+	if err != nil {
+		return res, err
+	}
+	g.notify()
+	return res, nil
+}
+
+// CommitFixupBySubject records a fixup commit for the one commit whose
+// subject matches exactly.
+func (g *Git) CommitFixupBySubject(subject string, squash bool) (git.CommitResult, error) {
+	repo, err := g.c.currentRepo()
+	if err != nil {
+		return git.CommitResult{}, err
+	}
+	ctx, trace := git.WithCommandTrace(context.Background())
+	started := time.Now()
+	res, err := repo.CommitFixupBySubject(ctx, subject, squash)
+	g.journalOperation(repo, JournalEntry{Action: "commit-fixup-subject", Commands: *trace, Output: res.Output}, err, started)
+	if err != nil {
+		return res, err
+	}
+	g.notify()
+	return res, nil
+}
+
+// AmendCommit folds the staged changes into an older commit.
+func (g *Git) AmendCommit(hash, message string) (git.CommitResult, error) {
+	repo, err := g.c.currentRepo()
+	if err != nil {
+		return git.CommitResult{}, err
+	}
+	ctx, trace := git.WithCommandTrace(context.Background())
+	started := time.Now()
+	res, err := repo.AmendCommit(ctx, hash, message)
+	g.journalOperation(repo, JournalEntry{Action: "amend-commit", Commands: *trace, Output: res.Output}, err, started)
 	if err != nil {
 		return res, err
 	}
@@ -1410,6 +1475,15 @@ func (g *Git) LocalHistory(path string) ([]git.LocalHistoryEntry, error) {
 		return nil, err
 	}
 	return repo.LocalHistory(path)
+}
+
+// LocalHistoryAll lists the saved copies of every file in the repository.
+func (g *Git) LocalHistoryAll() []git.LocalHistoryEntry {
+	repo, err := g.c.currentRepo()
+	if err != nil {
+		return []git.LocalHistoryEntry{}
+	}
+	return repo.LocalHistoryAll()
 }
 
 // LocalHistoryContent reads one saved copy.

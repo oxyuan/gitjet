@@ -22,6 +22,10 @@ type CommitOptions struct {
 	Sign        bool   `json:"sign"`
 	AuthorName  string `json:"authorName"`
 	AuthorEmail string `json:"authorEmail"`
+	// StagedOnly commits exactly the index and ignores the path selection,
+	// the way a staging-area workflow's "Commit Staged" does. Without it a
+	// checked path with nothing staged is taken from the working tree.
+	StagedOnly bool `json:"stagedOnly"`
 }
 
 // CommitResult describes the commit that was created.

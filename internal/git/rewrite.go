@@ -1,13 +1,18 @@
 package git
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strings"
+
+	"gitjet/internal/proc"
 )
 
 // Actions of a rewrite plan. They mirror the verbs of an interactive
@@ -21,6 +26,10 @@ const (
 	// PlanEdit applies the commit and stops, so its content or message can
 	// be amended before the rest of the plan continues.
 	PlanEdit = "edit"
+	// PlanExec runs a shell command at that point of the replay.
+	PlanExec = "exec"
+	// PlanBreak stops the replay there, like a rebase "break" line.
+	PlanBreak = "break"
 )
 
 // PlanCommit is one commit of a rewrite range, oldest first. The range is
@@ -42,6 +51,8 @@ type PlanStep struct {
 	Hash    string `json:"hash"`
 	Action  string `json:"action"`
 	Message string `json:"message,omitempty"`
+	// Command is the shell line of an exec step.
+	Command string `json:"command,omitempty"`
 }
 
 // planState is the plan that is being replayed, saved in the git dir so a
@@ -129,17 +140,24 @@ func (r *Repo) Rewrite(ctx context.Context, onto string, steps []PlanStep) (stri
 	if err != nil {
 		return "", err
 	}
-	if len(commits) != len(steps) {
-		return "", fmt.Errorf("the plan covers %d commits but the range has %d", len(steps), len(commits))
-	}
 	// The plan may reorder commits, so it is matched by hash: every commit
 	// of the range appears exactly once, in whatever order the user chose.
+	// exec and break carry no commit and may sit anywhere between them.
 	byHash := make(map[string]PlanCommit, len(commits))
 	for _, c := range commits {
 		byHash[c.Hash] = c
 	}
-	seen := make(map[string]bool, len(steps))
+	seen := make(map[string]bool, len(commits))
 	for _, st := range steps {
+		switch st.Action {
+		case PlanExec:
+			if strings.TrimSpace(st.Command) == "" {
+				return "", errors.New("an exec step needs a command")
+			}
+			continue
+		case PlanBreak:
+			continue
+		}
 		commit, ok := byHash[st.Hash]
 		if !ok || seen[st.Hash] {
 			return "", errors.New("the plan does not match the commits of the range")
@@ -154,9 +172,12 @@ func (r *Repo) Rewrite(ctx context.Context, onto string, steps []PlanStep) (stri
 			return "", fmt.Errorf("%s is a merge commit, which cannot be rewritten", commit.Short)
 		}
 	}
+	if len(seen) != len(commits) {
+		return "", fmt.Errorf("the plan covers %d commits but the range has %d", len(seen), len(commits))
+	}
 	firstKept := false
 	for _, st := range steps {
-		if st.Action == PlanDrop {
+		if st.Action == PlanDrop || st.Action == PlanExec || st.Action == PlanBreak {
 			continue
 		}
 		if st.Action == PlanSquash || st.Action == PlanFixup {
@@ -203,6 +224,26 @@ func (r *Repo) runPlan(ctx context.Context, state *planState, committed bool) (s
 	var out strings.Builder
 	for state.Index < len(state.Steps) {
 		step := state.Steps[state.Index]
+		if step.Action == PlanExec {
+			commandOut, err := r.runPlanCommand(ctx, step.Command)
+			out.WriteString(commandOut)
+			if err != nil {
+				// git's rebase stops on a failed exec and continue skips it;
+				// record that the plan is stopped so Continue can do the same.
+				state.Paused = true
+				r.savePlan(state)
+				return strings.TrimSpace(out.String()), err
+			}
+			state.Index++
+			r.savePlan(state)
+			continue
+		}
+		if step.Action == PlanBreak {
+			state.Paused = true
+			r.savePlan(state)
+			out.WriteString("\nstopped at break")
+			return strings.TrimSpace(out.String()), nil
+		}
 		if step.Action == PlanDrop {
 			state.Index++
 			r.savePlan(state)
@@ -317,6 +358,42 @@ func (r *Repo) commitMessage(ctx context.Context, hash string) string {
 		return ""
 	}
 	return strings.TrimRight(out, "\n")
+}
+
+// runPlanCommand runs one exec step in the working tree. It is the user's
+// own command line, so it gets the process environment and no git
+// variables of its own.
+func (r *Repo) runPlanCommand(ctx context.Context, command string) (string, error) {
+	command = strings.TrimSpace(command)
+	if command == "" {
+		return "", errors.New("an exec step needs a command")
+	}
+	shell, flag := "sh", "-c"
+	if runtime.GOOS == "windows" {
+		shell, flag = "cmd", "/c"
+	}
+	cmd := exec.CommandContext(ctx, shell, flag, command)
+	cmd.Dir = r.dir
+	cmd.Env = os.Environ()
+	proc.HideConsole(cmd)
+	var stdout, stderr bytes.Buffer
+	cmd.Stdout = &stdout
+	cmd.Stderr = &stderr
+	err := cmd.Run()
+	combined := stdout.String()
+	if text := strings.TrimSpace(stderr.String()); text != "" {
+		if combined != "" && !strings.HasSuffix(combined, "\n") {
+			combined += "\n"
+		}
+		combined += text + "\n"
+	}
+	if err != nil {
+		if ctx.Err() != nil {
+			err = ctx.Err()
+		}
+		return combined, fmt.Errorf("exec %q failed: %w", command, err)
+	}
+	return combined, nil
 }
 
 // planPath is where the running plan is kept. It sits inside the git dir,
@@ -452,6 +529,12 @@ func (r *Repo) planIsCurrent(state *planState) bool {
 	if state.Paused {
 		return true
 	}
+	step := state.Steps[state.Index]
+	if step.Action == PlanExec || step.Action == PlanBreak {
+		// These steps have no commit git could be stopped on; the branch
+		// and the plan position are the identity.
+		return r.pendingPick() == ""
+	}
 	pick := r.pendingPick()
-	return pick != "" && strings.EqualFold(pick, state.Steps[state.Index].Hash)
+	return pick != "" && strings.EqualFold(pick, step.Hash)
 }

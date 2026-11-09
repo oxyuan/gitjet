@@ -97,6 +97,82 @@ type FileDiff struct {
 	Language string `json:"language"`
 }
 
+// ThreeWayDiff is one file at the three places git keeps a local change:
+// HEAD, the index and the working tree. The two FileDiffs describe the
+// transitions between them, so a viewer can show both sets of hunks and
+// let each one be accepted independently.
+type ThreeWayDiff struct {
+	Path          string   `json:"path"`
+	OldPath       string   `json:"oldPath,omitempty"`
+	Binary        bool     `json:"binary"`
+	Truncated     bool     `json:"truncated"`
+	Head          string   `json:"head"`
+	Index         string   `json:"index"`
+	Worktree      string   `json:"worktree"`
+	HeadLabel     string   `json:"headLabel"`
+	IndexLabel    string   `json:"indexLabel"`
+	WorktreeLabel string   `json:"worktreeLabel"`
+	Staged        FileDiff `json:"staged"`
+	Unstaged      FileDiff `json:"unstaged"`
+}
+
+// ThreeWay returns a file's HEAD, index and working tree contents. Each
+// side is read through the same diff paths the two-pane viewer uses, so
+// filters, renames and the 8 MiB cap behave identically.
+func (r *Repo) ThreeWay(ctx context.Context, opts DiffOptions) (ThreeWayDiff, error) {
+	path, err := cleanPath(opts.Path)
+	if err != nil {
+		return ThreeWayDiff{}, err
+	}
+	stagedOpts := opts
+	stagedOpts.Path = path
+	stagedOpts.Target = DiffStaged
+	stagedOpts.Revision = ""
+	stagedOpts.From = ""
+	stagedOpts.NoText = false
+	if stagedOpts.Context <= 0 {
+		// Hunk chips only make sense around a change, not over the whole
+		// file; a negative viewer setting means "whole file" in the
+		// two-pane diff only.
+		stagedOpts.Context = 3
+	}
+	staged, err := r.FileDiff(ctx, stagedOpts)
+	if err != nil {
+		return ThreeWayDiff{}, err
+	}
+	worktreeOpts := opts
+	worktreeOpts.Path = path
+	worktreeOpts.Target = DiffWorkingTree
+	worktreeOpts.Revision = ""
+	worktreeOpts.From = ""
+	worktreeOpts.NoText = false
+	if worktreeOpts.Context <= 0 {
+		worktreeOpts.Context = 3
+	}
+	unstaged, err := r.FileDiff(ctx, worktreeOpts)
+	if err != nil {
+		return ThreeWayDiff{}, err
+	}
+	out := ThreeWayDiff{
+		Path:          path,
+		OldPath:       staged.OldPath,
+		Binary:        staged.Binary || unstaged.Binary,
+		Truncated:     staged.Truncated || unstaged.Truncated,
+		Head:          staged.OldText,
+		Index:         staged.NewText,
+		Worktree:      unstaged.NewText,
+		HeadLabel:     "HEAD",
+		IndexLabel:    "Index",
+		WorktreeLabel: "Working Tree",
+		Staged:        staged,
+		Unstaged:      unstaged,
+	}
+	if out.Binary {
+		out.Head, out.Index, out.Worktree = "", "", ""
+	}
+	return out, nil
+}
+
 // fullContext is the -U value that turns a diff into the whole file: every
 // unchanged line becomes context, so nothing is elided between hunks.
 const fullContext = 1000000

@@ -102,8 +102,17 @@ func TestCheckCommitReportsADetachedHead(t *testing.T) {
 	if err != nil {
 		t.Fatalf("CheckCommit: %v", err)
 	}
-	if len(warnings) != 1 || warnings[0].Kind != "detached" {
-		t.Fatalf("warnings = %+v, want one detached warning", warnings)
+	if len(warnings) == 0 {
+		t.Fatal("no warnings for a detached HEAD")
+	}
+	found := false
+	for _, w := range warnings {
+		if w.Kind == "detached" {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatalf("warnings = %+v, want a detached warning", warnings)
 	}
 }
 

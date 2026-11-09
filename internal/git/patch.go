@@ -23,6 +23,10 @@ type PatchOptions struct {
 	Revision string `json:"revision"`
 	// From and Revision together diff two revisions.
 	From string `json:"from"`
+	// IncludeUntracked adds files git does not track yet to a shelf and
+	// removes them from the working tree after saving, like
+	// "git stash --include-untracked".
+	IncludeUntracked bool `json:"includeUntracked"`
 }
 
 // CreatePatch renders the selected changes as a unified patch.
@@ -102,6 +106,11 @@ type Shelf struct {
 	Size    int    `json:"size"`
 	Files   int    `json:"files"`
 	Preview string `json:"preview"`
+	// Staged reports that applying the shelf also restores its index
+	// state, not just the working tree.
+	Staged bool `json:"staged"`
+	// Untracked counts the new files the shelf removes and restores.
+	Untracked int `json:"untracked"`
 }
 
 // shelfDir is where shelves live inside the git directory, so they belong
@@ -134,17 +143,50 @@ func (r *Repo) SaveShelf(ctx context.Context, name string, opts PatchOptions) (S
 	}
 	r.write.Lock()
 	defer r.write.Unlock()
-	args := []string{"diff", "--no-color", "--no-ext-diff", "--binary", "HEAD"}
-	paths := opts.Paths
-	if len(paths) > 0 {
-		clean, err := cleanPaths(paths)
+	var clean []string
+	if len(opts.Paths) > 0 {
+		clean, err = cleanPaths(opts.Paths)
 		if err != nil {
 			return Shelf{}, err
 		}
+	}
+	// Capture the index before touching it: the shelf has to restore which
+	// hunks were staged, not just the combined working-tree content.
+	indexArgs := []string{"diff", "--cached", "--binary", "--no-color"}
+	if len(clean) > 0 {
+		indexArgs = append(indexArgs, "--")
+		indexArgs = append(indexArgs, literalPaths(clean)...)
+	}
+	indexPatch, err := r.run(ctx, indexArgs...)
+	if err != nil {
+		return Shelf{}, err
+	}
+	// git diff cannot see files git does not track. Intent-to-add makes
+	// them visible for one diff without changing their content in the
+	// index, and the markers are removed again before anything is saved.
+	untracked := []string{}
+	if opts.IncludeUntracked {
+		untracked, err = r.untrackedUnder(ctx, clean)
+		if err != nil {
+			return Shelf{}, err
+		}
+		if len(untracked) > 0 {
+			if _, err := r.run(ctx, append([]string{"add", "-N", "--"}, literalPaths(untracked)...)...); err != nil {
+				return Shelf{}, err
+			}
+		}
+	}
+	args := []string{"diff", "--no-color", "--no-ext-diff", "--binary", "HEAD"}
+	if len(clean) > 0 {
 		args = append(args, "--")
 		args = append(args, literalPaths(clean)...)
 	}
 	patch, err := r.run(ctx, args...)
+	if len(untracked) > 0 {
+		// Resetting the intent-to-add entries keeps the files on disk and
+		// leaves the index exactly as it was.
+		_, _ = r.run(ctx, append([]string{"reset", "-q", "--"}, literalPaths(untracked)...)...)
+	}
 	if err != nil {
 		return Shelf{}, err
 	}
@@ -162,17 +204,71 @@ func (r *Repo) SaveShelf(ctx context.Context, name string, opts PatchOptions) (S
 	if err := os.WriteFile(file, []byte(patch), 0o644); err != nil {
 		return Shelf{}, err
 	}
-	// Shelving takes the changes away: keep them only in the patch.
-	if len(opts.Paths) > 0 {
-		if err := r.rollbackLocked(ctx, opts.Paths); err != nil {
+	indexFile := file + ".index.patch"
+	if strings.TrimSpace(indexPatch) != "" {
+		if err := os.WriteFile(indexFile, []byte(indexPatch), 0o644); err != nil {
 			_ = os.Remove(file)
+			return Shelf{}, err
+		}
+	}
+	// Shelving takes the changes away: keep them only in the patch.
+	if len(clean) > 0 {
+		targets := append(append([]string{}, clean...), untracked...)
+		if err := r.rollbackLocked(ctx, targets); err != nil {
+			_ = os.Remove(file)
+			_ = os.Remove(indexFile)
 			return Shelf{}, err
 		}
 	} else if _, err := r.run(ctx, "reset", "--hard", "HEAD"); err != nil {
 		_ = os.Remove(file)
+		_ = os.Remove(indexFile)
+		return Shelf{}, err
+	} else {
+		for _, path := range untracked {
+			if err := os.RemoveAll(r.AbsPath(path)); err != nil && !os.IsNotExist(err) {
+				_ = os.Remove(file)
+				_ = os.Remove(indexFile)
+				return Shelf{}, err
+			}
+		}
+	}
+	shelf, err := shelfFromPatch(name, file, patch)
+	if err != nil {
 		return Shelf{}, err
 	}
-	return shelfFromPatch(name, file, patch)
+	shelf.Staged = strings.TrimSpace(indexPatch) != ""
+	shelf.Untracked = len(untracked)
+	return shelf, nil
+}
+
+// untrackedUnder lists the files git does not track, limited to paths
+// under clean when it is not empty.
+func (r *Repo) untrackedUnder(ctx context.Context, clean []string) ([]string, error) {
+	st, err := r.Status(ctx, false)
+	if err != nil {
+		return nil, err
+	}
+	out := []string{}
+	for _, c := range st.Changes {
+		if c.Kind != "untracked" {
+			continue
+		}
+		if len(clean) > 0 && !pathUnderAny(c.Path, clean) {
+			continue
+		}
+		out = append(out, c.Path)
+	}
+	sort.Strings(out)
+	return out, nil
+}
+
+func pathUnderAny(path string, clean []string) bool {
+	for _, p := range clean {
+		if path == p || strings.HasPrefix(path, strings.TrimSuffix(p, "/")+"/") {
+			return true
+		}
+	}
+	return false
 }
 
 func shelfFromPatch(name, file, patch string) (Shelf, error) {
@@ -212,7 +308,7 @@ func (r *Repo) Shelves(ctx context.Context) ([]Shelf, error) {
 	}
 	shelves := []Shelf{}
 	for _, entry := range entries {
-		if entry.IsDir() || !strings.HasSuffix(entry.Name(), ".patch") {
+		if entry.IsDir() || !strings.HasSuffix(entry.Name(), ".patch") || strings.HasSuffix(entry.Name(), ".index.patch") {
 			continue
 		}
 		file := filepath.Join(r.shelfDir(), entry.Name())
@@ -226,6 +322,9 @@ func (r *Repo) Shelves(ctx context.Context) ([]Shelf, error) {
 			continue
 		}
 		shelf.Label = readShelfLabel(file)
+		if _, err := os.Stat(file + ".index.patch"); err == nil {
+			shelf.Staged = true
+		}
 		shelves = append(shelves, shelf)
 	}
 	sort.Slice(shelves, func(i, j int) bool {
@@ -274,9 +373,30 @@ func (r *Repo) ApplyShelf(ctx context.Context, name string, drop bool) (string, 
 	if err != nil {
 		return "", err
 	}
+	file, err := r.shelfFile(name)
+	if err != nil {
+		return "", err
+	}
 	out, err := r.ApplyPatch(ctx, patch, false, false)
 	if err != nil {
 		return out, err
+	}
+	indexFile := file + ".index.patch"
+	if data, ierr := os.ReadFile(indexFile); ierr == nil && strings.TrimSpace(string(data)) != "" {
+		paths := patchPaths(string(data))
+		if len(paths) > 0 {
+			if _, herr := r.run(ctx, "symbolic-ref", "-q", "HEAD"); herr == nil {
+				// Put the index back at HEAD for the shelf's paths before
+				// replaying the saved staged state; the working tree is
+				// already the shelf's content.
+				if _, rerr := r.run(ctx, append([]string{"reset", "-q", "HEAD", "--"}, literalPaths(paths)...)...); rerr != nil {
+					return out, rerr
+				}
+			}
+		}
+		if _, aerr := r.runInput(ctx, string(data), "apply", "--cached", "--whitespace=nowarn", "-"); aerr != nil {
+			return out, fmt.Errorf("the working tree was restored but the staged state could not be: %w", aerr)
+		}
 	}
 	if drop {
 		if _, err := r.DropShelf(ctx, name); err != nil {
@@ -286,7 +406,34 @@ func (r *Repo) ApplyShelf(ctx context.Context, name string, drop bool) (string, 
 	return out, nil
 }
 
-// DropShelf deletes a shelf.
+// patchPaths lists the new-side path of every file a patch touches. It is
+// only used to scope an index reset, so an unusual quoted path is skipped
+// rather than guessed at.
+func patchPaths(patch string) []string {
+	seen := map[string]bool{}
+	out := []string{}
+	for _, line := range strings.Split(patch, "\n") {
+		var raw string
+		switch {
+		case strings.HasPrefix(line, "+++ b/"):
+			raw = strings.TrimPrefix(line, "+++ b/")
+		case strings.HasPrefix(line, "--- a/"):
+			raw = strings.TrimPrefix(line, "--- a/")
+		default:
+			continue
+		}
+		if raw == "" || strings.HasPrefix(raw, `"`) {
+			continue
+		}
+		if !seen[raw] {
+			seen[raw] = true
+			out = append(out, raw)
+		}
+	}
+	return out
+}
+
+// DropShelf deletes a shelf and the metadata that belongs to it.
 func (r *Repo) DropShelf(ctx context.Context, name string) (string, error) {
 	file, err := r.shelfFile(name)
 	if err != nil {
@@ -298,6 +445,8 @@ func (r *Repo) DropShelf(ctx context.Context, name string) (string, error) {
 		}
 		return "", err
 	}
+	_ = os.Remove(file + ".index.patch")
+	_ = os.Remove(file + ".json")
 	return "dropped " + name, nil
 }
 
@@ -319,6 +468,13 @@ func (r *Repo) RenameShelf(ctx context.Context, name, newName string) error {
 			return fmt.Errorf("no shelf named %q", name)
 		}
 		return err
+	}
+	for _, suffix := range []string{".index.patch", ".json"} {
+		if _, err := os.Stat(from + suffix); err == nil {
+			if err := os.Rename(from+suffix, to+suffix); err != nil {
+				return err
+			}
+		}
 	}
 	return nil
 }

@@ -18,7 +18,7 @@ func (r *Repo) CommitSelected(ctx context.Context, opts CommitOptions) (CommitRe
 	if err != nil {
 		return CommitResult{}, err
 	}
-	if len(clean) == 0 {
+	if len(clean) == 0 && !opts.StagedOnly {
 		return CommitResult{}, errors.New("choose the changes to commit")
 	}
 	r.write.Lock()
@@ -37,10 +37,47 @@ func cleanCommitOptions(opts CommitOptions) ([]string, error) {
 			return nil, errors.New("the author name or email contains characters git does not allow")
 		}
 	}
+	if opts.StagedOnly {
+		// The index is the selection; whatever the dialog's file list says
+		// is irrelevant.
+		return nil, nil
+	}
 	if len(opts.Paths) == 0 {
 		return nil, nil
 	}
 	return cleanPaths(opts.Paths)
+}
+
+// CommitAllChanges commits every changed path, untracked files included,
+// without touching the stage the dialog's checkboxes left checked. It is
+// the commit dialog's explicit "Commit All" action.
+func (r *Repo) CommitAllChanges(ctx context.Context, opts CommitOptions) (CommitResult, error) {
+	st, err := r.Status(ctx, false)
+	if err != nil {
+		return CommitResult{}, err
+	}
+	paths := []string{}
+	for _, c := range st.Changes {
+		if c.Unmerged || c.Kind == "ignored" {
+			continue
+		}
+		paths = append(paths, c.Path)
+		if c.OldPath != "" {
+			paths = append(paths, c.OldPath)
+		}
+	}
+	if len(paths) == 0 {
+		return CommitResult{}, errors.New("there are no changes to commit")
+	}
+	opts.Paths = paths
+	opts.StagedOnly = false
+	clean, err := cleanCommitOptions(opts)
+	if err != nil {
+		return CommitResult{}, err
+	}
+	r.write.Lock()
+	defer r.write.Unlock()
+	return r.commitLocked(ctx, opts, clean)
 }
 
 // commitLocked builds the commit; r.write is held.
@@ -52,6 +89,9 @@ func cleanCommitOptions(opts CommitOptions) ([]string, error) {
 // while a partially staged file commits just the staged hunks and leaves
 // the rest in the working tree.
 func (r *Repo) commitLocked(ctx context.Context, opts CommitOptions, clean []string) (CommitResult, error) {
+	if opts.StagedOnly {
+		return r.runCommit(ctx, opts, nil)
+	}
 	if len(clean) > 0 {
 		clean = r.expandRenames(ctx, clean)
 	}

@@ -65,6 +65,9 @@ type LogResult struct {
 	// Head is the current branch, so the graph can mark it.
 	Head     string `json:"head"`
 	Detached bool   `json:"detached"`
+	// Command is the exact git invocation this page ran, for the viewer's
+	// "show command" action.
+	Command string `json:"command"`
 }
 
 // RepoRef is a branch or tag, with where it points and how it stands
@@ -177,7 +180,7 @@ func (r *Repo) Log(ctx context.Context, opts LogOptions) (LogResult, error) {
 	if err != nil {
 		return LogResult{}, err
 	}
-	result := LogResult{Commits: parseLogCommits(out)}
+	result := LogResult{Commits: parseLogCommits(out), Command: renderCommand(args)}
 	if len(result.Commits) > opts.Limit {
 		result.HasMore = true
 		result.Commits = result.Commits[:opts.Limit]

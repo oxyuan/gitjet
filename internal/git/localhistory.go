@@ -220,6 +220,26 @@ func (r *Repo) LocalHistory(path string) ([]LocalHistoryEntry, error) {
 	return out, nil
 }
 
+// LocalHistoryAll returns every saved copy in the repository, newest
+// first, so the history can be browsed by path instead of one file at a
+// time.
+func (r *Repo) LocalHistoryAll() []LocalHistoryEntry {
+	r.history.Lock()
+	entries := r.readHistory()
+	r.history.Unlock()
+	out := append([]LocalHistoryEntry(nil), entries...)
+	sort.SliceStable(out, func(i, j int) bool {
+		if out[i].Time != out[j].Time {
+			return out[i].Time > out[j].Time
+		}
+		return out[i].Path < out[j].Path
+	})
+	if len(out) > 2000 {
+		out = out[:2000]
+	}
+	return out
+}
+
 // LocalHistoryContent reads one saved copy.
 func (r *Repo) LocalHistoryContent(path, digest string) (string, error) {
 	clean, err := cleanPath(path)

@@ -142,6 +142,7 @@ export interface CommitOptions {
   sign: boolean;
   authorName: string;
   authorEmail: string;
+  stagedOnly: boolean;
 }
 
 export interface CommitRef {
@@ -357,6 +358,7 @@ export interface LogResult {
   refs: RepoRef[];
   head: string;
   detached: boolean;
+  command: string;
 }
 
 export interface MergeDetails {
@@ -405,6 +407,7 @@ export interface PatchOptions {
   staged: boolean;
   revision: string;
   from: string;
+  includeUntracked: boolean;
 }
 
 export interface PlanCommit {
@@ -421,6 +424,7 @@ export interface PlanStep {
   hash: string;
   action: string;
   message?: string;
+  command?: string;
 }
 
 export interface PullOptions {
@@ -611,6 +615,8 @@ export interface Shelf {
   size: number;
   files: number;
   preview: string;
+  staged: boolean;
+  untracked: number;
 }
 
 export interface SourceFile {
@@ -675,6 +681,21 @@ export interface TagOptions {
   message: string;
   revision: string;
   force: boolean;
+}
+
+export interface ThreeWayDiff {
+  path: string;
+  oldPath?: string;
+  binary: boolean;
+  truncated: boolean;
+  head: string;
+  index: string;
+  worktree: string;
+  headLabel: string;
+  indexLabel: string;
+  worktreeLabel: string;
+  staged: FileDiff;
+  unstaged: FileDiff;
 }
 
 export interface Worktree {
@@ -817,6 +838,10 @@ export const Git = {
   addWorktree(path: string, branch: string, newBranch: boolean): Promise<string> {
     return call("Git.AddWorktree", path, branch, newBranch);
   },
+  /** AmendCommit folds the staged changes into an older commit. */
+  amendCommit(hash: string, message: string): Promise<CommitResult> {
+    return call("Git.AmendCommit", hash, message);
+  },
   /** ApplyFile stages, unstages or rolls back a whole file. */
   applyFile(opts: DiffOptions, action: string): Promise<void> {
     return call("Git.ApplyFile", opts, action);
@@ -894,6 +919,14 @@ export const Git = {
   commit(opts: CommitOptions): Promise<CommitResult> {
     return call("Git.Commit", opts);
   },
+  /**
+   * CommitAll commits every change the repository has, untracked files
+   * included. It is the commit dialog's "Commit All" button, which must not
+   * depend on which rows are checked.
+   */
+  commitAll(opts: CommitOptions): Promise<CommitResult> {
+    return call("Git.CommitAll", opts);
+  },
   /** CommitChecks reports what the settings ask to warn about before a commit. */
   commitChecks(paths: string[]): Promise<CommitWarning[]> {
     return call("Git.CommitChecks", paths);
@@ -901,6 +934,13 @@ export const Git = {
   /** CommitFixup records the staged changes as a fixup or squash commit. */
   commitFixup(hash: string, squash: boolean): Promise<CommitResult> {
     return call("Git.CommitFixup", hash, squash);
+  },
+  /**
+   * CommitFixupBySubject records a fixup commit for the one commit whose
+   * subject matches exactly.
+   */
+  commitFixupBySubject(subject: string, squash: boolean): Promise<CommitResult> {
+    return call("Git.CommitFixupBySubject", subject, squash);
   },
   /**
    * CommitSelected commits the chosen paths without touching the staging of
@@ -1077,6 +1117,10 @@ export const Git = {
   /** LocalHistory lists the saved copies of a file, newest first. */
   localHistory(path: string): Promise<LocalHistoryEntry[]> {
     return call("Git.LocalHistory", path);
+  },
+  /** LocalHistoryAll lists the saved copies of every file in the repository. */
+  localHistoryAll(): Promise<LocalHistoryEntry[]> {
+    return call("Git.LocalHistoryAll");
   },
   /** LocalHistoryContent reads one saved copy. */
   localHistoryContent(path: string, digest: string): Promise<string> {
@@ -1351,6 +1395,10 @@ export const Git = {
   /** TakeSideAll takes ours or theirs for several conflicted paths. */
   takeSideAll(paths: string[], side: string): Promise<void> {
     return call("Git.TakeSideAll", paths, side);
+  },
+  /** ThreeWay returns a file's HEAD, index and working tree contents. */
+  threeWay(opts: DiffOptions): Promise<ThreeWayDiff> {
+    return call("Git.ThreeWay", opts);
   },
   /** Tree lists every file in the working tree, for the source explorer. */
   tree(): Promise<RepoFile[]> {
