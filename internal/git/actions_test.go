@@ -168,3 +168,31 @@ func TestRollbackRestoresARenameWithoutLeavingACopy(t *testing.T) {
 		t.Fatalf("status = %q, want clean", status)
 	}
 }
+
+func TestMarkResolvedRejectsAnEmptySelection(t *testing.T) {
+	repo, dir := newTestRepo(t)
+	writeFile(t, dir, "new.txt", "new\n")
+	if err := repo.MarkResolved(context.Background(), nil); err == nil {
+		t.Fatal("MarkResolved accepted an empty selection")
+	}
+	if staged := runGit(t, dir, "diff", "--cached", "--name-only"); staged != "" {
+		t.Fatalf("the empty selection staged %q", staged)
+	}
+}
+
+func TestMarkResolvedEscapesThePath(t *testing.T) {
+	repo, dir := newTestRepo(t)
+	writeFile(t, dir, "star*name.txt", "one\n")
+	writeFile(t, dir, "starXname.txt", "one\n")
+	runGit(t, dir, "add", ".")
+	runGit(t, dir, "commit", "-q", "-m", "two files")
+	writeFile(t, dir, "star*name.txt", "two\n")
+	writeFile(t, dir, "starXname.txt", "two\n")
+	if err := repo.MarkResolved(context.Background(), []string{"star*name.txt"}); err != nil {
+		t.Fatalf("MarkResolved: %v", err)
+	}
+	staged := runGit(t, dir, "diff", "--cached", "--name-only")
+	if staged != "star*name.txt" {
+		t.Fatalf("staged = %q, want only the named path", staged)
+	}
+}
