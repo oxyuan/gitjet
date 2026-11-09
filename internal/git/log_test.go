@@ -144,3 +144,26 @@ func hasCommit(result LogResult, hash string) bool {
 	}
 	return false
 }
+
+func TestLogAllIncludesTheDetachedHeadCommit(t *testing.T) {
+	repo, dir := newTestRepo(t)
+	writeFile(t, dir, "b.txt", "b\n")
+	runGit(t, dir, "add", "b.txt")
+	runGit(t, dir, "commit", "-q", "-m", "second")
+	runGit(t, dir, "checkout", "-q", "--detach")
+	writeFile(t, dir, "c.txt", "c\n")
+	runGit(t, dir, "add", "c.txt")
+	runGit(t, dir, "commit", "-q", "-m", "detached work")
+	want := runGit(t, dir, "rev-parse", "HEAD")
+
+	res, err := repo.Log(context.Background(), LogOptions{All: true})
+	if err != nil {
+		t.Fatalf("Log: %v", err)
+	}
+	for _, c := range res.Commits {
+		if c.Hash == want {
+			return
+		}
+	}
+	t.Fatalf("the log does not contain the detached commit %s (%d commits)", want[:8], len(res.Commits))
+}

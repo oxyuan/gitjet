@@ -128,8 +128,12 @@ func (r *Repo) Log(ctx context.Context, opts LogOptions) (LogResult, error) {
 	}
 	if opts.All {
 		// Every local and remote branch: work that was never merged or
-		// pushed still has to show up in the history.
+		// pushed still has to show up in the history. A detached HEAD is
+		// not on any branch, so its commit needs naming explicitly.
 		args = append(args, "--branches", "--remotes")
+		if _, err := r.run(ctx, "symbolic-ref", "-q", "HEAD"); err != nil {
+			args = append(args, "HEAD")
+		}
 	}
 	if opts.Search != "" {
 		if !opts.CaseSensitive {
