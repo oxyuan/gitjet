@@ -13,6 +13,7 @@ import {
   GutterMarker,
   drawSelection,
   gutter,
+  gutterLineClass,
   highlightActiveLine,
   highlightActiveLineGutter,
   highlightWhitespace,
@@ -59,6 +60,9 @@ export interface MergePaneOptions {
   actionLabels?: { apply: string; ignore: string; revert?: string };
   /** Which edge carries the gutter: the inner one faces the result. */
   side?: "before" | "after";
+  /** Line numbers on the inner edge(s) instead of the outer one, the way the
+   *  IDE lines every pane up against the result's numbering. */
+  numbers?: "before" | "after" | "both";
   onChange?: (doc: string, blocks: MergePaneBlock[]) => void;
   onScroll?: (topLine: number) => void;
   onSelection?: (start: number, end: number, empty: boolean) => void;
@@ -114,6 +118,52 @@ function buildDecorations(blocks: MergePaneBlock[], state: EditorState): Decorat
   const builder = new RangeSetBuilder<Decoration>();
   for (const range of ranges) builder.add(range.from, range.to, range.deco);
   return builder.finish();
+}
+
+/** A block row's tint, carried into the gutters so a change reads as one band
+ *  across the pane instead of a stripe of text with dark margins. */
+class BlockLineMarker extends GutterMarker {
+  readonly elementClass: string;
+
+  constructor(tone: MergePaneTone) {
+    super();
+    this.elementClass = `cm-merge-gutterline ${tone}`;
+  }
+
+  eq(other: GutterMarkerType) {
+    return other instanceof BlockLineMarker && other.elementClass === this.elementClass;
+  }
+}
+
+/** One line number, for a gutter the built-in lineNumbers cannot put on the
+ *  inner edge of a pane. */
+class NumberMarker extends GutterMarker {
+  constructor(readonly label: string) {
+    super();
+  }
+
+  eq(other: GutterMarkerType) {
+    return other instanceof NumberMarker && other.label === this.label;
+  }
+
+  toDOM() {
+    const el = document.createElement("span");
+    el.textContent = this.label;
+    return el;
+  }
+}
+
+/** Line numbers on the given edge, so the result can carry them on both sides
+ *  and a version pane can put them against the result's column. */
+function lineNumbersOn(side: "before" | "after") {
+  return gutter({
+    class: `cm-merge-numbers${side === "after" ? " side-after" : ""}`,
+    side,
+    renderEmptyElements: false,
+    lineMarker: (view, line) =>
+      new NumberMarker(String(view.state.doc.lineAt(line.from).number)),
+    lineMarkerChange: () => false,
+  });
 }
 
 class ApplyMarker extends GutterMarker {
@@ -252,6 +302,24 @@ const blocksField = StateField.define<MergePaneBlock[]>({
     ),
 });
 
+/** Which rows of every gutter belong to a change block. */
+const blockGutterLines = gutterLineClass.compute([blocksField], (state) => {
+  const builder = new RangeSetBuilder<GutterMarker>();
+  const doc = state.doc;
+  for (const block of state.field(blocksField)) {
+    const from = Math.max(0, Math.min(block.from, doc.length));
+    const to = Math.max(from, Math.min(block.to, doc.length));
+    if (to <= from) continue;
+    const first = doc.lineAt(from).number;
+    const last = doc.lineAt(to - 1).number;
+    for (let n = first; n <= last; n++) {
+      const line = doc.line(n);
+      builder.add(line.from, line.from, new BlockLineMarker(block.tone));
+    }
+  }
+  return builder.finish();
+});
+
 function blockAtLine(view: EditorView, line: number): MergePaneBlock | null {
   const blocks = view.state.field(blocksField);
   const info = view.state.doc.line(line);
@@ -283,7 +351,7 @@ export class MergePane {
         doc: opts.doc,
         extensions: [
           EditorState.readOnly.of(!editable),
-          lineNumbers(),
+          ...(opts.numbers === "after" ? [] : [lineNumbers()]),
           highlightActiveLineGutter(),
           highlightActiveLine(),
           drawSelection(),
@@ -292,6 +360,7 @@ export class MergePane {
           this.wrap.of(opts.wrap ? EditorView.lineWrapping : []),
           this.whitespace.of(opts.whitespace ? highlightWhitespace() : []),
           blocksField,
+          blockGutterLines,
           gutter({
             class: this.opts.side === "after" ? "cm-merge-gutter side-after" : "cm-merge-gutter",
             side: this.opts.side === "after" ? "after" : "before",
@@ -333,6 +402,7 @@ export class MergePane {
               },
             },
           }),
+          ...(opts.numbers === "after" || opts.numbers === "both" ? [lineNumbersOn("after")] : []),
           keymap.of([
             {
               key: "Mod-s",
@@ -511,6 +581,30 @@ export class MergePane {
     const target = doc.line(Math.max(1, Math.min(line, doc.lines)));
     const top = this.view.lineBlockAt(target.from).top;
     this.view.scrollDOM.scrollTop = Math.max(0, top - 4);
+  }
+
+  /** Viewport-relative pixel span of a character range, for the connectors
+   *  drawn between panes. */
+  spanFor(from: number, to: number): { top: number; bottom: number } {
+    const doc = this.view.state.doc;
+    const start = doc.lineAt(Math.max(0, Math.min(from, doc.length)));
+    const end = doc.lineAt(Math.max(0, Math.min(to > from ? to - 1 : to, doc.length)));
+    return this.span(start.from, end.from);
+  }
+
+  /** Viewport-relative pixel span of lines [first, last], both 1-based. */
+  lineSpan(first: number, last: number): { top: number; bottom: number } {
+    const doc = this.view.state.doc;
+    const start = doc.line(Math.max(1, Math.min(first, doc.lines)));
+    const end = doc.line(Math.max(start.number, Math.min(last, doc.lines)));
+    return this.span(start.from, end.from);
+  }
+
+  private span(from: number, to: number): { top: number; bottom: number } {
+    const scroll = this.view.scrollDOM.scrollTop;
+    const top = this.view.lineBlockAt(from);
+    const bottom = this.view.lineBlockAt(to);
+    return { top: top.top - scroll, bottom: bottom.top + bottom.height - scroll };
   }
 
   requestMeasure() {

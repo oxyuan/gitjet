@@ -5,10 +5,7 @@ import {
   computeMerge,
   conflictLabels,
   diffHunks,
-  ignoreRangeLines,
-  insertConflictMarkers,
   needsSideChoice,
-  resetRangeLines,
   splitLines,
   tryResolveRange,
   type MergeLabels,
@@ -19,7 +16,7 @@ import {
 } from "./merge";
 import { charDiff, wordDiff } from "./diff";
 import { detectLineEnding, normalizeText, withLineEnding } from "./editorText";
-import { MergePane, type MergePaneBlock } from "./mergePane";
+import { MergePane, type MergePaneBlock, type MergePaneTone } from "./mergePane";
 import { Icon } from "./icons";
 import {
   Button,
@@ -50,9 +47,9 @@ const T = {
     compareLocalRemote: "Local vs Remote",
     compareResultBase: "Result vs Base",
     applyAnywayTitle: "Unresolved Conflicts",
-    applyAnywayOne: "1 conflict block is still open. The file is saved with Git's markers (<<<<<<<) around that block, so it stays unmerged.",
-    applyAnywayMessage: "{n} conflict blocks are still open. The file is saved with Git's markers (<<<<<<<) around them, so it stays unmerged.",
-    applyAnyway: "Save with Markers",
+    applyAnywayOne: "1 block is still undecided. Saving leaves the file exactly as the merge found it, with Git's markers, and the conflict stays open.",
+    applyAnywayMessage: "{n} blocks are still undecided. Saving leaves the file exactly as the merge found it, with Git's markers, and the conflict stays open.",
+    applyAnyway: "Save As Is",
     backToResolve: "Back to Resolving",
     local: "Local Changes",
     remote: "Remote Changes",
@@ -91,6 +88,10 @@ const T = {
     fromChanges: "Changes from {name}",
     showDetails: "Show details",
     resolveSimple: "Resolve simple conflicts",
+    applyNonConflicts: "Apply non-conflicting changes",
+    left: "Left",
+    all: "All",
+    right: "Right",
     autoMerge: "Three-way merge",
     autoMergeHint: "Merge the three stages with git's algorithm, in memory: the result is staged when nothing conflicts",
     compareContents: "Compare contents",
@@ -146,9 +147,9 @@ const T = {
     compareLocalRemote: "本地 vs 远程",
     compareResultBase: "结果 vs Base",
     applyAnywayTitle: "仍有未解决的冲突",
-    applyAnywayOne: "仍有 1 个冲突块未解决。保存时会在该块两侧写入 Git 冲突标记（<<<<<<<），文件保持未合并状态。",
-    applyAnywayMessage: "仍有 {n} 个冲突块未解决。保存时会在这些块两侧写入 Git 冲突标记（<<<<<<<），文件保持未合并状态。",
-    applyAnyway: "写入标记并保存",
+    applyAnywayOne: "还有 1 处未决定。保存时文件保持合并前的原样（仍带 Git 冲突标记），冲突继续保留。",
+    applyAnywayMessage: "还有 {n} 处未决定。保存时文件保持合并前的原样（仍带 Git 冲突标记），冲突继续保留。",
+    applyAnyway: "按原样保存",
     backToResolve: "返回解析",
     local: "本地更改",
     remote: "远程更改",
@@ -187,6 +188,10 @@ const T = {
     fromChanges: "来自 {name} 的更改",
     showDetails: "显示详细信息",
     resolveSimple: "解决简单冲突",
+    applyNonConflicts: "应用不冲突的更改",
+    left: "左侧",
+    all: "所有",
+    right: "右侧",
     autoMerge: "三方合并",
     autoMergeHint: "按 git 的算法在内存中合并三个阶段：没有冲突时直接暂存，有冲突时写入标记继续处理",
     compareContents: "比较内容",
@@ -307,8 +312,8 @@ function sideBlocks(
   return blocks;
 }
 
-/** One block per model range: a conflict stays marked until it is decided,
- *  an auto-merged range is already settled. */
+/** One block per model range: undecided until both sides are settled, and
+ *  tinted by what the range is while it waits. */
 function resultBlocks(
   model: MergeModel,
   states: ReadonlyMap<number, RangeState>,
@@ -318,21 +323,41 @@ function resultBlocks(
   return view.blocks.map((block) => {
     const range = model.ranges[block.index];
     const state = states.get(block.index);
-    const resolved = state?.resolved ?? block.resolved;
+    const resolved = state ? state.left && state.right : block.resolved;
+    const conflict = range?.kind === "conflict";
     return {
       id: block.index,
       from: block.from,
       to: block.to,
-      tone: resolved ? "resolved" : "conflict",
+      tone: resolved ? "resolved" : conflict ? "conflict" : range?.oursChanged ? "ours" : "theirs",
       revert: revertable(range, state),
-      title: resolved ? (range ? rangeType(range, t) : t("resolvedBlock")) : t("conflictBlock"),
+      title: resolved
+        ? range
+          ? rangeType(range, t)
+          : t("resolvedBlock")
+        : conflict
+          ? t("conflictBlock")
+          : range
+            ? rangeType(range, t)
+            : t("conflictBlock"),
     } satisfies MergePaneBlock;
   });
 }
 
+/** A range's decision, kept the way the IDE keeps it: each side is applied or
+ *  ignored on its own, and a conflict is decided only when both are. Applying
+ *  one side of a conflict leaves the other pending, so accepting both appends
+ *  the second one. */
 interface RangeState {
   lines: string[];
-  resolved: boolean;
+  left: boolean;
+  right: boolean;
+  /** The left side of a conflict is in the text and the right still is not. */
+  oneside: boolean;
+}
+
+function decided(state: RangeState | undefined): boolean {
+  return state !== undefined && state.left && state.right;
 }
 
 /** One block's state before and after a decision. The decision journal is the
@@ -364,15 +389,13 @@ type JournalEntry = Decision | WholeDecision;
 
 function countUnresolved(states: ReadonlyMap<number, RangeState>): number {
   let count = 0;
-  for (const state of states.values()) if (!state.resolved) count++;
+  for (const state of states.values()) if (!decided(state)) count++;
   return count;
 }
 
-/** Whether "Revert change" would move the block: a resolved conflict reopens
- *  and a decided change goes back to the merge base. */
+/** "Revert change" puts a decided range back to the merge base, undecided. */
 function revertable(range: MergeRange | undefined, state: RangeState | undefined): boolean {
-  if (!range || !state) return false;
-  return range.kind === "conflict" ? state.resolved : !sameLines(state.lines, range.base);
+  return range !== undefined && decided(state);
 }
 
 function CompareVersions({
@@ -430,6 +453,17 @@ type HighlightMode = "none" | "lines" | "words" | "chars";
 interface SyncAnchor {
   side: number;
   result: number;
+}
+
+/** One connector between the result's block and the same range in a version
+ *  pane. The panes scroll independently and keep their own line numbering, so
+ *  blocks of one change sit at different heights; the connector is what says
+ *  they belong together, the way the IDE draws it. */
+interface RibbonLink {
+  id: number;
+  side: "ours" | "theirs";
+  tone: MergePaneTone;
+  points: string;
 }
 
 /** Anchors from the side's lines to the result's: every unchanged stretch starts
@@ -515,18 +549,19 @@ export function ConflictView({
       }),
     [conflict.base, conflict.ours, conflict.theirs, labels, rawWorking, whitespaceMode],
   );
-  // Every changed range is a block in the result: Git's marker sections only
-  // decide which conflicts are still open, not how the result is laid out.
-  // A file saved half-resolved reopens with the decided ranges settled and the
-  // ranges still wrapped in markers open.
-  const initial = useMemo(() => buildMergeView(model, rawWorking), [model, rawWorking]);
+  // The result starts as the merge base, the way the IDE opens a merge: every
+  // range is a block that still waits for a decision.
+  const initial = useMemo(() => buildMergeView(model), [model]);
   const stateFromView = useMemo(
-    () => new Map<number, RangeState>(initial.blocks.map((block) => [block.index, { lines: block.lines, resolved: block.resolved }])),
+    () =>
+      new Map<number, RangeState>(
+        initial.blocks.map((block) => [block.index, { lines: block.lines, left: false, right: false, oneside: false }]),
+      ),
     [initial],
   );
   const initialText = initial.text;
   const [resultText, setResultText] = useState(initialText);
-  const [unresolved, setUnresolved] = useState(initial.open.length);
+  const [unresolved, setUnresolved] = useState(initial.blocks.length);
   const [dirty, setDirty] = useState(false);
   const [current, setCurrent] = useState(0);
   const [selected, setSelected] = useState<{
@@ -548,10 +583,16 @@ export function ConflictView({
   const [pendingSave, setPendingSave] = useState<{ stage: boolean; advance: boolean } | null>(null);
   const [pendingWhitespace, setPendingWhitespace] = useState<WhitespaceMode | null>(null);
   const [confirmClose, setConfirmClose] = useState(false);
+  const [links, setLinks] = useState<RibbonLink[]>([]);
 
   const oursRef = useRef<HTMLDivElement>(null);
   const resultRef = useRef<HTMLDivElement>(null);
   const theirsRef = useRef<HTMLDivElement>(null);
+  const panesRef = useRef<HTMLDivElement>(null);
+  const leftRibbonRef = useRef<HTMLDivElement>(null);
+  const rightRibbonRef = useRef<HTMLDivElement>(null);
+  const linksKey = useRef("");
+  const measureFrame = useRef(0);
   const oursPane = useRef<MergePane | null>(null);
   const resultPane = useRef<MergePane | null>(null);
   const theirsPane = useRef<MergePane | null>(null);
@@ -562,6 +603,75 @@ export function ConflictView({
   const lock = useRef(0);
   const autoScrollRef = useRef(autoScroll);
   autoScrollRef.current = autoScroll;
+
+  /** Reads both panes' block positions and rebuilds the connectors. It runs on
+   *  scroll, resize and every block change, and stops at the first frame whose
+   *  geometry did not move. */
+  const measureLinks = useCallback(() => {
+    const result = resultPane.current;
+    const ours = oursPane.current;
+    const theirs = theirsPane.current;
+    const leftTrack = leftRibbonRef.current;
+    const rightTrack = rightRibbonRef.current;
+    if (!result || !ours || !theirs || !leftTrack || !rightTrack) return;
+    const next: RibbonLink[] = [];
+    const collect = (side: "ours" | "theirs", track: HTMLDivElement) => {
+      const pane = side === "ours" ? ours : theirs;
+      const height = track.clientHeight;
+      if (height <= 1) return;
+      const y = (value: number) => ((value / height) * 1000).toFixed(1);
+      for (const block of result.getBlocks()) {
+        const range = model.ranges[block.id];
+        if (!range) continue;
+        if (side === "ours" ? !range.oursChanged : !range.theirsChanged) continue;
+        const start = (side === "ours" ? range.oursStart : range.theirsStart) + 1;
+        const end = Math.max(start, side === "ours" ? range.oursEnd : range.theirsEnd);
+        const head = result.spanFor(block.from, block.to);
+        const tail = pane.lineSpan(start, end);
+        next.push({
+          id: block.id,
+          side,
+          tone: range.kind === "conflict" ? (block.tone === "resolved" ? "resolved" : "conflict") : side,
+          points: `0,${y(head.top)} 100,${y(tail.top)} 100,${y(tail.bottom)} 0,${y(head.bottom)}`,
+        });
+      }
+    };
+    collect("ours", leftTrack);
+    collect("theirs", rightTrack);
+    const key = JSON.stringify(next);
+    if (key === linksKey.current) return;
+    linksKey.current = key;
+    setLinks(next);
+  }, [model]);
+
+  const scheduleMeasure = useCallback(() => {
+    if (measureFrame.current) return;
+    measureFrame.current = requestAnimationFrame(() => {
+      measureFrame.current = 0;
+      measureLinks();
+    });
+  }, [measureLinks]);
+
+  // Block text changes (a decision, a typed edit) move the spans without a
+  // scroll event; the frame after any render is enough to follow them.
+  useEffect(() => {
+    scheduleMeasure();
+  });
+
+  useEffect(() => {
+    const panes = panesRef.current;
+    if (!panes) return;
+    const observer = new ResizeObserver(() => scheduleMeasure());
+    observer.observe(panes);
+    return () => observer.disconnect();
+  }, [scheduleMeasure]);
+
+  useEffect(
+    () => () => {
+      if (measureFrame.current) cancelAnimationFrame(measureFrame.current);
+    },
+    [],
+  );
   const requestSaveRef = useRef<(stage: boolean, advance: boolean) => void>(() => {});
   const scrolledToFirst = useRef(false);
   const journal = useRef<{ entries: JournalEntry[]; at: number }>({ entries: [], at: 0 });
@@ -598,7 +708,7 @@ export function ConflictView({
     journal.current = { entries: [], at: 0 };
     lastAction.current = null;
     setResultText(initial.text);
-    setUnresolved(initial.open.length);
+    setUnresolved(initial.blocks.length);
     setDirty(false);
   }, [initial, stateFromView]);
   useEffect(() => {
@@ -608,32 +718,35 @@ export function ConflictView({
 
   const ranges = model.ranges;
   const conflicts = ranges.filter((r) => r.kind === "conflict");
-  const canApply = !busy && !conflict.binary;
-  const markerLabels = useMemo<MergeLabels>(() => {
-    const fromFile = conflictLabels(conflict.working) ?? {};
-    return {
-      ours: fromFile.ours?.trim() || labels.ours,
-      theirs: fromFile.theirs?.trim() || labels.theirs,
-    };
-  }, [conflict.working, labels]);
+  // The IDE keeps "Apply changes" for a fully decided merge; a save with
+  // anything left writes the file back as the merge found it.
+  const canApply = !busy && !conflict.binary && unresolved === 0;
+  /** Which of the IDE's three "apply non-conflicting changes" arrows has work
+   *  left: a one-sided range that is still undecided. */
+  const applyable = {
+    ours: ranges.some(
+      (range) => range.kind !== "conflict" && range.oursChanged && !decided(blocksRef.current.get(range.index)),
+    ),
+    theirs: ranges.some(
+      (range) => range.kind !== "conflict" && range.theirsChanged && !decided(blocksRef.current.get(range.index)),
+    ),
+    base: ranges.some(
+      (range) =>
+        range.kind !== "conflict" &&
+        (range.oursChanged || range.theirsChanged) &&
+        !decided(blocksRef.current.get(range.index)),
+    ),
+  };
 
-  /** The file as Git must see it: open blocks keep their markers, so a partial
-   *  save stays an unmerged file instead of a silently half-merged one. */
+  /** The file as Git must see it. Only a completely decided result is written;
+   *  with anything still undecided the file goes back exactly as the merge
+   *  found it (Git's own markers), which is what the IDE's save does. */
   const textForDisk = useCallback(() => {
     const pane = resultPane.current;
-    if (!pane) return resultTextRef.current;
-    const spans = pane
-      .getBlocks()
-      .map((block) => {
-        const state = blocksRef.current.get(block.id);
-        const range = model.ranges[block.id];
-        return state && !state.resolved && range
-          ? { from: block.from, to: block.to, theirs: range.theirs }
-          : null;
-      })
-      .filter((span): span is { from: number; to: number; theirs: string[] } => span !== null);
-    return spans.length === 0 ? pane.getDoc() : insertConflictMarkers(pane.getDoc(), spans, markerLabels);
-  }, [markerLabels, model]);
+    const decidedResult = pane ? pane.getDoc() : resultTextRef.current;
+    if (countUnresolved(blocksRef.current) > 0) return rawWorking;
+    return decidedResult;
+  }, [rawWorking]);
 
   const requestSave = useCallback(
     (stage: boolean, advance: boolean) => {
@@ -742,7 +855,7 @@ export function ConflictView({
   const refreshDecorations = useCallback(() => {
     const pending = new Set<number>();
     for (const [index, state] of blocksRef.current) {
-      if (!state.resolved) pending.add(index);
+      if (!decided(state)) pending.add(index);
     }
     const result = resultPane.current;
     if (result) {
@@ -750,10 +863,10 @@ export function ConflictView({
       const next = blocks.map((block) => {
         const state = blocksRef.current.get(block.id);
         const range = model.ranges[block.id];
-        const resolved = state?.resolved ?? true;
+        const resolved = decided(state);
         return {
           ...block,
-          tone: resolved ? "resolved" : "conflict",
+          tone: resolved ? "resolved" : range?.kind === "conflict" ? "conflict" : range?.oursChanged ? "ours" : "theirs",
           revert: revertable(range, state),
           title: resolved ? (range ? rangeType(range, tr) : t("resolvedBlock")) : t("conflictBlock"),
         } satisfies MergePaneBlock;
@@ -781,24 +894,17 @@ export function ConflictView({
           // A one-sided change stays actionable even though the result already
           // carries it: accepting it replaces the other side's text, ignoring
           // it takes the auto-merged change back.
-          if (range.kind !== "conflict") {
-            return {
-              ...block,
-              apply: side,
-              ignore: true,
-              tone: side,
-              title: `${t(side === "ours" ? "applyLocal" : "applyRemote")} · ${rangeType(range, tr)}`,
-            };
-          }
-          const active = pending.has(block.id);
-          // A decided block keeps only its status mark: choosing a side is the
-          // decision, and Ctrl+Z is how that decision is undone.
+          const state = blocksRef.current.get(block.id);
+          // A side that has been taken (applied or ignored) leaves only its
+          // status mark; Ctrl+Z is how that decision is undone.
+          const open = state ? !(side === "ours" ? state.left : state.right) : true;
+          const resolved = decided(state);
           return {
             ...block,
-            apply: active ? side : undefined,
-            ignore: active,
-            tone: active ? "conflict" : "resolved",
-            title: active
+            apply: open ? side : undefined,
+            ignore: open,
+            tone: resolved ? "resolved" : range.kind === "conflict" ? "conflict" : side,
+            title: open
               ? `${t(side === "ours" ? "applyLocal" : "applyRemote")} · ${rangeType(range, tr)}`
               : rangeType(range, tr),
           };
@@ -938,33 +1044,53 @@ export function ConflictView({
   undoRef.current = undo;
   redoRef.current = redo;
 
-  /** Settles one range on the given text. Ranges are the only block identity:
-   *  the three panes and the marker writer all use the model's range index. */
-  const resolveRange = useCallback(
-    (index: number, lines: string[]) => {
+  /** Applies one side of one range, the way the IDE's gutter arrows do. A
+   *  conflict stays open when only one side has been taken: the other side is
+   *  still there to accept, and accepting it afterwards appends its lines. */
+  const applyChange = useCallback(
+    (index: number, side: "ours" | "theirs", resolveChange = false) => {
       const pane = resultPane.current;
+      const range = model.ranges[index];
       const state = blocksRef.current.get(index);
-      if (!pane || !state) return;
-      // Accepting the side the result already shows is not a new decision;
-      // an unresolved conflict still becomes decided even when its local text
-      // is already what the pane holds.
-      if (state.resolved && sameLines(state.lines, lines)) return;
-      commitDecision([{ index, before: state, after: { lines, resolved: true } }]);
-      // A one-sided change is a correction, not a decision to move on from:
-      // only a conflict advances the caret to the next open block, the way
-      // accepting a conflict advances the IDE.
-      if (model.ranges[index]?.kind !== "conflict") return;
-      // The next decision is what the reader wants next: the caret moves to the
-      // following open block.
+      if (!pane || !range || !state) return;
+      const applied = side === "ours" ? state.left : state.right;
+      if (applied) return;
+      const changed = side === "ours" ? range.oursChanged : range.theirsChanged;
+      if (!changed) {
+        // The side did not touch the range, so taking it decides the change
+        // without moving any text.
+        commitDecision([{ index, before: state, after: { ...state, left: true, right: true } }]);
+        return;
+      }
+      const lines = side === "ours" ? range.ours : range.theirs;
+      const otherHasText = (side === "ours" ? range.theirs : range.ours).length > 0;
+      if (range.kind === "conflict" && !resolveChange && otherHasText) {
+        // Half a conflict: the chosen side goes into the result, the other one
+        // stays pending, and a later accept of it appends instead of replacing.
+        const next = state.oneside ? [...state.lines, ...lines] : lines;
+        commitDecision([
+          {
+            index,
+            before: state,
+            after: {
+              lines: next,
+              left: side === "ours" || state.left,
+              right: side === "theirs" || state.right,
+              oneside: true,
+            },
+          },
+        ]);
+        return;
+      }
+      commitDecision([{ index, before: state, after: { lines, left: true, right: true, oneside: false } }]);
+      // Accepting a conflict advances the caret to the next open block, the way
+      // the IDE moves on after a decision.
       const open = [...blocksRef.current.entries()]
-        .filter(([, candidate]) => !candidate.resolved)
+        .filter(([, candidate]) => !decided(candidate))
         .map(([id]) => id)
         .sort((a, b) => a - b);
       const after = open.find((candidate) => candidate > index) ?? open[0];
-      if (after === undefined) {
-        setCurrent(index);
-        return;
-      }
+      if (after === undefined) return;
       setCurrent(after);
       const block = pane.getBlocks().find((candidate) => candidate.id === after);
       if (!block) return;
@@ -976,41 +1102,80 @@ export function ConflictView({
     [commitDecision, model],
   );
 
-  /** Accept a side: the range becomes exactly that revision's text. This works
-   *  for a one-sided change too, so an auto-merged change can be replaced by
-   *  the other side's text, the way IDEA's gutter accept does. */
+  /** Accepts one side of a range; the other side of a conflict stays open. */
   const applyRange = useCallback(
-    (index: number, side: "ours" | "theirs") => {
-      const range = model.ranges[index];
-      if (!range) return;
-      resolveRange(index, side === "ours" ? range.ours : range.theirs);
-    },
-    [model, resolveRange],
+    (index: number, side: "ours" | "theirs") => applyChange(index, side, false),
+    [applyChange],
   );
 
-  /** Ignore a side: drop that side's change, keeping the other side or the
-   *  base when the other side did not touch the range. */
-  const ignoreRange = useCallback(
+  /** Ignore a side: record the decision without moving the text, so the range
+   *  keeps whatever the result already holds. */
+  const ignoreChange = useCallback(
     (index: number, side: "ours" | "theirs") => {
       const range = model.ranges[index];
-      if (!range) return;
-      resolveRange(index, ignoreRangeLines(range, side));
+      const state = blocksRef.current.get(index);
+      if (!range || !state) return;
+      if (side === "ours" ? state.left : state.right) return;
+      commitDecision([
+        {
+          index,
+          before: state,
+          after:
+            range.kind === "conflict"
+              ? { ...state, left: side === "ours" || state.left, right: side === "theirs" || state.right }
+              : { ...state, left: true, right: true },
+        },
+      ]);
     },
-    [model, resolveRange],
+    [commitDecision, model],
   );
 
-  /** IDEA's per-change Reset/Revert: a resolved conflict reopens, a decided
-   *  change goes back to the merge base. */
+  /** The IDE's Revert: the range goes back to the merge base, undecided. */
   const resetRange = useCallback(
     (index: number) => {
       const range = model.ranges[index];
       const state = blocksRef.current.get(index);
-      if (!range || !state) return;
-      const reset = resetRangeLines(range);
-      if (state.resolved === reset.resolved && sameLines(state.lines, reset.lines)) return;
-      commitDecision([{ index, before: state, after: reset }]);
+      if (!range || !state || !decided(state)) return;
+      commitDecision([
+        { index, before: state, after: { lines: range.base, left: false, right: false, oneside: false } },
+      ]);
     },
     [commitDecision, model],
+  );
+
+  /** "Apply non-conflicting changes": the IDE's three toolbar arrows. `base`
+   *  takes the side that changed each range, the other two only that side. */
+  const applyNonConflicted = useCallback(
+    (side: "ours" | "theirs" | "base") => {
+      const changes: BlockChange[] = [];
+      for (const [index, state] of blocksRef.current) {
+        if (decided(state)) continue;
+        const range = ranges[index];
+        if (!range || range.kind === "conflict") continue;
+        const pick =
+          side === "ours"
+            ? range.oursChanged
+              ? "ours"
+              : null
+            : side === "theirs"
+              ? range.theirsChanged
+                ? "theirs"
+                : null
+              : range.oursChanged
+                ? "ours"
+                : range.theirsChanged
+                  ? "theirs"
+                  : null;
+        if (!pick) continue;
+        changes.push({
+          index,
+          before: state,
+          after: { lines: pick === "ours" ? range.ours : range.theirs, left: true, right: true, oneside: false },
+        });
+      }
+      commitDecision(changes);
+    },
+    [commitDecision, ranges],
   );
 
   /** Resolve one conflict with the line attribution the wand uses. */
@@ -1018,23 +1183,23 @@ export function ConflictView({
     (index: number) => {
       const range = model.ranges[index];
       const state = blocksRef.current.get(index);
-      if (!range || !state || state.resolved) return;
+      if (!range || !state || decided(state) || state.left || state.right) return;
       const lines = tryResolveRange(range) ?? tryResolveRange(range, true);
       if (!lines) return;
-      resolveRange(index, lines);
+      commitDecision([{ index, before: state, after: { lines, left: true, right: true, oneside: false } }]);
     },
-    [model, resolveRange],
+    [commitDecision, model],
   );
 
   const autoResolve = useCallback(() => {
     const changes: BlockChange[] = [];
     for (const [index, state] of blocksRef.current) {
-      if (state.resolved) continue;
+      if (decided(state) || state.left || state.right) continue;
       const range = ranges[index];
-      if (!range) continue;
+      if (!range || range.kind !== "conflict") continue;
       const resolved = tryResolveRange(range) ?? tryResolveRange(range, true);
       if (!resolved) continue;
-      changes.push({ index, before: state, after: { lines: resolved, resolved: true } });
+      changes.push({ index, before: state, after: { lines: resolved, left: true, right: true, oneside: false } });
     }
     commitDecision(changes);
   }, [commitDecision, ranges]);
@@ -1099,7 +1264,9 @@ export function ConflictView({
       if (!pane) return;
       const text = normalizeText(side === "ours" ? conflict.ours : conflict.theirs);
       const afterStates = new Map<number, RangeState>();
-      for (const [index, state] of blocksRef.current) afterStates.set(index, { ...state, lines: [], resolved: true });
+      for (const [index, state] of blocksRef.current) {
+        afterStates.set(index, { ...state, lines: [], left: true, right: true, oneside: false });
+      }
       const history = journal.current;
       history.entries.length = history.at;
       history.entries.push({
@@ -1177,7 +1344,7 @@ export function ConflictView({
       items.push({
         label: t("resolveAutomatically"),
         icon: "sparkle",
-        disabled: !conflictTarget || state?.resolved === true || resolvable === null,
+        disabled: !conflictTarget || decided(state) || state?.left === true || state?.right === true || resolvable === null,
         onClick: () => conflictTarget && autoResolveOne(conflictTarget.index),
       });
       items.push({
@@ -1211,7 +1378,7 @@ export function ConflictView({
         icon: "eye",
         disabled: sideTarget === null,
         onClick: () => {
-          if (sideTarget) ignoreRange(sideTarget.index, side);
+          if (sideTarget) ignoreChange(sideTarget.index, side);
         },
       });
     }
@@ -1267,7 +1434,7 @@ export function ConflictView({
           const lines = blockLines(doc, block);
           if (sameLines(state.lines, lines)) continue;
           // A manual edit decides the block: it no longer waits for a side.
-          next.set(block.id, { lines, resolved: true });
+          next.set(block.id, { lines, left: true, right: true, oneside: false });
           changed = true;
         }
         if (changed) {
@@ -1335,10 +1502,14 @@ export function ConflictView({
       wrap,
       whitespace: showWhitespace,
       onApplyBlock: (id) => applyRange(id, "ours"),
-      onIgnoreBlock: (id) => ignoreRange(id, "ours"),
+      onIgnoreBlock: (id) => ignoreChange(id, "ours"),
       actionLabels: { apply: t("acceptLeft"), ignore: t("ignore") },
       side: "after",
-      onScroll: (line) => sync("ours", line),
+      numbers: "after",
+      onScroll: (line) => {
+        sync("ours", line);
+        scheduleMeasure();
+      },
       onSelection: (start, end, empty) => setSelected({ side: "ours", start, end, empty }),
     });
     const result = new MergePane(resultEl, {
@@ -1350,7 +1521,11 @@ export function ConflictView({
       whitespace: showWhitespace,
       onRevertBlock: (id) => resetRange(id),
       actionLabels: { apply: t("apply"), ignore: t("ignore"), revert: t("revertChange") },
-      onScroll: (line) => sync("result", line),
+      numbers: "both",
+      onScroll: (line) => {
+        sync("result", line);
+        scheduleMeasure();
+      },
       onSelection: (start) => syncCurrentRef.current(start),
       onSaveRequest: () => requestSaveRef.current(true, true),
       onUndoRequest: () => undoRef.current(),
@@ -1370,9 +1545,12 @@ export function ConflictView({
       wrap,
       whitespace: showWhitespace,
       onApplyBlock: (id) => applyRange(id, "theirs"),
-      onIgnoreBlock: (id) => ignoreRange(id, "theirs"),
+      onIgnoreBlock: (id) => ignoreChange(id, "theirs"),
       actionLabels: { apply: t("acceptRight"), ignore: t("ignore") },
-      onScroll: (line) => sync("theirs", line),
+      onScroll: (line) => {
+        sync("theirs", line);
+        scheduleMeasure();
+      },
       onSelection: (start, end, empty) => setSelected({ side: "theirs", start, end, empty }),
     });
     oursPane.current = ours;
@@ -1575,7 +1753,9 @@ export function ConflictView({
     nonConflict === 0
       ? t("noChangesMade")
       : count(nonConflict, t("changesOne", { n: nonConflict }), t("changesOther", { n: nonConflict }));
-  const conflictsText = count(unresolved, t("conflictOne", { n: unresolved }), t("conflictOther", { n: unresolved }));
+  // The counter reports what the file holds, the way the IDE's does: a
+  // conflict is a range both sides changed, decided or not.
+  const conflictsText = count(conflicts.length, t("conflictOne", { n: conflicts.length }), t("conflictOther", { n: conflicts.length }));
   const when = (time: number) =>
     time > 0 ? new Date(time * 1000).toLocaleString() : "";
 
@@ -1625,6 +1805,35 @@ export function ConflictView({
             onClick={() => setCollapsed((v) => !v)}
           />
           <span className="toolbar-sep" />
+          <span className="merge3-apply-label">{t("applyNonConflicts")}</span>
+          <button
+            type="button"
+            className="merge3-apply-btn"
+            disabled={!applyable.ours}
+            title={t("applyNonConflicts")}
+            onClick={() => applyNonConflicted("ours")}
+          >
+            » {t("left")}
+          </button>
+          <button
+            type="button"
+            className="merge3-apply-btn"
+            disabled={!applyable.base}
+            title={t("applyNonConflicts")}
+            onClick={() => applyNonConflicted("base")}
+          >
+            »« {t("all")}
+          </button>
+          <button
+            type="button"
+            className="merge3-apply-btn"
+            disabled={!applyable.theirs}
+            title={t("applyNonConflicts")}
+            onClick={() => applyNonConflicted("theirs")}
+          >
+            « {t("right")}
+          </button>
+          <span className="toolbar-sep" />
           <IconButton
             icon="sparkle"
             title={t("resolveSimple")}
@@ -1653,7 +1862,7 @@ export function ConflictView({
         </div>
       </header>
 
-      <div className="merge3-panes">
+      <div className="merge3-panes" ref={panesRef}>
         <section className="merge3-pane">
           <div className="merge3-pane-head">
             <Icon name="ours" size={12} />
@@ -1669,6 +1878,21 @@ export function ConflictView({
             onContextMenu={(event) => openPaneMenu(event, "ours")}
           />
         </section>
+        <div className="merge3-ribbon" aria-hidden="true">
+          <div className="merge3-ribbon-track" ref={leftRibbonRef}>
+            <svg viewBox="0 0 100 1000" preserveAspectRatio="none">
+              {links
+                .filter((link) => link.side === "ours")
+                .map((link) => (
+                  <polygon
+                    key={link.id}
+                    className={cx("merge3-link", link.tone, link.id === current && "current")}
+                    points={link.points}
+                  />
+                ))}
+            </svg>
+          </div>
+        </div>
         <section className="merge3-pane result">
           <div className="merge3-pane-head">
             <span className="merge3-pane-title">{t("result")}</span>
@@ -1682,6 +1906,21 @@ export function ConflictView({
             onContextMenu={(event) => openPaneMenu(event, "result")}
           />
         </section>
+        <div className="merge3-ribbon" aria-hidden="true">
+          <div className="merge3-ribbon-track" ref={rightRibbonRef}>
+            <svg viewBox="0 0 100 1000" preserveAspectRatio="none">
+              {links
+                .filter((link) => link.side === "theirs")
+                .map((link) => (
+                  <polygon
+                    key={link.id}
+                    className={cx("merge3-link", link.tone, link.id === current && "current")}
+                    points={link.points}
+                  />
+                ))}
+            </svg>
+          </div>
+        </div>
         <section className="merge3-pane">
           <div className="merge3-pane-head">
             <Icon name="theirs" size={12} />

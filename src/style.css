@@ -8557,7 +8557,7 @@ body.resizing-row .log-detail-split::after {
   left: 8px;
 }
 
-.merge3-panes > .merge3-pane:nth-child(3) .merge3-details-pop {
+.merge3-panes > .merge3-pane:nth-child(5) .merge3-details-pop {
   right: 8px;
 }
 
@@ -9482,4 +9482,144 @@ body.resizing-row .log-detail-split::after {
 
 .hook-live {
   color: var(--success);
+}
+
+/* ---- Three-way merge: connectors and IDEA-style blocks ---- */
+
+/* The panes keep their own line numbering, so one change sits at different
+   heights in each. The gap between them carries a connector per range: a
+   trapezoid from the result's block to that range's block in the version
+   pane, at that pane's own scroll position. */
+.merge3-panes {
+  grid-template-columns: minmax(0, 1fr) 22px minmax(0, 1fr) 22px minmax(0, 1fr);
+}
+
+.merge3-ribbon {
+  position: relative;
+  min-width: 0;
+  background: var(--panel-2);
+}
+
+.merge3-ribbon-track {
+  position: absolute;
+  inset: 24px 0 0 0;
+  overflow: hidden;
+}
+
+.merge3-ribbon-track svg {
+  display: block;
+  width: 100%;
+  height: 100%;
+}
+
+.merge3-link {
+  stroke: none;
+}
+
+.merge3-link.ours {
+  fill: color-mix(in srgb, var(--success) 13%, transparent);
+}
+
+.merge3-link.theirs {
+  fill: color-mix(in srgb, var(--accent) 16%, transparent);
+}
+
+.merge3-link.conflict {
+  fill: color-mix(in srgb, var(--warning) 15%, transparent);
+}
+
+.merge3-link.resolved {
+  fill: color-mix(in srgb, var(--success) 11%, transparent);
+}
+
+.merge3-link.current {
+  fill: color-mix(in srgb, var(--warning) 28%, transparent);
+}
+
+/* An unresolved block reads as a warm band with a left edge, not a red alert:
+   the gutter mark already says "decide this", and the band is what lines the
+   same change up across the three panes. */
+.cm-merge-line.conflict {
+  background: color-mix(in srgb, var(--warning) 14%, transparent);
+  box-shadow: inset 2px 0 0 color-mix(in srgb, var(--warning) 85%, transparent);
+}
+
+.cm-merge-line.ours {
+  box-shadow: inset 2px 0 0 color-mix(in srgb, var(--success) 70%, transparent);
+}
+
+.cm-merge-line.theirs {
+  box-shadow: inset 2px 0 0 color-mix(in srgb, var(--accent) 70%, transparent);
+}
+
+.cm-merge-line.resolved {
+  box-shadow: inset 2px 0 0 color-mix(in srgb, var(--success) 55%, transparent);
+}
+
+/* Line numbers on the inner edge, so the result's column sits on both sides of
+   the result the way the IDE lays it out. */
+.cm-merge-numbers .cm-gutterElement {
+  min-width: 24px;
+  padding: 0 4px;
+  text-align: right;
+  color: var(--muted-2);
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+}
+
+/* The block band runs through the gutters too, so a change is one stripe
+   across the pane instead of text with dark margins. */
+.cm-gutterElement.cm-merge-gutterline.ours {
+  background: color-mix(in srgb, var(--success) 7%, transparent);
+}
+
+.cm-gutterElement.cm-merge-gutterline.theirs {
+  background: color-mix(in srgb, var(--accent) 8%, transparent);
+}
+
+.cm-gutterElement.cm-merge-gutterline.conflict {
+  background: color-mix(in srgb, var(--warning) 8%, transparent);
+}
+
+.cm-gutterElement.cm-merge-gutterline.resolved {
+  background: color-mix(in srgb, var(--success) 6%, transparent);
+}
+
+/* The connector column is a gap between editors, not a panel of its own. */
+.merge3-ribbon {
+  background: var(--editor-bg);
+}
+
+/* The IDE's "apply non-conflicting changes" arrows, kept as words: the three
+   of them are a single decision about a whole class of ranges. */
+.merge3-apply-label {
+  color: var(--muted);
+  font-size: 10.5px;
+  white-space: nowrap;
+}
+
+.merge3-apply-btn {
+  height: 22px;
+  padding: 0 6px;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: 4px;
+  color: var(--fg-soft);
+  font: inherit;
+  font-size: 11px;
+  cursor: pointer;
+}
+
+.merge3-apply-btn:hover:not(:disabled) {
+  background: var(--hover);
+  border-color: var(--border);
+}
+
+.merge3-apply-btn:disabled {
+  color: var(--muted-2);
+  opacity: 0.6;
+  cursor: default;
 }

@@ -42,7 +42,8 @@ export interface MergeModel {
   oursLines: string[];
   theirsLines: string[];
   ranges: MergeRange[];
-  /** The result the view starts from: conflicts show their local side. */
+  /** The result the view starts from: the merge base everywhere, the way the
+   *  IDE opens a merge, and only a decision replaces a range. */
   result: string;
   labels: MergeLabels;
   trailingNewline: boolean;
@@ -185,6 +186,7 @@ function diffOps(a: string[], b: string[], eq: LineEq): DiffOp[] {
   return ops;
 }
 
+
 /** diffHunks collapses adjacent insert/delete operations into one changed
  *  region, which is the unit the merge view navigates. */
 export function diffHunks(a: string[], b: string[], ignoreWhitespace = false): DiffHunk[] {
@@ -295,16 +297,6 @@ function textEqual(a: string[], b: string[], eq: LineEq): boolean {
   return true;
 }
 
-function hunksOverlap(a: DiffHunk, b: DiffHunk): boolean {
-  return overlaps(a, b.baseStart, b.baseEnd) || overlaps(b, a.baseStart, a.baseEnd);
-}
-
-function overlaps(hunk: DiffHunk, start: number, end: number): boolean {
-  if (hunk.baseStart === hunk.baseEnd) return hunk.baseStart >= start && hunk.baseStart <= end;
-  if (start === end) return hunk.baseStart <= start && hunk.baseEnd >= end;
-  return hunk.baseStart < end && hunk.baseEnd > start;
-}
-
 function hunksWithEq(base: string[], side: string[], eq: LineEq): DiffHunk[] {
   const ops = diffOps(base, side, eq);
   const hunks: DiffHunk[] = [];
@@ -342,31 +334,68 @@ function buildRanges(
   eq: LineEq,
 ): MergeRange[] {
   const ranges: MergeRange[] = [];
-  let i = 0;
-  let j = 0;
-  const push = (
-    start: number,
-    end: number,
-    a: DiffHunk[],
-    b: DiffHunk[],
-  ) => {
+  const push = (start: number, end: number, as: DiffHunk[], bs: DiffHunk[]) => {
     const base = baseLines.slice(start, end);
-    const oursStart = a.length > 0 && a[0]!.baseStart === start ? a[0]!.sideStart : oursBoundary.after[start]!;
-    const oursEnd = a.length > 0 && a[a.length - 1]!.baseEnd === end ? a[a.length - 1]!.sideEnd : oursBoundary.before[end]!;
-    const theirsStart = b.length > 0 && b[0]!.baseStart === start ? b[0]!.sideStart : theirsBoundary.after[start]!;
-    const theirsEnd = b.length > 0 && b[b.length - 1]!.baseEnd === end ? b[b.length - 1]!.sideEnd : theirsBoundary.before[end]!;
+    const oursStart = as.length > 0 && as[0]!.baseStart === start ? as[0]!.sideStart : oursBoundary.after[start]!;
+    const oursEnd = as.length > 0 && as[as.length - 1]!.baseEnd === end ? as[as.length - 1]!.sideEnd : oursBoundary.before[end]!;
+    const theirsStart = bs.length > 0 && bs[0]!.baseStart === start ? bs[0]!.sideStart : theirsBoundary.after[start]!;
+    const theirsEnd = bs.length > 0 && bs[bs.length - 1]!.baseEnd === end ? bs[bs.length - 1]!.sideEnd : theirsBoundary.before[end]!;
     const ours = oursLines.slice(oursStart, oursEnd);
     const theirs = theirsLines.slice(theirsStart, theirsEnd);
     const oursEqBase = textEqual(ours, base, eq);
     const theirsEqBase = textEqual(theirs, base, eq);
-    const bothChanged = !oursEqBase && !theirsEqBase;
-    const same = textEqual(ours, theirs, eq);
-    const conflict = bothChanged && !same;
+    const sameSides = textEqual(ours, theirs, eq);
+    // The kind is IDEA's MergeRangeUtil.getMergeType, and with it come the two
+    // "this side changed the range" flags: they are not simply "a hunk exists",
+    // because a hunk can sit on the boundary and contribute nothing.
     let kind: MergeKind;
-    if (conflict) kind = "conflict";
-    else if (base.length === 0) kind = "inserted";
-    else if ((same ? ours : theirsEqBase ? ours : theirs).length === 0) kind = "deleted";
-    else kind = "modified";
+    let oursChanged: boolean;
+    let theirsChanged: boolean;
+    if (base.length === 0) {
+      if (ours.length === 0) {
+        kind = "inserted";
+        oursChanged = false;
+        theirsChanged = true;
+      } else if (theirs.length === 0) {
+        kind = "inserted";
+        oursChanged = true;
+        theirsChanged = false;
+      } else if (sameSides) {
+        kind = "inserted";
+        oursChanged = true;
+        theirsChanged = true;
+      } else {
+        kind = "conflict";
+        oursChanged = true;
+        theirsChanged = true;
+      }
+    } else if (ours.length === 0 && theirs.length === 0) {
+      kind = "deleted";
+      oursChanged = true;
+      theirsChanged = true;
+    } else if (oursEqBase && theirsEqBase) {
+      // Equal under the current policy but not identical: a whitespace-only
+      // change still belongs to the side that wrote it.
+      kind = "modified";
+      oursChanged = !textEqual(ours, base, exact);
+      theirsChanged = !textEqual(theirs, base, exact);
+    } else if (oursEqBase) {
+      kind = theirs.length === 0 ? "deleted" : "modified";
+      oursChanged = false;
+      theirsChanged = true;
+    } else if (theirsEqBase) {
+      kind = ours.length === 0 ? "deleted" : "modified";
+      oursChanged = true;
+      theirsChanged = false;
+    } else if (sameSides) {
+      kind = "modified";
+      oursChanged = true;
+      theirsChanged = true;
+    } else {
+      kind = "conflict";
+      oursChanged = true;
+      theirsChanged = true;
+    }
     ranges.push({
       index: ranges.length,
       kind,
@@ -376,50 +405,41 @@ function buildRanges(
       oursEnd,
       theirsStart,
       theirsEnd,
-      oursChanged: a.length > 0,
-      theirsChanged: b.length > 0,
+      oursChanged,
+      theirsChanged,
       base,
       ours,
       theirs,
     });
   };
 
-  while (i < oursHunks.length || j < theirsHunks.length) {
-    const a = oursHunks[i];
-    const b = theirsHunks[j];
-    if (a && b && hunksOverlap(a, b)) {
-      let start = Math.min(a.baseStart, b.baseStart);
-      let end = Math.max(a.baseEnd, b.baseEnd);
-      const as: DiffHunk[] = [];
-      const bs: DiffHunk[] = [];
-      let progressed = true;
-      while (progressed) {
-        progressed = false;
-        while (i < oursHunks.length && overlaps(oursHunks[i]!, start, end)) {
-          const h = oursHunks[i]!;
-          as.push(h);
-          start = Math.min(start, h.baseStart);
-          end = Math.max(end, h.baseEnd);
-          i++;
-          progressed = true;
-        }
-        while (j < theirsHunks.length && overlaps(theirsHunks[j]!, start, end)) {
-          const h = theirsHunks[j]!;
-          bs.push(h);
-          start = Math.min(start, h.baseStart);
-          end = Math.max(end, h.baseEnd);
-          j++;
-          progressed = true;
-        }
-      }
-      push(start, end, as, bs);
-    } else if (a && (!b || a.baseStart < b.baseStart || (a.baseStart === b.baseStart && a.baseEnd <= b.baseEnd))) {
+  // A range is the gap between two stretches that are unchanged in *both*
+  // versions. So changes that touch — no line left unchanged on both sides
+  // between them — are one range, and adjacent edits conflict even when they
+  // sit on different lines. The IDE merges them exactly this way.
+  const hunks = [
+    ...oursHunks.map((hunk) => ({ hunk, ours: true })),
+    ...theirsHunks.map((hunk) => ({ hunk, ours: false })),
+  ].sort(
+    (a, b) =>
+      a.hunk.baseStart - b.hunk.baseStart ||
+      a.hunk.baseEnd - b.hunk.baseEnd ||
+      (a.ours === b.ours ? 0 : a.ours ? -1 : 1),
+  );
+
+  let i = 0;
+  while (i < hunks.length) {
+    const start = hunks[i]!.hunk.baseStart;
+    let end = hunks[i]!.hunk.baseEnd;
+    const as: DiffHunk[] = [];
+    const bs: DiffHunk[] = [];
+    while (i < hunks.length && hunks[i]!.hunk.baseStart <= end) {
+      const item = hunks[i]!;
+      (item.ours ? as : bs).push(item.hunk);
+      end = Math.max(end, item.hunk.baseEnd);
       i++;
-      push(a.baseStart, a.baseEnd, [a], []);
-    } else if (b) {
-      j++;
-      push(b.baseStart, b.baseEnd, [], [b]);
     }
+    push(start, end, as, bs);
   }
   return ranges;
 }
@@ -432,18 +452,6 @@ export function chosenLines(range: MergeRange, eq: LineEq = exact): string[] {
   if (textEqual(range.ours, range.base, eq)) return range.theirs;
   if (textEqual(range.theirs, range.base, eq)) return range.ours;
   return range.ours;
-}
-
-/**
- * "Revert change", the counterpart of IDEA's Revert/Reset gutter action: a
- * conflict goes back to its local side and reopens, while a decided change
- * goes back to the merge base. Reverting a change is not the same as ignoring
- * a side: ignore keeps the other side's text, revert drops the whole edit.
- */
-export function resetRangeLines(range: MergeRange): { lines: string[]; resolved: boolean } {
-  return range.kind === "conflict"
-    ? { lines: range.ours, resolved: false }
-    : { lines: range.base, resolved: true };
 }
 
 /**
@@ -486,115 +494,11 @@ function lineEqual(a: string | undefined, b: string | undefined, eq: LineEq): bo
   return eq(a, b);
 }
 
-/** One piece of a working file: text that needs no decision, or a conflict
- *  section Git wrapped in markers. */
-export type ConflictSegment =
-  | { kind: "text"; text: string }
-  | {
-      kind: "conflict";
-      ours: string[];
-      base: string[] | null;
-      theirs: string[];
-      /** The closing marker line ended with a newline in the file. */
-      newline: boolean;
-    };
-
-/**
- * The lines a range shows after "Ignore" on one side: that side's change is
- * dropped. When the other side changed the same region its text is kept;
- * when it did not, the merge base comes back. Ignoring is the mirror of
- * applying the other side, which is what the IDE does.
- */
-export function ignoreRangeLines(range: MergeRange, side: "ours" | "theirs"): string[] {
-  if (side === "ours") return range.theirsChanged ? range.theirs : range.base;
-  return range.oursChanged ? range.ours : range.base;
-}
-
 /** Character offsets of the composed result's line starts. */
 function lineStartsOf(text: string): number[] {
   const starts = [0];
   for (let i = 0; i < text.length; i++) if (text.charCodeAt(i) === 10) starts.push(i + 1);
   return starts;
-}
-
-/**
- * conflictSegments reads the working file into plain text and conflict
- * sections, keeping the plain text exactly as it is. Null means a block was
- * malformed, so the caller must not trust the parse.
- */
-export function conflictSegments(text: string): ConflictSegment[] | null {
-  const lines = text.split("\n");
-  const starts = lineStartsOf(text);
-  const after = (line: number) => starts[line + 1] ?? text.length;
-  const segments: ConflictSegment[] = [];
-  let cursor = 0;
-  let i = 0;
-  while (i < lines.length) {
-    if (!lines[i]!.startsWith("<<<<<<<")) {
-      i++;
-      continue;
-    }
-    const start = i;
-    const ours: string[] = [];
-    const theirs: string[] = [];
-    let base: string[] | null = null;
-    let mode: "ours" | "base" | "theirs" = "ours";
-    let closed = false;
-    for (i++; i < lines.length; i++) {
-      const line = lines[i]!;
-      if (mode === "ours" && line.startsWith("|||||||")) {
-        base = [];
-        mode = "base";
-      } else if (mode !== "theirs" && line === "=======") {
-        mode = "theirs";
-      } else if (mode === "theirs" && line.startsWith(">>>>>>>")) {
-        closed = true;
-        break;
-      } else if (line.startsWith("<<<<<<<")) {
-        return null;
-      } else if (line === "=======" || line.startsWith("|||||||") || line.startsWith(">>>>>>>")) {
-        // The line reads as a marker but sits where only content belongs, so
-        // the section boundaries are guesses: refuse the parse rather than
-        // attribute this text to the wrong side.
-        return null;
-      } else if (mode === "ours") {
-        ours.push(line);
-      } else if (mode === "base") {
-        base!.push(line);
-      } else {
-        theirs.push(line);
-      }
-    }
-    if (!closed) return null;
-    const blockStart = starts[start]!;
-    if (blockStart > cursor) segments.push({ kind: "text", text: text.slice(cursor, blockStart) });
-    const blockEnd = after(i);
-    segments.push({
-      kind: "conflict",
-      ours,
-      base,
-      theirs,
-      newline: blockEnd > starts[i]! + lines[i]!.length,
-    });
-    cursor = blockEnd;
-    i++;
-  }
-  if (cursor < text.length) segments.push({ kind: "text", text: text.slice(cursor) });
-  return segments;
-}
-
-/** The working file without Git's marker lines: each section keeps the local
- *  side, which is what the three-way model starts from. */
-function strippedWorking(segments: ConflictSegment[]): string {
-  let text = "";
-  for (const segment of segments) {
-    if (segment.kind === "text") {
-      text += segment.text;
-      continue;
-    }
-    text += segment.ours.join("\n") + (segment.ours.length > 0 && segment.newline ? "\n" : "");
-  }
-  return text;
 }
 
 /** One model range as the result pane holds it. Ids are range indexes, so the
@@ -610,168 +514,39 @@ export interface MergeBlock {
 
 export interface MergeView {
   text: string;
-  /** One block per model range, in order. */
+  /** One block per model range, in order; every one starts undecided. */
   blocks: MergeBlock[];
-  /** Indexes of the conflict ranges that still carry Git's markers. */
-  open: number[];
-}
-
-/** Line positions of `base` in `side`: a line copied verbatim maps to the
- *  same offset, and a changed stretch maps its start to the side's start and
- *  its end to the side's end. At an insertion point the two differ: the text
- *  before the boundary ends before the inserted lines, the line after it
- *  begins after them. A range must not swallow inserted lines that sit at its
- *  end, so `end` keeps the pre-insertion offset. */
-function lineMap(base: string[], side: string[]): { start: number[]; end: number[] } {
-  const start = new Array<number>(base.length + 1).fill(0);
-  const end = new Array<number>(base.length + 1).fill(0);
-  const set = new Array<boolean>(base.length + 1).fill(false);
-  const put = (i: number, from: number, to: number) => {
-    start[i] = from;
-    end[i] = to;
-    set[i] = true;
-  };
-  let b = 0;
-  let s = 0;
-  for (const hunk of diffHunks(base, side)) {
-    for (let i = b; i < hunk.baseStart; i++) if (!set[i]) put(i, s + (i - b), s + (i - b));
-    if (hunk.baseStart === hunk.baseEnd) {
-      put(hunk.baseStart, hunk.sideEnd, hunk.sideStart);
-    } else {
-      put(hunk.baseStart, hunk.sideStart, hunk.sideStart);
-      for (let i = hunk.baseStart + 1; i < hunk.baseEnd; i++) put(i, hunk.sideStart, hunk.sideEnd);
-      put(hunk.baseEnd, hunk.sideEnd, hunk.sideEnd);
-    }
-    b = hunk.baseEnd;
-    s = hunk.sideEnd;
-  }
-  for (let i = b; i <= base.length; i++) if (!set[i]) put(i, s + (i - b), s + (i - b));
-  return { start, end };
-}
-
-/** Whether a range's mapped span belongs to a marker section. zdiff3 pulls
- *  lines shared by both sides out of the section, so a conflicted range may be
- *  wider than the section's own body: overlap, not containment, is the test.
- *  A section whose local side was entirely pulled out is a point inside the
- *  range it represents. */
-function inSection(
-  span: { from: number; to: number },
-  section: { from: number; to: number },
-): boolean {
-  if (section.from === section.to) return span.from <= section.from && span.to >= section.from;
-  if (span.from === span.to) return span.from >= section.from && span.from <= section.to;
-  return span.from < section.to && span.to > section.from;
 }
 
 /**
- * buildMergeView turns the three-way model plus the working file into the
- * result pane's blocks. Every changed range is a block: a conflicted range
- * stays open while Git's markers are around it, and an auto-merged range is
- * already settled. The result text is composed from the model, so a conflict
- * region that Git grouped around changes only one side made keeps those
- * changes instead of showing the whole local section.
- *
- * Ranges outside the marker sections keep whatever the working file holds
- * there, which is how a file saved half-resolved reopens with its decisions.
+ * buildMergeView turns the three-way model into the result pane's blocks. The
+ * result starts as the merge base, the way the IDE opens a merge: every change
+ * is a block that still needs a decision, a conflict and a one-sided change
+ * alike, and nothing is applied until the reader asks for it.
  */
-export function buildMergeView(model: MergeModel, working: string): MergeView {
-  const expected: string[] = [];
-  const expectedSpans = new Map<number, { from: number; to: number }>();
-  let b = 0;
-  for (const range of model.ranges) {
-    for (let i = b; i < range.baseStart; i++) expected.push(model.baseLines[i]!);
-    const from = expected.length;
-    expected.push(...(range.kind === "conflict" ? range.ours : chosenLines(range)));
-    expectedSpans.set(range.index, { from, to: expected.length });
-    b = range.baseEnd;
-  }
-  for (let i = b; i < model.baseLines.length; i++) expected.push(model.baseLines[i]!);
-
-  const parsed = conflictSegments(working);
-  // Text that cannot be read apart from the markers around it proves nothing:
-  // treating a broken parse as "Git already dropped those markers" is how a
-  // file still full of markers got staged. Such a file keeps the model's own
-  // text and every conflict open.
-  const trusted = parsed !== null;
-  const segments: ConflictSegment[] = parsed ?? [];
-  const stripped = trusted ? splitLines(strippedWorking(segments)).lines : [];
-  // A missing working file (a path the merge never wrote) has nothing to
-  // compare either; the stages are all there is.
-  const noFile = working === "" && expected.length > 0;
-  const compare = trusted && !noFile;
-  const map = compare ? lineMap(expected, stripped) : null;
-
-  const sections: { from: number; to: number }[] = [];
-  if (compare) {
-    let at = 0;
-    for (const segment of segments) {
-      if (segment.kind === "text") {
-        at += splitLines(segment.text).lines.length;
-        continue;
-      }
-      sections.push({ from: at, to: at + segment.ours.length });
-      at += segment.ours.length;
-    }
-  }
-
+export function buildMergeView(model: MergeModel): MergeView {
   const lines: string[] = [];
   const spans: { index: number; from: number; to: number }[] = [];
-  const open: number[] = [];
-  /** The marker section each range landed in; absent means plain merged text. */
-  const sectionOf = new Map<number, number>();
-  b = 0;
+  let b = 0;
   for (const range of model.ranges) {
     for (let i = b; i < range.baseStart; i++) lines.push(model.baseLines[i]!);
-    const span = expectedSpans.get(range.index)!;
-    const sameLine = span.from === span.to;
-    const mapped = {
-      from: map?.start[span.from] ?? span.from,
-      to: map ? (sameLine ? map.start[span.to]! : map.end[span.to]!) : span.to,
-    };
-    const section = map ? sections.findIndex((candidate) => inSection(mapped, candidate)) : -1;
-    if (section >= 0) sectionOf.set(range.index, section);
-    let rangeLines: string[];
-    if (!compare || section >= 0) {
-      // Git grouped this range into a conflict section: a one-sided change is
-      // still an auto-merge, a conflicted one waits for a decision.
-      rangeLines = range.kind === "conflict" ? range.ours : chosenLines(range);
-    } else {
-      rangeLines = stripped.slice(mapped.from, mapped.to);
-    }
     const from = lines.length;
-    lines.push(...rangeLines);
+    lines.push(...range.base);
     spans.push({ index: range.index, from, to: lines.length });
-    if (range.kind === "conflict" && (!compare || section >= 0)) open.push(range.index);
     b = range.baseEnd;
   }
   for (let i = b; i < model.baseLines.length; i++) lines.push(model.baseLines[i]!);
 
-  // A section git still wraps in markers is an unresolved region even when no
-  // range inside it is a conflict of its own: the two sides changed adjacent
-  // lines, left no unchanged line between them, and git stopped there. Merging
-  // both sides silently would decide a region git asked the reader about.
-  const decided = new Set<number>();
-  for (const index of open) {
-    const section = sectionOf.get(index);
-    if (section !== undefined) decided.add(section);
-  }
-  for (const range of model.ranges) {
-    const section = sectionOf.get(range.index);
-    if (section !== undefined && !decided.has(section)) open.push(range.index);
-  }
-  open.sort((a, b) => a - b);
-
   const text = lines.join("\n") + (model.trailingNewline && lines.length > 0 ? "\n" : "");
   const starts = lineStartsOf(text);
-  const openSet = new Set(open);
   const blocks: MergeBlock[] = spans.map((span) => ({
     index: span.index,
     lines: lines.slice(span.from, span.to),
-    resolved: !openSet.has(span.index),
+    resolved: false,
     from: starts[span.from] ?? text.length,
     to: starts[span.to] ?? text.length,
   }));
-  return { text, blocks, open };
+  return { text, blocks };
 }
 
 /**
@@ -813,55 +588,18 @@ export function renderResolved(
   let b = 0;
   for (const range of model.ranges) {
     for (let i = b; i < range.baseStart; i++) lines.push(model.baseLines[i]!);
-    if (range.kind === "conflict") {
-      lines.push(...(resolutions.get(range.index)?.lines ?? range.ours));
-    } else {
-      lines.push(...chosenLines(range, eq));
-    }
+    // An undecided range keeps the merge base, whatever its kind: the IDE
+    // starts every merge from the base and applies sides on request.
+    lines.push(...(resolutions.get(range.index)?.lines ?? range.base));
     b = range.baseEnd;
   }
   for (let i = b; i < model.baseLines.length; i++) lines.push(model.baseLines[i]!);
   return lines.join("\n") + (model.trailingNewline && lines.length > 0 ? "\n" : "");
 }
 
-/**
- * Puts Git's markers back around the blocks that are still unresolved, so a
- * partially resolved file keeps its "unmerged" meaning for Git and every other
- * tool. `spans` are the unresolved blocks' current character ranges.
- */
-export function insertConflictMarkers(
-  text: string,
-  spans: { from: number; to: number; theirs: string[] }[],
-  labels: MergeLabels,
-): string {
-  const edits = spans
-    .map((span) => ({
-      from: Math.max(0, Math.min(span.from, text.length)),
-      to: Math.max(span.from, Math.min(span.to, text.length)),
-      theirs: span.theirs,
-    }))
-    .filter((span) => span.to >= span.from)
-    .sort((a, b) => b.from - a.from);
-  let out = text;
-  for (const span of edits) {
-    const body = out.slice(span.from, span.to);
-    const atEof = span.to >= out.length;
-    // The block's last line keeps the file's newline state; the lines before it
-    // always end with one.
-    const endsWithNewline = body.endsWith("\n") || !atEof;
-    const inner = body === "" || body.endsWith("\n") ? body : body + "\n";
-    const theirs = span.theirs.length > 0 ? span.theirs.join("\n") + "\n" : "";
-    const tail = endsWithNewline ? "\n" : "";
-    out =
-      out.slice(0, span.from) +
-      `<<<<<<< ${labels.ours}\n${inner}=======\n${theirs}>>>>>>> ${labels.theirs}${tail}` +
-      out.slice(span.to);
-  }
-  return out;
-}
-
-/** computeMerge is the whole model: diff both sides against the base, join
- *  overlapping changes into conflict ranges, and render the initial result. */
+/** computeMerge is the whole model: diff both sides against the base, join the
+ *  changes that share a range into conflicts, and render the initial result,
+ *  which is the merge base until a range is decided. */
 export function computeMerge(
   baseText: string,
   oursText: string,
@@ -918,13 +656,6 @@ export function conflictLabels(text: string): Partial<MergeLabels> | null {
   return { ours, theirs };
 }
 
-/** Number of conflict blocks still carrying an opening marker. */
-export function countConflictMarkers(text: string): number {
-  let count = 0;
-  for (const line of text.split("\n")) if (line.startsWith("<<<<<<<")) count++;
-  return count;
-}
-
 /**
  * resolveSimpleConflicts renders the result the way "Resolve simple
  * conflicts" does: every conflict a line attribution can settle is replaced
@@ -977,11 +708,4 @@ export function needsSideChoice(
   conflict: Pick<ConflictContent, "binary" | "kind" | "hasOurs" | "hasTheirs">,
 ): boolean {
   return conflict.binary || conflict.kind !== "file" || !conflict.hasOurs || !conflict.hasTheirs;
-}
-
-export function hasConflictMarkers(text: string): boolean {
-  for (const line of text.split("\n")) {
-    if (line.startsWith("<<<<<<<") || line.startsWith(">>>>>>>")) return true;
-  }
-  return false;
 }
