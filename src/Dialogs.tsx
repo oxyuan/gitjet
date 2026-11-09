@@ -1291,6 +1291,7 @@ export function PushDialog({
   remotes,
   current,
   branch: initialBranch,
+  trackedUpstream,
   setUpstream,
   root,
   onCopyPath,
@@ -1306,6 +1307,8 @@ export function PushDialog({
   remotes: Remote[];
   current: string;
   branch?: string;
+  /** The configured upstream of the branch being pushed, as remote/branch. */
+  trackedUpstream?: string;
   setUpstream: boolean;
   /** Repository root, for copy-path and absolute paths in the diff. */
   root: string;
@@ -1320,14 +1323,25 @@ export function PushDialog({
   onSubmit: (opts: PushOptions) => void;
 }) {
   const t = useT(T);
-  const [branch, setBranch] = useState(initialBranch || current);
-  // The branch on the other side. It starts as the local name and stays
-  // editable: pushing local `main` onto `release` is a refspec, not a rename.
-  const [target, setTarget] = useState(initialBranch || current);
+  // The tracked branch is the default destination: pushing a branch whose
+  // upstream is origin/topic onto origin/<local-name> would create a new
+  // branch and, with -u, silently move the upstream.
+  const upstreamRef = useMemo(() => {
+    const value = (trackedUpstream ?? "").trim();
+    const match = remotes.find((r) => value.startsWith(r.name + "/"));
+    if (!match) return { remote: "", branch: "", known: false };
+    return { remote: match.name, branch: value.slice(match.name.length + 1), known: true };
+  }, [remotes, trackedUpstream]);
+  const startBranch = initialBranch || current;
+  const [branch, setBranch] = useState(startBranch);
+  // The branch on the other side. It starts at the tracked branch, or the
+  // local name when there is nothing tracked, and stays editable: pushing
+  // local `main` onto `release` is a refspec, not a rename.
+  const [target, setTarget] = useState(upstreamRef.branch || startBranch);
   const [targetEdited, setTargetEdited] = useState(false);
   const [recent, setRecent] = useState<string[]>([]);
   const [forceIfIncludes, setForceIfIncludes] = useState(false);
-  const [remote, setRemote] = useState(remotes.find((r) => r.name === "origin")?.name ?? remotes[0]?.name ?? "origin");
+  const [remote, setRemote] = useState(upstreamRef.remote || remotes.find((r) => r.name === "origin")?.name ?? remotes[0]?.name ?? "origin");
   const [preview, setPreview] = useState<PushPreview | null>(null);
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(true);
@@ -1365,7 +1379,9 @@ export function PushDialog({
           .then((p) => {
             if (!alive) return;
             setPreview(p);
-            if (p.creates) setUpstreamState(true);
+            // Only a branch with no upstream gets -u proposed; a push to a
+            // differently named remote branch must not steal the tracking.
+            if (p.creates && !upstreamRef.known) setUpstreamState(true);
           })
           .catch((err) => {
             if (!alive) return;
@@ -1382,13 +1398,13 @@ export function PushDialog({
       alive = false;
       clearTimeout(timer);
     };
-  }, [remote, branch, target, targetEdited, t]);
+  }, [remote, branch, target, targetEdited, t, upstreamRef.known]);
 
   // Picking a different local branch renames the target with it, unless the
   // name was typed on purpose.
   useEffect(() => {
-    if (!targetEdited) setTarget(branch);
-  }, [branch, targetEdited]);
+    if (!targetEdited) setTarget(upstreamRef.branch || branch);
+  }, [branch, targetEdited, upstreamRef.branch]);
 
   useEffect(() => {
     Git.pushTargets()

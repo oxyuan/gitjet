@@ -143,3 +143,33 @@ func TestPushToAnotherRemoteBranchPublishesThatRef(t *testing.T) {
 		t.Fatal("main on the remote moved too; the refspec did not name the branch")
 	}
 }
+
+func TestPushPreviewAndPushWorkFromADetachedHead(t *testing.T) {
+	repo, dir := newTestRepo(t)
+	remote := t.TempDir()
+	runGit(t, remote, "init", "-q", "--bare")
+	runGit(t, dir, "remote", "add", "origin", remote)
+	runGit(t, dir, "push", "-q", "-u", "origin", "main")
+
+	runGit(t, dir, "checkout", "-q", "--detach")
+	writeFile(t, dir, "detached.txt", "one\n")
+	runGit(t, dir, "add", "detached.txt")
+	runGit(t, dir, "commit", "-q", "-m", "detached work")
+
+	preview, err := repo.PushPreview(context.Background(), "origin", "", "detached-work")
+	if err != nil {
+		t.Fatalf("PushPreview: %v", err)
+	}
+	if preview.Head == "" || !preview.Creates {
+		t.Fatalf("preview = %+v, want the detached commit and a new branch", preview)
+	}
+	if _, err := repo.Push(context.Background(), PushOptions{Remote: "origin", RemoteBranch: "detached-work"}, func(string) {}); err != nil {
+		t.Fatalf("Push: %v", err)
+	}
+	if got := runGit(t, remote, "rev-parse", "refs/heads/detached-work"); got == "" {
+		t.Fatal("the detached commit was not published")
+	}
+	if shown := runGit(t, remote, "show", "--format=", "--name-only", "refs/heads/detached-work"); shown != "detached.txt" {
+		t.Fatalf("published tree = %q", shown)
+	}
+}

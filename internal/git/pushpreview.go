@@ -47,9 +47,6 @@ func (r *Repo) PushPreview(ctx context.Context, remote, branch, remoteBranch str
 	if remote == "" {
 		remote = "origin"
 	}
-	if branch == "" {
-		return PushPreview{}, errors.New("choose a branch to push")
-	}
 	if strings.HasPrefix(branch, "-") || strings.ContainsAny(branch, " \t\n") {
 		return PushPreview{}, errors.New("that is not a branch name")
 	}
@@ -63,7 +60,14 @@ func (r *Repo) PushPreview(ctx context.Context, remote, branch, remoteBranch str
 		return PushPreview{}, errors.New("that is not a branch name")
 	}
 	local := "refs/heads/" + branch
-	if _, err := r.run(ctx, "rev-parse", "--verify", "--quiet", local); err != nil {
+	if branch == "" {
+		// A detached HEAD has no branch ref, but its commit is what the
+		// push would send.
+		local = "HEAD"
+		if _, err := r.run(ctx, "rev-parse", "--verify", "--quiet", local); err != nil {
+			return PushPreview{}, errors.New("there is no commit to push")
+		}
+	} else if _, err := r.run(ctx, "rev-parse", "--verify", "--quiet", local); err != nil {
 		return PushPreview{}, errors.New("there is no local branch called " + branch)
 	}
 
@@ -74,8 +78,10 @@ func (r *Repo) PushPreview(ctx context.Context, remote, branch, remoteBranch str
 		Commits:      []Commit{},
 		Files:        []CommitFile{},
 	}
-	if out, err := r.run(ctx, "for-each-ref", "--format=%(upstream:short)", local); err == nil {
-		p.Upstream = strings.TrimSpace(out)
+	if branch != "" {
+		if out, err := r.run(ctx, "for-each-ref", "--format=%(upstream:short)", local); err == nil {
+			p.Upstream = strings.TrimSpace(out)
+		}
 	}
 
 	other := ""
@@ -91,8 +97,8 @@ func (r *Repo) PushPreview(ctx context.Context, remote, branch, remoteBranch str
 	}
 
 	if other != "" {
-		p.Ahead = r.countCommits(ctx, other+".."+branch)
-		if out, err := r.run(ctx, "merge-base", branch, other); err == nil {
+		p.Ahead = r.countCommits(ctx, other+".."+local)
+		if out, err := r.run(ctx, "merge-base", local, other); err == nil {
 			p.Base = strings.TrimSpace(out)
 		}
 		if out, err := r.run(ctx, "rev-parse", "--short", other); err == nil {
@@ -102,23 +108,23 @@ func (r *Repo) PushPreview(ctx context.Context, remote, branch, remoteBranch str
 		// cannot overwrite anything: the substitute ref above only narrows
 		// the list of commits and files that would be sent.
 		if !p.Creates {
-			p.Behind = r.countCommits(ctx, branch+".."+other)
+			p.Behind = r.countCommits(ctx, local+".."+other)
 			// A remote branch that is not an ancestor of the local one has
 			// commits the local branch never saw: pushing would overwrite them.
-			if _, err := r.run(ctx, "merge-base", "--is-ancestor", other, branch); err != nil {
+			if _, err := r.run(ctx, "merge-base", "--is-ancestor", other, local); err != nil {
 				var gerr *Error
 				p.Diverged = errors.As(err, &gerr) && gerr.Code == 1
 			}
 		}
 	} else {
-		p.Ahead = r.countCommits(ctx, branch)
+		p.Ahead = r.countCommits(ctx, local)
 	}
 
 	args := []string{"log", "--no-color", "--no-show-signature", "--decorate=full", "--max-count=" + strconv.Itoa(pushPreviewLimit+1), logFormat}
 	if other != "" {
-		args = append(args, other+".."+branch)
+		args = append(args, other+".."+local)
 	} else {
-		args = append(args, branch)
+		args = append(args, local)
 	}
 	if out, err := r.run(ctx, args...); err == nil {
 		p.Commits = parseLogCommits(out)
@@ -136,7 +142,7 @@ func (r *Repo) PushPreview(ctx context.Context, remote, branch, remoteBranch str
 		}
 		from = empty
 	}
-	if files, err := r.diffFiles(ctx, from, branch); err == nil {
+	if files, err := r.diffFiles(ctx, from, local); err == nil {
 		p.Files = files
 	}
 	return p, nil

@@ -599,7 +599,7 @@ type Dialog =
   | { kind: "settings" }
   | { kind: "newBranch"; start: string }
   | { kind: "renameBranch"; name: string }
-  | { kind: "push"; setUpstream: boolean; branch?: string }
+  | { kind: "push"; setUpstream: boolean; branch?: string; upstream?: string }
   | { kind: "pull" }
   | { kind: "reset"; hash: string; subject: string }
   | { kind: "tag"; start: string }
@@ -1737,7 +1737,7 @@ function AppShell({ onLangChange }: { onLangChange: (lang: Lang) => void }) {
       return;
     }
     if (pushAfter) {
-      setDialog({ kind: "push", setUpstream: !snapshot.state.upstream });
+      setDialog({ kind: "push", setUpstream: !snapshot.state.upstream, upstream: snapshot.state.upstream });
     }
   };
 
@@ -1952,7 +1952,7 @@ function AppShell({ onLangChange }: { onLangChange: (lang: Lang) => void }) {
   // Pushing is confirmed like any other push: the dialog shows what the
   // branch would send before anything leaves the machine.
   const pushBranch = (leaf: { name: string; upstream: string }) => {
-    setDialog({ kind: "push", setUpstream: leaf.upstream === "", branch: leaf.name });
+    setDialog({ kind: "push", setUpstream: leaf.upstream === "", branch: leaf.name, upstream: leaf.upstream });
   };
 
   const deleteBranch = async (name: string) => {
@@ -2434,7 +2434,7 @@ function AppShell({ onLangChange }: { onLangChange: (lang: Lang) => void }) {
           document.querySelector<HTMLTextAreaElement>(".commit-message")?.focus();
           break;
         case "push":
-          if (repoOpen) setDialog({ kind: "push", setUpstream: !snapshot?.state.upstream });
+          if (repoOpen) setDialog({ kind: "push", setUpstream: !snapshot?.state.upstream, upstream: snapshot?.state.upstream });
           break;
         case "pull":
           if (repoOpen) setDialog({ kind: "pull" });
@@ -2735,7 +2735,7 @@ function AppShell({ onLangChange }: { onLangChange: (lang: Lang) => void }) {
             <IconButton
               icon="push"
               title={pushTodo ? `${t("pushTip")} · ${pushTodo}` : t("pushTip")}
-              onClick={() => setDialog({ kind: "push", setUpstream: !snapshot?.state.upstream })}
+              onClick={() => setDialog({ kind: "push", setUpstream: !snapshot?.state.upstream, upstream: snapshot?.state.upstream })}
               disabled={!repoOpen}
             />
             {pushTodo !== "" && <span className="icon-dot todo" />}
@@ -2990,7 +2990,7 @@ function AppShell({ onLangChange }: { onLangChange: (lang: Lang) => void }) {
               <button
                 className="status-sync-btn ahead"
                 title={count(state.ahead, t("pushOne", { n: state.ahead }), t("pushOther", { n: state.ahead }))}
-                onClick={() => setDialog({ kind: "push", setUpstream: !state.upstream })}
+                onClick={() => setDialog({ kind: "push", setUpstream: !state.upstream, upstream: state.upstream })}
               >
                 ↑ {state.ahead}
               </button>
@@ -3157,6 +3157,7 @@ function AppShell({ onLangChange }: { onLangChange: (lang: Lang) => void }) {
           remotes={remotes}
           current={state?.branch ?? ""}
           branch={dialog.branch}
+          trackedUpstream={dialog.upstream}
           setUpstream={dialog.setUpstream}
           root={snapshot?.state.root ?? ""}
           onCopyPath={copyText}

@@ -726,6 +726,18 @@ func (r *Repo) Push(ctx context.Context, opts PushOptions, emit func(string)) (s
 		}
 	}
 	target := strings.TrimSpace(opts.RemoteBranch)
+	if branch == "" {
+		// Detached HEAD: the commit is the source, and the target branch
+		// has to be named explicitly.
+		if target == "" {
+			return "", errors.New("choose the remote branch to push HEAD to")
+		}
+		if _, err := r.run(ctx, "check-ref-format", "--branch", target); err != nil {
+			return "", errors.New("that is not a branch name")
+		}
+		args = append(args, "HEAD:refs/heads/"+target)
+		return r.stream(ctx, emit, args...)
+	}
 	if target != "" && target != branch {
 		// A fully qualified refspec pushes this branch to a different name
 		// on the remote, which is how a local branch takes over one that is
@@ -734,7 +746,7 @@ func (r *Repo) Push(ctx context.Context, opts PushOptions, emit func(string)) (s
 			return "", errors.New("that is not a branch name")
 		}
 		args = append(args, "refs/heads/"+branch+":refs/heads/"+target)
-	} else if branch != "" {
+	} else {
 		args = append(args, branch)
 	}
 	return r.stream(ctx, emit, args...)
@@ -956,7 +968,12 @@ func (r *Repo) MarkResolved(ctx context.Context, paths []string) error {
 	if err != nil {
 		return err
 	}
-	args := append([]string{"add", "-A", "--"}, clean...)
+	if len(clean) == 0 {
+		return errors.New("no paths were given")
+	}
+	// Git reads an unescaped path as a glob: marking web/[slug]/page.tsx
+	// resolved must not stage web/s/page.tsx as well.
+	args := append([]string{"add", "-A", "--"}, literalPaths(clean)...)
 	_, err = r.writeRun(ctx, args...)
 	return err
 }
