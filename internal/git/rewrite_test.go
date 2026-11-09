@@ -328,3 +328,92 @@ func TestStalePlanIsNotReplayedOnAnotherBranch(t *testing.T) {
 		t.Fatal("the stale plan was kept")
 	}
 }
+
+func TestAbortIgnoresAPlanWhoseStepIsGone(t *testing.T) {
+	repo, dir := newTestRepo(t)
+	commitFile(t, dir, "b.txt", "b\n", "second")
+	original := runGit(t, dir, "rev-parse", "HEAD")
+	state := &planState{
+		Onto: "HEAD~1", Branch: "main", Original: original, Head: original,
+		Steps: []PlanStep{{Hash: original, Action: PlanPick}},
+	}
+	if err := repo.writePlan(state); err != nil {
+		t.Fatal(err)
+	}
+	// The user finished the rewrite by hand after a crash.
+	commitFile(t, dir, "c.txt", "c\n", "manual work")
+	before := runGit(t, dir, "rev-parse", "HEAD")
+	if _, err := repo.AbortOperation(context.Background()); err == nil {
+		t.Fatal("AbortOperation reported an operation")
+	}
+	if after := runGit(t, dir, "rev-parse", "HEAD"); after != before {
+		t.Fatalf("abort reset HEAD from %s to %s", before, after)
+	}
+	if _, ok := repo.readPlan(); ok {
+		t.Fatal("the orphaned plan was not cleared")
+	}
+}
+
+func TestContinueDoesNotReplayAnOrphanedPlan(t *testing.T) {
+	repo, dir := newTestRepo(t)
+	commitFile(t, dir, "b.txt", "b\n", "second")
+	original := runGit(t, dir, "rev-parse", "HEAD")
+	state := &planState{
+		Onto: "HEAD~1", Branch: "main", Original: original, Head: original,
+		Steps: []PlanStep{{Hash: original, Action: PlanPick}},
+	}
+	if err := repo.writePlan(state); err != nil {
+		t.Fatal(err)
+	}
+	before := runGit(t, dir, "rev-parse", "HEAD")
+	if _, err := repo.ContinueOperation(context.Background()); err == nil {
+		t.Fatal("ContinueOperation replayed an orphaned plan")
+	}
+	if after := runGit(t, dir, "rev-parse", "HEAD"); after != before {
+		t.Fatalf("continue moved HEAD from %s to %s", before, after)
+	}
+	if _, ok := repo.readPlan(); ok {
+		t.Fatal("the orphaned plan was not cleared")
+	}
+}
+
+func TestPausedPlanDoesNotAbortOnAnotherBranch(t *testing.T) {
+	repo, dir := newTestRepo(t)
+	commitFile(t, dir, "b.txt", "b\n", "second")
+	original := runGit(t, dir, "rev-parse", "HEAD")
+	runGit(t, dir, "branch", "side")
+	state := &planState{
+		Onto: "HEAD~1", Branch: "main", Original: original, Head: original,
+		Steps: []PlanStep{{Hash: original, Action: PlanEdit}}, Paused: true,
+	}
+	if err := repo.writePlan(state); err != nil {
+		t.Fatal(err)
+	}
+	runGit(t, dir, "switch", "-q", "side")
+	commitFile(t, dir, "c.txt", "c\n", "side work")
+	before := runGit(t, dir, "rev-parse", "HEAD")
+	if _, err := repo.AbortOperation(context.Background()); err == nil {
+		t.Fatal("AbortOperation reported an operation")
+	}
+	if after := runGit(t, dir, "rev-parse", "HEAD"); after != before {
+		t.Fatalf("abort on side reset HEAD from %s to %s", before, after)
+	}
+}
+
+func TestRewordWithoutAMessageKeepsTheCommitMessage(t *testing.T) {
+	repo, dir := newTestRepo(t)
+	c1 := commitFile(t, dir, "b.txt", "b\n", "second")
+	c2 := commitFile(t, dir, "c.txt", "c\n", "third")
+	if _, err := repo.Rewrite(context.Background(), "HEAD~2", []PlanStep{
+		{Hash: c1, Action: PlanPick},
+		{Hash: c2, Action: PlanReword},
+	}); err != nil {
+		t.Fatalf("Rewrite: %v", err)
+	}
+	if got := runGit(t, dir, "log", "-1", "--format=%s"); got != "third" {
+		t.Fatalf("tip subject = %q, want the replayed commit's own message", got)
+	}
+	if op, _, _ := repo.operation(); op != "" {
+		t.Fatalf("operation = %q after a finished rewrite", op)
+	}
+}

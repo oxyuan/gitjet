@@ -18,7 +18,7 @@ func (r *Repo) operation() (name, progress, detail string) {
 	if r.gitDir == "" {
 		return "", "", ""
 	}
-	if state, ok := r.readPlan(); ok && state.Index < len(state.Steps) {
+	if state, ok := r.readPlan(); ok && r.planIsCurrent(state) {
 		return "rebase-interactive", fmt.Sprintf("%d/%d", state.Index+1, len(state.Steps)), ""
 	}
 	read := func(rel string) string {

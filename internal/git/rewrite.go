@@ -57,6 +57,9 @@ type planState struct {
 	// Message is the message of the commit at the tip, which a squash
 	// appends to.
 	Message string `json:"message"`
+	// Head is the tip the plan last produced. It lets a resumed plan tell
+	// its own step from a foreign cherry-pick.
+	Head string `json:"head"`
 	// Paused is set between an applied "edit" commit and the continue that
 	// resumes the plan.
 	Paused bool `json:"paused"`
@@ -186,6 +189,9 @@ func (r *Repo) Rewrite(ctx context.Context, onto string, steps []PlanStep) (stri
 		return "", err
 	}
 	state.Message = r.headMessage(ctx)
+	if head, err := r.run(ctx, "rev-parse", "HEAD"); err == nil {
+		state.Head = strings.TrimSpace(head)
+	}
 	if err := r.writePlan(state); err != nil {
 		return "", err
 	}
@@ -199,6 +205,7 @@ func (r *Repo) runPlan(ctx context.Context, state *planState, committed bool) (s
 		step := state.Steps[state.Index]
 		if step.Action == PlanDrop {
 			state.Index++
+			r.savePlan(state)
 			continue
 		}
 		if !committed {
@@ -212,6 +219,7 @@ func (r *Repo) runPlan(ctx context.Context, state *planState, committed bool) (s
 				// The commit became empty and git dropped it, so there is
 				// nothing to fold.
 				state.Index++
+				r.savePlan(state)
 				continue
 			}
 		}
@@ -220,7 +228,9 @@ func (r *Repo) runPlan(ctx context.Context, state *planState, committed bool) (s
 		case PlanReword:
 			msg := step.Message
 			if strings.TrimSpace(msg) == "" {
-				msg = state.Message
+				// Keep the message of the commit being replayed; the tip
+				// message still belongs to the previous step here.
+				msg = r.commitMessage(ctx, step.Hash)
 			}
 			if _, err := r.amendMessage(ctx, msg); err != nil {
 				r.savePlan(state)
@@ -259,6 +269,9 @@ func (r *Repo) runPlan(ctx context.Context, state *planState, committed bool) (s
 			}
 		}
 		state.Message = r.headMessage(ctx)
+		if head, err := r.run(ctx, "rev-parse", "HEAD"); err == nil {
+			state.Head = strings.TrimSpace(head)
+		}
 		if step.Action == PlanEdit {
 			state.Paused = true
 			r.savePlan(state)
@@ -266,6 +279,7 @@ func (r *Repo) runPlan(ctx context.Context, state *planState, committed bool) (s
 			return strings.TrimSpace(out.String()), nil
 		}
 		state.Index++
+		r.savePlan(state)
 	}
 	r.clearPlan()
 	return strings.TrimSpace(out.String()), nil
@@ -383,9 +397,9 @@ func (r *Repo) abortPlan(ctx context.Context) (string, bool, error) {
 	if !ok {
 		return "", false, nil
 	}
-	if !r.planIsCurrent(ctx, state) {
-		// The plan belongs to another branch or to a rewrite that was
-		// finished elsewhere: resetting here would destroy unrelated work.
+	if !r.planIsCurrent(state) {
+		// The plan belongs to another branch, or its step is no longer in
+		// git: resetting here would destroy unrelated work.
 		r.clearPlan()
 		return "", false, nil
 	}
@@ -394,24 +408,50 @@ func (r *Repo) abortPlan(ctx context.Context) (string, bool, error) {
 	return strings.TrimSpace(out), true, err
 }
 
-// planIsCurrent reports whether the saved plan still describes what this
-// checkout is doing. A plan outlives a crash or an external abort, and
-// replaying it on a different branch rewrites or resets the wrong history.
-func (r *Repo) planIsCurrent(ctx context.Context, state *planState) bool {
-	if state == nil {
+// headBranchName is the checked-out branch, or "" on a detached HEAD. It
+// reads HEAD itself, so the answer costs no git process.
+func (r *Repo) headBranchName() string {
+	if r.gitDir == "" {
+		return ""
+	}
+	b, err := os.ReadFile(filepath.Join(r.gitDir, "HEAD"))
+	if err != nil {
+		return ""
+	}
+	line := strings.TrimSpace(string(b))
+	const prefix = "ref: refs/heads/"
+	if strings.HasPrefix(line, prefix) {
+		return strings.TrimPrefix(line, prefix)
+	}
+	return ""
+}
+
+// pendingPick is the commit git stopped a cherry-pick on.
+func (r *Repo) pendingPick() string {
+	if r.gitDir == "" {
+		return ""
+	}
+	b, err := os.ReadFile(filepath.Join(r.gitDir, "CHERRY_PICK_HEAD"))
+	if err != nil {
+		return ""
+	}
+	return strings.TrimSpace(string(b))
+}
+
+// planIsCurrent reports whether the saved plan still describes this
+// checkout. A plan outlives a crash or an external abort, so a plan for
+// another branch, or one whose step is no longer the commit git stopped
+// on, must not be replayed or aborted.
+func (r *Repo) planIsCurrent(state *planState) bool {
+	if state == nil || state.Index >= len(state.Steps) {
 		return false
 	}
-	branch := ""
-	if out, err := r.run(ctx, "symbolic-ref", "--short", "-q", "HEAD"); err == nil {
-		branch = strings.TrimSpace(out)
-	}
-	if state.Branch != "" && branch != state.Branch {
+	if r.headBranchName() != state.Branch {
 		return false
 	}
-	// A plan that is not paused and has no step waiting in git is orphaned.
 	if state.Paused {
 		return true
 	}
-	op, _, _ := r.operation()
-	return op == "cherry-pick" || op == "rebase" || op == "rebase-interactive"
+	pick := r.pendingPick()
+	return pick != "" && strings.EqualFold(pick, state.Steps[state.Index].Hash)
 }

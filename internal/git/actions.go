@@ -1001,7 +1001,7 @@ func (r *Repo) ContinueOperation(ctx context.Context) (string, error) {
 	// A plan always stops on a conflicting cherry-pick, so continue that
 	// step and replay the rest.
 	plan, hasPlan := r.readPlan()
-	if hasPlan && plan != nil && !r.planIsCurrent(ctx, plan) {
+	if hasPlan && plan != nil && !r.planIsCurrent(plan) {
 		// Stale plan: the rewrite it records is not what this checkout is
 		// doing any more, and replaying it would cherry-pick onto an
 		// unrelated branch.
@@ -1022,7 +1022,7 @@ func (r *Repo) ContinueOperation(ctx context.Context) (string, error) {
 			rest, err := r.resumePlan(ctx, false)
 			return strings.TrimSpace(rest), err
 		}
-		if _, err := r.run(ctx, "rev-parse", "--verify", "--quiet", "CHERRY_PICK_HEAD"); err == nil {
+		if r.pendingPick() != "" {
 			res, err := r.run(ctx, "cherry-pick", "--continue")
 			if err != nil {
 				return res, err
@@ -1059,8 +1059,9 @@ func (r *Repo) ContinueOperation(ctx context.Context) (string, error) {
 func (r *Repo) SkipOperation(ctx context.Context) (string, error) {
 	r.write.Lock()
 	defer r.write.Unlock()
-	if plan, hasPlan := r.readPlan(); hasPlan && plan != nil {
-		if _, err := r.run(ctx, "rev-parse", "--verify", "--quiet", "CHERRY_PICK_HEAD"); err != nil {
+	plan, hasPlan := r.readPlan()
+	if hasPlan && plan != nil && r.planIsCurrent(plan) {
+		if r.pendingPick() == "" {
 			return "", errors.New("nothing to skip")
 		}
 		out, err := r.run(ctx, "cherry-pick", "--skip")
@@ -1072,6 +1073,9 @@ func (r *Repo) SkipOperation(ctx context.Context) (string, error) {
 		r.savePlan(plan)
 		rest, err := r.resumePlan(ctx, false)
 		return strings.TrimSpace(out + "\n" + rest), err
+	}
+	if hasPlan {
+		r.clearPlan()
 	}
 	op, _, _ := r.operation()
 	var args []string
