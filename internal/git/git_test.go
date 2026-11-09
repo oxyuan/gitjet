@@ -542,3 +542,28 @@ func TestApplyDiffHunkStagesAFileWithoutATrailingNewline(t *testing.T) {
 		t.Fatalf("staged patch lost the marker:\n%s", staged)
 	}
 }
+
+func TestCleanPathKeepsWhitespaceInAFilename(t *testing.T) {
+	repo, dir := newTestRepo(t)
+	writeFile(t, dir, "note ", "x\n")
+	if err := repo.Stage(context.Background(), []string{"note "}); err != nil {
+		t.Fatalf("Stage: %v", err)
+	}
+	if err := runGitNoOut(dir, "ls-files", "--error-unmatch", "--", "note "); err != nil {
+		t.Fatalf("the file with the trailing space was not staged: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(dir, "note")); !os.IsNotExist(err) {
+		t.Fatalf("a path without the space was touched (err=%v)", err)
+	}
+	file, err := repo.FileContent(context.Background(), "note ", "")
+	if err != nil || file.Text != "x\n" {
+		t.Fatalf("FileContent = %q, %v", file.Text, err)
+	}
+}
+
+func runGitNoOut(dir string, args ...string) error {
+	cmd := exec.Command("git", append([]string{"-C", dir}, args...)...)
+	cmd.Env = gitEnv()
+	_, err := cmd.CombinedOutput()
+	return err
+}

@@ -505,7 +505,7 @@ func literalPaths(paths []string) []string {
 // cleanPath validates a repository-relative path from the page and returns
 // it with forward slashes. Paths that leave the working tree are rejected.
 func cleanPath(p string) (string, error) {
-	p = strings.TrimSpace(filepath.ToSlash(p))
+	p = filepath.ToSlash(p)
 	p = strings.TrimPrefix(p, "./")
 	if p == "" || p == "." {
 		return "", errors.New("empty path")
