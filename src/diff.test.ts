@@ -1,6 +1,6 @@
 import { describe, expect, it } from "bun:test";
 import type { FileDiff } from "./mygo";
-import { buildDiffRows, changeBlockRows, charDiff, isCollapsed, textLines, wordDiff } from "./diff";
+import { buildDiffRows, changeBlockRows, changeBlockSelections, charDiff, isCollapsed, textLines, wordDiff } from "./diff";
 
 describe("textLines", () => {
   it("drops the empty tail after a final newline", () => {
@@ -166,3 +166,46 @@ describe("changeBlockRows", () => {
 function longText(n: number): string {
   return Array.from({ length: n }, (_, i) => `line ${i + 1}`).join("\n") + "\n";
 }
+
+describe("changeBlockSelections", () => {
+  it("groups each run of changed rows with signed line numbers", () => {
+    const diff = {
+      path: "a.txt",
+      status: "modified",
+      binary: false,
+      additions: 1,
+      deletions: 1,
+      hunks: [
+        {
+          header: "@@ -1,3 +1,3 @@",
+          oldStart: 1,
+          oldLines: 3,
+          newStart: 1,
+          newLines: 3,
+          lines: [
+            { kind: "context", oldNo: 1, newNo: 1, text: "one", noNewline: false },
+            { kind: "del", oldNo: 2, newNo: 0, text: "two", noNewline: false },
+            { kind: "add", oldNo: 0, newNo: 2, text: "TWO", noNewline: false },
+            { kind: "context", oldNo: 3, newNo: 3, text: "three", noNewline: false },
+            { kind: "del", oldNo: 4, newNo: 0, text: "four", noNewline: false },
+            { kind: "add", oldNo: 0, newNo: 4, text: "FOUR", noNewline: false },
+          ],
+        },
+      ],
+      oldText: "one\ntwo\nthree\nfour\n",
+      newText: "one\nTWO\nthree\nFOUR\n",
+      oldLabel: "a",
+      newLabel: "b",
+      truncated: false,
+      patch: "",
+      hasChanges: true,
+    } as const;
+    const rows = buildDiffRows(diff as never, false);
+    const blocks = changeBlockSelections(rows);
+    expect([...blocks.values()]).toEqual([
+      [-2, 2],
+      [-4, 4],
+    ]);
+    expect([...blocks.keys()]).toEqual([1, 3]);
+  });
+});

@@ -53,6 +53,31 @@ export function changeBlockRows(rows: DiffRows): number[] {
   return out;
 }
 
+/**
+ * The signed lines of every change block, keyed by the block's first row.
+ * A whole-file diff has one hunk, so these are what a hunk-level control
+ * must apply: one run of changed rows, with old lines negative so a deleted
+ * line and an added line that share a number stay apart.
+ */
+export function changeBlockSelections(rows: DiffRows): Map<number, number[]> {
+  const blocks = new Map<number, number[]>();
+  let current = -1;
+  rows.forEach((row, i) => {
+    if (isCollapsed(row) || row.kind === "context") {
+      current = -1;
+      return;
+    }
+    if (current < 0) {
+      current = i;
+      blocks.set(i, []);
+    }
+    const lines = blocks.get(current)!;
+    if (row.left && row.left.kind !== "context") lines.push(-row.left.no);
+    if (row.right && row.right.kind !== "context") lines.push(row.right.no);
+  });
+  return blocks;
+}
+
 /** Splits file text into lines, dropping the empty tail after a final newline. */
 export function textLines(text: string): string[] {
   if (text === "") return [];

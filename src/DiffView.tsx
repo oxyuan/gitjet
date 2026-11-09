@@ -2,7 +2,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { annotateDate, blameDepth } from "./annotate";
 import { blameMenuItems } from "./blameMenu";
 import { Git, type BlameLine, type DiffOptions, type FileDiff } from "./mygo";
-import { buildDiffRows, changeBlockRows, isCollapsed, type AlignedRow, type DiffRows, type WordSegment } from "./diff";
+import { buildDiffRows, changeBlockRows, changeBlockSelections, isCollapsed, type AlignedRow, type DiffRows, type WordSegment } from "./diff";
 import { ImageDiff } from "./ImageDiff";
 import { isImagePath } from "./images";
 import { FileIcon, Icon } from "./icons";
@@ -218,6 +218,13 @@ export function DiffView({
     });
     return map;
   }, [rows]);
+  // A whole-file diff is one hunk, so its chevrons have to follow the
+  // change blocks instead: one button per run of changed rows, applying
+  // exactly those lines.
+  const wholeFileBlocks = useMemo(
+    () => (diff.wholeFile ? changeBlockSelections(rows) : null),
+    [rows, diff.wholeFile],
+  );
 
   const goto = (delta: number) => {
     if (changeRows.length === 0) return;
@@ -240,11 +247,14 @@ export function DiffView({
     setAnchor(-1);
   }, [reloadKey, diff.path]);
   // A click on a changed line's number selects it; Shift extends from the
-  // last click, the way a range selection reads. Unchanged lines keep the
-  // blame menu, and so does every right-click.
-  const selectLine = (no: number, rowIndex: number, e: React.MouseEvent) => {
+  // last click, the way a range selection reads. The old side is stored
+  // negative: old and new numbers overlap, and an added line 5 must not
+  // drag the deleted line 5 with it. Unchanged lines keep the blame menu,
+  // and so does every right-click.
+  const selectLine = (no: number, side: "old" | "new", rowIndex: number, e: React.MouseEvent) => {
     e.stopPropagation();
     const shift = e.shiftKey && anchor >= 0;
+    const key = side === "new" ? no : -no;
     setSelected((prev) => {
       const next = new Set(prev);
       if (shift) {
@@ -252,13 +262,13 @@ export function DiffView({
         for (let i = from; i <= to; i++) {
           const row = rows[i];
           if (!row || isCollapsed(row)) continue;
-          if (row.left && row.left.kind !== "context") next.add(row.left.no);
+          if (row.left && row.left.kind !== "context") next.add(-row.left.no);
           if (row.right && row.right.kind !== "context") next.add(row.right.no);
         }
-      } else if (next.has(no)) {
-        next.delete(no);
+      } else if (next.has(key)) {
+        next.delete(key);
       } else {
-        next.add(no);
+        next.add(key);
       }
       return next;
     });
@@ -414,9 +424,11 @@ export function DiffView({
               expanded={expanded}
               setExpanded={setExpanded}
               firstRowOfHunk={firstRowOfHunk}
+              wholeFileBlocks={wholeFileBlocks}
               canApply={canApply}
               hunkAction={hunkAction}
               onApply={onApply}
+              onApplyLines={onApplyLines}
               selected={selected}
               onSelect={selectLine}
               currentRow={current >= 0 ? (changeRows[current] ?? -1) : -1}
@@ -434,9 +446,11 @@ export function DiffView({
               expanded={expanded}
               setExpanded={setExpanded}
               firstRowOfHunk={firstRowOfHunk}
+              wholeFileBlocks={wholeFileBlocks}
               canApply={canApply}
               hunkAction={hunkAction}
               onApply={onApply}
+              onApplyLines={onApplyLines}
               selected={selected}
               onSelect={selectLine}
               currentRow={current >= 0 ? (changeRows[current] ?? -1) : -1}
@@ -556,17 +570,25 @@ function statusClass(status: string): string {
 
 function ApplyChevrons({
   hunk,
+  lines,
   action,
   canApply,
   onApply,
+  onApplyLines,
 }: {
   hunk: number;
+  lines?: number[];
   action: "stage" | "unstage";
   canApply: boolean;
   onApply: (hunk: number, action: "stage" | "unstage" | "rollback") => void;
+  onApplyLines: (lines: number[], action: "stage" | "unstage" | "rollback") => void;
 }) {
   const t = useT(T);
   if (!canApply) return <div className="diff-action" />;
+  const apply = (next: "stage" | "unstage" | "rollback") => {
+    if (lines) onApplyLines(lines, next);
+    else onApply(hunk, next);
+  };
   return (
     <div className="diff-action">
       <button
@@ -585,7 +607,7 @@ function ApplyChevrons({
           title={t("rollbackHunk")}
           onClick={(e) => {
             e.stopPropagation();
-            onApply(hunk, "rollback");
+            apply("rollback");
           }}
         >
           <Icon name="undo" size={12} />
@@ -633,7 +655,7 @@ interface GutterProps {
   onGutter: (side: Side, line: number, x: number, y: number) => void;
   local: string;
   selected: Set<number>;
-  onSelect: (line: number, row: number, e: React.MouseEvent) => void;
+  onSelect: (line: number, side: "old" | "new", row: number, e: React.MouseEvent) => void;
 }
 
 /** The blame of one line, drawn where the source editor draws it: beside the
@@ -683,9 +705,11 @@ function SplitRows({
   expanded,
   setExpanded,
   firstRowOfHunk,
+  wholeFileBlocks,
   canApply,
   hunkAction,
   onApply,
+  onApplyLines,
   currentRow,
   annotate,
   left,
@@ -701,9 +725,11 @@ function SplitRows({
   expanded: Set<number>;
   setExpanded: (s: Set<number>) => void;
   firstRowOfHunk: Map<number, number>;
+  wholeFileBlocks: Map<number, number[]> | null;
   canApply: boolean;
   hunkAction: "stage" | "unstage";
   onApply: (hunk: number, action: "stage" | "unstage" | "rollback") => void;
+  onApplyLines: (lines: number[], action: "stage" | "unstage" | "rollback") => void;
   currentRow: number;
 } & GutterProps) {
   const t = useT(T);
@@ -731,6 +757,7 @@ function SplitRows({
     }
     const aligned = row as AlignedRow;
     const isFirst = firstRowOfHunk.get(aligned.hunk) === i;
+    const block = wholeFileBlocks ? wholeFileBlocks.get(i) : undefined;
     const oldLine = aligned.left;
     const newLine = aligned.right;
     out.push(
@@ -739,7 +766,7 @@ function SplitRows({
           "diff-row",
           aligned.kind,
           currentRow === i && "current",
-          ((oldLine && selected.has(oldLine.no)) || (newLine && selected.has(newLine.no))) && "selected",
+          ((oldLine && selected.has(-oldLine.no)) || (newLine && selected.has(newLine.no))) && "selected",
         )}
         key={i}
         data-row={i}
@@ -758,7 +785,7 @@ function SplitRows({
           onClick={
             oldLine
               ? canApply && oldLine.kind !== "context"
-                ? (e) => onSelect(oldLine.no, i, e)
+                ? (e) => onSelect(oldLine.no, "old", i, e)
                 : (e) => onGutter("before", oldLine.no, e.clientX, e.clientY)
               : undefined
           }
@@ -780,8 +807,15 @@ function SplitRows({
             "\u00a0"
           )}
         </div>
-        {isFirst ? (
-          <ApplyChevrons hunk={aligned.hunk} action={hunkAction} canApply={canApply} onApply={onApply} />
+        {(wholeFileBlocks ? block !== undefined : isFirst) ? (
+          <ApplyChevrons
+            hunk={aligned.hunk}
+            lines={block}
+            action={hunkAction}
+            canApply={canApply}
+            onApply={onApply}
+            onApplyLines={onApplyLines}
+          />
         ) : (
           <div className="diff-action" />
         )}
@@ -799,7 +833,7 @@ function SplitRows({
           onClick={
             newLine
               ? canApply && newLine.kind !== "context"
-                ? (e) => onSelect(newLine.no, i, e)
+                ? (e) => onSelect(newLine.no, "new", i, e)
                 : (e) => onGutter("after", newLine.no, e.clientX, e.clientY)
               : undefined
           }
@@ -835,9 +869,11 @@ function UnifiedRows({
   expanded,
   setExpanded,
   firstRowOfHunk,
+  wholeFileBlocks,
   canApply,
   hunkAction,
   onApply,
+  onApplyLines,
   currentRow,
   annotate,
   left,
@@ -853,9 +889,11 @@ function UnifiedRows({
   expanded: Set<number>;
   setExpanded: (s: Set<number>) => void;
   firstRowOfHunk: Map<number, number>;
+  wholeFileBlocks: Map<number, number[]> | null;
   canApply: boolean;
   hunkAction: "stage" | "unstage";
   onApply: (hunk: number, action: "stage" | "unstage" | "rollback") => void;
+  onApplyLines: (lines: number[], action: "stage" | "unstage" | "rollback") => void;
   currentRow: number;
 } & GutterProps) {
   const t = useT(T);
@@ -882,6 +920,7 @@ function UnifiedRows({
     }
     const aligned = row as AlignedRow;
     const isFirst = firstRowOfHunk.get(aligned.hunk) === i;
+    const block = wholeFileBlocks ? wholeFileBlocks.get(i) : undefined;
     // An unchanged line exists on both sides; a unified view shows it once,
     // with the after side's blame, and only changed rows are drawn twice.
     const firstSide: Side = aligned.kind !== "context" && aligned.left ? "before" : "after";
@@ -894,7 +933,7 @@ function UnifiedRows({
             "diff-row unified-row",
             line.kind,
             currentRow === i && "current",
-            selected.has(line.no) && "selected",
+            selected.has(line.kind === "del" ? -line.no : line.no) && "selected",
           )}
           key={`${i}-${side}`}
           data-row={`${i}-${side}`}
@@ -912,7 +951,7 @@ function UnifiedRows({
             className={cx("line-no", line.kind === "del" && "del", line.kind === "add" && "add")}
             onClick={
               canApply && line.kind !== "context"
-                ? (e) => onSelect(line.no, i, e)
+                ? (e) => onSelect(line.no, line.kind === "del" ? "old" : "new", i, e)
                 : (e) => onGutter(side, line.no, e.clientX, e.clientY)
             }
             onContextMenu={(e) => {
@@ -931,8 +970,15 @@ function UnifiedRows({
               tokens={side === "before" ? tokens.left : tokens.right}
             />
           </div>
-          {isFirst && side === firstSide ? (
-            <ApplyChevrons hunk={aligned.hunk} action={hunkAction} canApply={canApply} onApply={onApply} />
+          {(wholeFileBlocks ? block !== undefined && side === firstSide : isFirst && side === firstSide) ? (
+            <ApplyChevrons
+              hunk={aligned.hunk}
+              lines={block}
+              action={hunkAction}
+              canApply={canApply}
+              onApply={onApply}
+              onApplyLines={onApplyLines}
+            />
           ) : (
             <div className="diff-action" />
           )}
