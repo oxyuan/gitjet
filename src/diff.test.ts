@@ -1,7 +1,7 @@
 import { describe, expect, it } from "bun:test";
 import type { FileDiff } from "./mygo";
 import type { AlignedRow } from "./diff";
-import { buildDiffRows, changeBlockRows, changeBlockSelections, charDiff, foldRanges, lineWidth, textLines, visibleRows, wordDiff } from "./diff";
+import { buildDiffRows, changeBlockRows, changeBlockSelections, charDiff, foldRanges, lineWidth, revealWhitespace, textLines, visibleRows, wordDiff } from "./diff";
 
 describe("textLines", () => {
   it("drops the empty tail after a final newline", () => {
@@ -167,6 +167,93 @@ describe("buildDiffRows alignment", () => {
     const row = buildDiffRows(diff)[0]!;
     expect(changedText(row.left?.segments)).toBe("");
     expect(changedText(row.right?.segments)).toBe("  ");
+  });
+});
+
+describe("Highlighting Differences", () => {
+  const fileWith = (lines: FileDiff["hunks"][number]["lines"], oldText: string, newText: string): FileDiff => ({
+    path: "a.txt",
+    status: "modified",
+    binary: false,
+    additions: lines.filter((line) => line.kind === "add").length,
+    deletions: lines.filter((line) => line.kind === "del").length,
+    hunks: [
+      {
+        header: "",
+        oldStart: 1,
+        oldLines: oldText.split("\n").length - 1,
+        newStart: 1,
+        newLines: newText.split("\n").length - 1,
+        lines,
+      },
+    ],
+    oldText,
+    newText,
+    oldLabel: "",
+    newLabel: "",
+    truncated: false,
+    patch: "",
+    hasChanges: true,
+    wholeFile: true,
+  });
+  const pair = (oldLine: string, newLine: string) =>
+    fileWith(
+      [
+        { kind: "del", oldNo: 1, newNo: 0, text: oldLine },
+        { kind: "add", oldNo: 0, newNo: 1, text: newLine },
+      ],
+      oldLine + "\n",
+      newLine + "\n",
+    );
+
+  it("keeps the line bands but no inner marks under the lines policy", () => {
+    const rows = buildDiffRows(pair("foo(a, b)", "foo(a, c)"), "lines");
+    expect(rows[0]!.kind).toBe("change");
+    expect(rows[0]!.left?.segments).toBeUndefined();
+    expect(rows[0]!.right?.segments).toBeUndefined();
+  });
+
+  it("turns inner marks off entirely under the none policy", () => {
+    const rows = buildDiffRows(pair("foo(a, b)", "foo(a, c)"), "none");
+    expect(rows[0]!.left?.segments).toBeUndefined();
+    expect(rows[0]!.right?.segments).toBeUndefined();
+  });
+
+  it("marks characters instead of words under the chars policy", () => {
+    const rows = buildDiffRows(pair("abcd", "abXd"), "chars");
+    expect(changedText(rows[0]!.left?.segments)).toBe("c");
+    expect(changedText(rows[0]!.right?.segments)).toBe("X");
+  });
+
+  it("names a moved run as a modification", () => {
+    const rows = buildDiffRows(pair("foo(a, b)", "foo(a, c)"), "words");
+    expect(rows[0]!.left!.segments!.find((segment) => segment.changed)?.kind).toBe("modified");
+    expect(rows[0]!.right!.segments!.find((segment) => segment.changed)?.kind).toBe("modified");
+  });
+
+  it("names a run only the old side holds as a deletion", () => {
+    const rows = buildDiffRows(pair("total = a + b;", "total = a;"), "words");
+    const changed = rows[0]!.left!.segments!.filter((segment) => segment.changed);
+    expect(changed.map((segment) => segment.kind)).toEqual(["deleted"]);
+  });
+});
+
+describe("revealWhitespace", () => {
+  it("draws spaces as dots and tabs as arrows reaching the next stop", () => {
+    const pieces = revealWhitespace([{ text: "a \t b", cls: "" }]);
+    expect(pieces.map((piece) => piece.text).join("")).toBe("a·→     ·b");
+    expect(pieces.find((piece) => piece.text.includes("→"))?.cls).toBe("ws");
+  });
+
+  it("counts wide characters before a tab", () => {
+    const pieces = revealWhitespace([{ text: "代\tx", cls: "tok-variable" }]);
+    expect(pieces.map((piece) => piece.text).join("")).toBe("代→     x");
+  });
+
+  it("keeps a changed space's mark", () => {
+    const pieces = revealWhitespace([{ text: " ", cls: "word-changed kind-modified" }]);
+    expect(pieces[0]!.cls).toBe("word-changed kind-modified ws");
+    expect(pieces[0]!.text).toBe("·");
   });
 });
 

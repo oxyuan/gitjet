@@ -1,8 +1,8 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { annotateDate, blameDepth } from "./annotate";
 import { blameMenuItems } from "./blameMenu";
 import { Git, type BlameLine, type DiffOptions, type FileDiff, type ThreeWayDiff } from "./mygo";
-import { buildDiffRows, changeBlockRows, changeBlockSelections, foldRanges, lineWidth, visibleRows, type FoldRange, type VisibleRow, type WhitespaceMode, type WordSegment } from "./diff";
+import { buildDiffRows, changeBlockRows, changeBlockSelections, foldRanges, lineWidth, revealWhitespace, visibleRows, type FoldRange, type HighlightMode, type VisibleRow, type WhitespaceMode, type WordSegment } from "./diff";
 import { ImageDiff } from "./ImageDiff";
 import { isImagePath } from "./images";
 import { FileIcon, Icon } from "./icons";
@@ -10,6 +10,7 @@ import { useT } from "./i18n";
 import { paintLine, tokenize, type LineTokens } from "./syntax";
 import { ContextMenu, cx, formatWhen, IconButton, Spinner, useStoredState, type ContextItem } from "./ui";
 import { PathCopyButton } from "./PathCopy";
+import { ribbonPath, ribbonTone, type RibbonSpan, type RibbonTone } from "./ribbons";
 
 type Mode = "split" | "unified";
 
@@ -62,6 +63,13 @@ const T = {
     foldUnchanged: "Collapse unchanged fragments",
     unfoldUnchanged: "Expand all unchanged fragments",
     ignoreDifferences: "Ignore Differences",
+    highlightDifferences: "Highlighting Differences",
+    hlLines: "Lines",
+    hlWords: "Words",
+    hlChars: "Characters",
+    hlNone: "None",
+    showWhitespace: "Show whitespace",
+    hideWhitespace: "Hide whitespace",
     wsNone: "None",
     wsTrim: "Trim whitespaces",
     wsAll: "Ignore whitespaces",
@@ -116,6 +124,13 @@ const T = {
     foldUnchanged: "折叠未更改片段",
     unfoldUnchanged: "展开全部未更改片段",
     ignoreDifferences: "忽略差异",
+    highlightDifferences: "高亮差异",
+    hlLines: "整行",
+    hlWords: "单词",
+    hlChars: "字符",
+    hlNone: "无",
+    showWhitespace: "显示空白",
+    hideWhitespace: "隐藏空白",
     wsNone: "不忽略",
     wsTrim: "忽略空白数量",
     wsAll: "忽略空白字符",
@@ -168,7 +183,18 @@ export function DiffView({
   // git names these sides; translate the two the app itself introduces.
   const sideLabel = (raw: string) =>
     raw === "Working Tree" ? t("workingTree") : raw === "Index" ? t("index") : raw;
-  const rows = useMemo(() => buildDiffRows(diff), [diff]);
+  // IDEA's diff toolbar keeps these two as view settings: what the inner
+  // marks compare (the line bands stay either way) and whether whitespace is
+  // drawn. Both live under `gitjet.*`, like every other view preference.
+  const [storedHighlight, setHighlight] = useStoredState<HighlightMode>("gitjet.diffHighlight", "words");
+  const [showWhitespace, setShowWhitespace] = useStoredState<boolean>("gitjet.diffShowWhitespace", false);
+  // A value from an older or broken store must not leave the viewer without
+  // marks: only the four policies exist, anything else reads as words.
+  const highlight: HighlightMode =
+    storedHighlight === "lines" || storedHighlight === "chars" || storedHighlight === "none"
+      ? storedHighlight
+      : "words";
+  const rows = useMemo(() => buildDiffRows(diff, highlight), [diff, highlight]);
   const tokens = useDiffTokens(diff);
   // Folding is a view decision, so the rows above never lose a line: a fold
   // hides a range of them and reopening it needs no new model.
@@ -178,6 +204,7 @@ export function DiffView({
   const visible = useMemo(() => visibleRows(rows, folds, open), [rows, folds, open]);
   const [current, setCurrent] = useState(-1);
   const [wsMenu, setWsMenu] = useState<{ x: number; y: number } | null>(null);
+  const [hlMenu, setHlMenu] = useState<{ x: number; y: number } | null>(null);
   const bodyRef = useRef<HTMLDivElement>(null);
   // One annotation preference for every viewer: the source pane and the diff
   // gutter answer the same way.
@@ -228,12 +255,31 @@ export function DiffView({
 
   useEffect(() => {
     // A refetch can change which rows exist, so a fold opened against the old
-    // numbering is not carried into the new one.
+    // numbering is not carried into the new one. The current change is kept:
+    // staging one hunk should not move the reader to another.
     setOpen(new Set());
-    setCurrent(-1);
   }, [reloadKey, diff.path, diff]);
 
   const changeRows = useMemo(() => changeBlockRows(rows), [rows]);
+  // The IDE opens a diff at the first change rather than at line 1. Jump once
+  // per mounted viewer: a refresh after staging must not steal the scroll.
+  const jumped = useRef(false);
+  useEffect(() => {
+    if (jumped.current || changeRows.length === 0) return;
+    jumped.current = true;
+    setCurrent(0);
+    const frame = requestAnimationFrame(() => {
+      bodyRef.current
+        ?.querySelector<HTMLElement>(`[data-row="${changeRows[0]}"]`)
+        ?.scrollIntoView({ block: "center" });
+    });
+    return () => cancelAnimationFrame(frame);
+  }, [changeRows]);
+  // A refetch can remove the change the reader was on; the counter follows
+  // the blocks that still exist instead of pointing past the last one.
+  useEffect(() => {
+    setCurrent((value) => (value >= changeRows.length ? changeRows.length - 1 : value));
+  }, [changeRows.length]);
   // A hunk's chevron belongs to its first *visible* row: folding can hide the
   // hunk's opening context, and an apply button nobody can see is no button.
   const firstRowOfHunk = useMemo(() => {
@@ -352,6 +398,32 @@ export function DiffView({
       },
     })),
   ];
+  const highlightItems: ContextItem[] = [
+    { header: true, label: t("highlightDifferences") },
+    ...(
+      [
+        ["lines", t("hlLines")],
+        ["words", t("hlWords")],
+        ["chars", t("hlChars")],
+        ["none", t("hlNone")],
+      ] as const
+    ).map(([mode, label]) => ({
+      label,
+      checked: highlight === mode,
+      onClick: () => {
+        setHlMenu(null);
+        setHighlight(mode);
+      },
+    })),
+  ];
+  const highlightLabel =
+    highlight === "lines"
+      ? t("hlLines")
+      : highlight === "chars"
+        ? t("hlChars")
+        : highlight === "none"
+          ? t("hlNone")
+          : t("hlWords");
   const stats = `${diff.additions > 0 ? "+" + diff.additions : ""}${diff.additions > 0 && diff.deletions > 0 ? " " : ""}${diff.deletions > 0 ? "−" + diff.deletions : ""}`;
 
   return (
@@ -403,15 +475,34 @@ export function DiffView({
           >
             <Icon name="rows" /> {t("wrap")}
           </button>
+          <IconButton
+            icon="pilcrow"
+            title={showWhitespace ? t("hideWhitespace") : t("showWhitespace")}
+            small
+            active={showWhitespace}
+            onClick={() => setShowWhitespace(!showWhitespace)}
+          />
           <button
             className={cx("toolbar-text-btn", whitespace !== "none" && "active")}
             onClick={(e) => {
               setMenu(null);
+              setHlMenu(null);
               setWsMenu({ x: e.clientX, y: e.clientY });
             }}
             title={t("ignoreDifferences")}
           >
             <Icon name="eye" /> {t("whitespace")}
+          </button>
+          <button
+            className={cx("toolbar-text-btn", highlight !== "words" && "active")}
+            onClick={(e) => {
+              setMenu(null);
+              setWsMenu(null);
+              setHlMenu({ x: e.clientX, y: e.clientY });
+            }}
+            title={t("highlightDifferences")}
+          >
+            <Icon name="diff" /> {highlightLabel}
           </button>
           <IconButton
             icon={folded ? "collapse" : "expand"}
@@ -501,7 +592,11 @@ export function DiffView({
           <div>{t("noDifferences")}</div>
         </div>
       ) : (
-        <div className={cx("diff-body", mode, wrap && "wrap")} style={layout} ref={bodyRef}>
+        <div
+          className={cx("diff-body", mode, wrap && "wrap", highlight === "none" && "hl-none")}
+          style={layout}
+          ref={bodyRef}
+        >
           {mode === "split" && (
             <div className="diff-columns">
               <div className="diff-col-label left">{sideLabel(diff.oldLabel) || t("before")}</div>
@@ -527,6 +622,8 @@ export function DiffView({
               right={afterIndex}
               onGutter={openGutter}
               local={t("local")}
+              showWhitespace={showWhitespace}
+              highlight={highlight}
             />
           ) : (
             <UnifiedRows
@@ -547,6 +644,7 @@ export function DiffView({
               right={afterIndex}
               onGutter={openGutter}
               local={t("local")}
+              showWhitespace={showWhitespace}
             />
           )}
           {diff.truncated && <div className="diff-truncated">{t("truncated")}</div>}
@@ -555,6 +653,9 @@ export function DiffView({
       {menu && <ContextMenu x={menu.x} y={menu.y} items={menuItems} onClose={() => setMenu(null)} />}
       {wsMenu && (
         <ContextMenu x={wsMenu.x} y={wsMenu.y} items={whitespaceItems} onClose={() => setWsMenu(null)} />
+      )}
+      {hlMenu && (
+        <ContextMenu x={hlMenu.x} y={hlMenu.y} items={highlightItems} onClose={() => setHlMenu(null)} />
       )}
     </div>
   );
@@ -715,19 +816,22 @@ function LineText({
   no,
   segs,
   tokens,
+  showWhitespace,
 }: {
   text: string;
   /** Line number in the side's own text, which is how tokens are keyed. */
   no?: number;
   segs?: WordSegment[];
   tokens?: LineTokens | null;
+  showWhitespace?: boolean;
 }) {
   const spans = no === undefined ? undefined : tokens?.get(no);
   const pieces = useMemo(() => paintLine(text, spans, segs), [text, spans, segs]);
+  const shown = useMemo(() => (showWhitespace ? revealWhitespace(pieces) : pieces), [pieces, showWhitespace]);
   if (text === "") return <>{"\u00a0"}</>;
   return (
     <>
-      {pieces.map((piece, i) =>
+      {shown.map((piece, i) =>
         piece.cls === "" ? <span key={i}>{piece.text}</span> : <span className={piece.cls} key={i}>{piece.text}</span>,
       )}
     </>
@@ -821,6 +925,8 @@ function SplitRows({
   local,
   selected,
   onSelect,
+  showWhitespace,
+  highlight,
 }: {
   visible: VisibleRow[];
   onToggleFold: (start: number) => void;
@@ -832,7 +938,117 @@ function SplitRows({
   onApply: (hunk: number, action: "stage" | "unstage" | "rollback") => void;
   onApplyLines: (lines: number[], action: "stage" | "unstage" | "rollback") => void;
   currentRow: number;
+  showWhitespace: boolean;
+  highlight: HighlightMode;
 } & GutterProps) {
+  // The divider between the panes carries one ribbon per change block, the
+  // way the IDE connects the two sides. Its geometry is read from the laid
+  // out rows, because wrapping and folded markers make heights uneven; the
+  // SVG is positioned in the rows' own coordinates, so scrolling costs
+  // nothing.
+  const rowsRef = useRef<HTMLDivElement>(null);
+  const [ribbons, setRibbons] = useState<{ tone: RibbonTone; d: string }[]>([]);
+  const [ribbonSize, setRibbonSize] = useState({ width: 0, height: 0 });
+  const ribbonKey = useRef("");
+  const measureRibbons = useCallback(() => {
+    const root = rowsRef.current;
+    if (!root) return;
+    const clear = () => {
+      if (ribbonKey.current === "") return;
+      ribbonKey.current = "";
+      setRibbons([]);
+    };
+    if (highlight === "none") {
+      clear();
+      return;
+    }
+    const nodes = new Map<number, HTMLElement>();
+    for (const node of root.querySelectorAll<HTMLElement>("[data-row]")) {
+      const index = Number(node.dataset.row);
+      if (!Number.isNaN(index)) nodes.set(index, node);
+    }
+    const first = nodes.values().next().value as HTMLElement | undefined;
+    const lane = first?.querySelector<HTMLElement>(":scope > .diff-action");
+    if (!first || !lane) {
+      clear();
+      return;
+    }
+    const x1 = lane.offsetLeft;
+    const x2 = x1 + lane.offsetWidth;
+    const span = (index: number): RibbonSpan | undefined => {
+      const node = nodes.get(index);
+      return node ? { top: node.offsetTop, bottom: node.offsetTop + node.offsetHeight } : undefined;
+    };
+    const next: { tone: RibbonTone; d: string }[] = [];
+    let piece: {
+      first: number;
+      leftFirst?: number;
+      leftLast?: number;
+      rightFirst?: number;
+      rightLast?: number;
+    } | null = null;
+    // Rows of one block pair from the top, so a side that runs out first
+    // leaves its remainingrows one-sided; the ribbon then tapers to the
+    // line where the other side stops.
+    const flush = () => {
+      if (!piece) return;
+      const left = piece.leftFirst === undefined ? undefined : span(piece.leftFirst);
+      const leftEnd = piece.leftLast === undefined ? undefined : span(piece.leftLast);
+      const right = piece.rightFirst === undefined ? undefined : span(piece.rightFirst);
+      const rightEnd = piece.rightLast === undefined ? undefined : span(piece.rightLast);
+      if ((left && leftEnd) || (right && rightEnd)) {
+        const point = span(piece.first)?.top ?? 0;
+        const leftSpan = left && leftEnd ? { top: left.top, bottom: leftEnd.bottom } : { top: point, bottom: point };
+        const rightSpan =
+          right && rightEnd ? { top: right.top, bottom: rightEnd.bottom } : { top: point, bottom: point };
+        next.push({
+          tone: ribbonTone(left !== undefined, right !== undefined),
+          d: ribbonPath(x1, x2, leftSpan, rightSpan),
+        });
+      }
+      piece = null;
+    };
+    for (const item of visible) {
+      if (item.kind === "fold") {
+        flush();
+        continue;
+      }
+      if (item.row.kind === "context") {
+        flush();
+        continue;
+      }
+      if (!piece) piece = { first: item.index };
+      if (item.row.left) {
+        if (piece.leftFirst === undefined) piece.leftFirst = item.index;
+        piece.leftLast = item.index;
+      }
+      if (item.row.right) {
+        if (piece.rightFirst === undefined) piece.rightFirst = item.index;
+        piece.rightLast = item.index;
+      }
+    }
+    flush();
+    const width = root.scrollWidth;
+    const height = root.scrollHeight;
+    const key = `${width}x${height}|${next.map((ribbon) => ribbon.tone + ribbon.d).join(";")}`;
+    if (key === ribbonKey.current) return;
+    ribbonKey.current = key;
+    setRibbons(next);
+    setRibbonSize({ width, height });
+  }, [visible, highlight]);
+  useLayoutEffect(() => {
+    measureRibbons();
+  }, [measureRibbons, annotate, wholeFileBlocks]);
+  const measureRef = useRef(measureRibbons);
+  measureRef.current = measureRibbons;
+  useEffect(() => {
+    const root = rowsRef.current;
+    if (!root) return;
+    const observer = new ResizeObserver(() => measureRef.current());
+    observer.observe(root);
+    return () => observer.disconnect();
+  }, []);
+
   const out: React.ReactNode[] = [];
   visible.forEach((item) => {
     if (item.kind === "fold") {
@@ -851,6 +1067,10 @@ function SplitRows({
     const block = wholeFileBlocks ? wholeFileBlocks.get(i) : undefined;
     const oldLine = aligned.left;
     const newLine = aligned.right;
+    // Both sides of a modification share one tone, as the IDE bands them: a
+    // changed pair is a modification, not an unrelated delete and insert.
+    const leftTone = aligned.kind === "change" ? "mod" : oldLine?.kind;
+    const rightTone = aligned.kind === "change" ? "mod" : newLine?.kind;
     out.push(
       <div
         className={cx(
@@ -872,7 +1092,7 @@ function SplitRows({
           />
         )}
         <div
-          className={cx("line-no", oldLine?.kind === "del" && "del")}
+          className={cx("line-no", leftTone === "del" && "del", leftTone === "mod" && "mod")}
           onClick={
             oldLine
               ? canApply && oldLine.kind !== "context"
@@ -891,9 +1111,15 @@ function SplitRows({
         >
           {oldLine?.no ?? ""}
         </div>
-        <div className={cx("line-text", oldLine?.kind)}>
+        <div className={cx("line-text", leftTone)}>
           {oldLine ? (
-            <LineText text={oldLine.text} no={oldLine.no} segs={oldLine.segments} tokens={tokens.left} />
+            <LineText
+              text={oldLine.text}
+              no={oldLine.no}
+              segs={oldLine.segments}
+              tokens={tokens.left}
+              showWhitespace={showWhitespace}
+            />
           ) : (
             "\u00a0"
           )}
@@ -920,7 +1146,7 @@ function SplitRows({
           />
         )}
         <div
-          className={cx("line-no", newLine?.kind === "add" && "add")}
+          className={cx("line-no", rightTone === "add" && "add", rightTone === "mod" && "mod")}
           onClick={
             newLine
               ? canApply && newLine.kind !== "context"
@@ -939,9 +1165,15 @@ function SplitRows({
         >
           {newLine?.no ?? ""}
         </div>
-        <div className={cx("line-text", newLine?.kind)}>
+        <div className={cx("line-text", rightTone)}>
           {newLine ? (
-            <LineText text={newLine.text} no={newLine.no} segs={newLine.segments} tokens={tokens.right} />
+            <LineText
+              text={newLine.text}
+              no={newLine.no}
+              segs={newLine.segments}
+              tokens={tokens.right}
+              showWhitespace={showWhitespace}
+            />
           ) : (
             "\u00a0"
           )}
@@ -949,7 +1181,18 @@ function SplitRows({
       </div>,
     );
   });
-  return <div className={cx("diff-rows split", annotate && "annotate")}>{out}</div>;
+  return (
+    <div className={cx("diff-rows split", annotate && "annotate")} ref={rowsRef}>
+      {out}
+      {ribbons.length > 0 && (
+        <svg className="diff-ribbons" width={ribbonSize.width} height={ribbonSize.height} aria-hidden="true">
+          {ribbons.map((ribbon, index) => (
+            <path key={index} className={`diff-ribbon ${ribbon.tone}`} d={ribbon.d} />
+          ))}
+        </svg>
+      )}
+    </div>
+  );
 }
 
 function UnifiedRows({
@@ -970,6 +1213,7 @@ function UnifiedRows({
   local,
   selected,
   onSelect,
+  showWhitespace,
 }: {
   visible: VisibleRow[];
   onToggleFold: (start: number) => void;
@@ -981,6 +1225,7 @@ function UnifiedRows({
   onApply: (hunk: number, action: "stage" | "unstage" | "rollback") => void;
   onApplyLines: (lines: number[], action: "stage" | "unstage" | "rollback") => void;
   currentRow: number;
+  showWhitespace: boolean;
 } & GutterProps) {
   const out: React.ReactNode[] = [];
   visible.forEach((item) => {
@@ -1045,6 +1290,7 @@ function UnifiedRows({
               no={line.no}
               segs={line.segments}
               tokens={side === "before" ? tokens.left : tokens.right}
+              showWhitespace={showWhitespace}
             />
           </div>
           {(wholeFileBlocks ? block !== undefined && side === firstSide : isFirst && side === firstSide) ? (

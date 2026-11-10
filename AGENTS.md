@@ -246,6 +246,30 @@ use it only for layout work. Vite's port is pinned to 5173 in **both**
   `none`, `trim` (`--ignore-space-change`), `whitespace` (`-w`) or
   `whitespace-blank` (`-w --ignore-blank-lines`), and the diff toolbar's menu
   mirrors IDEA's four choices.
+- The diff viewer follows IDEA's other two view settings as well.
+  `gitjet.diffHighlight` is `lines`, `words`, `chars` or `none`
+  (`HighlightPolicy`): `buildDiffRows` still aligns a changed run, but only
+  computes inner segments for words/chars, and `none` paints no bands at all.
+  Word segments carry a kind (`WordSegment.kind`), so a run present on both
+  sides is a modification and a one-sided run is a deletion or an insertion;
+  the split viewer bands a changed pair in `--diff-mod-bg` and marks moved
+  text in `--diff-mod-word`, while the unified viewer keeps the deleted and
+  inserted colours IDEA's unified chunk highlighters use. The palette is
+  IDEA's own `DIFF_DELETED` (grey), `DIFF_INSERTED` (green) and
+  `DIFF_MODIFIED` (blue) trio (the bands are the tone mixed into the editor,
+  the word marks take it undiluted), defined in all three theme blocks.
+  `gitjet.diffShowWhitespace`
+  draws spaces and tabs through `revealWhitespace` (`diff.ts`), which tags the
+  runs `ws` so the stylesheet can mute them without losing a change mark.
+- The split viewer's divider carries one ribbon per change block, drawn as a
+  curved trapezium in an SVG over the row grid (`ribbons.ts`). Geometry is
+  measured from the laid-out rows (wrap, annotations and fold markers make
+  heights uneven) and re-measured on resize; a side that has no lines tapers
+  to a point, as `DiffDividerDrawUtil.DividerPolygon` does. The SVG has
+  `pointer-events: none`; the apply buttons are positioned above it.
+- A diff opens at its first change, as `SimpleDiffViewer` does with
+  `ScrollToPolicy.FIRST_CHANGE`; the counter then reads `1 of N`. A refresh
+  keeps the current change unless the block is gone.
 - A merge band is keyed by what happened to the text, never by the pane that
   holds it: `rangeTone` (`merge.ts`) maps a range's kind to `inserted`,
   `deleted`, `modified` or `conflict`, and every pane the range touches paints

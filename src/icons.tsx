@@ -323,6 +323,13 @@ const PATHS: Record<string, ReactNode> = {
       <circle cx="11" cy="12" r=".9" fill="currentColor" stroke="none" />
     </>
   ),
+  pilcrow: (
+    <>
+      <path d="M11.6 2.5v11" />
+      <path d="M11.6 2.5H6.4a2.7 2.7 0 0 0 0 5.4h5.2" />
+      <path d="M8.7 2.5v11" />
+    </>
+  ),
 };
 
 export type IconName = keyof typeof PATHS;

@@ -37,10 +37,17 @@
   --radius-lg: 14px;
   --radius-xl: 20px;
   --gutter-bg: #fafafd;
-  --diff-add-bg: #e9f7ef;
-  --diff-del-bg: #fdf0f0;
-  --diff-add-word: #b7e5c7;
-  --diff-del-word: #f3c6c6;
+  /* Two-sided diff bands, the IDE's own DIFF_* palette: a modified line pair
+     shares one blue tone, an insertion is green and a deletion grey. The band
+     is the colour mixed into the editor, the word mark takes it undiluted,
+     exactly as DiffDrawUtil paints a highlighter with and without ignored
+     inner fragments. */
+  --diff-add-bg: #d8f0d8;
+  --diff-del-bg: #e4e4e4;
+  --diff-mod-bg: #e0e8fc;
+  --diff-add-word: #bee6be;
+  --diff-del-word: #d6d6d6;
+  --diff-mod-word: #cad9fa;
   /* Three-way merge bands, one per kind of change: a conflict is the same
      salmon in every pane it touches, as the IDE paints it. The band is mixed
      into the editor's background, and the word marks take the colour
@@ -113,10 +120,12 @@
   --shadow-md: 0 12px 32px rgba(0, 0, 0, 0.35), 0 1px 2px rgba(0, 0, 0, 0.2);
   --shadow-lg: 0 36px 90px rgba(0, 0, 0, 0.6), 0 2px 10px rgba(0, 0, 0, 0.4);
   --gutter-bg: #26272d;
-  --diff-add-bg: #182e22;
-  --diff-del-bg: #331e23;
-  --diff-add-word: #2c5a3e;
-  --diff-del-word: #673238;
+  --diff-add-bg: #263630;
+  --diff-del-bg: #383a3c;
+  --diff-mod-bg: #2f4153;
+  --diff-add-word: #294436;
+  --diff-del-word: #484a4a;
+  --diff-mod-word: #385570;
   --merge-inserted: #294436;
   --merge-deleted: #484a4a;
   --merge-modified: #385570;
@@ -186,10 +195,12 @@
     --shadow-md: 0 12px 32px rgba(0, 0, 0, 0.35), 0 1px 2px rgba(0, 0, 0, 0.2);
     --shadow-lg: 0 36px 90px rgba(0, 0, 0, 0.6), 0 2px 10px rgba(0, 0, 0, 0.4);
     --gutter-bg: #26272d;
-    --diff-add-bg: #182e22;
-    --diff-del-bg: #331e23;
-    --diff-add-word: #2c5a3e;
-    --diff-del-word: #673238;
+    --diff-add-bg: #263630;
+    --diff-del-bg: #383a3c;
+    --diff-mod-bg: #2f4153;
+    --diff-add-word: #294436;
+    --diff-del-word: #484a4a;
+    --diff-mod-word: #385570;
     --merge-inserted: #294436;
     --merge-deleted: #484a4a;
     --merge-modified: #385570;
@@ -1935,6 +1946,7 @@ body.col-resizing {
 }
 
 .diff-rows {
+  position: relative;
   font-family: var(--font-mono);
   font-size: 11.5px;
   line-height: 19px;
@@ -1974,6 +1986,10 @@ body.col-resizing {
   background: var(--diff-add-bg);
 }
 
+.diff-row .line-no.mod {
+  background: var(--diff-mod-bg);
+}
+
 .diff-row .line-text {
   padding-left: 7px;
   white-space: pre;
@@ -1990,6 +2006,64 @@ body.col-resizing {
   background: var(--diff-add-bg);
 }
 
+/* A changed pair is one modification, so both of its lines carry the same
+   band; only a one-sided block is a deletion or an insertion. */
+.diff-row .line-text.mod {
+  background: var(--diff-mod-bg);
+}
+
+/* The IDE's "Show whitespaces": a space is a dot and a tab an arrow whose
+   padding reaches the next tab stop. Whitespace keeps its change mark. */
+.diff-row .line-text .ws {
+  color: var(--muted-2);
+}
+
+/* The divider's ribbons: one curved trapezium per change block, drawn over
+   the gutter column and under the apply buttons. */
+.diff-ribbons {
+  position: absolute;
+  left: 0;
+  top: 0;
+  z-index: 1;
+  overflow: visible;
+  pointer-events: none;
+}
+
+.diff-ribbon.inserted {
+  fill: var(--diff-add-word);
+}
+
+.diff-ribbon.deleted {
+  fill: var(--diff-del-word);
+}
+
+.diff-ribbon.modified {
+  fill: var(--diff-mod-word);
+}
+
+/* With highlighting off the diff keeps its geometry and apply buttons but
+   paints no difference at all, as IDEA's DO_NOT_HIGHLIGHT policy does. */
+.diff-body.hl-none .line-text.del,
+.diff-body.hl-none .line-text.add,
+.diff-body.hl-none .line-text.mod {
+  background: transparent;
+}
+
+/* The gutter keeps its own colour; only the band would name a difference. */
+.diff-body.hl-none .line-no.del,
+.diff-body.hl-none .line-no.add,
+.diff-body.hl-none .line-no.mod {
+  background: var(--gutter-bg);
+}
+
+.diff-body.hl-none .word-changed {
+  background: transparent;
+}
+
+.diff-body.hl-none .diff-ribbons {
+  display: none;
+}
+
 .diff-row.current {
   outline: 1px solid var(--diff-current);
   outline-offset: -1px;
@@ -2001,12 +2075,35 @@ body.col-resizing {
   user-select: none;
 }
 
+/* A word mark names what happened to the text, not which pane holds it:
+   moved text is a modification (blue), a run only the old side has is a
+   deletion (grey), and one only the new side has is an insertion (green).
+   The kind comes from the fragment, so a deletion inside a modified line is
+   visible as one. */
 .word-changed {
-  background: var(--diff-del-word);
   border-radius: 2px;
 }
 
-.line-text.add .word-changed {
+.word-changed.kind-modified {
+  background: var(--diff-mod-word);
+}
+
+.word-changed.kind-deleted {
+  background: var(--diff-del-word);
+}
+
+.word-changed.kind-inserted {
+  background: var(--diff-add-word);
+}
+
+/* The unified viewer paints each side's words with that side's own type, as
+   IDEA's unified chunk highlighters do, so a changed pair is grey and green
+   there rather than blue. */
+.diff-row.unified-row .line-text.del .word-changed {
+  background: var(--diff-del-word);
+}
+
+.diff-row.unified-row .line-text.add .word-changed {
   background: var(--diff-add-word);
 }
 
@@ -2028,6 +2125,8 @@ body.col-resizing {
   height: 16px;
   border: 1px solid var(--border);
   border-radius: 3px;
+  position: relative;
+  z-index: 2;
   background: var(--panel-raised);
   color: var(--fg-soft);
   display: grid;

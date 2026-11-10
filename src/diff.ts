@@ -4,7 +4,16 @@ import { compareAndSplit, type WordFragment } from "./worddiff";
 export interface WordSegment {
   text: string;
   changed: boolean;
+  /** What the mark names, as IDEA classifies its inner fragments: a fragment
+   *  present on both sides is a modified run, one present on a single side is
+   *  a deletion or an insertion. */
+  kind?: "inserted" | "deleted" | "modified";
 }
+
+/** IDEA's "Highlighting Differences" policy. `words` and `chars` mark the
+ *  changed runs inside a paired line, `lines` leaves the change to the line
+ *  bands, and `none` turns the highlighting off. */
+export type HighlightMode = "lines" | "words" | "chars" | "none";
 
 export interface AlignedSide {
   no: number;
@@ -160,14 +169,14 @@ export function charDiff(a: string, b: string): [WordSegment[], WordSegment[]] {
  * added lines so word differences can be highlighted. Every unchanged line
  * is a row too; folding is a view decision, so the model never drops lines.
  */
-export function buildDiffRows(diff: FileDiff): AlignedRow[] {
+export function buildDiffRows(diff: FileDiff, highlight: HighlightMode = "words"): AlignedRow[] {
   const hasText = diff.oldText !== "" || diff.newText !== "";
   const oldLines = textLines(diff.oldText);
   const newLines = textLines(diff.newText);
   const rows: AlignedRow[] = [];
   if (!hasText || diff.hunks.length === 0) {
     if (diff.hunks.length === 0) return rows;
-    return rowsFromHunks(diff.hunks);
+    return rowsFromHunks(diff.hunks, highlight);
   }
   let oi = 0;
   let ni = 0;
@@ -188,7 +197,7 @@ export function buildDiffRows(diff: FileDiff): AlignedRow[] {
     const dels: DiffLine[] = [];
     const adds: DiffLine[] = [];
     const flush = () => {
-      rows.push(...alignChangedLines(dels, adds, h));
+      rows.push(...alignChangedLines(dels, adds, h, highlight));
       dels.length = 0;
       adds.length = 0;
     };
@@ -242,14 +251,14 @@ export function buildDiffRows(diff: FileDiff): AlignedRow[] {
   return rows;
 }
 
-function rowsFromHunks(hunks: DiffHunk[]): AlignedRow[] {
+function rowsFromHunks(hunks: DiffHunk[], highlight: HighlightMode): AlignedRow[] {
   const rows: AlignedRow[] = [];
   for (let h = 0; h < hunks.length; h++) {
     const hunk = hunks[h]!;
     let dels: DiffLine[] = [];
     let adds: DiffLine[] = [];
     const flush = () => {
-      rows.push(...alignChangedLines(dels, adds, h));
+      rows.push(...alignChangedLines(dels, adds, h, highlight));
       dels = [];
       adds = [];
     };
@@ -307,7 +316,10 @@ function linesInBlock(lines: readonly BlockLine[], start: number, end: number): 
 }
 
 /** Cuts the changed character ranges of one side into the segments of one
- *  line, so a fragment that spans several lines paints each line separately. */
+ *  line, so a fragment that spans several lines paints each line separately.
+ *  A range present on both sides of the word diff is a modification; one
+ *  that exists on a single side is a deletion or an insertion, which is what
+ *  gives the marks IDEA's three colours. */
 function segmentsForLine(
   text: string,
   line: BlockLine,
@@ -315,18 +327,21 @@ function segmentsForLine(
   side: "left" | "right",
 ): WordSegment[] | undefined {
   const length = line.end - line.start;
-  const ranges: [number, number][] = [];
+  const ranges: { from: number; to: number; kind: NonNullable<WordSegment["kind"]> }[] = [];
   for (const fragment of fragments) {
+    const both = fragment.end1 > fragment.start1 && fragment.end2 > fragment.start2;
     const from = Math.max(side === "left" ? fragment.start1 : fragment.start2, line.start) - line.start;
     const to = Math.min(side === "left" ? fragment.end1 : fragment.end2, line.end) - line.start;
-    if (to > from) ranges.push([from, to]);
+    if (to > from) {
+      ranges.push({ from, to, kind: both ? "modified" : side === "left" ? "deleted" : "inserted" });
+    }
   }
   if (ranges.length === 0) return undefined;
-  ranges.sort((a, b) => a[0] - b[0]);
+  ranges.sort((a, b) => a.from - b.from);
   const cuts = new Set<number>([0, length]);
-  for (const [from, to] of ranges) {
-    cuts.add(from);
-    cuts.add(to);
+  for (const range of ranges) {
+    cuts.add(range.from);
+    cuts.add(range.to);
   }
   const ordered = [...cuts].sort((a, b) => a - b);
   const segments: WordSegment[] = [];
@@ -334,11 +349,16 @@ function segmentsForLine(
     const from = ordered[i]!;
     const to = ordered[i + 1]!;
     if (to <= from) continue;
-    const changed = ranges.some(([rangeFrom, rangeTo]) => rangeFrom <= from && to <= rangeTo);
+    const covering = ranges.filter((range) => range.from <= from && to <= range.to);
+    const changed = covering.length > 0;
+    const kind = changed
+      ? (covering.find((range) => range.kind === "modified")?.kind ??
+        covering[0]!.kind)
+      : undefined;
     const segment = text.slice(line.start + from, line.start + to);
     const last = segments[segments.length - 1];
-    if (last && last.changed === changed) last.text += segment;
-    else segments.push({ text: segment, changed });
+    if (last && last.changed === changed && last.kind === kind) last.text += segment;
+    else segments.push({ text: segment, changed, kind });
   }
   return segments.length > 0 ? segments : undefined;
 }
@@ -348,8 +368,16 @@ function segmentsForLine(
  * newlines of the run are diffed together, so lines pair where their content
  * does and the word marks stay on the lines that actually changed. A run
  * whose lines have nothing in common comes back as one padded block.
+ *
+ * The alignment runs whatever the highlighting policy is; the policy only
+ * decides which marks are computed, as IDEA's comparison provider does.
  */
-function alignChangedLines(dels: readonly DiffLine[], adds: readonly DiffLine[], hunk: number): AlignedRow[] {
+function alignChangedLines(
+  dels: readonly DiffLine[],
+  adds: readonly DiffLine[],
+  hunk: number,
+  highlight: HighlightMode,
+): AlignedRow[] {
   if (dels.length === 0) {
     return adds.map((line) => ({
       kind: "add",
@@ -383,6 +411,40 @@ function alignChangedLines(dels: readonly DiffLine[], adds: readonly DiffLine[],
       if (!del && !add) continue;
       const oldLine = oldIndex === undefined ? undefined : oldLines[oldIndex]!;
       const newLine = newIndex === undefined ? undefined : newLines[newIndex]!;
+      let leftMarks: WordSegment[] | undefined;
+      let rightMarks: WordSegment[] | undefined;
+      if (highlight === "words") {
+        leftMarks =
+          del && oldLine
+            ? segmentsForLine(
+                oldBlock,
+                { start: oldLine.start - block.start1, end: oldLine.end - block.start1 },
+                block.fragments,
+                "left",
+              )
+            : undefined;
+        rightMarks =
+          add && newLine
+            ? segmentsForLine(
+                newBlock,
+                { start: newLine.start - block.start2, end: newLine.end - block.start2 },
+                block.fragments,
+                "right",
+              )
+            : undefined;
+      } else if (highlight === "chars" && del && add) {
+        // IDEA compares the inner text at character granularity. Both sides
+        // having changed characters makes the line a modification; a line
+        // where only one side gained or lost text keeps that side's kind.
+        const [left, right] = charDiff(del.text, add.text);
+        const kind = left.some((segment) => segment.changed) && right.some((segment) => segment.changed)
+          ? "modified"
+          : left.some((segment) => segment.changed)
+            ? "deleted"
+            : "inserted";
+        leftMarks = left.map((segment) => (segment.changed ? { ...segment, kind } : segment));
+        rightMarks = right.map((segment) => (segment.changed ? { ...segment, kind } : segment));
+      }
       rows.push({
         kind: del && add ? "change" : del ? "del" : "add",
         hunk,
@@ -391,15 +453,7 @@ function alignChangedLines(dels: readonly DiffLine[], adds: readonly DiffLine[],
               no: del.oldNo,
               text: del.text,
               kind: "del",
-              segments:
-                oldLine === undefined
-                  ? undefined
-                  : segmentsForLine(
-                      oldBlock,
-                      { start: oldLine.start - block.start1, end: oldLine.end - block.start1 },
-                      block.fragments,
-                      "left",
-                    ),
+              segments: leftMarks,
             }
           : undefined,
         right: add
@@ -407,15 +461,7 @@ function alignChangedLines(dels: readonly DiffLine[], adds: readonly DiffLine[],
               no: add.newNo,
               text: add.text,
               kind: "add",
-              segments:
-                newLine === undefined
-                  ? undefined
-                  : segmentsForLine(
-                      newBlock,
-                      { start: newLine.start - block.start2, end: newLine.end - block.start2 },
-                      block.fragments,
-                      "right",
-                    ),
+              segments: rightMarks,
             }
           : undefined,
       });
@@ -450,6 +496,62 @@ function isWide(code: number): boolean {
     (code >= 0x1f900 && code <= 0x1f9ff) ||
     (code >= 0x20000 && code <= 0x3fffd)
   );
+}
+
+/** A line already split into coloured runs, the shape `paintLine` returns. */
+interface ColouredPiece {
+  text: string;
+  cls: string;
+}
+
+/**
+ * revealWhitespace draws spaces and tabs the way an editor's "Show
+ * Whitespaces" does: a space is a middle dot, a tab is an arrow followed by
+ * padding to the next eight-cell stop. Columns are counted in monospace
+ * cells, so a wide character before a tab still puts the arrow on the right
+ * stop. Whitespace runs are tagged `ws` so the stylesheet can mute them
+ * without touching the token colour around them; a changed space keeps its
+ * change mark, because hiding it would hide the very difference being shown.
+ */
+export function revealWhitespace<T extends ColouredPiece>(pieces: readonly T[]): T[] {
+  const out: T[] = [];
+  let column = 0;
+  const emit = (piece: T, cls: string, text: string) => {
+    if (text === "") return;
+    const last = out[out.length - 1];
+    if (last && last.cls === cls) last.text += text;
+    else out.push({ ...piece, cls, text });
+  };
+  for (const piece of pieces) {
+    let runCls = piece.cls;
+    let run = "";
+    for (const ch of piece.text) {
+      const code = ch.codePointAt(0) ?? 0;
+      const space = code === 32 || code === 9 || code === 0x3000;
+      const cls = space ? `${piece.cls} ws`.trim() : piece.cls;
+      if (cls !== runCls) {
+        emit(piece, runCls, run);
+        run = "";
+        runCls = cls;
+      }
+      if (code === 32) {
+        run += "·";
+        column += 1;
+      } else if (code === 0x3000) {
+        run += "·";
+        column += 2;
+      } else if (code === 9) {
+        const stop = column + 8 - (column % 8);
+        run += "→" + " ".repeat(Math.max(0, stop - column - 1));
+        column = stop;
+      } else {
+        run += ch;
+        column += isWide(code) ? 2 : 1;
+      }
+    }
+    emit(piece, runCls, run);
+  }
+  return out;
 }
 
 /** How many unchanged rows a folded run keeps visible beside each change,

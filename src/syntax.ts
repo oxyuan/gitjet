@@ -106,9 +106,9 @@ export function paintLine(
     bounds.add(clamp(token.to, text.length));
   }
   const changed = changedRuns(segments);
-  for (const [from, to] of changed) {
-    bounds.add(clamp(from, text.length));
-    bounds.add(clamp(to, text.length));
+  for (const run of changed) {
+    bounds.add(clamp(run.from, text.length));
+    bounds.add(clamp(run.to, text.length));
   }
   const cuts = [...bounds].sort((a, b) => a - b);
   const pieces: Piece[] = [];
@@ -117,7 +117,11 @@ export function paintLine(
     const to = cuts[i + 1]!;
     if (to <= from) continue;
     const classes = [tokenClassAt(tokens, from)];
-    if (isChanged(changed, from)) classes.push("word-changed");
+    const kind = changedKindAt(changed, from);
+    if (kind !== null) {
+      classes.push("word-changed");
+      if (kind !== "") classes.push(`kind-${kind}`);
+    }
     const cls = classes.filter(Boolean).join(" ");
     const last = pieces[pieces.length - 1];
     if (last && last.cls === cls) last.text += text.slice(from, to);
@@ -130,25 +134,31 @@ function clamp(value: number, max: number): number {
   return Math.max(0, Math.min(value, max));
 }
 
-/** The offsets a word-diff marked as changed. The segments concatenate to the
- *  line, so their starts are a running total. */
-function changedRuns(segments?: readonly WordSegment[]): [number, number][] {
+/** The offsets a word-diff marked as changed, with the kind each run names.
+ *  The segments concatenate to the line, so their starts are a running
+ *  total. */
+function changedRuns(segments?: readonly WordSegment[]): { from: number; to: number; kind?: string }[] {
   if (!segments) return [];
-  const runs: [number, number][] = [];
+  const runs: { from: number; to: number; kind?: string }[] = [];
   let offset = 0;
   for (const segment of segments) {
-    if (segment.changed) runs.push([offset, offset + segment.text.length]);
+    if (segment.changed) runs.push({ from: offset, to: offset + segment.text.length, kind: segment.kind });
     offset += segment.text.length;
   }
   return runs;
 }
 
-function isChanged(runs: [number, number][], offset: number): boolean {
-  for (const [from, to] of runs) {
-    if (offset >= from && offset < to) return true;
-    if (offset < from) break;
+/** The kind of the changed run covering `offset`, "" when the run names no
+ *  kind, null when the offset is unchanged. */
+function changedKindAt(
+  runs: readonly { from: number; to: number; kind?: string }[],
+  offset: number,
+): string | null {
+  for (const run of runs) {
+    if (offset >= run.from && offset < run.to) return run.kind ?? "";
+    if (offset < run.from) break;
   }
-  return false;
+  return null;
 }
 
 function tokenClassAt(tokens: readonly TokenSpan[] | undefined, offset: number): string {
