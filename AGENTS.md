@@ -287,10 +287,12 @@ use it only for layout work. Vite's port is pinned to 5173 in **both**
   selectors): a caret line must tint a band, not repaint it.
 - Every conflict block keeps a way back: `canRevertRange` (`merge.ts`) answers
   for any range that has a decision on either side, so a half-applied conflict
-  shows the ↺ gutter button too. Taking it restores the range's base lines and
-  clears both sides' states — IDEA's `MergeConflictModel.resetResolvedChange`,
-  which is how one conflict is cancelled without undoing the others. The
-  decision journal records the revert, so Ctrl+Z restores the rejected side.
+  shows the ↺ gutter button too — in the result pane for any decided range,
+  and in the side pane whose arrow was taken, beside its status glyph. Taking
+  it restores the range's base lines and clears both sides' states — IDEA's
+  `MergeConflictModel.resetResolvedChange`, which is how one conflict is
+  cancelled without undoing the others. The decision journal records the
+  revert, so Ctrl+Z restores the rejected side.
 - The dock's tab order is `gitjet.toolTabs`, a stored permutation repaired by
   `normalizeTabOrder` (unknown names dropped, missing ones appended). It is
   edited only in Settings → General ("Dock tabs"), whose arrows call

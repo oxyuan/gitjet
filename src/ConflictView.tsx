@@ -316,6 +316,9 @@ function sideBlocks(
       append: !resolved && state?.oneside === true,
       apply: side,
       ignore: true,
+      // Beside the arrow that settled *this* side, the reader can take the
+      // block back: the control sits in the same gutter, where the arrow was.
+      revert: resolved,
       marks: conflict && labels.marks ? conflictMarks(range, side, offsets, labels.chars) : [],
       title: `${labels.apply} · ${rangeType(range, labels.t)}`,
     });
@@ -931,14 +934,17 @@ export function ConflictView({
           // carries it: accepting it replaces the other side's text, ignoring
           // it takes the auto-merged change back.
           const state = blocksRef.current.get(block.id);
-          // A side that has been taken (applied or ignored) leaves only its
-          // status mark; Ctrl+Z is how that decision is undone.
+          // A side that has been taken (applied or ignored) leaves its status
+          // mark and the revert control that takes the block back; Ctrl+Z is
+          // how the decision journal undoes it as a whole.
           const open = state ? !(side === "ours" ? state.left : state.right) : true;
-          const resolved = decided(state);
           return {
             ...block,
             apply: open ? side : undefined,
             ignore: open,
+            // Only the side that was taken carries the cancel control; the
+            // result pane's own revert covers the whole range.
+            revert: !open,
             tone: rangeTone(range, !open),
             soft: open && range.kind === "conflict" && (highlightMode === "words" || highlightMode === "chars"),
             append: open && state?.oneside === true,
@@ -1540,7 +1546,8 @@ export function ConflictView({
       whitespace: showWhitespace,
       onApplyBlock: (id, resolve) => applyRange(id, "ours", resolve),
       onIgnoreBlock: (id, resolve) => ignoreChange(id, "ours", resolve),
-      actionLabels: { apply: t("acceptLeft"), ignore: t("ignore") },
+      onRevertBlock: (id) => resetRange(id),
+      actionLabels: { apply: t("acceptLeft"), ignore: t("ignore"), revert: t("revertChange") },
       side: "after",
       numbers: "after",
       onScroll: (line) => {
@@ -1585,7 +1592,8 @@ export function ConflictView({
       whitespace: showWhitespace,
       onApplyBlock: (id, resolve) => applyRange(id, "theirs", resolve),
       onIgnoreBlock: (id, resolve) => ignoreChange(id, "theirs", resolve),
-      actionLabels: { apply: t("acceptRight"), ignore: t("ignore") },
+      onRevertBlock: (id) => resetRange(id),
+      actionLabels: { apply: t("acceptRight"), ignore: t("ignore"), revert: t("revertChange") },
       onScroll: (line) => {
         sync("theirs", line);
         scheduleMeasure();
