@@ -3,10 +3,10 @@ import type { ReactNode } from "react";
 import { Git, type RepoFile } from "./mygo";
 import { buildChangeTree } from "./changes";
 import { expandedTo, filterFiles, matchIndices, visibleFiles } from "./explorer";
-import { FileTree, type ListedFile } from "./FileTree";
+import { FileTree, type ChangeView, type ListedFile } from "./FileTree";
 import { useFileMenu } from "./FileMenu";
 import { FileIcon, Icon } from "./icons";
-import { cx, IconButton, Spinner } from "./ui";
+import { cx, IconButton, Spinner, useStoredState } from "./ui";
 import { useT } from "./i18n";
 
 const T = {
@@ -18,6 +18,10 @@ const T = {
     noFiles: "No files",
     noMatch: "No path matches “{query}”",
     untracked: "Not tracked by git yet",
+    expandAll: "Expand all",
+    collapseAll: "Collapse all",
+    viewTree: "Group by folder",
+    viewFlat: "Plain file list",
     trackedCount: "{n} files",
     matchHint: "Type to match names · ↑↓ step · Enter opens · Esc clears",
     matchCount: "{at}/{total}",
@@ -32,6 +36,10 @@ const T = {
     noFiles: "没有文件",
     noMatch: "没有路径匹配“{query}”",
     untracked: "尚未被 git 跟踪",
+    expandAll: "全部展开",
+    collapseAll: "全部折叠",
+    viewTree: "按目录分组",
+    viewFlat: "平铺文件列表",
     trackedCount: "{n} 个文件",
     matchHint: "直接键入匹配文件名 · ↑↓ 切换 · Enter 打开 · Esc 清除",
     matchCount: "{at}/{total}",
@@ -73,6 +81,7 @@ export function SourceTree({
   const [loading, setLoading] = useState(false);
   const [query, setQuery] = useState("");
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
+  const [viewMode, setViewMode] = useStoredState<ChangeView>("gitjet.sourceView", "tree");
   const [nonce, setNonce] = useState(0);
   const menu = useFileMenu({
     root,
@@ -129,7 +138,15 @@ export function SourceTree({
   // that were typed and picks one row to step through, so a keystroke never
   // hides the file you were looking at.
   const [typing, setTyping] = useState<{ q: string; at: number }>({ q: "", at: 0 });
-  const rows = useMemo(() => visibleFiles(visible, shownExpanded), [visible, shownExpanded]);
+  // In the flat view every file is on screen, in the same order FileTree draws
+  // them; stepping through a collapsed tree's rows would miss what is shown.
+  const rows = useMemo(
+    () =>
+      viewMode === "flat"
+        ? [...visible].sort((a, b) => a.path.localeCompare(b.path, undefined, { sensitivity: "base" }))
+        : visibleFiles(visible, shownExpanded),
+    [viewMode, visible, shownExpanded],
+  );
   const matches = useMemo(() => {
     if (typing.q === "") return [] as { path: string; hits: number[] }[];
     const found: { path: string; hits: number[] }[] = [];
@@ -251,6 +268,27 @@ export function SourceTree({
         )}
         <span className="spacer" />
         {loading && <Spinner />}
+        <IconButton
+          icon="expand"
+          title={t("expandAll")}
+          small
+          disabled={!repoOpen || viewMode === "flat"}
+          onClick={() => setExpanded(expandedTo(buildChangeTree(visible), 99))}
+        />
+        <IconButton
+          icon="collapse"
+          title={t("collapseAll")}
+          small
+          disabled={!repoOpen || viewMode === "flat"}
+          onClick={() => setExpanded(new Set())}
+        />
+        <IconButton
+          icon={viewMode === "tree" ? "list" : "folder"}
+          title={viewMode === "tree" ? t("viewFlat") : t("viewTree")}
+          small
+          disabled={!repoOpen}
+          onClick={() => setViewMode(viewMode === "tree" ? "flat" : "tree")}
+        />
         <IconButton icon="refresh" title={t("refresh")} small onClick={() => setNonce((n) => n + 1)} disabled={!repoOpen} />
       </div>
       <div
@@ -265,6 +303,7 @@ export function SourceTree({
         ) : (
           <FileTree
             files={visible}
+            view={viewMode}
             expanded={shownExpanded}
             onToggleDir={toggleDir}
             indent={6}
