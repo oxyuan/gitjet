@@ -28,7 +28,7 @@ import { codeFolding, foldEffect, syntaxHighlighting, unfoldAll } from "@codemir
 import { blockText, type MergeTone } from "./merge";
 import { editorHighlightStyle } from "./highlight";
 import { editorSelectionTheme, editorTheme, loadLanguage } from "./editor";
-import { ARROW_DOWN, ARROW_LEFT, ARROW_RIGHT } from "./icons";
+import { ARROW_LEFT, ARROW_LEFT_DOWN, ARROW_RIGHT, ARROW_RIGHT_DOWN } from "./icons";
 
 export interface MergePaneBlock {
   id: number;
@@ -41,7 +41,8 @@ export interface MergePaneBlock {
   /** A side pane offers this arrow; the result pane keeps its status dot. */
   apply?: "ours" | "theirs";
   /** The other side of a conflict is already in the result, so applying this
-   *  one appends instead of replacing: the IDE points the arrow down. */
+   *  one appends instead of replacing: the arrow turns down toward the result,
+   *  as IDEA's `getArrowDownIcon` does. */
   append?: boolean;
   /** A change the reader can dismiss back to the base text. */
   ignore?: boolean;
@@ -237,7 +238,16 @@ class ApplyMarker extends GutterMarker {
     if (this.revert) button("revert", "↺", this.revertLabel, "revert");
     if (this.ignore) button("ignore", "✕", this.ignoreLabel, "ignore");
     if (this.apply) {
-      const d = this.append ? ARROW_DOWN : this.apply === "ours" ? ARROW_RIGHT : ARROW_LEFT;
+      // The arrow points at the result: straight across when the block
+      // replaces it, diagonally down when it is appended below it.
+      const ours = this.apply === "ours";
+      const d = this.append
+        ? ours
+          ? ARROW_RIGHT_DOWN
+          : ARROW_LEFT_DOWN
+        : ours
+          ? ARROW_RIGHT
+          : ARROW_LEFT;
       button("apply", arrow(d), this.applyLabel, `apply ${this.apply}`);
     }
     return el;

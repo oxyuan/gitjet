@@ -1,10 +1,13 @@
 import type { ReactNode } from "react";
 import { fileBadge } from "./fileIcons";
 
-/** The two side arrows, exported for the merge gutter that builds DOM by hand. */
+/** The side arrows, exported for the merge gutter that builds DOM by hand. */
 export const ARROW_LEFT = "M13 8H3M6.4 4.6 3 8l3.4 3.4";
 export const ARROW_RIGHT = "M3 8h10M9.6 4.6 13 8l-3.4 3.4";
-export const ARROW_DOWN = "M8 3v10M4.6 9.6 8 13l3.4-3.4";
+/** Appending lands below the text already in the result, so the arrow turns
+ *  toward the result pane and down, as IDEA's `getArrowDownIcon` does. */
+export const ARROW_RIGHT_DOWN = "M3 3l10 10M13 7.6V13H7.6";
+export const ARROW_LEFT_DOWN = "M13 3 3 13M3 7.6V13h5.4";
 
 /**
  * The app's icon set, drawn on a 16px grid with 1.5px strokes, round caps,
