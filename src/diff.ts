@@ -21,30 +21,35 @@ export interface AlignedRow {
   hunk: number;
 }
 
-export interface CollapsedRow {
-  collapsed: number;
-  key: number;
+/** One run of unchanged rows a folded view hides. */
+export interface FoldRange {
+  /** First hidden row, inclusive. */
+  start: number;
+  /** Last hidden row, exclusive. */
+  end: number;
+  /** Number of hidden rows, which is what the separator counts. */
+  count: number;
 }
 
-export type DiffRow = AlignedRow | CollapsedRow;
+/** The whitespace modes of a diff, named as IDEA names them. */
+export type WhitespaceMode = "none" | "trim" | "whitespace" | "whitespace-blank";
 
-/** The rows a diff viewer renders, in order. */
-export type DiffRows = DiffRow[];
-
-export function isCollapsed(row: DiffRow): row is CollapsedRow {
-  return "collapsed" in row;
-}
+/** What a folded viewer draws, in order: either a real row or the marker
+ *  standing in for a run of hidden ones. */
+export type VisibleRow =
+  | { kind: "row"; row: AlignedRow; index: number }
+  | { kind: "fold"; fold: FoldRange };
 
 /**
  * The first row of every run of consecutive changed rows. A run is one block
  * even when it spans many added and deleted lines, so navigation and the
  * "n / m" counter talk about changes, not lines.
  */
-export function changeBlockRows(rows: DiffRows): number[] {
+export function changeBlockRows(rows: readonly AlignedRow[]): number[] {
   const out: number[] = [];
   let inBlock = false;
   rows.forEach((row, i) => {
-    if (isCollapsed(row) || row.kind === "context") {
+    if (row.kind === "context") {
       inBlock = false;
       return;
     }
@@ -60,11 +65,11 @@ export function changeBlockRows(rows: DiffRows): number[] {
  * must apply: one run of changed rows, with old lines negative so a deleted
  * line and an added line that share a number stay apart.
  */
-export function changeBlockSelections(rows: DiffRows): Map<number, number[]> {
+export function changeBlockSelections(rows: readonly AlignedRow[]): Map<number, number[]> {
   const blocks = new Map<number, number[]>();
   let current = -1;
   rows.forEach((row, i) => {
-    if (isCollapsed(row) || row.kind === "context") {
+    if (row.kind === "context") {
       current = -1;
       return;
     }
@@ -152,17 +157,17 @@ export function charDiff(a: string, b: string): [WordSegment[], WordSegment[]] {
 
 /**
  * buildDiffRows aligns the old and new files into rows and pairs deleted and
- * added lines so word differences can be highlighted. Unchanged stretches are
- * folded unless the caller asked for the whole file.
+ * added lines so word differences can be highlighted. Every unchanged line
+ * is a row too; folding is a view decision, so the model never drops lines.
  */
-export function buildDiffRows(diff: FileDiff, fold = !diff.wholeFile): DiffRows {
+export function buildDiffRows(diff: FileDiff): AlignedRow[] {
   const hasText = diff.oldText !== "" || diff.newText !== "";
   const oldLines = textLines(diff.oldText);
   const newLines = textLines(diff.newText);
   const rows: AlignedRow[] = [];
   if (!hasText || diff.hunks.length === 0) {
     if (diff.hunks.length === 0) return rows;
-    return rowsFromHunks(diff.hunks, fold);
+    return rowsFromHunks(diff.hunks);
   }
   let oi = 0;
   let ni = 0;
@@ -234,10 +239,10 @@ export function buildDiffRows(diff: FileDiff, fold = !diff.wholeFile): DiffRows 
     });
     ni++;
   }
-  return fold ? collapseUnchanged(rows) : rows;
+  return rows;
 }
 
-function rowsFromHunks(hunks: DiffHunk[], fold: boolean): DiffRow[] {
+function rowsFromHunks(hunks: DiffHunk[]): AlignedRow[] {
   const rows: AlignedRow[] = [];
   for (let h = 0; h < hunks.length; h++) {
     const hunk = hunks[h]!;
@@ -262,7 +267,7 @@ function rowsFromHunks(hunks: DiffHunk[], fold: boolean): DiffRow[] {
     }
     flush();
   }
-  return fold ? collapseUnchanged(rows) : rows;
+  return rows;
 }
 
 interface BlockLine {
@@ -419,25 +424,87 @@ function alignChangedLines(dels: readonly DiffLine[], adds: readonly DiffLine[],
   return rows;
 }
 
-/** collapseUnchanged replaces runs of unchanged rows with one marker row. */
-function collapseUnchanged(rows: AlignedRow[]): DiffRow[] {
-  const out: DiffRow[] = [];
-  let run: AlignedRow[] = [];
-  const flush = () => {
-    if (run.length > 6) {
-      out.push({ collapsed: run.length, key: out.length });
-    } else {
-      out.push(...run);
-    }
-    run = [];
-  };
-  for (const row of rows) {
-    if (row.kind === "context") run.push(row);
-    else {
-      flush();
-      out.push(row);
-    }
+/** The rendered width of one line in monospace cells. Tabs jump to the next
+ *  eight-cell stop, and East Asian and emoji characters take two cells, so a
+ *  non-wrapping diff can size each column to the widest line it has to show. */
+export function lineWidth(text: string): number {
+  let width = 0;
+  for (const ch of text) {
+    const code = ch.codePointAt(0) ?? 0;
+    if (code === 9) width += 8 - (width % 8);
+    else width += isWide(code) ? 2 : 1;
   }
-  flush();
+  return width;
+}
+
+function isWide(code: number): boolean {
+  return (
+    (code >= 0x1100 && code <= 0x115f) ||
+    (code >= 0x2e80 && code <= 0xa4cf) ||
+    (code >= 0xac00 && code <= 0xd7a3) ||
+    (code >= 0xf900 && code <= 0xfaff) ||
+    (code >= 0xfe30 && code <= 0xfe6f) ||
+    (code >= 0xff00 && code <= 0xff60) ||
+    (code >= 0xffe0 && code <= 0xffe6) ||
+    (code >= 0x1f300 && code <= 0x1f64f) ||
+    (code >= 0x1f900 && code <= 0x1f9ff) ||
+    (code >= 0x20000 && code <= 0x3fffd)
+  );
+}
+
+/** How many unchanged rows a folded run keeps visible beside each change,
+ *  which is what makes an expanded fragment enough context to read the code
+ *  around it. */
+export const FOLD_CONTEXT = 3;
+
+/**
+ * foldRanges finds the runs of unchanged rows a folded viewer hides. A run at
+ * the start or end of the file keeps no context on its outer side, so the
+ * first change is not pushed down by three meaningless lines; a run between
+ * two changes keeps `context` rows on both sides. A run that would hide fewer
+ * than two rows is left alone: a separator taller than what it saves is noise.
+ */
+export function foldRanges(rows: readonly AlignedRow[], context = FOLD_CONTEXT): FoldRange[] {
+  const out: FoldRange[] = [];
+  let i = 0;
+  while (i < rows.length) {
+    if (rows[i]!.kind !== "context") {
+      i++;
+      continue;
+    }
+    let end = i;
+    while (end < rows.length && rows[end]!.kind === "context") end++;
+    const top = i === 0 ? 0 : context;
+    const bottom = end === rows.length ? 0 : context;
+    const start = i + top;
+    const stop = end - bottom;
+    if (stop - start >= 4) out.push({ start, end: stop, count: stop - start });
+    i = end;
+  }
+  return out;
+}
+
+/**
+ * visibleRows walks the full row list, replacing each closed fold with its
+ * marker. Row indices stay those of the full list, so navigation, selection
+ * and the apply arrows keep pointing at the same lines when a fold opens.
+ */
+export function visibleRows(
+  rows: readonly AlignedRow[],
+  folds: readonly FoldRange[],
+  open: ReadonlySet<number>,
+): VisibleRow[] {
+  const starts = new Map<number, FoldRange>();
+  for (const fold of folds) starts.set(fold.start, fold);
+  const out: VisibleRow[] = [];
+  for (let i = 0; i < rows.length; i++) {
+    const fold = starts.get(i);
+    if (fold && !open.has(fold.start)) {
+      out.push({ kind: "fold", fold });
+      i = fold.end - 1;
+      continue;
+    }
+    out.push({ kind: "row", row: rows[i]!, index: i });
+  }
   return out;
 }

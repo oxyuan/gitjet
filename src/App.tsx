@@ -29,6 +29,7 @@ import { SourceTree } from "./SourceTree";
 import { normalizeTabOrder, type ToolTab, TOOL_TABS, TOOL_TAB_ICONS } from "./tabs";
 import { isProtectedBranch } from "./protected";
 import { DiffView, ThreeWayView } from "./DiffView";
+import type { WhitespaceMode } from "./diff";
 import {
   ChangelistDialog,
   MergeDialog,
@@ -700,7 +701,7 @@ function AppShell({ onLangChange }: { onLangChange: (lang: Lang) => void }) {
   const [splitWidth, setSplitWidth] = useStoredState<number>("gitjet.split", 430);
   const [diffMode, setDiffMode] = useStoredState<"split" | "unified">("gitjet.diffMode", "split");
   const [diffWrap, setDiffWrap] = useStoredState<boolean>("gitjet.diffWrap", true);
-  const [ignoreWhitespace, setIgnoreWhitespace] = useState(false);
+  const [whitespace, setWhitespace] = useState<WhitespaceMode>("none");
   const [form, setForm] = useState<CommitForm>(emptyForm);
   const [history, setHistory] = useState<string[]>([]);
   const [checked, setChecked] = useState<Set<string>>(new Set());
@@ -967,8 +968,7 @@ function AppShell({ onLangChange }: { onLangChange: (lang: Lang) => void }) {
         revision: hash,
         from: "",
         context: settingsRef.current?.diffContext ?? -1,
-        ignoreWhitespace: false,
-        ignoreWhitespaceEol: false,
+        whitespace: "none",
         noText: false,
       };
       setLogFile(file.path);
@@ -1222,7 +1222,7 @@ function AppShell({ onLangChange }: { onLangChange: (lang: Lang) => void }) {
     onLangChange(resolveLang(s.language));
     // A toast created before the switch would keep the old language.
     setToast(null);
-    setIgnoreWhitespace(s.ignoreWhitespace);
+    setWhitespace(s.ignoreWhitespace ? "whitespace" : "none");
   }
 
   const selectedCommitRef = useRef(selectedCommit);
@@ -1407,8 +1407,7 @@ function AppShell({ onLangChange }: { onLangChange: (lang: Lang) => void }) {
     revision: "",
     from: "",
     context: settings?.diffContext ?? -1,
-    ignoreWhitespace,
-    ignoreWhitespaceEol: false,
+    whitespace,
     noText: false,
   });
 
@@ -1445,8 +1444,7 @@ function AppShell({ onLangChange }: { onLangChange: (lang: Lang) => void }) {
       revision: "",
       from: "",
       context,
-      ignoreWhitespace,
-      ignoreWhitespaceEol: false,
+      whitespace,
       noText: false,
     };
     if (revision === "" || revision === "WORKTREE" || revision === "HEAD") {
@@ -1474,12 +1472,11 @@ function AppShell({ onLangChange }: { onLangChange: (lang: Lang) => void }) {
     return true;
   };
 
-  const toggleWhitespace = () => {
-    const next = !ignoreWhitespace;
-    setIgnoreWhitespace(next);
+  const chooseWhitespace = (mode: WhitespaceMode) => {
+    setWhitespace(mode);
     const active = docsRef.current.find((d) => d.id === activeIdRef.current);
     if (active?.kind === "diff") {
-      void showDiff({ ...active.opts, ignoreWhitespace: next }, active.title);
+      void showDiff({ ...active.opts, whitespace: mode }, active.title);
     }
   };
 
@@ -2274,8 +2271,7 @@ function AppShell({ onLangChange }: { onLangChange: (lang: Lang) => void }) {
         from: ref,
         revision: to,
         context: settingsRef.current?.diffContext ?? -1,
-        ignoreWhitespace: false,
-        ignoreWhitespaceEol: false,
+        whitespace: "none",
         noText: false,
       };
       const diff = await Git.diff(opts);
@@ -2303,8 +2299,7 @@ function AppShell({ onLangChange }: { onLangChange: (lang: Lang) => void }) {
         from: `stash@{${index}}^`,
         revision: `stash@{${index}}`,
         context: settingsRef.current?.diffContext ?? -1,
-        ignoreWhitespace: false,
-        ignoreWhitespaceEol: false,
+        whitespace: "none",
         noText: false,
       };
       const diff = await Git.diff(opts);
@@ -2694,8 +2689,7 @@ function AppShell({ onLangChange }: { onLangChange: (lang: Lang) => void }) {
           revision: "",
           from: "",
           context: settingsRef.current?.diffContext ?? -1,
-          ignoreWhitespace: false,
-          ignoreWhitespaceEol: false,
+          whitespace: "none",
           noText: false,
         };
         const diff = await Git.diff(opts);
@@ -3015,8 +3009,8 @@ function AppShell({ onLangChange }: { onLangChange: (lang: Lang) => void }) {
             commitView={detailView}
             diffMode={diffMode}
             setDiffMode={setDiffMode}
-            ignoreWhitespace={ignoreWhitespace}
-            onToggleWhitespace={toggleWhitespace}
+            whitespace={whitespace}
+            onWhitespace={chooseWhitespace}
             docs={docs}
             activeId={activeId}
             onActivate={setActiveId}
@@ -3338,8 +3332,8 @@ function AppShell({ onLangChange }: { onLangChange: (lang: Lang) => void }) {
           setDiffMode={setDiffMode}
           diffWrap={diffWrap}
           onToggleWrap={() => setDiffWrap(!diffWrap)}
-          ignoreWhitespace={ignoreWhitespace}
-          onToggleWhitespace={toggleWhitespace}
+          whitespace={whitespace}
+          onWhitespace={chooseWhitespace}
           onClose={() => setDialog(null)}
           onSubmit={(opts) => void push(opts)}
         />
@@ -3652,8 +3646,8 @@ function RightPane({
   diffWrap,
   onToggleWrap,
   setDiffMode,
-  ignoreWhitespace,
-  onToggleWhitespace,
+  whitespace,
+  onWhitespace,
   onApplyHunk,
   onApplyFile,
   onApplyLines,
@@ -3694,8 +3688,8 @@ function RightPane({
   onToggleWrap: () => void;
   diffMode: "split" | "unified";
   setDiffMode: (m: "split" | "unified") => void;
-  ignoreWhitespace: boolean;
-  onToggleWhitespace: () => void;
+  whitespace: WhitespaceMode;
+  onWhitespace: (mode: WhitespaceMode) => void;
   onApplyHunk: (hunk: number, action: "stage" | "unstage" | "rollback") => void;
   onApplyFile: (action: "stage" | "unstage" | "rollback") => void;
   onApplyLines: (lines: number[], action: "stage" | "unstage" | "rollback") => void;
@@ -4050,8 +4044,8 @@ function RightPane({
             opts={active.opts}
             mode={diffMode}
             setMode={setDiffMode}
-            ignoreWhitespace={ignoreWhitespace}
-            onToggleWhitespace={onToggleWhitespace}
+            whitespace={whitespace}
+            onWhitespace={onWhitespace}
             onApply={onApplyHunk}
             onApplyFile={onApplyFile}
             onApplyLines={onApplyLines}

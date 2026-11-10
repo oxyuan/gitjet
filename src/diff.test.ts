@@ -1,7 +1,7 @@
 import { describe, expect, it } from "bun:test";
 import type { FileDiff } from "./mygo";
 import type { AlignedRow } from "./diff";
-import { buildDiffRows, changeBlockRows, changeBlockSelections, charDiff, isCollapsed, textLines, wordDiff } from "./diff";
+import { buildDiffRows, changeBlockRows, changeBlockSelections, charDiff, foldRanges, lineWidth, textLines, visibleRows, wordDiff } from "./diff";
 
 describe("textLines", () => {
   it("drops the empty tail after a final newline", () => {
@@ -64,29 +64,20 @@ describe("buildDiffRows", () => {
 
   it("pairs a removed and an added line into one change row", () => {
     const rows = buildDiffRows(file);
-    const changed = rows.filter((r) => !isCollapsed(r) && r.kind === "change");
+    const changed = rows.filter((r) => r.kind === "change");
     expect(changed).toHaveLength(1);
     const row = changed[0]!;
-    if (!isCollapsed(row)) {
-      expect(row.left?.text).toBe("two");
-      expect(row.right?.text).toBe("TWO");
-      expect(row.left?.segments?.some((s) => s.changed)).toBe(true);
-    }
+    expect(row.left?.text).toBe("two");
+    expect(row.right?.text).toBe("TWO");
+    expect(row.left?.segments?.some((s) => s.changed)).toBe(true);
   });
 
   it("keeps unchanged context rows around the change", () => {
     const rows = buildDiffRows(file);
-    const contexts = rows.filter((r) => !isCollapsed(r) && r.kind === "context");
-    expect(contexts).toHaveLength(2);
+    expect(rows.filter((r) => r.kind === "context")).toHaveLength(2);
   });
 
-  it("folds long unchanged stretches out of a windowed diff", () => {
-    const long = { ...file, oldText: longText(30), newText: longText(30).replace("line 15", "LINE 15") };
-    const folded = buildDiffRows(long, true);
-    expect(folded.some(isCollapsed)).toBe(true);
-  });
-
-  it("shows every line when the diff covers the whole file", () => {
+  it("keeps every unchanged line so a fold can be reopened", () => {
     const long = {
       ...file,
       wholeFile: true,
@@ -94,8 +85,7 @@ describe("buildDiffRows", () => {
       newText: longText(30).replace("line 15", "LINE 15"),
     };
     const rows = buildDiffRows(long);
-    expect(rows.some(isCollapsed)).toBe(false);
-    expect(rows.filter((r) => !isCollapsed(r) && r.kind === "context")).toHaveLength(29);
+    expect(rows.filter((r) => r.kind === "context")).toHaveLength(29);
   });
 });
 
@@ -139,7 +129,7 @@ describe("buildDiffRows alignment", () => {
       'foo(a, b);\nresult = compute(x);\n',
       'foo(a, X);\nlog("inserted");\nresult = compute(x) + 1;\n',
     );
-    const rows = buildDiffRows(diff).filter((row): row is AlignedRow => !isCollapsed(row));
+    const rows = buildDiffRows(diff);
     expect(rows.map((row) => [row.kind, row.left?.no, row.right?.no])).toEqual([
       ["change", 1, 1],
       ["add", undefined, 2],
@@ -160,12 +150,9 @@ describe("buildDiffRows alignment", () => {
       "foo(a, b)\n",
       "foo(a, c)\n",
     );
-    const row = buildDiffRows(diff)[0];
-    expect(row && !isCollapsed(row)).toBe(true);
-    if (row && !isCollapsed(row)) {
-      expect(changedText(row.left?.segments)).toBe("b");
-      expect(changedText(row.right?.segments)).toBe("c");
-    }
+    const row = buildDiffRows(diff)[0]!;
+    expect(changedText(row.left?.segments)).toBe("b");
+    expect(changedText(row.right?.segments)).toBe("c");
   });
 
   it("leaves a whitespace-only change without word marks on the old side", () => {
@@ -177,12 +164,9 @@ describe("buildDiffRows alignment", () => {
       "x = 1\n",
       "x  =  1\n",
     );
-    const row = buildDiffRows(diff)[0];
-    expect(row && !isCollapsed(row)).toBe(true);
-    if (row && !isCollapsed(row)) {
-      expect(changedText(row.left?.segments)).toBe("");
-      expect(changedText(row.right?.segments)).toBe("  ");
-    }
+    const row = buildDiffRows(diff)[0]!;
+    expect(changedText(row.left?.segments)).toBe("");
+    expect(changedText(row.right?.segments)).toBe("  ");
   });
 });
 
@@ -232,7 +216,6 @@ describe("changeBlockRows", () => {
         "a\nb\nc\n",
         "A\nB\nC\n",
       ),
-      false,
     );
     expect(changeBlockRows(rows)).toHaveLength(1);
   });
@@ -252,7 +235,6 @@ describe("changeBlockRows", () => {
         "a\nb\nc\nd\ne\n",
         "a\nB\nc\nD\ne\n",
       ),
-      false,
     );
     expect(changeBlockRows(rows)).toEqual([1, 3]);
   });
@@ -295,12 +277,130 @@ describe("changeBlockSelections", () => {
       patch: "",
       hasChanges: true,
     } as const;
-    const rows = buildDiffRows(diff as never, false);
+    const rows = buildDiffRows(diff as never);
     const blocks = changeBlockSelections(rows);
     expect([...blocks.values()]).toEqual([
       [-2, 2],
       [-4, 4],
     ]);
     expect([...blocks.keys()]).toEqual([1, 3]);
+  });
+});
+
+describe("foldRanges", () => {
+  const changed = (n: number, lines: number[]): AlignedRow[] => {
+    const oldText = longText(n);
+    let newText = oldText;
+    for (const line of lines) newText = newText.replace(`line ${line}\n`, `LINE ${line}\n`);
+    const rows = buildDiffRows({
+      path: "a.txt",
+      oldPath: "a.txt",
+      status: "modified",
+      binary: false,
+      additions: lines.length,
+      deletions: lines.length,
+      hunks: [
+        {
+          header: "",
+          oldStart: 1,
+          oldLines: n,
+          newStart: 1,
+          newLines: n,
+          lines: Array.from({ length: n }, (_, i) => {
+            const no = i + 1;
+            if (!lines.includes(no)) return { kind: "context", oldNo: no, newNo: no, text: `line ${no}` };
+            return [
+              { kind: "del", oldNo: no, newNo: 0, text: `line ${no}` },
+              { kind: "add", oldNo: 0, newNo: no, text: `LINE ${no}` },
+            ];
+          }).flat(),
+        },
+      ],
+      oldText,
+      newText,
+      oldLabel: "HEAD",
+      newLabel: "Working Tree",
+      truncated: false,
+      patch: "",
+      hasChanges: true,
+      wholeFile: true,
+    });
+    return rows;
+  };
+
+  it("folds the file edges without inventing context there", () => {
+    const rows = changed(30, [15]);
+    expect(foldRanges(rows)).toEqual([
+      { start: 0, end: 11, count: 11 },
+      { start: 18, end: 30, count: 12 },
+    ]);
+  });
+
+  it("keeps the configured context on both sides of a middle run", () => {
+    const folds = foldRanges(changed(30, [5, 25]));
+    expect(folds).toEqual([{ start: 8, end: 21, count: 13 }]);
+  });
+
+  it("does not fold a run shorter than the context it keeps", () => {
+    expect(foldRanges(changed(12, [6]))).toEqual([]);
+  });
+});
+
+describe("visibleRows", () => {
+  const rows = buildDiffRows({
+    path: "a.txt",
+    oldPath: "a.txt",
+    status: "modified",
+    binary: false,
+    additions: 1,
+    deletions: 1,
+    hunks: [
+      {
+        header: "",
+        oldStart: 1,
+        oldLines: 20,
+        newStart: 1,
+        newLines: 20,
+        lines: Array.from({ length: 20 }, (_, i) => {
+          const no = i + 1;
+          if (no !== 10) return { kind: "context", oldNo: no, newNo: no, text: `line ${no}` };
+          return [
+            { kind: "del", oldNo: no, newNo: 0, text: `line ${no}` },
+            { kind: "add", oldNo: 0, newNo: no, text: "LINE 10" },
+          ];
+        }).flat(),
+      },
+    ],
+    oldText: longText(20),
+    newText: longText(20).replace("line 10", "LINE 10"),
+    oldLabel: "",
+    newLabel: "",
+    truncated: false,
+    patch: "",
+    hasChanges: true,
+    wholeFile: true,
+  });
+  const folds = foldRanges(rows);
+
+  it("replaces a closed fold with one marker and keeps row indices", () => {
+    const visible = visibleRows(rows, folds, new Set());
+    expect(visible[0]).toEqual({ kind: "fold", fold: { start: 0, end: 6, count: 6 } });
+    const indexed = visible.filter((item) => item.kind === "row");
+    expect(indexed.map((item) => item.index)).toEqual([...indexed.map((item) => item.index)]);
+    expect(indexed[0]).toMatchObject({ index: 6 });
+  });
+
+  it("draws the hidden rows once the fold is open", () => {
+    const visible = visibleRows(rows, folds, new Set([0, 13]));
+    expect(visible).toHaveLength(rows.length);
+    expect(visible.every((item) => item.kind === "row")).toBe(true);
+  });
+});
+
+describe("lineWidth", () => {
+  it("counts tabs to the next stop and wide characters as two cells", () => {
+    expect(lineWidth("abc")).toBe(3);
+    expect(lineWidth("a\tb")).toBe(9);
+    expect(lineWidth("代码")).toBe(4);
   });
 });

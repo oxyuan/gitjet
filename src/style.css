@@ -1943,12 +1943,12 @@ body.col-resizing {
 
 .diff-rows.split .diff-row {
   display: grid;
-  grid-template-columns: 46px minmax(0, 1fr) 20px 46px minmax(0, 1fr);
+  grid-template-columns: 46px minmax(0, 1fr) 38px 46px minmax(0, 1fr);
 }
 
 .diff-rows.unified .diff-row {
   display: grid;
-  grid-template-columns: 46px 16px minmax(0, 1fr) 20px;
+  grid-template-columns: 46px 16px minmax(0, 1fr) 38px;
 }
 
 .diff-row {
@@ -9963,3 +9963,60 @@ body.resizing-row .log-detail-split::after {
   color: var(--muted);
 }
 
+
+/* ---------- Diff view: folding, wrapping, horizontal scroll ---------- */
+
+/* A non-wrapping diff sizes each half from its longest line (the viewer sets
+ * --diff-left-w / --diff-right-w / --diff-uni-w). Below that width the halves
+ * stay even and fill the view, and a wider line scrolls instead of being
+ * clipped, exactly as an editor's would. */
+.diff-rows.split .diff-row {
+  grid-template-columns: 46px var(--diff-left-w) 38px 46px var(--diff-right-w);
+}
+
+.diff-rows.unified .diff-row {
+  grid-template-columns: 46px 16px var(--diff-uni-w) 38px;
+}
+
+.diff-body.split .diff-columns {
+  width: max-content;
+  min-width: 100%;
+  grid-template-columns: calc(46px + var(--diff-left-w) + 38px) calc(46px + var(--diff-right-w));
+}
+
+.diff-row .line-text {
+  overflow: visible;
+  text-overflow: clip;
+}
+
+/* Wrapped mode divides the viewport again: every line is visible, so the
+ * body must not scroll sideways. */
+.diff-body.wrap .diff-rows.split .diff-row {
+  grid-template-columns: 46px minmax(0, 1fr) 38px 46px minmax(0, 1fr);
+}
+
+.diff-body.wrap .diff-rows.unified .diff-row {
+  grid-template-columns: 46px 16px minmax(0, 1fr) 38px;
+}
+
+.diff-body.wrap .diff-columns {
+  width: auto;
+  grid-template-columns: 1fr 1fr;
+}
+
+.diff-body.wrap .diff-row .line-text {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.diff-body.wrap .diff-row .line-no {
+  align-self: stretch;
+}
+
+/* A fold marker is one centred button, not a five-track row. */
+.diff-rows .diff-row.collapsed {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  grid-template-columns: none;
+}

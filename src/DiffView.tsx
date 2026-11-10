@@ -2,13 +2,13 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { annotateDate, blameDepth } from "./annotate";
 import { blameMenuItems } from "./blameMenu";
 import { Git, type BlameLine, type DiffOptions, type FileDiff, type ThreeWayDiff } from "./mygo";
-import { buildDiffRows, changeBlockRows, changeBlockSelections, isCollapsed, type AlignedRow, type DiffRows, type WordSegment } from "./diff";
+import { buildDiffRows, changeBlockRows, changeBlockSelections, foldRanges, lineWidth, visibleRows, type FoldRange, type VisibleRow, type WhitespaceMode, type WordSegment } from "./diff";
 import { ImageDiff } from "./ImageDiff";
 import { isImagePath } from "./images";
 import { FileIcon, Icon } from "./icons";
 import { useT } from "./i18n";
 import { paintLine, tokenize, type LineTokens } from "./syntax";
-import { ContextMenu, cx, formatWhen, IconButton, Spinner, useStoredState } from "./ui";
+import { ContextMenu, cx, formatWhen, IconButton, Spinner, useStoredState, type ContextItem } from "./ui";
 import { PathCopyButton } from "./PathCopy";
 
 type Mode = "split" | "unified";
@@ -24,7 +24,6 @@ const T = {
     unifiedDiff: "Unified diff",
     wrapLongLines: "Wrap long lines",
     wrap: "Wrap",
-    ignoreWhitespace: "Ignore whitespace",
     whitespace: "Whitespace",
     previousChange: "Previous change",
     nextChange: "Next change",
@@ -60,6 +59,13 @@ const T = {
     unstageLines: "Unstage lines",
     rollbackLines: "Roll back lines",
     unchangedLines: "{n} unchanged lines",
+    foldUnchanged: "Collapse unchanged fragments",
+    unfoldUnchanged: "Expand all unchanged fragments",
+    ignoreDifferences: "Ignore Differences",
+    wsNone: "None",
+    wsTrim: "Trim whitespaces",
+    wsAll: "Ignore whitespaces",
+    wsBlank: "Ignore whitespaces and empty lines",
     local: "local",
   },
   zh: {
@@ -72,7 +78,6 @@ const T = {
     unifiedDiff: "统一差异",
     wrapLongLines: "长行折行显示",
     wrap: "折行",
-    ignoreWhitespace: "忽略空白字符",
     whitespace: "忽略空白",
     previousChange: "上一处更改",
     nextChange: "下一处更改",
@@ -108,6 +113,13 @@ const T = {
     unstageLines: "取消暂存选中行",
     rollbackLines: "还原选中行",
     unchangedLines: "{n} 行未更改",
+    foldUnchanged: "折叠未更改片段",
+    unfoldUnchanged: "展开全部未更改片段",
+    ignoreDifferences: "忽略差异",
+    wsNone: "不忽略",
+    wsTrim: "忽略空白数量",
+    wsAll: "忽略空白字符",
+    wsBlank: "忽略空白和空行",
     local: "本地",
   },
 } as const;
@@ -117,8 +129,8 @@ export function DiffView({
   opts,
   mode,
   setMode,
-  ignoreWhitespace,
-  onToggleWhitespace,
+  whitespace,
+  onWhitespace,
   onApply,
   onApplyFile,
   onApplyLines,
@@ -136,8 +148,8 @@ export function DiffView({
   opts: DiffOptions;
   mode: Mode;
   setMode: (m: Mode) => void;
-  ignoreWhitespace: boolean;
-  onToggleWhitespace: () => void;
+  whitespace: WhitespaceMode;
+  onWhitespace: (mode: WhitespaceMode) => void;
   onApply: (hunk: number, action: "stage" | "unstage" | "rollback") => void;
   onApplyFile: (action: "stage" | "unstage" | "rollback") => void;
   onApplyLines: (lines: number[], action: "stage" | "unstage" | "rollback") => void;
@@ -158,8 +170,14 @@ export function DiffView({
     raw === "Working Tree" ? t("workingTree") : raw === "Index" ? t("index") : raw;
   const rows = useMemo(() => buildDiffRows(diff), [diff]);
   const tokens = useDiffTokens(diff);
-  const [expanded, setExpanded] = useState<Set<number>>(new Set());
+  // Folding is a view decision, so the rows above never lose a line: a fold
+  // hides a range of them and reopening it needs no new model.
+  const [folded, setFolded] = useStoredState<boolean>("gitjet.diffFoldUnchanged", true);
+  const folds = useMemo(() => (folded ? foldRanges(rows) : []), [rows, folded]);
+  const [open, setOpen] = useState<Set<number>>(new Set());
+  const visible = useMemo(() => visibleRows(rows, folds, open), [rows, folds, open]);
   const [current, setCurrent] = useState(-1);
+  const [wsMenu, setWsMenu] = useState<{ x: number; y: number } | null>(null);
   const bodyRef = useRef<HTMLDivElement>(null);
   // One annotation preference for every viewer: the source pane and the diff
   // gutter answer the same way.
@@ -173,7 +191,10 @@ export function DiffView({
   const beforeIndex = useMemo(() => indexBlame(before), [before]);
   const afterIndex = useMemo(() => indexBlame(after), [after]);
 
-  const openGutter = (side: Side, line: number, x: number, y: number) => setMenu({ x, y, side, line });
+  const openGutter = (side: Side, line: number, x: number, y: number) => {
+    setWsMenu(null);
+    setMenu({ x, y, side, line });
+  };
   const menuLine = menu?.side === "before" ? beforeIndex.get(menu.line) : menu ? afterIndex.get(menu.line) : undefined;
   const menuItems = menu
     ? blameMenuItems({
@@ -206,18 +227,23 @@ export function DiffView({
     : [];
 
   useEffect(() => {
-    setExpanded(new Set());
+    // A refetch can change which rows exist, so a fold opened against the old
+    // numbering is not carried into the new one.
+    setOpen(new Set());
     setCurrent(-1);
-  }, [reloadKey, diff.path]);
+  }, [reloadKey, diff.path, diff]);
 
   const changeRows = useMemo(() => changeBlockRows(rows), [rows]);
+  // A hunk's chevron belongs to its first *visible* row: folding can hide the
+  // hunk's opening context, and an apply button nobody can see is no button.
   const firstRowOfHunk = useMemo(() => {
     const map = new Map<number, number>();
-    rows.forEach((row, i) => {
-      if (!isCollapsed(row) && !map.has(row.hunk)) map.set(row.hunk, i);
-    });
+    for (const item of visible) {
+      if (item.kind !== "row" || map.has(item.row.hunk)) continue;
+      map.set(item.row.hunk, item.index);
+    }
     return map;
-  }, [rows]);
+  }, [visible]);
   // A whole-file diff is one hunk, so its chevrons have to follow the
   // change blocks instead: one button per run of changed rows, applying
   // exactly those lines.
@@ -262,7 +288,7 @@ export function DiffView({
   useEffect(() => {
     setSelected(new Set());
     setAnchor(-1);
-  }, [reloadKey, diff.path]);
+  }, [reloadKey, diff.path, diff]);
   // A click on a changed line's number selects it; Shift extends from the
   // last click, the way a range selection reads. The old side is stored
   // negative: old and new numbers overlap, and an added line 5 must not
@@ -278,7 +304,7 @@ export function DiffView({
         const [from, to] = anchor < rowIndex ? [anchor, rowIndex] : [rowIndex, anchor];
         for (let i = from; i <= to; i++) {
           const row = rows[i];
-          if (!row || isCollapsed(row)) continue;
+          if (!row) continue;
           if (row.left && row.left.kind !== "context") next.add(-row.left.no);
           if (row.right && row.right.kind !== "context") next.add(row.right.no);
         }
@@ -292,6 +318,40 @@ export function DiffView({
     setAnchor(rowIndex);
   };
   const selectedCount = selected.size;
+  // Columns are sized from the longest line, so a line wider than its half
+  // scrolls instead of being clipped; below that the two halves stay even.
+  const widths = useMemo(() => {
+    let left = 0;
+    let right = 0;
+    for (const row of rows) {
+      if (row.left) left = Math.max(left, lineWidth(row.left.text));
+      if (row.right) right = Math.max(right, lineWidth(row.right.text));
+    }
+    return { left, right };
+  }, [rows]);
+  const layout = {
+    "--diff-left-w": `max(calc(50% - 65px), calc(${widths.left + 2}ch + 10px))`,
+    "--diff-right-w": `max(calc(50% - 65px), calc(${widths.right + 2}ch + 10px))`,
+    "--diff-uni-w": `max(calc(100% - 100px), calc(${Math.max(widths.left, widths.right) + 2}ch + 10px))`,
+  } as React.CSSProperties;
+  const whitespaceItems: ContextItem[] = [
+    { header: true, label: t("ignoreDifferences") },
+    ...(
+      [
+        ["none", t("wsNone")],
+        ["trim", t("wsTrim")],
+        ["whitespace", t("wsAll")],
+        ["whitespace-blank", t("wsBlank")],
+      ] as const
+    ).map(([mode, label]) => ({
+      label,
+      checked: whitespace === mode,
+      onClick: () => {
+        setWsMenu(null);
+        onWhitespace(mode);
+      },
+    })),
+  ];
   const stats = `${diff.additions > 0 ? "+" + diff.additions : ""}${diff.additions > 0 && diff.deletions > 0 ? " " : ""}${diff.deletions > 0 ? "−" + diff.deletions : ""}`;
 
   return (
@@ -344,12 +404,25 @@ export function DiffView({
             <Icon name="rows" /> {t("wrap")}
           </button>
           <button
-            className={cx("toolbar-text-btn", ignoreWhitespace && "active")}
-            onClick={onToggleWhitespace}
-            title={t("ignoreWhitespace")}
+            className={cx("toolbar-text-btn", whitespace !== "none" && "active")}
+            onClick={(e) => {
+              setMenu(null);
+              setWsMenu({ x: e.clientX, y: e.clientY });
+            }}
+            title={t("ignoreDifferences")}
           >
             <Icon name="eye" /> {t("whitespace")}
           </button>
+          <IconButton
+            icon={folded ? "collapse" : "expand"}
+            title={folded ? t("unfoldUnchanged") : t("foldUnchanged")}
+            small
+            active={folded}
+            onClick={() => {
+              setFolded(!folded);
+              setOpen(new Set());
+            }}
+          />
           <span className="toolbar-sep" />
           <IconButton icon="prevDiff" title={t("previousChange")} small onClick={() => goto(-1)} />
           <IconButton icon="nextDiff" title={t("nextChange")} small onClick={() => goto(1)} />
@@ -428,18 +501,18 @@ export function DiffView({
           <div>{t("noDifferences")}</div>
         </div>
       ) : (
-        <div className={cx("diff-body", mode, wrap && "wrap")} ref={bodyRef}>
-          <div className="diff-columns">
-            <div className="diff-col-label left">{sideLabel(diff.oldLabel) || t("before")}</div>
-            <div className="diff-col-label right">{sideLabel(diff.newLabel) || t("after")}</div>
-          </div>
+        <div className={cx("diff-body", mode, wrap && "wrap")} style={layout} ref={bodyRef}>
+          {mode === "split" && (
+            <div className="diff-columns">
+              <div className="diff-col-label left">{sideLabel(diff.oldLabel) || t("before")}</div>
+              <div className="diff-col-label right">{sideLabel(diff.newLabel) || t("after")}</div>
+            </div>
+          )}
           {mode === "split" ? (
             <SplitRows
-              rows={rows}
-              diff={diff}
+              visible={visible}
+              onToggleFold={(start) => setOpen((prev) => new Set(prev).add(start))}
               tokens={tokens}
-              expanded={expanded}
-              setExpanded={setExpanded}
               firstRowOfHunk={firstRowOfHunk}
               wholeFileBlocks={wholeFileBlocks}
               canApply={canApply}
@@ -457,11 +530,9 @@ export function DiffView({
             />
           ) : (
             <UnifiedRows
-              rows={rows}
-              diff={diff}
+              visible={visible}
+              onToggleFold={(start) => setOpen((prev) => new Set(prev).add(start))}
               tokens={tokens}
-              expanded={expanded}
-              setExpanded={setExpanded}
               firstRowOfHunk={firstRowOfHunk}
               wholeFileBlocks={wholeFileBlocks}
               canApply={canApply}
@@ -482,6 +553,9 @@ export function DiffView({
         </div>
       )}
       {menu && <ContextMenu x={menu.x} y={menu.y} items={menuItems} onClose={() => setMenu(null)} />}
+      {wsMenu && (
+        <ContextMenu x={wsMenu.x} y={wsMenu.y} items={whitespaceItems} onClose={() => setWsMenu(null)} />
+      )}
     </div>
   );
 }
@@ -715,12 +789,24 @@ function AnnotateCell({
   );
 }
 
+/** The separator standing in for a run of unchanged rows. Clicking it
+ *  reopens exactly that run; the toolbar toggle hides them all again. */
+function FoldMarker({ fold, onToggle }: { fold: FoldRange; onToggle: () => void }) {
+  const t = useT(T);
+  return (
+    <div className="diff-row collapsed">
+      <button className="expand-btn" onClick={onToggle}>
+        <Icon name="chevronDown" size={12} />
+        {t("unchangedLines", { n: fold.count })}
+      </button>
+    </div>
+  );
+}
+
 function SplitRows({
-  rows,
-  diff,
+  visible,
+  onToggleFold,
   tokens,
-  expanded,
-  setExpanded,
   firstRowOfHunk,
   wholeFileBlocks,
   canApply,
@@ -736,11 +822,9 @@ function SplitRows({
   selected,
   onSelect,
 }: {
-  rows: DiffRows;
-  diff: FileDiff;
+  visible: VisibleRow[];
+  onToggleFold: (start: number) => void;
   tokens: { left: LineTokens | null; right: LineTokens | null };
-  expanded: Set<number>;
-  setExpanded: (s: Set<number>) => void;
   firstRowOfHunk: Map<number, number>;
   wholeFileBlocks: Map<number, number[]> | null;
   canApply: boolean;
@@ -749,30 +833,20 @@ function SplitRows({
   onApplyLines: (lines: number[], action: "stage" | "unstage" | "rollback") => void;
   currentRow: number;
 } & GutterProps) {
-  const t = useT(T);
   const out: React.ReactNode[] = [];
-  rows.forEach((row, i) => {
-    if (isCollapsed(row)) {
-      const isExpanded = expanded.has(row.key);
+  visible.forEach((item) => {
+    if (item.kind === "fold") {
       out.push(
-        <div className="diff-row collapsed" key={i} data-row={i}>
-          <button
-            className="expand-btn"
-            onClick={() => {
-              const next = new Set(expanded);
-              if (isExpanded) next.delete(row.key);
-              else next.add(row.key);
-              setExpanded(next);
-            }}
-          >
-            <Icon name={isExpanded ? "chevronDown" : "chevronRight"} size={12} />
-            {t("unchangedLines", { n: row.collapsed })}
-          </button>
-        </div>,
+        <FoldMarker
+          key={`fold-${item.fold.start}`}
+          fold={item.fold}
+          onToggle={() => onToggleFold(item.fold.start)}
+        />,
       );
       return;
     }
-    const aligned = row as AlignedRow;
+    const aligned = item.row;
+    const i = item.index;
     const isFirst = firstRowOfHunk.get(aligned.hunk) === i;
     const block = wholeFileBlocks ? wholeFileBlocks.get(i) : undefined;
     const oldLine = aligned.left;
@@ -875,16 +949,13 @@ function SplitRows({
       </div>,
     );
   });
-  void diff;
   return <div className={cx("diff-rows split", annotate && "annotate")}>{out}</div>;
 }
 
 function UnifiedRows({
-  rows,
-  diff,
+  visible,
+  onToggleFold,
   tokens,
-  expanded,
-  setExpanded,
   firstRowOfHunk,
   wholeFileBlocks,
   canApply,
@@ -900,11 +971,9 @@ function UnifiedRows({
   selected,
   onSelect,
 }: {
-  rows: DiffRows;
-  diff: FileDiff;
+  visible: VisibleRow[];
+  onToggleFold: (start: number) => void;
   tokens: { left: LineTokens | null; right: LineTokens | null };
-  expanded: Set<number>;
-  setExpanded: (s: Set<number>) => void;
   firstRowOfHunk: Map<number, number>;
   wholeFileBlocks: Map<number, number[]> | null;
   canApply: boolean;
@@ -913,29 +982,20 @@ function UnifiedRows({
   onApplyLines: (lines: number[], action: "stage" | "unstage" | "rollback") => void;
   currentRow: number;
 } & GutterProps) {
-  const t = useT(T);
   const out: React.ReactNode[] = [];
-  rows.forEach((row, i) => {
-    if (isCollapsed(row)) {
+  visible.forEach((item) => {
+    if (item.kind === "fold") {
       out.push(
-        <div className="diff-row collapsed" key={i} data-row={i}>
-          <button
-            className="expand-btn"
-            onClick={() => {
-              const next = new Set(expanded);
-              if (expanded.has(row.key)) next.delete(row.key);
-              else next.add(row.key);
-              setExpanded(next);
-            }}
-          >
-            <Icon name={expanded.has(row.key) ? "chevronDown" : "chevronRight"} size={12} />
-            {t("unchangedLines", { n: row.collapsed })}
-          </button>
-        </div>,
+        <FoldMarker
+          key={`fold-${item.fold.start}`}
+          fold={item.fold}
+          onToggle={() => onToggleFold(item.fold.start)}
+        />,
       );
       return;
     }
-    const aligned = row as AlignedRow;
+    const aligned = item.row;
+    const i = item.index;
     const isFirst = firstRowOfHunk.get(aligned.hunk) === i;
     const block = wholeFileBlocks ? wholeFileBlocks.get(i) : undefined;
     // An unchanged line exists on both sides; a unified view shows it once,
@@ -1009,7 +1069,6 @@ function UnifiedRows({
     if (aligned.left) emit("before");
     if (aligned.right) emit("after");
   });
-  void diff;
   return <div className={cx("diff-rows unified", annotate && "annotate")}>{out}</div>;
 }
 

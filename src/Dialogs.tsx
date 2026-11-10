@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState, type MouseEvent as ReactMouseEven
 import { buildChangeTree, directoryKeys } from "./changes";
 import type { FileEntry } from "./CommitPanel";
 import { DiffView } from "./DiffView";
+import type { WhitespaceMode } from "./diff";
 import { FileTree } from "./FileTree";
 import { SourceEditor } from "./SourceEditor";
 import { Git, Workspace } from "./mygo";
@@ -1314,8 +1315,8 @@ export function PushDialog({
   setDiffMode,
   diffWrap,
   onToggleWrap,
-  ignoreWhitespace,
-  onToggleWhitespace,
+  whitespace,
+  onWhitespace,
   onClose,
   onSubmit,
 }: {
@@ -1332,8 +1333,8 @@ export function PushDialog({
   setDiffMode: (mode: "split" | "unified") => void;
   diffWrap: boolean;
   onToggleWrap: () => void;
-  ignoreWhitespace: boolean;
-  onToggleWhitespace: () => void;
+  whitespace: WhitespaceMode;
+  onWhitespace: (mode: WhitespaceMode) => void;
   onClose: () => void;
   onSubmit: (opts: PushOptions) => void;
 }) {
@@ -1778,8 +1779,8 @@ export function PushDialog({
           setDiffMode={setDiffMode}
           diffWrap={diffWrap}
           onToggleWrap={onToggleWrap}
-          ignoreWhitespace={ignoreWhitespace}
-          onToggleWhitespace={onToggleWhitespace}
+          whitespace={whitespace}
+          onWhitespace={onWhitespace}
           onCopyPath={onCopyPath}
           onClose={() => setPreviewFile(null)}
         />
@@ -1801,8 +1802,8 @@ function PushFilePreviewDialog({
   setDiffMode,
   diffWrap,
   onToggleWrap,
-  ignoreWhitespace,
-  onToggleWhitespace,
+  whitespace,
+  onWhitespace,
   onCopyPath,
   onClose,
 }: PushFileTarget & {
@@ -1811,8 +1812,8 @@ function PushFilePreviewDialog({
   setDiffMode: (mode: "split" | "unified") => void;
   diffWrap: boolean;
   onToggleWrap: () => void;
-  ignoreWhitespace: boolean;
-  onToggleWhitespace: () => void;
+  whitespace: WhitespaceMode;
+  onWhitespace: (mode: WhitespaceMode) => void;
   onCopyPath: (text: string) => void;
   onClose: () => void;
 }) {
@@ -1835,11 +1836,10 @@ function PushFilePreviewDialog({
       revision,
       from,
       context: 0,
-      ignoreWhitespace,
-      ignoreWhitespaceEol: false,
+      whitespace,
       noText: false,
     }),
-    [file.path, file.oldPath, target, revision, from, ignoreWhitespace],
+    [file.path, file.oldPath, target, revision, from, whitespace],
   );
 
   useEffect(() => {
@@ -1936,8 +1936,8 @@ function PushFilePreviewDialog({
                 opts={opts}
                 mode={diffMode}
                 setMode={setDiffMode}
-                ignoreWhitespace={ignoreWhitespace}
-                onToggleWhitespace={onToggleWhitespace}
+                whitespace={whitespace}
+                onWhitespace={onWhitespace}
                 onApply={() => {}}
                 onApplyFile={() => {}}
                 onApplyLines={() => {}}
@@ -2738,7 +2738,7 @@ export function ReviewDialog({
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
   const [mode, setMode] = useState<"split" | "unified">("unified");
-  const [ignoreWhitespace, setIgnoreWhitespace] = useState(false);
+  const [whitespace, setWhitespace] = useState<WhitespaceMode>("none");
   const [wrap, setWrap] = useState(false);
 
   const opts: DiffOptions = {
@@ -2747,8 +2747,7 @@ export function ReviewDialog({
     revision: "",
     from: "",
     context,
-    ignoreWhitespace,
-    ignoreWhitespaceEol: false,
+    whitespace,
     noText: false,
   };
 
@@ -2774,7 +2773,7 @@ export function ReviewDialog({
     return () => {
       alive = false;
     };
-  }, [path, context, ignoreWhitespace]);
+  }, [path, context, whitespace]);
 
   return (
     <Modal
@@ -2813,8 +2812,8 @@ export function ReviewDialog({
                 opts={{ ...opts, path }}
                 mode={mode}
                 setMode={setMode}
-                ignoreWhitespace={ignoreWhitespace}
-                onToggleWhitespace={() => setIgnoreWhitespace((v) => !v)}
+                whitespace={whitespace}
+                onWhitespace={setWhitespace}
                 onApply={() => {}}
                 onApplyFile={() => {}}
                 onApplyLines={() => {}}

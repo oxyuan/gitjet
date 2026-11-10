@@ -40,13 +40,30 @@ type DiffOptions struct {
 	// Zero means three; a negative value means the whole file, so the view
 	// is the file itself with the changes marked.
 	Context int `json:"context"`
-	// IgnoreWhitespace ignores all whitespace changes.
-	IgnoreWhitespace bool `json:"ignoreWhitespace"`
-	// IgnoreWhitespaceEOL ignores end-of-line whitespace only.
-	IgnoreWhitespaceEOL bool `json:"ignoreWhitespaceEol"`
+	// Whitespace picks which differences git ignores, the way IDEA's diff
+	// settings do. Only the comparison is filtered; the text of both sides
+	// is still read in full.
+	Whitespace WhitespacePolicy `json:"whitespace"`
 	// NoText asks for the patch only, without the full files.
 	NoText bool `json:"noText"`
 }
+
+// WhitespacePolicy is the ignore-differences mode of a diff, matching the
+// choices IDEA offers. An unknown value compares whitespace.
+type WhitespacePolicy string
+
+const (
+	// WhitespaceNone compares every character.
+	WhitespaceNone WhitespacePolicy = ""
+	// WhitespaceTrim ignores changes in the amount of whitespace, which is
+	// git's --ignore-space-change.
+	WhitespaceTrim WhitespacePolicy = "trim"
+	// WhitespaceAll ignores all whitespace changes.
+	WhitespaceAll WhitespacePolicy = "whitespace"
+	// WhitespaceBlankLines additionally ignores added and removed empty
+	// lines.
+	WhitespaceBlankLines WhitespacePolicy = "whitespace-blank"
+)
 
 // DiffLine is one line of a hunk.
 type DiffLine struct {
@@ -251,10 +268,13 @@ func labelsFor(opts DiffOptions) (string, string) {
 
 func (r *Repo) patchFor(ctx context.Context, opts DiffOptions, path string) (string, error) {
 	args := []string{"diff", "--no-color", "--no-ext-diff", "--no-textconv", "--src-prefix=a/", "--dst-prefix=b/", "-M"}
-	if opts.IgnoreWhitespace {
+	switch opts.Whitespace {
+	case WhitespaceTrim:
+		args = append(args, "--ignore-space-change")
+	case WhitespaceAll:
 		args = append(args, "-w")
-	} else if opts.IgnoreWhitespaceEOL {
-		args = append(args, "--ignore-space-at-eol")
+	case WhitespaceBlankLines:
+		args = append(args, "-w", "--ignore-blank-lines")
 	}
 	args = append(args, fmt.Sprintf("-U%d", opts.Context))
 	switch opts.Target {

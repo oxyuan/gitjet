@@ -13,8 +13,7 @@ export function gutterDiffOptions(path: string): DiffOptions {
     revision: "",
     from: "",
     context: GUTTER_CONTEXT,
-    ignoreWhitespace: false,
-    ignoreWhitespaceEol: false,
+    whitespace: "none",
     noText: true,
   };
 }

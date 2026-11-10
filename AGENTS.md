@@ -233,6 +233,19 @@ use it only for layout work. Vite's port is pinned to 5173 in **both**
   Modify/delete conflicts are not auto-resolvable there, exactly as in IDEA:
   they need a side choice. `merge.ts`'s `tryResolveRange` is the one entry
   point; `myers.ts` stays the line diff behind the merge view.
+- The diff viewer never drops a line: `buildDiffRows` returns every row and
+  `foldRanges` / `visibleRows` (`src/diff.ts`) hide unchanged runs at render
+  time, keeping `FOLD_CONTEXT` lines beside each change and none at the file
+  edges. A marker reopens exactly its run; the toolbar toggle persists as
+  `gitjet.diffFoldUnchanged`. Row indices stay the model's, so selection and
+  the apply arrows survive folding, and a hunk's chevron sits on its first
+  *visible* row. Wrap is real: `.diff-body.wrap` reflows the text; unwrapped,
+  the viewer sets `--diff-left-w` / `--diff-right-w` from `lineWidth`, so a
+  line wider than its half scrolls instead of being clipped.
+- Ignore-differences is one policy, not flags: `DiffOptions.Whitespace` is
+  `none`, `trim` (`--ignore-space-change`), `whitespace` (`-w`) or
+  `whitespace-blank` (`-w --ignore-blank-lines`), and the diff toolbar's menu
+  mirrors IDEA's four choices.
 - A merge band is keyed by what happened to the text, never by the pane that
   holds it: `rangeTone` (`merge.ts`) maps a range's kind to `inserted`,
   `deleted`, `modified` or `conflict`, and every pane the range touches paints

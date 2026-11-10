@@ -239,8 +239,7 @@ export interface DiffOptions {
   revision: string;
   from: string;
   context: number;
-  ignoreWhitespace: boolean;
-  ignoreWhitespaceEol: boolean;
+  whitespace: WhitespacePolicy;
   noText: boolean;
 }
 
@@ -697,6 +696,8 @@ export interface ThreeWayDiff {
   staged: FileDiff;
   unstaged: FileDiff;
 }
+
+export type WhitespacePolicy = string;
 
 export interface Worktree {
   path: string;
