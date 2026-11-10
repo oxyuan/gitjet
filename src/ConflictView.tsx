@@ -7,6 +7,7 @@ import {
   diffHunks,
   needsSideChoice,
   rangeTone,
+  resultTone,
   splitLines,
   tryResolveRange,
   type MergeLabels,
@@ -274,7 +275,7 @@ function rangeType(range: MergeRange, t: (key: string, vars?: Record<string, str
   return t("typeModified");
 }
 
-function blockLines(doc: string, block: MergePaneBlock): string[] {
+function blockLines(doc: string, block: Pick<MergePaneBlock, "from" | "to">): string[] {
   const from = Math.max(0, Math.min(block.from, doc.length));
   const to = Math.max(from, Math.min(block.to, doc.length));
   return splitLines(doc.slice(from, to)).lines;
@@ -338,7 +339,10 @@ function resultBlocks(
       id: block.index,
       from: block.from,
       to: block.to,
-      tone: rangeTone(range, resolved),
+      // A decided block is banded by what the result now holds against the
+      // base, not by the decision: IDEA's status tracker keeps painting the
+      // text that replaced the base.
+      tone: resolved ? resultTone(range?.base ?? [], blockLines(view.text, block)) : rangeTone(range, false),
       soft: conflict && !resolved,
       revert: revertable(range, state),
       title: resolved
@@ -731,7 +735,6 @@ export function ConflictView({
   useEffect(() => () => dirtyRef.current?.(false), []);
 
   const ranges = model.ranges;
-  const conflicts = ranges.filter((r) => r.kind === "conflict");
   // The IDE keeps "Apply changes" for a fully decided merge; a save with
   // anything left writes the file back as the merge found it.
   const canApply = !busy && !conflict.binary && unresolved === 0;
@@ -892,14 +895,18 @@ export function ConflictView({
     const result = resultPane.current;
     if (result) {
       const blocks = result.getBlocks();
+      const text = result.getDoc();
       const next = blocks.map((block) => {
         const state = blocksRef.current.get(block.id);
         const range = model.ranges[block.id];
         const resolved = decided(state);
+        const tone = resolved
+          ? resultTone(range?.base ?? [], blockLines(text, block))
+          : rangeTone(range, false);
         return {
           ...block,
-          tone: rangeTone(range, resolved),
-          soft: range?.kind === "conflict" && !resolved,
+          tone,
+          soft: tone === "conflict",
           revert: revertable(range, state),
           title: resolved ? (range ? rangeType(range, tr) : t("resolvedBlock")) : t("conflictBlock"),
         } satisfies MergePaneBlock;
@@ -1784,14 +1791,25 @@ export function ConflictView({
     );
   }
 
-  const nonConflict = ranges.length - conflicts.length;
+  // The status counts what still waits for a decision, as the IDE's does:
+  // deciding a range removes it from both counters even though the range is
+  // still part of the file.
+  let pendingChanges = 0;
+  let pendingConflicts = 0;
+  for (const range of ranges) {
+    if (decided(blocksRef.current.get(range.index))) continue;
+    if (range.kind === "conflict") pendingConflicts++;
+    else pendingChanges++;
+  }
   const changesText =
-    nonConflict === 0
+    pendingChanges === 0
       ? t("noChangesMade")
-      : count(nonConflict, t("changesOne", { n: nonConflict }), t("changesOther", { n: nonConflict }));
-  // The counter reports what the file holds, the way the IDE's does: a
-  // conflict is a range both sides changed, decided or not.
-  const conflictsText = count(conflicts.length, t("conflictOne", { n: conflicts.length }), t("conflictOther", { n: conflicts.length }));
+      : count(pendingChanges, t("changesOne", { n: pendingChanges }), t("changesOther", { n: pendingChanges }));
+  const conflictsText = count(
+    pendingConflicts,
+    t("conflictOne", { n: pendingConflicts }),
+    t("conflictOther", { n: pendingConflicts }),
+  );
   const when = (time: number) =>
     time > 0 ? new Date(time * 1000).toLocaleString() : "";
 

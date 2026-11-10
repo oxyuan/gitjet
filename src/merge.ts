@@ -28,6 +28,19 @@ export function rangeTone(range: Pick<MergeRange, "kind"> | undefined, resolved:
   return range ? range.kind : "conflict";
 }
 
+/** A decided range in the result pane is banded by what the result now holds
+ *  against the base, the way the IDE's line status tracker paints it. Equal
+ *  text drops the band; a range that changed nothing on one side is still an
+ *  insertion or a deletion, and a replacement is a modification. */
+export function resultTone(base: string[], lines: string[]): MergeTone {
+  if (base.length === lines.length && base.every((line, i) => line === lines[i])) {
+    return "resolved";
+  }
+  if (base.length === 0) return "inserted";
+  if (lines.length === 0) return "deleted";
+  return "modified";
+}
+
 export interface MergeRange {
   /** Position in the range list; the view uses it as the block id. */
   index: number;

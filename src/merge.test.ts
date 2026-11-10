@@ -7,6 +7,7 @@ import {
   diffHunks,
   needsSideChoice,
   rangeTone,
+  resultTone,
   splitLines,
   resolveSimpleConflicts,
   tryResolveRange,
@@ -269,6 +270,18 @@ describe("rangeTone", () => {
   it("falls back to the conflict band for a block the model does not know", () => {
     expect(rangeTone(undefined, false)).toBe("conflict");
     expect(rangeTone(undefined, true)).toBe("resolved");
+  });
+});
+
+describe("resultTone", () => {
+  it("drops the band when the result still holds the base", () => {
+    expect(resultTone(["a", "b"], ["a", "b"])).toBe("resolved");
+  });
+
+  it("bands what the result holds against the base", () => {
+    expect(resultTone([], ["a"])).toBe("inserted");
+    expect(resultTone(["a"], [])).toBe("deleted");
+    expect(resultTone(["a"], ["b"])).toBe("modified");
   });
 });
 
