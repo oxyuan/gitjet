@@ -236,6 +236,23 @@ export function DiffView({
     const el = bodyRef.current?.querySelector<HTMLElement>(`[data-row="${rowIndex}"]`);
     el?.scrollIntoView({ block: "center" });
   };
+  // F7/Shift+F7 walk the changes, as they do in the IDE's diff viewer. The
+  // listener is registered once and reads the latest `goto` through a ref.
+  const gotoRef = useRef(goto);
+  useEffect(() => {
+    gotoRef.current = goto;
+  });
+  useEffect(() => {
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key !== "F7" || event.defaultPrevented) return;
+      const target = event.target as HTMLElement | null;
+      if (target && (target.tagName === "INPUT" || target.tagName === "TEXTAREA" || target.isContentEditable)) return;
+      event.preventDefault();
+      gotoRef.current(event.shiftKey ? -1 : 1);
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, []);
 
   const canApply = opts.target === "worktree" || opts.target === "staged";
   const fileAction = opts.target === "staged" ? "unstage" : "stage";
@@ -936,7 +953,7 @@ function UnifiedRows({
             selected.has(line.kind === "del" ? -line.no : line.no) && "selected",
           )}
           key={`${i}-${side}`}
-          data-row={`${i}-${side}`}
+          data-row={side === firstSide ? i : undefined}
         >
           {annotate && (
             <AnnotateCell

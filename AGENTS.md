@@ -215,10 +215,17 @@ use it only for layout work. Vite's port is pinned to 5173 in **both**
 - The diff paints itself with `paintLine` (tokens × word-diff), so a keyword
   that is also part of a changed word keeps its colour under the change mark.
   `FileDiff.language` is what selects the grammar; it is derived from the path.
+- A changed run is aligned by content, not by position: `worddiff.ts` ports
+  `ByWordRt.compareAndSplit` (words and newlines diffed together, the
+  punctuation matcher, the whitespace corrector and `LineFragmentSplitter`),
+  so an inserted line no longer steals the word marks from the line after it.
+  `buildDiffRows` turns each returned block into rows; a block's character
+  ranges are relative to the block text, and `segmentsForLine` cuts them per
+  line. Verified block-for-block against the IDE's own `ByWordRt` output.
 - Pure logic lives in React-free modules with a colocated test: `diff.ts`,
   `graph.ts`, `changes.ts`, `branches.ts`, `merge.ts`, `explorer.ts`,
   `syntax.ts`, `paths.ts`, `tabs.ts`, `myers.ts`, `ideaDiff.ts`,
-  `wordmerge.ts`. Keep them free of `react`/`dom` imports.
+  `worddiff.ts`, `wordmerge.ts`. Keep them free of `react`/`dom` imports.
 - The conflict view's wand resolves a range with the IDE's own text merge:
   `wordmerge.ts` ports `MergeResolveUtil.tryResolve` (word/newline chunks,
   whitespace-sensitive pass then a whitespace-ignoring one), and `ideaDiff.ts`

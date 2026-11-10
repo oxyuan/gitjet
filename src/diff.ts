@@ -1,4 +1,5 @@
 import type { DiffHunk, DiffLine, FileDiff } from "./mygo";
+import { compareAndSplit, type WordFragment } from "./worddiff";
 
 export interface WordSegment {
   text: string;
@@ -182,20 +183,7 @@ export function buildDiffRows(diff: FileDiff, fold = !diff.wholeFile): DiffRows 
     const dels: DiffLine[] = [];
     const adds: DiffLine[] = [];
     const flush = () => {
-      const count = Math.max(dels.length, adds.length);
-      for (let k = 0; k < count; k++) {
-        const del = dels[k];
-        const add = adds[k];
-        let leftSegs: WordSegment[] | undefined;
-        let rightSegs: WordSegment[] | undefined;
-        if (del && add) [leftSegs, rightSegs] = wordDiff(del.text, add.text);
-        rows.push({
-          kind: del && add ? "change" : del ? "del" : "add",
-          hunk: h,
-          left: del ? { no: del.oldNo, text: del.text, kind: "del", segments: leftSegs } : undefined,
-          right: add ? { no: add.newNo, text: add.text, kind: "add", segments: rightSegs } : undefined,
-        });
-      }
+      rows.push(...alignChangedLines(dels, adds, h));
       dels.length = 0;
       adds.length = 0;
     };
@@ -256,20 +244,7 @@ function rowsFromHunks(hunks: DiffHunk[], fold: boolean): DiffRow[] {
     let dels: DiffLine[] = [];
     let adds: DiffLine[] = [];
     const flush = () => {
-      const count = Math.max(dels.length, adds.length);
-      for (let k = 0; k < count; k++) {
-        const del = dels[k];
-        const add = adds[k];
-        let leftSegs: WordSegment[] | undefined;
-        let rightSegs: WordSegment[] | undefined;
-        if (del && add) [leftSegs, rightSegs] = wordDiff(del.text, add.text);
-        rows.push({
-          kind: del && add ? "change" : del ? "del" : "add",
-          hunk: h,
-          left: del ? { no: del.oldNo, text: del.text, kind: "del", segments: leftSegs } : undefined,
-          right: add ? { no: add.newNo, text: add.text, kind: "add", segments: rightSegs } : undefined,
-        });
-      }
+      rows.push(...alignChangedLines(dels, adds, h));
       dels = [];
       adds = [];
     };
@@ -288,6 +263,160 @@ function rowsFromHunks(hunks: DiffHunk[], fold: boolean): DiffRow[] {
     flush();
   }
   return fold ? collapseUnchanged(rows) : rows;
+}
+
+interface BlockLine {
+  start: number;
+  end: number;
+}
+
+/** Line offsets of a block of joined diff lines; the newline is not part of
+ *  the line. */
+function splitLineOffsets(text: string): BlockLine[] {
+  const out: BlockLine[] = [];
+  if (text === "") return out;
+  let pos = 0;
+  for (;;) {
+    const newline = text.indexOf("\n", pos);
+    if (newline === -1) {
+      out.push({ start: pos, end: text.length });
+      return out;
+    }
+    out.push({ start: pos, end: newline });
+    pos = newline + 1;
+    if (pos === text.length) return out;
+  }
+}
+
+/** The line indices a word-diff block covers. Block offsets sit on line
+ *  boundaries, so a line is in the block when its start lies before the
+ *  block's end and its text reaches the block's start. */
+function linesInBlock(lines: readonly BlockLine[], start: number, end: number): number[] {
+  const out: number[] = [];
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i]!;
+    if (line.start >= end) break;
+    if (line.end > start || (line.start === line.end && line.start >= start)) out.push(i);
+  }
+  return out;
+}
+
+/** Cuts the changed character ranges of one side into the segments of one
+ *  line, so a fragment that spans several lines paints each line separately. */
+function segmentsForLine(
+  text: string,
+  line: BlockLine,
+  fragments: readonly WordFragment[],
+  side: "left" | "right",
+): WordSegment[] | undefined {
+  const length = line.end - line.start;
+  const ranges: [number, number][] = [];
+  for (const fragment of fragments) {
+    const from = Math.max(side === "left" ? fragment.start1 : fragment.start2, line.start) - line.start;
+    const to = Math.min(side === "left" ? fragment.end1 : fragment.end2, line.end) - line.start;
+    if (to > from) ranges.push([from, to]);
+  }
+  if (ranges.length === 0) return undefined;
+  ranges.sort((a, b) => a[0] - b[0]);
+  const cuts = new Set<number>([0, length]);
+  for (const [from, to] of ranges) {
+    cuts.add(from);
+    cuts.add(to);
+  }
+  const ordered = [...cuts].sort((a, b) => a - b);
+  const segments: WordSegment[] = [];
+  for (let i = 0; i < ordered.length - 1; i++) {
+    const from = ordered[i]!;
+    const to = ordered[i + 1]!;
+    if (to <= from) continue;
+    const changed = ranges.some(([rangeFrom, rangeTo]) => rangeFrom <= from && to <= rangeTo);
+    const segment = text.slice(line.start + from, line.start + to);
+    const last = segments[segments.length - 1];
+    if (last && last.changed === changed) last.text += segment;
+    else segments.push({ text: segment, changed });
+  }
+  return segments.length > 0 ? segments : undefined;
+}
+
+/**
+ * Aligns one changed run of a hunk the way IntelliJ does: the words and
+ * newlines of the run are diffed together, so lines pair where their content
+ * does and the word marks stay on the lines that actually changed. A run
+ * whose lines have nothing in common comes back as one padded block.
+ */
+function alignChangedLines(dels: readonly DiffLine[], adds: readonly DiffLine[], hunk: number): AlignedRow[] {
+  if (dels.length === 0) {
+    return adds.map((line) => ({
+      kind: "add",
+      hunk,
+      right: { no: line.newNo, text: line.text, kind: "add" },
+    }));
+  }
+  if (adds.length === 0) {
+    return dels.map((line) => ({
+      kind: "del",
+      hunk,
+      left: { no: line.oldNo, text: line.text, kind: "del" },
+    }));
+  }
+  const oldText = dels.map((line) => line.text).join("\n");
+  const newText = adds.map((line) => line.text).join("\n");
+  const oldLines = splitLineOffsets(oldText);
+  const newLines = splitLineOffsets(newText);
+  const rows: AlignedRow[] = [];
+  for (const block of compareAndSplit(oldText, newText)) {
+    const oldRange = linesInBlock(oldLines, block.start1, block.end1);
+    const newRange = linesInBlock(newLines, block.start2, block.end2);
+    const oldBlock = oldText.slice(block.start1, block.end1);
+    const newBlock = newText.slice(block.start2, block.end2);
+    const count = Math.max(oldRange.length, newRange.length);
+    for (let i = 0; i < count; i++) {
+      const oldIndex = oldRange[i];
+      const newIndex = newRange[i];
+      const del = oldIndex === undefined ? undefined : dels[oldIndex];
+      const add = newIndex === undefined ? undefined : adds[newIndex];
+      if (!del && !add) continue;
+      const oldLine = oldIndex === undefined ? undefined : oldLines[oldIndex]!;
+      const newLine = newIndex === undefined ? undefined : newLines[newIndex]!;
+      rows.push({
+        kind: del && add ? "change" : del ? "del" : "add",
+        hunk,
+        left: del
+          ? {
+              no: del.oldNo,
+              text: del.text,
+              kind: "del",
+              segments:
+                oldLine === undefined
+                  ? undefined
+                  : segmentsForLine(
+                      oldBlock,
+                      { start: oldLine.start - block.start1, end: oldLine.end - block.start1 },
+                      block.fragments,
+                      "left",
+                    ),
+            }
+          : undefined,
+        right: add
+          ? {
+              no: add.newNo,
+              text: add.text,
+              kind: "add",
+              segments:
+                newLine === undefined
+                  ? undefined
+                  : segmentsForLine(
+                      newBlock,
+                      { start: newLine.start - block.start2, end: newLine.end - block.start2 },
+                      block.fragments,
+                      "right",
+                    ),
+            }
+          : undefined,
+      });
+    }
+  }
+  return rows;
 }
 
 /** collapseUnchanged replaces runs of unchanged rows with one marker row. */

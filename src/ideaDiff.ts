@@ -58,12 +58,12 @@ class Reindexer {
 
   private discard(needed: readonly number[], toDiscard: readonly number[], arrayIndex: 0 | 1): number[] {
     this.originalLengths[arrayIndex] = toDiscard.length;
-    const sorted = [...needed].sort((x, y) => x - y);
+    const neededIds = new Set(needed);
     const discarded: number[] = [];
     const oldIndices: number[] = [];
     for (let i = 0; i < toDiscard.length; i++) {
       const index = toDiscard[i]!;
-      if (sorted.includes(index)) {
+      if (neededIds.has(index)) {
         discarded.push(index);
         oldIndices.push(i);
       }

@@ -1,5 +1,6 @@
 import { describe, expect, it } from "bun:test";
 import type { FileDiff } from "./mygo";
+import type { AlignedRow } from "./diff";
 import { buildDiffRows, changeBlockRows, changeBlockSelections, charDiff, isCollapsed, textLines, wordDiff } from "./diff";
 
 describe("textLines", () => {
@@ -97,6 +98,100 @@ describe("buildDiffRows", () => {
     expect(rows.filter((r) => !isCollapsed(r) && r.kind === "context")).toHaveLength(29);
   });
 });
+
+describe("buildDiffRows alignment", () => {
+  const fileWith = (lines: FileDiff["hunks"][number]["lines"], oldText: string, newText: string): FileDiff => ({
+    path: "a.txt",
+    oldPath: "a.txt",
+    status: "modified",
+    binary: false,
+    additions: lines.filter((line) => line.kind === "add").length,
+    deletions: lines.filter((line) => line.kind === "del").length,
+    hunks: [
+      {
+        header: "",
+        oldStart: 1,
+        oldLines: oldText.split("\n").length - 1,
+        newStart: 1,
+        newLines: newText.split("\n").length - 1,
+        lines,
+      },
+    ],
+    oldText,
+    newText,
+    oldLabel: "HEAD",
+    newLabel: "Working Tree",
+    truncated: false,
+    patch: "",
+    hasChanges: true,
+    wholeFile: true,
+  });
+
+  it("pairs a changed line with the line it actually resembles", () => {
+    const diff = fileWith(
+      [
+        { kind: "del", oldNo: 1, newNo: 0, text: "foo(a, b);" },
+        { kind: "del", oldNo: 2, newNo: 0, text: "result = compute(x);" },
+        { kind: "add", oldNo: 0, newNo: 1, text: "foo(a, X);" },
+        { kind: "add", oldNo: 0, newNo: 2, text: 'log("inserted");' },
+        { kind: "add", oldNo: 0, newNo: 3, text: "result = compute(x) + 1;" },
+      ],
+      'foo(a, b);\nresult = compute(x);\n',
+      'foo(a, X);\nlog("inserted");\nresult = compute(x) + 1;\n',
+    );
+    const rows = buildDiffRows(diff).filter((row): row is AlignedRow => !isCollapsed(row));
+    expect(rows.map((row) => [row.kind, row.left?.no, row.right?.no])).toEqual([
+      ["change", 1, 1],
+      ["add", undefined, 2],
+      ["change", 2, 3],
+    ]);
+    const last = rows[2]!;
+    expect(last.kind).toBe("change");
+    expect(changedText(last.right?.segments)).toBe(" + 1");
+    expect(changedText(last.left?.segments)).toBe("");
+  });
+
+  it("marks the changed word, not the punctuation around it", () => {
+    const diff = fileWith(
+      [
+        { kind: "del", oldNo: 1, newNo: 0, text: "foo(a, b)" },
+        { kind: "add", oldNo: 0, newNo: 1, text: "foo(a, c)" },
+      ],
+      "foo(a, b)\n",
+      "foo(a, c)\n",
+    );
+    const row = buildDiffRows(diff)[0];
+    expect(row && !isCollapsed(row)).toBe(true);
+    if (row && !isCollapsed(row)) {
+      expect(changedText(row.left?.segments)).toBe("b");
+      expect(changedText(row.right?.segments)).toBe("c");
+    }
+  });
+
+  it("leaves a whitespace-only change without word marks on the old side", () => {
+    const diff = fileWith(
+      [
+        { kind: "del", oldNo: 1, newNo: 0, text: "x = 1" },
+        { kind: "add", oldNo: 0, newNo: 1, text: "x  =  1" },
+      ],
+      "x = 1\n",
+      "x  =  1\n",
+    );
+    const row = buildDiffRows(diff)[0];
+    expect(row && !isCollapsed(row)).toBe(true);
+    if (row && !isCollapsed(row)) {
+      expect(changedText(row.left?.segments)).toBe("");
+      expect(changedText(row.right?.segments)).toBe("  ");
+    }
+  });
+});
+
+function changedText(segments: { text: string; changed: boolean }[] | undefined): string {
+  return (segments ?? [])
+    .filter((segment) => segment.changed)
+    .map((segment) => segment.text)
+    .join("");
+}
 
 describe("changeBlockRows", () => {
   const base: FileDiff = {

@@ -97,7 +97,7 @@ go test ./... && go vet ./... && bun run typecheck && bun run test:web && bun ru
 | `⌘/Ctrl+9` / `⌘/Ctrl+0` | 提交 / 分支工具窗口 |
 | `⌘/Ctrl+B` / `⌘/Ctrl+Shift+B` | 跳到定义 / 列出引用 |
 | `⌘/Ctrl+S` | 保存源码 / 应用冲突结果 |
-| `F7` / `Shift+F7` | 下一处 / 上一处变更（冲突视图） |
+| `F7` / `Shift+F7` | 下一处 / 上一处变更（差异与冲突视图） |
 
 ## 📌 说明
 
