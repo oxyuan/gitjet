@@ -2,6 +2,7 @@ import { describe, expect, it } from "bun:test";
 import {
   blockText,
   buildMergeView,
+  canRevertRange,
   computeMerge,
   conflictLabels,
   diffHunks,
@@ -31,6 +32,22 @@ describe("needsSideChoice", () => {
     expect(needsSideChoice({ ...text, kind: "symlink" })).toBe(true);
     expect(needsSideChoice({ ...text, kind: "submodule" })).toBe(true);
     expect(needsSideChoice({ ...text, binary: true })).toBe(true);
+  });
+});
+
+describe("canRevertRange", () => {
+  const range = { kind: "conflict" } as const;
+
+  it("cancels a conflict the moment either side is applied", () => {
+    expect(canRevertRange(range, { left: true, right: false })).toBe(true);
+    expect(canRevertRange(range, { left: false, right: true })).toBe(true);
+    expect(canRevertRange(range, { left: true, right: true })).toBe(true);
+  });
+
+  it("has nothing to take back before a decision", () => {
+    expect(canRevertRange(range, { left: false, right: false })).toBe(false);
+    expect(canRevertRange(range, undefined)).toBe(false);
+    expect(canRevertRange(undefined, { left: true, right: true })).toBe(false);
   });
 });
 

@@ -207,6 +207,7 @@ func buildMenu(l lang) *mygo.Menu {
 			{Label: l.tr("menu.pull"), Accelerator: "CmdOrCtrl+T", Click: send("pull")},
 			{Label: l.tr("menu.fetch"), Click: send("fetch")},
 			{Label: l.tr("menu.branches"), Accelerator: "CmdOrCtrl+Shift+`", Click: send("branches")},
+			{Label: l.tr("menu.merge"), Click: send("merge")},
 			{Label: l.tr("menu.stash"), Accelerator: "CmdOrCtrl+Shift+S", Click: send("stash")},
 			mygo.Separator(),
 			{Label: l.tr("menu.repoTools"), Click: send("repo-tools")},

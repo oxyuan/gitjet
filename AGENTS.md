@@ -285,6 +285,12 @@ use it only for layout work. Vite's port is pinned to 5173 in **both**
   Resolved connectors keep their kind as a dashed outline. The band rules
   outrank CodeMirror's own theme (hence the `.cm-editor .cm-line.cm-merge-line`
   selectors): a caret line must tint a band, not repaint it.
+- Every conflict block keeps a way back: `canRevertRange` (`merge.ts`) answers
+  for any range that has a decision on either side, so a half-applied conflict
+  shows the ↺ gutter button too. Taking it restores the range's base lines and
+  clears both sides' states — IDEA's `MergeConflictModel.resetResolvedChange`,
+  which is how one conflict is cancelled without undoing the others. The
+  decision journal records the revert, so Ctrl+Z restores the rejected side.
 - The dock's tab order is `gitjet.toolTabs`, a stored permutation repaired by
   `normalizeTabOrder` (unknown names dropped, missing ones appended). It is
   edited only in Settings → General ("Dock tabs"), whose arrows call
@@ -330,6 +336,12 @@ use it only for layout work. Vite's port is pinned to 5173 in **both**
   existing `DiffView` against HEAD; `LocalHistoryDialog` takes `path:""`
   for repository-wide history. Dialogs stay in `Dialogs.tsx` unless they
   own a standalone file (`EditHistoryDialog.tsx`, `RepoExtrasDialog.tsx`).
+- Merging follows IDEA's two-part shape: the branch popup's "Merge “x” into
+  “y”" runs `Git.merge` with git's defaults at once (`defaultMergeOptions` in
+  `App.tsx`), the way `GitBranchPopupActions.MergeAction` calls the brancher
+  directly, while Git ▸ Merge… opens `MergeDialog` to name any local or remote
+  branch and pick the flags. The dialog starts with no branch selected and
+  titles itself from the two names, as `GitMergeDialog` does.
 - A control beside a focused text field acts on the press, not on the click:
   pressing elsewhere blurs the field first, and the release click arrives late
   enough to be dropped, so the first click would only take the focus away.

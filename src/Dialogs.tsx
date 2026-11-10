@@ -257,6 +257,8 @@ const T = {
     "changelist.comment": "Comment",
     "changelist.commentPlaceholder": "Optional",
     "merge.title": "Merge Branch",
+    "merge.titleNamed": "Merge “{branch}” into “{into}”",
+    "merge.select": "Select a branch",
     "merge.into": "Merge into",
     "merge.branch": "Branch",
     "merge.noFF": "Create a merge commit (--no-ff)",
@@ -539,6 +541,8 @@ const T = {
     "changelist.comment": "备注",
     "changelist.commentPlaceholder": "可选",
     "merge.title": "Merge 分支",
+    "merge.titleNamed": "将“{branch}”合并到“{into}”",
+    "merge.select": "选择分支",
     "merge.into": "Merge 到",
     "merge.branch": "分支",
     "merge.noFF": "创建 Merge 提交（--no-ff）",
@@ -2414,18 +2418,21 @@ export function ChangelistDialog({
 }
 
 export function MergeDialog({
-  refs,
+  branches,
   current,
   onClose,
   onSubmit,
 }: {
-  refs: string[];
+  branches: string[];
   current: string;
   onClose: () => void;
   onSubmit: (ref: string, opts: MergeOptions) => void;
 }) {
   const t = useT(T);
-  const [ref, setRef] = useState(refs[0] ?? "");
+  // The branch popup merges directly, as the IDE's does; this dialog is the
+  // Git menu's "Merge…", so nothing is preselected — the reader names the
+  // branch, and the title says where it will land.
+  const [ref, setRef] = useState("");
   const [noFF, setNoFF] = useState(false);
   const [ffOnly, setFFOnly] = useState(false);
   const [squash, setSquash] = useState(false);
@@ -2435,7 +2442,7 @@ export function MergeDialog({
   const [message, setMessage] = useState("");
   return (
     <Modal
-      title={t("merge.title")}
+      title={ref ? t("merge.titleNamed", { branch: ref, into: current }) : t("merge.title")}
       icon="merge"
       width={460}
       onClose={onClose}
@@ -2458,7 +2465,8 @@ export function MergeDialog({
         </Field>
         <Field label={t("merge.branch")}>
           <Select value={ref} onChange={setRef}>
-            {refs.map((r) => (
+            <option value="">{t("merge.select")}</option>
+            {branches.map((r) => (
               <option key={r} value={r}>
                 {r}
               </option>

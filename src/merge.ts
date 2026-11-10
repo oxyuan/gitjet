@@ -28,6 +28,17 @@ export function rangeTone(range: Pick<MergeRange, "kind"> | undefined, resolved:
   return range ? range.kind : "conflict";
 }
 
+/** Whether a range can be put back to the base text. A conflict half-way
+ *  through — one side taken, the other still pending — has already changed the
+ *  result, so it is revertable too: that is IDEA's "reset resolved change",
+ *  and it is how one conflict is cancelled before the block is decided. */
+export function canRevertRange(
+  range: Pick<MergeRange, "kind"> | undefined,
+  state: { left: boolean; right: boolean } | undefined,
+): boolean {
+  return range !== undefined && state !== undefined && (state.left || state.right);
+}
+
 /** A decided range in the result pane is banded by what the result now holds
  *  against the base, the way the IDE's line status tracker paints it. Equal
  *  text drops the band; a range that changed nothing on one side is still an

@@ -621,7 +621,7 @@ type Dialog =
   | { kind: "tag"; start: string }
   | { kind: "stash" }
   | { kind: "changelist"; mode: "new" | "rename"; id?: string; name?: string; comment?: string }
-  | { kind: "merge"; refs: string[] }
+  | { kind: "merge" }
   | { kind: "editHistory"; onto: string }
   | { kind: "stashDetail"; index: number; refName: string }
   | { kind: "repoTools"; tab: "worktrees" | "submodules" | "shelves" | "lfs" }
@@ -656,6 +656,18 @@ const emptyForm: CommitForm = {
   authorName: "",
   authorEmail: "",
   stagedOnly: false,
+};
+
+/** The branch popup merges on the spot, as the IDE's does: git's own defaults
+ *  are the options, and the branch's configured merge behaviour still applies. */
+const defaultMergeOptions: Parameters<typeof Git.merge>[1] = {
+  noFF: false,
+  ffOnly: false,
+  squash: false,
+  message: "",
+  noCommit: false,
+  noVerify: false,
+  allowUnrelatedHistories: false,
 };
 
 export default function App() {
@@ -2600,6 +2612,9 @@ function AppShell({ onLangChange }: { onLangChange: (lang: Lang) => void }) {
         case "branches":
           setTab("branch");
           break;
+        case "merge":
+          if (repoOpen) setDialog({ kind: "merge" });
+          break;
         case "repo-tools":
           if (repoOpen) setDialog({ kind: "repoTools", tab: "worktrees" });
           break;
@@ -2950,7 +2965,7 @@ function AppShell({ onLangChange }: { onLangChange: (lang: Lang) => void }) {
                   onCheckout={(name) => void checkout(name)}
                   onToggleFavorite={toggleFavorite}
                   onNewBranch={(start) => setDialog({ kind: "newBranch", start })}
-                  onMerge={(name) => setDialog({ kind: "merge", refs: [name] })}
+                  onMerge={(name) => void merge(name, defaultMergeOptions)}
                   onRebase={(name) => setDialog({ kind: "rebase", onto: name })}
                   onDelete={(name) => void deleteBranch(name)}
                   onDeleteTag={(name) => void deleteTag(name)}
@@ -3371,11 +3386,10 @@ function AppShell({ onLangChange }: { onLangChange: (lang: Lang) => void }) {
       )}
       {dialog?.kind === "merge" && (
         <MergeDialog
-          refs={[
-            dialog.refs[0] ?? "",
-            ...(refs?.local ?? []).map((r) => r.name).filter((n) => n !== dialog.refs[0]),
-            ...(refs?.remote ?? []).map((r) => r.name).filter((n) => n !== dialog.refs[0]),
-          ].filter(Boolean)}
+          branches={[
+            ...(refs?.local ?? []).map((r) => r.name),
+            ...(refs?.remote ?? []).filter((r) => !r.symbolic).map((r) => r.name),
+          ].filter((name, index, all) => all.indexOf(name) === index)}
           current={state?.branch ?? ""}
           onClose={() => setDialog(null)}
           onSubmit={(ref, opts) => void merge(ref, opts)}

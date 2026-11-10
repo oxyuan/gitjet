@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { ConflictContent, MergeDetails } from "./mygo";
 import {
   buildMergeView,
+  canRevertRange,
   computeMerge,
   conflictLabels,
   diffHunks,
@@ -344,7 +345,7 @@ function resultBlocks(
       // text that replaced the base.
       tone: resolved ? resultTone(range?.base ?? [], blockLines(view.text, block)) : rangeTone(range, false),
       soft: conflict && !resolved,
-      revert: revertable(range, state),
+      revert: canRevertRange(range, state),
       title: resolved
         ? range
           ? rangeType(range, t)
@@ -405,11 +406,6 @@ function countUnresolved(states: ReadonlyMap<number, RangeState>): number {
   let count = 0;
   for (const state of states.values()) if (!decided(state)) count++;
   return count;
-}
-
-/** "Revert change" puts a decided range back to the merge base, undecided. */
-function revertable(range: MergeRange | undefined, state: RangeState | undefined): boolean {
-  return range !== undefined && decided(state);
 }
 
 function CompareVersions({
@@ -907,7 +903,7 @@ export function ConflictView({
           ...block,
           tone,
           soft: tone === "conflict",
-          revert: revertable(range, state),
+          revert: canRevertRange(range, state),
           title: resolved ? (range ? rangeType(range, tr) : t("resolvedBlock")) : t("conflictBlock"),
         } satisfies MergePaneBlock;
       });
@@ -1172,12 +1168,13 @@ export function ConflictView({
     [commitDecision, model],
   );
 
-  /** The IDE's Revert: the range goes back to the merge base, undecided. */
+  /** The IDE's Revert: the range goes back to the merge base, undecided. It
+   *  also cancels a half-applied conflict, restoring both sides' arrows. */
   const resetRange = useCallback(
     (index: number) => {
       const range = model.ranges[index];
       const state = blocksRef.current.get(index);
-      if (!range || !state || !decided(state)) return;
+      if (!range || !state || (!state.left && !state.right)) return;
       commitDecision([
         { index, before: state, after: { lines: range.base, left: false, right: false, oneside: false } },
       ]);
@@ -1390,7 +1387,7 @@ export function ConflictView({
       items.push({
         label: t("revertChange"),
         icon: "undo",
-        disabled: !revertable(target ?? undefined, state),
+        disabled: !canRevertRange(target ?? undefined, state),
         onClick: () => target && resetRange(target.index),
       });
       items.push({ separator: true });

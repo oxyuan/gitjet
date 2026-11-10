@@ -35,7 +35,7 @@ const T = {
     checkout: "Check out",
     filterTip: "Double-click to show this branch's history · right-click for actions",
     newBranch: "New branch from here…",
-    merge: "Merge into current",
+    merge: "Merge “{branch}” into “{into}”",
     rebase: "Rebase current onto this",
     deleteBranch: "Delete branch",
     deleteRemoteBranch: "Delete remote branch",
@@ -74,7 +74,7 @@ const T = {
     checkout: "Checkout",
     filterTip: "双击查看该分支历史 · 右键查看更多操作",
     newBranch: "从此分支新建…",
-    merge: "Merge 到当前分支",
+    merge: "将“{branch}”合并到“{into}”",
     rebase: "Rebase 当前分支到此",
     deleteBranch: "删除分支",
     deleteRemoteBranch: "删除远程分支",
@@ -211,7 +211,7 @@ export function BranchList({
       },
       { separator: true },
       { label: t("newBranch"), icon: "plus", onClick: () => onNewBranch(leaf.name) },
-      { label: t("merge"), icon: "merge", onClick: () => onMerge(leaf.name) },
+      { label: t("merge", { branch: leaf.name, into: current }), icon: "merge", onClick: () => onMerge(leaf.name) },
       { label: t("rebase"), icon: "rebase", onClick: () => onRebase(leaf.name) },
       ...(leaf.remote === ""
         ? ([
