@@ -35,6 +35,9 @@ export interface MergePaneBlock {
   from: number;
   to: number;
   tone: MergeTone;
+  /** A conflict band is a wash under the word marks, as in the IDE; a
+   *  one-sided change takes the undiluted type colour. */
+  soft?: boolean;
   /** A side pane offers this arrow; the result pane keeps its status dot. */
   apply?: "ours" | "theirs";
   /** A change the reader can dismiss back to the base text. */
@@ -98,7 +101,9 @@ function buildDecorations(blocks: MergePaneBlock[], state: EditorState): Decorat
       ranges.push({
         from: lineFrom,
         to: lineFrom,
-        deco: Decoration.line({ class: `cm-merge-line ${block.tone}` }),
+        deco: Decoration.line({
+          class: `cm-merge-line ${block.tone}${block.soft ? " soft" : ""}`,
+        }),
       });
     }
     for (const mark of block.marks ?? []) {
@@ -123,9 +128,9 @@ function buildDecorations(blocks: MergePaneBlock[], state: EditorState): Decorat
 class BlockLineMarker extends GutterMarker {
   readonly elementClass: string;
 
-  constructor(tone: MergeTone) {
+  constructor(tone: MergeTone, soft: boolean) {
     super();
-    this.elementClass = `cm-merge-gutterline ${tone}`;
+    this.elementClass = `cm-merge-gutterline ${tone}${soft ? " soft" : ""}`;
   }
 
   eq(other: GutterMarkerType) {
@@ -171,6 +176,7 @@ class ApplyMarker extends GutterMarker {
     readonly ignore: boolean,
     readonly revert: boolean,
     readonly tone: MergeTone,
+    readonly soft: boolean,
     readonly title: string,
     readonly applyLabel: string,
     readonly ignoreLabel: string,
@@ -187,6 +193,7 @@ class ApplyMarker extends GutterMarker {
       other.ignore === this.ignore &&
       other.revert === this.revert &&
       other.tone === this.tone &&
+      other.soft === this.soft &&
       other.title === this.title &&
       other.applyLabel === this.applyLabel &&
       other.ignoreLabel === this.ignoreLabel &&
@@ -196,7 +203,7 @@ class ApplyMarker extends GutterMarker {
 
   toDOM() {
     const el = document.createElement("span");
-    el.className = `cm-merge-actions ${this.tone}`;
+    el.className = `cm-merge-actions ${this.tone}${this.soft ? " soft" : ""}`;
     el.title = this.title;
     const button = (
       action: "apply" | "ignore" | "revert",
@@ -270,6 +277,7 @@ function buildGutter(
         block.ignore === true,
         block.revert === true,
         block.tone,
+        block.soft === true,
         title,
         labels.apply,
         labels.ignore,
@@ -312,7 +320,7 @@ const blockGutterLines = gutterLineClass.compute([blocksField], (state) => {
     const last = doc.lineAt(to - 1).number;
     for (let n = first; n <= last; n++) {
       const line = doc.line(n);
-      builder.add(line.from, line.from, new BlockLineMarker(block.tone));
+      builder.add(line.from, line.from, new BlockLineMarker(block.tone, block.soft === true));
     }
   }
   return builder.finish();

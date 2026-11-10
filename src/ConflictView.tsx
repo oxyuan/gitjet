@@ -310,6 +310,7 @@ function sideBlocks(
       from: offsetAt(offsets, start),
       to: offsetAt(offsets, end),
       tone: rangeTone(range, resolved),
+      soft: conflict && labels.marks,
       apply: side,
       ignore: true,
       marks: conflict && labels.marks ? conflictMarks(range, side, offsets, labels.chars) : [],
@@ -337,6 +338,7 @@ function resultBlocks(
       from: block.from,
       to: block.to,
       tone: rangeTone(range, resolved),
+      soft: conflict && !resolved,
       revert: revertable(range, state),
       title: resolved
         ? range
@@ -470,6 +472,7 @@ interface RibbonLink {
   id: number;
   side: "ours" | "theirs";
   tone: MergeTone;
+  resolved: boolean;
   points: string;
 }
 
@@ -638,7 +641,10 @@ export function ConflictView({
         next.push({
           id: block.id,
           side,
-          tone: block.tone,
+          // The connector keeps the change's kind even once decided, so its
+          // dashed outline still names what the range was.
+          tone: range.kind,
+          resolved: decided(blocksRef.current.get(block.id)),
           points: `0,${y(head.top)} 100,${y(tail.top)} 100,${y(tail.bottom)} 0,${y(head.bottom)}`,
         });
       }
@@ -892,6 +898,7 @@ export function ConflictView({
         return {
           ...block,
           tone: rangeTone(range, resolved),
+          soft: range?.kind === "conflict" && !resolved,
           revert: revertable(range, state),
           title: resolved ? (range ? rangeType(range, tr) : t("resolvedBlock")) : t("conflictBlock"),
         } satisfies MergePaneBlock;
@@ -929,6 +936,7 @@ export function ConflictView({
             apply: open ? side : undefined,
             ignore: open,
             tone: rangeTone(range, !open),
+            soft: open && range.kind === "conflict" && (highlightMode === "words" || highlightMode === "chars"),
             title: open
               ? `${t(side === "ours" ? "applyLocal" : "applyRemote")} · ${rangeType(range, tr)}`
               : rangeType(range, tr),
@@ -937,7 +945,7 @@ export function ConflictView({
       );
     }
     setUnresolved(pending.size);
-  }, [model, t, tr]);
+  }, [highlightMode, model, t, tr]);
 
   /** Pushes a decision and applies it: the block states change here, the text
    *  changes atomically, and the entry becomes the undo target. */
@@ -1544,7 +1552,9 @@ export function ConflictView({
       whitespace: showWhitespace,
       onRevertBlock: (id) => resetRange(id),
       actionLabels: { apply: t("apply"), ignore: t("ignore"), revert: t("revertChange") },
-      numbers: "both",
+      // The action gutter already sits on the result's left edge; a second
+      // line-number column on the right is not what the IDE shows.
+      numbers: "before",
       onScroll: (line) => {
         sync("result", line);
         scheduleMeasure();
@@ -1612,6 +1622,7 @@ export function ConflictView({
           return range
             ? {
                 ...block,
+                soft: marked && range.kind === "conflict",
                 marks:
                   marked && range.kind === "conflict"
                     ? conflictMarks(range, side, offsets, highlightMode === "chars")
@@ -1909,7 +1920,7 @@ export function ConflictView({
                 .map((link) => (
                   <polygon
                     key={link.id}
-                    className={cx("merge3-link", link.tone, link.id === current && "current")}
+                    className={cx("merge3-link", link.tone, link.resolved && "resolved", link.id === current && "current")}
                     points={link.points}
                   />
                 ))}
@@ -1937,7 +1948,7 @@ export function ConflictView({
                 .map((link) => (
                   <polygon
                     key={link.id}
-                    className={cx("merge3-link", link.tone, link.id === current && "current")}
+                    className={cx("merge3-link", link.tone, link.resolved && "resolved", link.id === current && "current")}
                     points={link.points}
                   />
                 ))}

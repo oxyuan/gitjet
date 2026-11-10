@@ -45,10 +45,14 @@
      salmon in every pane it touches, as the IDE paints it. The band is mixed
      into the editor's background, and the word marks take the colour
      undiluted. */
-  --merge-inserted: #b7e5c7;
-  --merge-deleted: #d8d8de;
-  --merge-modified: #c9d7f5;
+  --merge-inserted: #bee6be;
+  --merge-deleted: #d6d6d6;
+  --merge-modified: #cad9fa;
   --merge-conflict: #ffd5cc;
+  --merge-inserted-stripe: #aadeaa;
+  --merge-deleted-stripe: #c8c8c8;
+  --merge-modified-stripe: #b8cbf5;
+  --merge-conflict-stripe: #ffc8bd;
   --diff-hunk: #f2f2f6;
   --diff-current: #e9a23b;
   --scrollbar: rgba(0, 0, 0, 0.18);
@@ -113,10 +117,14 @@
   --diff-del-bg: #331e23;
   --diff-add-word: #2c5a3e;
   --diff-del-word: #673238;
-  --merge-inserted: #2f6b48;
-  --merge-deleted: #4a4b54;
-  --merge-modified: #4c63a0;
-  --merge-conflict: #a8514c;
+  --merge-inserted: #294436;
+  --merge-deleted: #484a4a;
+  --merge-modified: #385570;
+  --merge-conflict: #45302b;
+  --merge-inserted-stripe: #447152;
+  --merge-deleted-stripe: #656e76;
+  --merge-modified-stripe: #43698d;
+  --merge-conflict-stripe: #8f5247;
   --diff-hunk: #2a2b31;
   --diff-current: #d2a33c;
   --scrollbar: rgba(255, 255, 255, 0.18);
@@ -182,10 +190,14 @@
     --diff-del-bg: #331e23;
     --diff-add-word: #2c5a3e;
     --diff-del-word: #673238;
-    --merge-inserted: #2f6b48;
-    --merge-deleted: #4a4b54;
-    --merge-modified: #4c63a0;
-    --merge-conflict: #a8514c;
+    --merge-inserted: #294436;
+    --merge-deleted: #484a4a;
+    --merge-modified: #385570;
+    --merge-conflict: #45302b;
+    --merge-inserted-stripe: #447152;
+    --merge-deleted-stripe: #656e76;
+    --merge-modified-stripe: #43698d;
+    --merge-conflict-stripe: #8f5247;
     --diff-hunk: #2a2b31;
     --diff-current: #d2a33c;
     --scrollbar: rgba(255, 255, 255, 0.18);
@@ -8748,6 +8760,18 @@ body.resizing-row .log-detail-split::after {
   color: var(--accent);
 }
 
+/* The ignore action is IDEA's hover-only toolbar: the apply arrow stays
+   visible, the dismiss button appears when the reader is on the block. */
+.cm-merge-action.ignore {
+  opacity: 0;
+  transition: opacity 80ms ease;
+}
+
+.cm-merge-gutterElement:hover .cm-merge-action.ignore,
+.cm-merge-action.ignore:focus-visible {
+  opacity: 1;
+}
+
 .cm-merge-action.ignore:hover {
   background: var(--selection);
   color: var(--fg);
@@ -9498,84 +9522,115 @@ body.resizing-row .log-detail-split::after {
 }
 
 /* One colour per kind of change, never per pane: both sides of a conflict
-   carry the same tint, and so does the result. The band is the type colour
-   mixed into the editor's own background rather than an alpha wash, so the
-   text, the gutter stripe and the connector between panes are literally the
-   same colour and cannot drift apart. */
+   carry the same tint, and so does the result. The values are the IDE's own
+   DIFF_* colours, and the stripe is its ERROR_STRIPE_COLOR: a change is a
+   solid band, a conflict is that band washed under undiluted word marks, and
+   the gutter carries only a narrow stripe of the same hue. */
 .merge3-link,
 .cm-editor .cm-line.cm-merge-line,
 .cm-editor .cm-gutterElement.cm-merge-gutterline {
-  --merge-band: var(--code-bg);
-  --merge-ink: transparent;
+  --merge-tone: var(--code-bg);
+  --merge-stripe: transparent;
+}
+
+/* Panes paint their own background; the washed conflict band mixes into the
+   background it actually sits on, as ColorUtil.mix does in the IDE. */
+.merge3-pane {
+  --merge-pane-bg: var(--editor-bg);
+}
+
+.merge3-pane.result {
+  --merge-pane-bg: var(--code-bg);
 }
 
 .merge3-link.inserted,
 .cm-editor .cm-line.cm-merge-line.inserted,
 .cm-editor .cm-gutterElement.cm-merge-gutterline.inserted {
-  --merge-band: color-mix(in srgb, var(--merge-inserted) 60%, var(--code-bg));
-  --merge-ink: var(--merge-inserted);
+  --merge-tone: var(--merge-inserted);
+  --merge-stripe: var(--merge-inserted-stripe);
 }
 
 .merge3-link.deleted,
 .cm-editor .cm-line.cm-merge-line.deleted,
 .cm-editor .cm-gutterElement.cm-merge-gutterline.deleted {
-  --merge-band: color-mix(in srgb, var(--merge-deleted) 60%, var(--code-bg));
-  --merge-ink: var(--merge-deleted);
+  --merge-tone: var(--merge-deleted);
+  --merge-stripe: var(--merge-deleted-stripe);
 }
 
 .merge3-link.modified,
 .cm-editor .cm-line.cm-merge-line.modified,
 .cm-editor .cm-gutterElement.cm-merge-gutterline.modified {
-  --merge-band: color-mix(in srgb, var(--merge-modified) 60%, var(--code-bg));
-  --merge-ink: var(--merge-modified);
+  --merge-tone: var(--merge-modified);
+  --merge-stripe: var(--merge-modified-stripe);
 }
 
 .merge3-link.conflict,
 .cm-editor .cm-line.cm-merge-line.conflict,
 .cm-editor .cm-gutterElement.cm-merge-gutterline.conflict {
-  --merge-band: color-mix(in srgb, var(--merge-conflict) 60%, var(--code-bg));
-  --merge-ink: var(--merge-conflict);
+  --merge-tone: var(--merge-conflict);
+  --merge-stripe: var(--merge-conflict-stripe);
 }
 
 .merge3-link {
-  fill: var(--merge-band);
+  fill: var(--merge-tone);
   stroke: none;
 }
 
 .cm-editor .cm-line.cm-merge-line {
-  background-color: var(--merge-band);
-  box-shadow: inset 2px 0 0 var(--merge-ink);
+  background-color: var(--merge-tone);
 }
 
+/* A conflict keeps its word marks bright, so the band beneath them recedes:
+   this is the IDE's "ignored" background, a 60% mix into the editor. */
+.cm-editor .cm-line.cm-merge-line.soft {
+  background-color: color-mix(in srgb, var(--merge-tone) 60%, var(--merge-pane-bg));
+}
+
+/* The gutter is not a second band. It stays the editor's own colour and
+   carries a 3px stripe on the edge facing the text, like the IDE's marker. */
 .cm-editor .cm-gutterElement.cm-merge-gutterline {
-  background-color: var(--merge-band);
-}
-
-/* A decided block keeps no band, as in the IDE: the gutter mark carries the
-   decision, and the result's text is the decision. */
-.merge3-link.resolved {
-  fill: color-mix(in srgb, var(--success) 10%, var(--code-bg));
-}
-
-.cm-editor .cm-line.cm-merge-line.resolved {
   background-color: transparent;
-  box-shadow: none;
 }
 
+.cm-editor .cm-gutter.cm-merge-gutter .cm-gutterElement.cm-merge-gutterline {
+  box-shadow: inset 3px 0 0 var(--merge-stripe);
+}
+
+.cm-editor .cm-gutter.cm-merge-gutter.side-after .cm-gutterElement.cm-merge-gutterline {
+  box-shadow: inset -3px 0 0 var(--merge-stripe);
+}
+
+/* A decided side keeps no fill, only a dashed outline in its stripe colour:
+   the decision is the presence of the text, not another block. The result
+   pane is never "resolved": it is banded by what it now holds against the
+   base, so a decision replaces the conflict band with a diff band. */
+.merge3-link.resolved {
+  fill: none;
+  stroke: var(--merge-stripe);
+  stroke-width: 1;
+  stroke-dasharray: 2 3;
+}
+
+.cm-editor .cm-line.cm-merge-line.resolved,
 .cm-editor .cm-gutterElement.cm-merge-gutterline.resolved {
   background-color: transparent;
 }
 
-/* The change the caret sits in is outlined, not repainted: the band's colour
-   is the change's kind, so a stronger fill would claim another kind. */
-.merge3-link.current {
-  stroke: color-mix(in srgb, var(--accent) 55%, transparent);
-  stroke-width: 1.5;
+.cm-editor .cm-gutter.cm-merge-gutter .cm-gutterElement.cm-merge-gutterline.resolved,
+.cm-editor .cm-gutter.cm-merge-gutter.side-after .cm-gutterElement.cm-merge-gutterline.resolved {
+  box-shadow: none;
 }
 
-/* Word-level differences inside a band take the type colour undiluted, which
-   is what makes them stand out against the washed band. Both sides of one
-   conflict are the same colour. */
+/* The change the caret sits in is outlined, not repainted. */
+.merge3-link.current {
+  stroke: var(--accent);
+  stroke-width: 1.5;
+  stroke-dasharray: none;
+}
+
+/* Word-level differences take the type colour undiluted, which is what makes
+   them stand out against the washed conflict band. Both sides of one conflict
+   are the same colour. */
 .cm-merge-word.inserted {
   background: var(--merge-inserted);
   border-radius: 2px;
