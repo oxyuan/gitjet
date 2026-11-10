@@ -28,7 +28,7 @@ import { codeFolding, foldEffect, syntaxHighlighting, unfoldAll } from "@codemir
 import { blockText, type MergeTone } from "./merge";
 import { editorHighlightStyle } from "./highlight";
 import { editorSelectionTheme, editorTheme, loadLanguage } from "./editor";
-import { ARROW_LEFT, ARROW_RIGHT } from "./icons";
+import { ARROW_DOWN, ARROW_LEFT, ARROW_RIGHT } from "./icons";
 
 export interface MergePaneBlock {
   id: number;
@@ -40,6 +40,9 @@ export interface MergePaneBlock {
   soft?: boolean;
   /** A side pane offers this arrow; the result pane keeps its status dot. */
   apply?: "ours" | "theirs";
+  /** The other side of a conflict is already in the result, so applying this
+   *  one appends instead of replacing: the IDE points the arrow down. */
+  append?: boolean;
   /** A change the reader can dismiss back to the base text. */
   ignore?: boolean;
   /** A decided block the reader can take back to its pre-decision text. */
@@ -54,8 +57,8 @@ export interface MergePaneOptions {
   editable: boolean;
   language: string;
   blocks?: MergePaneBlock[];
-  onApplyBlock?: (id: number) => void;
-  onIgnoreBlock?: (id: number) => void;
+  onApplyBlock?: (id: number, resolve: boolean) => void;
+  onIgnoreBlock?: (id: number, resolve: boolean) => void;
   onRevertBlock?: (id: number) => void;
   /** Tooltips for the gutter actions. */
   actionLabels?: { apply: string; ignore: string; revert?: string };
@@ -177,6 +180,7 @@ class ApplyMarker extends GutterMarker {
     readonly revert: boolean,
     readonly tone: MergeTone,
     readonly soft: boolean,
+    readonly append: boolean,
     readonly title: string,
     readonly applyLabel: string,
     readonly ignoreLabel: string,
@@ -194,6 +198,7 @@ class ApplyMarker extends GutterMarker {
       other.revert === this.revert &&
       other.tone === this.tone &&
       other.soft === this.soft &&
+      other.append === this.append &&
       other.title === this.title &&
       other.applyLabel === this.applyLabel &&
       other.ignoreLabel === this.ignoreLabel &&
@@ -232,7 +237,8 @@ class ApplyMarker extends GutterMarker {
     if (this.revert) button("revert", "↺", this.revertLabel, "revert");
     if (this.ignore) button("ignore", "✕", this.ignoreLabel, "ignore");
     if (this.apply) {
-      button("apply", arrow(this.apply === "ours" ? ARROW_RIGHT : ARROW_LEFT), this.applyLabel, `apply ${this.apply}`);
+      const d = this.append ? ARROW_DOWN : this.apply === "ours" ? ARROW_RIGHT : ARROW_LEFT;
+      button("apply", arrow(d), this.applyLabel, `apply ${this.apply}`);
     }
     return el;
   }
@@ -278,6 +284,7 @@ function buildGutter(
         block.revert === true,
         block.tone,
         block.soft === true,
+        block.append === true,
         title,
         labels.apply,
         labels.ignore,
@@ -389,9 +396,12 @@ export class MergePane {
                   : blockAtLine(view, view.state.doc.lineAt(line.from).number);
                 if (!block) return false;
                 const action = target.dataset.mergeAction;
+                // Ctrl/Cmd turns either button into IDEA's "decide the whole
+                // change" action: apply and resolve, or ignore and resolve.
+                const resolve = (event as MouseEvent).metaKey || (event as MouseEvent).ctrlKey;
                 if (action === "ignore" && this.opts.onIgnoreBlock) {
                   event.preventDefault();
-                  this.opts.onIgnoreBlock(block.id);
+                  this.opts.onIgnoreBlock(block.id, resolve);
                   return true;
                 }
                 if (action === "revert" && this.opts.onRevertBlock) {
@@ -401,7 +411,7 @@ export class MergePane {
                 }
                 if (action === "apply" && block.apply && this.opts.onApplyBlock) {
                   event.preventDefault();
-                  this.opts.onApplyBlock(block.id);
+                  this.opts.onApplyBlock(block.id, resolve);
                   return true;
                 }
                 return false;

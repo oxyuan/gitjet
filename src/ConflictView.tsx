@@ -311,6 +311,7 @@ function sideBlocks(
       to: offsetAt(offsets, end),
       tone: rangeTone(range, resolved),
       soft: conflict && labels.marks,
+      append: !resolved && state?.oneside === true,
       apply: side,
       ignore: true,
       marks: conflict && labels.marks ? conflictMarks(range, side, offsets, labels.chars) : [],
@@ -937,6 +938,7 @@ export function ConflictView({
             ignore: open,
             tone: rangeTone(range, !open),
             soft: open && range.kind === "conflict" && (highlightMode === "words" || highlightMode === "chars"),
+            append: open && state?.oneside === true,
             title: open
               ? `${t(side === "ours" ? "applyLocal" : "applyRemote")} · ${rangeType(range, tr)}`
               : rangeType(range, tr),
@@ -1137,14 +1139,14 @@ export function ConflictView({
 
   /** Accepts one side of a range; the other side of a conflict stays open. */
   const applyRange = useCallback(
-    (index: number, side: "ours" | "theirs") => applyChange(index, side, false),
+    (index: number, side: "ours" | "theirs", resolve = false) => applyChange(index, side, resolve),
     [applyChange],
   );
 
   /** Ignore a side: record the decision without moving the text, so the range
    *  keeps whatever the result already holds. */
   const ignoreChange = useCallback(
-    (index: number, side: "ours" | "theirs") => {
+    (index: number, side: "ours" | "theirs", resolve = false) => {
       const range = model.ranges[index];
       const state = blocksRef.current.get(index);
       if (!range || !state) return;
@@ -1154,9 +1156,9 @@ export function ConflictView({
           index,
           before: state,
           after:
-            range.kind === "conflict"
+            range.kind === "conflict" && !resolve
               ? { ...state, left: side === "ours" || state.left, right: side === "theirs" || state.right }
-              : { ...state, left: true, right: true },
+              : { ...state, left: true, right: true, oneside: false },
         },
       ]);
     },
@@ -1532,8 +1534,8 @@ export function ConflictView({
       }),
       wrap,
       whitespace: showWhitespace,
-      onApplyBlock: (id) => applyRange(id, "ours"),
-      onIgnoreBlock: (id) => ignoreChange(id, "ours"),
+      onApplyBlock: (id, resolve) => applyRange(id, "ours", resolve),
+      onIgnoreBlock: (id, resolve) => ignoreChange(id, "ours", resolve),
       actionLabels: { apply: t("acceptLeft"), ignore: t("ignore") },
       side: "after",
       numbers: "after",
@@ -1577,8 +1579,8 @@ export function ConflictView({
       }),
       wrap,
       whitespace: showWhitespace,
-      onApplyBlock: (id) => applyRange(id, "theirs"),
-      onIgnoreBlock: (id) => ignoreChange(id, "theirs"),
+      onApplyBlock: (id, resolve) => applyRange(id, "theirs", resolve),
+      onIgnoreBlock: (id, resolve) => ignoreChange(id, "theirs", resolve),
       actionLabels: { apply: t("acceptRight"), ignore: t("ignore") },
       onScroll: (line) => {
         sync("theirs", line);
