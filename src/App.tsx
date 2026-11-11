@@ -2870,14 +2870,10 @@ function AppShell({ onLangChange }: { onLangChange: (lang: Lang) => void }) {
           <span className="brand-mark">
             <Icon name="git" size={17} />
           </span>
-          <span className="brand-name">GitJet</span>
           {snapshot && (
-            <>
-              <span className="titlebar-sep">/</span>
-              <span className="titlebar-repo" title={snapshot.state.root}>
-                {snapshot.state.name}
-              </span>
-            </>
+            <span className="titlebar-repo" title={snapshot.state.root}>
+              {snapshot.state.name}
+            </span>
           )}
         </div>
         <div className="titlebar-actions">
