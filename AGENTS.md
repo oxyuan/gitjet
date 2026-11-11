@@ -445,8 +445,13 @@ use it only for layout work. Vite's port is pinned to 5173 in **both**
   A usage search with one reference opens it at once, and none is a notice —
   both as `ShowUsagesAction` does. References are never dropped for unopened
   files: `Git.lineTexts` adds each line's text for `SymbolPanel`, which groups
-  by file, filters as you type, and walks `↑`/`↓`/Enter. Text search remains
-  the fallback only when the server has no capability or the request fails.
+  by file, filters as you type, and walks `↑`/`↓`/Enter. The panel previews
+  the selected row through `Git.UsagePreview` (`internal/git/files.go`: a
+  bounded window read from the working tree or an absolute external file,
+  with the final newline not counted as a line); a click selects and previews,
+  Enter or a double click opens, matching the split Show Usages popup. Text
+  search remains the fallback only when the server has no capability or the
+  request fails.
 - The editor keys mirror IDEA: `Mod-b`/F12 declaration or usages, `Mod-Alt-b`
   implementation, `Ctrl-Shift-b` type declaration (IDEA's macOS chord; on
   Windows/Linux it is the same chord), `Alt-F7`/`Mod-Alt-F7`/`Shift-F12`

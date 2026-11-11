@@ -160,6 +160,71 @@ func (r *Repo) FileContent(ctx context.Context, path, revision string) (SourceFi
 	return out, nil
 }
 
+// PreviewLine is one raw line of a usage preview. Line numbers are 1-based.
+type PreviewLine struct {
+	Line int    `json:"line"`
+	Text string `json:"text"`
+}
+
+// UsagePreview is the code around one usage, for the usage panel's preview
+// pane. It reads the working tree for a git path and the file itself for an
+// absolute path outside the repository; missing and binary files simply have
+// no lines.
+type UsagePreview struct {
+	Path  string        `json:"path"`
+	Line  int           `json:"line"`
+	Start int           `json:"start"`
+	Lines []PreviewLine `json:"lines"`
+}
+
+// maxPreviewRadius bounds the context a preview may ask for: the pane shows a
+// few lines, and the page must not be able to read a whole file through it.
+const maxPreviewRadius = 40
+
+// UsagePreview reads the lines around one usage. A radius of zero keeps a
+// small default, and the answer never leaves the source viewer's 8 MiB cap.
+func (r *Repo) UsagePreview(path string, line, radius int) UsagePreview {
+	if radius <= 0 {
+		radius = 4
+	}
+	if radius > maxPreviewRadius {
+		radius = maxPreviewRadius
+	}
+	out := UsagePreview{Path: path, Line: max(line, 1), Lines: []PreviewLine{}}
+	clean := path
+	if !filepath.IsAbs(clean) {
+		rel, err := cleanPath(path)
+		if err != nil {
+			return out
+		}
+		clean = r.AbsPath(rel)
+	} else {
+		clean = filepath.Clean(clean)
+	}
+	const limit = 8 << 20
+	st, err := os.Stat(clean)
+	if err != nil || !st.Mode().IsRegular() || st.Size() > int64(limit) {
+		return out
+	}
+	body, err := os.ReadFile(clean)
+	if err != nil || looksBinary(string(body)) {
+		return out
+	}
+	lines := strings.Split(strings.ReplaceAll(string(body), "\r\n", "\n"), "\n")
+	// A final newline is a terminator, not an extra line; keeping it would
+	// put a blank row under every preview and shift the clamp.
+	if len(lines) > 1 && lines[len(lines)-1] == "" {
+		lines = lines[:len(lines)-1]
+	}
+	out.Line = min(out.Line, len(lines))
+	out.Start = max(1, out.Line-radius)
+	end := min(len(lines), out.Line+radius)
+	for n := out.Start; n <= end; n++ {
+		out.Lines = append(out.Lines, PreviewLine{Line: n, Text: lines[n-1]})
+	}
+	return out
+}
+
 // ExternalFile reads one file outside the repository, for a declaration the
 // language server reported in a standard library or another dependency. It is
 // read-only in the page and never goes through git; only regular files are

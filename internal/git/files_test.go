@@ -70,6 +70,47 @@ func TestLineTextsReadsEachFileOnce(t *testing.T) {
 	}
 }
 
+func TestUsagePreviewReadsAWindow(t *testing.T) {
+	repo, dir := newTestRepo(t)
+	writeFile(t, dir, "a.txt", "one\n  two\nthree\nfour\nfive\nsix\nseven\n")
+	got := repo.UsagePreview("a.txt", 4, 2)
+	if got.Start != 2 || len(got.Lines) != 5 {
+		t.Fatalf("preview = %+v", got)
+	}
+	if got.Lines[0].Line != 2 || got.Lines[0].Text != "  two" {
+		t.Errorf("first = %+v", got.Lines[0])
+	}
+	if got.Lines[4].Line != 6 || got.Lines[4].Text != "six" {
+		t.Errorf("last = %+v", got.Lines[4])
+	}
+	// A line past the end clamps to the last line instead of returning none.
+	clamped := repo.UsagePreview("a.txt", 99, 1)
+	if clamped.Line != 7 || len(clamped.Lines) == 0 || clamped.Lines[len(clamped.Lines)-1].Line != 7 {
+		t.Errorf("clamped = %+v", clamped)
+	}
+}
+
+func TestUsagePreviewReadsAnExternalFile(t *testing.T) {
+	repo, _ := newTestRepo(t)
+	outside := filepath.Join(t.TempDir(), "lib.go")
+	if err := os.WriteFile(outside, []byte("package lib\r\n\r\nfunc Run() {}\r\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	got := repo.UsagePreview(outside, 3, 1)
+	if len(got.Lines) != 2 || got.Start != 2 {
+		t.Fatalf("preview = %+v", got)
+	}
+	if got.Lines[1].Line != 3 || got.Lines[1].Text != "func Run() {}" {
+		t.Errorf("line = %+v", got.Lines[1])
+	}
+	if empty := repo.UsagePreview(filepath.Join(t.TempDir(), "missing.go"), 1, 1); len(empty.Lines) != 0 {
+		t.Errorf("missing = %+v", empty)
+	}
+	if escaped := repo.UsagePreview("../outside.txt", 1, 1); len(escaped.Lines) != 0 {
+		t.Errorf("escaped = %+v", escaped)
+	}
+}
+
 func TestExternalFileReadsOutsideTheRepository(t *testing.T) {
 	repo, _ := newTestRepo(t)
 	outside := filepath.Join(t.TempDir(), "lib.go")

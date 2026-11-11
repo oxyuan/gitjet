@@ -1833,6 +1833,17 @@ func (g *Git) LineTexts(refs []git.LineRef) ([]git.LineText, error) {
 	return repo.LineTexts(refs), nil
 }
 
+// UsagePreview reads the code around one usage, for the usage panel's preview
+// pane. The page names a git path inside the repository or an absolute path
+// for a library, as the language server reported it.
+func (g *Git) UsagePreview(path string, line, radius int) (git.UsagePreview, error) {
+	repo, err := g.c.currentRepo()
+	if err != nil {
+		return git.UsagePreview{}, err
+	}
+	return repo.UsagePreview(path, line, radius), nil
+}
+
 // Image reads one version of an image file for the viewer.
 func (g *Git) Image(path, revision string) (git.ImageData, error) {
 	repo, err := g.c.currentRepo()

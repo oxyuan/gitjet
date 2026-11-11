@@ -437,6 +437,11 @@ export interface PlanStep {
   command?: string;
 }
 
+export interface PreviewLine {
+  line: number;
+  text: string;
+}
+
 export interface PullOptions {
   remote: string;
   branch: string;
@@ -707,6 +712,13 @@ export interface ThreeWayDiff {
   worktreeLabel: string;
   staged: FileDiff;
   unstaged: FileDiff;
+}
+
+export interface UsagePreview {
+  path: string;
+  line: number;
+  start: number;
+  lines: PreviewLine[];
 }
 
 export type WhitespacePolicy = string;
@@ -1461,6 +1473,14 @@ export const Git = {
   /** UpdateSubmodules checks the submodules out at their recorded commits. */
   updateSubmodules(init: boolean): Promise<string> {
     return call("Git.UpdateSubmodules", init);
+  },
+  /**
+   * UsagePreview reads the code around one usage, for the usage panel's preview
+   * pane. The page names a git path inside the repository or an absolute path
+   * for a library, as the language server reported it.
+   */
+  usagePreview(path: string, line: number, radius: number): Promise<UsagePreview> {
+    return call("Git.UsagePreview", path, line, radius);
   },
   /** Worktrees lists the repository's working trees. */
   worktrees(): Promise<Worktree[]> {
