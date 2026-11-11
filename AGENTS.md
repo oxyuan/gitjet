@@ -436,21 +436,33 @@ use it only for layout work. Vite's port is pinned to 5173 in **both**
   failing `cleanPath`. `openNavigationTarget` opens `fromUri(target.uri)`,
   never the display path.
 - Navigation is app-owned, not the LSP package's commands: `lookupTargets`
-  (`definition`/`implementation`/`typeDefinition`) and `lookupUsages` in
-  `src/lsp.ts` return normalized locations from `src/navigation.ts`. One
-  target opens directly; several open `TargetPopup`. References are never
-  dropped for unopened files — `lookupUsages` returns every location and
-  `Git.lineTexts` adds each line's text for `SymbolPanel`, which groups by
-  file, filters as you type, and walks `↑`/`↓`/Enter. Text search remains the
-  fallback only when the server has no capability or the request fails.
-- The editor keys mirror IDEA: `Mod-b`/F12 declaration, `Mod-Alt-b`
-  implementation, `Mod-Shift-b` type declaration, `Alt-F7`/`Mod-Alt-F7`/
-  `Shift-F12` usages, `Mod-Alt-Left`/`Mod-[` back and `Mod-Alt-Right`/`Mod-]`
-  forward. Cmd/Ctrl+Click is declaration, Cmd/Ctrl+Alt+Click is usages, and
-  holding the modifier underlines the word. History lives in `App`
-  (`navHistory`): a direct jump records both ends, a chooser or usage row
-  records the origin when it opens a target, and the toolbar's back/forward
-  arrows use the same stack.
+  (`definition`/`implementation`/`typeDefinition`) and `lookupUsages` (which
+  asks `lookupReferences` first) in `src/lsp.ts` return normalized locations
+  from `src/navigation.ts`. `Mod-b`/Cmd-click is IDEA's **Go to Declaration or
+  Usages**: when a definition target covers the caret, the reader is on the
+  declaration and the editor shows its usages instead; otherwise one target
+  opens directly and several open `TargetPopup`, which filters as you type.
+  A usage search with one reference opens it at once, and none is a notice —
+  both as `ShowUsagesAction` does. References are never dropped for unopened
+  files: `Git.lineTexts` adds each line's text for `SymbolPanel`, which groups
+  by file, filters as you type, and walks `↑`/`↓`/Enter. Text search remains
+  the fallback only when the server has no capability or the request fails.
+- The editor keys mirror IDEA: `Mod-b`/F12 declaration or usages, `Mod-Alt-b`
+  implementation, `Ctrl-Shift-b` type declaration (IDEA's macOS chord; on
+  Windows/Linux it is the same chord), `Alt-F7`/`Mod-Alt-F7`/`Shift-F12`
+  usages, `Mod-Alt-Left`/`Mod-[` back and `Mod-Alt-Right`/`Mod-]` forward.
+  Cmd/Ctrl+Click is declaration or usages, Cmd/Ctrl+Shift+Click is the type
+  declaration, and holding the modifier underlines the word. The code area's
+  context menu offers the same four commands (`SourceEditor.navigateAt`).
+  History lives in `App` (`navHistory`): a direct jump records both ends, a
+  chooser or usage row records the origin when it opens a target, and the
+  toolbar's back/forward arrows use the same stack. A jump places a collapsed
+  caret (IDEA does not select the name) and records its column, which Back
+  and Forward restore.
+- Registered views carry their revision, and `firstView` only reuses a
+  working-tree or external pane. The working tree and HEAD share one tab, so
+  without that filter a jump made from a HEAD pane moved the caret in the
+  read-only revision instead of opening the working-tree target.
 - `DockWorkspace.syncFiles` must return the editors' unsynced changes and
   advance each file's version; returning `[]` (as an earlier version did)
   left the server answering about the text it saw on open, so jumps drifted

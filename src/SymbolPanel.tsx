@@ -45,7 +45,7 @@ type Props = {
   definitions?: string[];
   server?: string;
   onClose: () => void;
-  onOpen: (path: string, line: number) => void;
+  onOpen: (hit: SymbolHit) => void;
 };
 
 /** Lists where a word is declared and used, grouped by file, filtered as you
@@ -71,7 +71,13 @@ export function SymbolPanel({
     if (source === "lsp") return new Set(definitions ?? []);
     return new Set(classifyHits(hits, word, language).definitions.map(hitKey));
   }, [hits, source, definitions, word, language]);
-  const files = useMemo(() => new Set(filtered.map((hit) => hit.path)).size, [filtered]);
+  // IDEA's usage count covers references; the declaration is the root of
+  // the result, not one of its usages.
+  const usages = useMemo(
+    () => (source === "lsp" ? filtered.filter((hit) => !declared.has(hitKey(hit))) : filtered),
+    [filtered, source, declared],
+  );
+  const files = useMemo(() => new Set(usages.map((hit) => hit.path)).size, [usages]);
   const order = useMemo(() => new Map(filtered.map((hit, index) => [hit, index])), [filtered]);
 
   useEffect(() => {
@@ -83,7 +89,7 @@ export function SymbolPanel({
   }, [selected, filtered]);
 
   const choose = (hit: SymbolHit | undefined) => {
-    if (hit) onOpen(hit.path, hit.line);
+    if (hit) onOpen(hit);
   };
 
   return (
@@ -116,9 +122,12 @@ export function SymbolPanel({
           />
           <div className="symbol-summary">
             {t(files === 1 ? "one" : "summary", {
-              n: filtered.length,
+              n: source === "lsp" ? usages.length : filtered.length,
               files,
-              declarations: filtered.filter((hit) => declared.has(hitKey(hit))).length,
+              declarations:
+                source === "lsp"
+                  ? filtered.length - usages.length
+                  : filtered.filter((hit) => declared.has(hitKey(hit))).length,
             })}
           </div>
           <div className="symbol-list" ref={listRef}>
@@ -176,7 +185,7 @@ function SymbolRow({
   index: number;
   selected: boolean;
   declaration: boolean;
-  onOpen: (path: string, line: number) => void;
+  onOpen: (hit: SymbolHit) => void;
   onHover: () => void;
 }) {
   const t = useT(T);
@@ -184,7 +193,7 @@ function SymbolRow({
     <button
       className={`symbol-row${selected ? " selected" : ""}`}
       data-usage={index}
-      onClick={() => onOpen(hit.path, hit.line)}
+      onClick={() => onOpen(hit)}
       onMouseEnter={onHover}
       title={t("open")}
     >

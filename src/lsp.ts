@@ -40,14 +40,26 @@ function encodePath(path: string): string {
     .join("/");
 }
 
+/** A mounted editor and the revision it shows. Navigation targets are
+ *  working-copy places: a HEAD or index pane must never be mistaken for the
+ *  file a jump targets, or the caret would move in a read-only revision. */
+type OpenView = { view: EditorView; revision: string };
+
 /** Views that are open, by URI, so a jump can find the one already showing a
  *  file instead of opening it twice. */
-const openViews = new Map<string, Set<EditorView>>();
+const openViews = new Map<string, Set<OpenView>>();
 const pending = new Map<string, ((view: EditorView | null) => void)[]>();
 
 /** Windows file URIs are case-insensitive; the rest are not. */
 function viewKey(uri: string): string {
   return /^file:\/\/\/[A-Za-z]:\//.test(uri) ? uri.toLowerCase() : uri;
+}
+
+/** The working tree and a file outside the repository are the only states a
+ *  language server speaks about; HEAD and the index are read-only snapshots
+ *  of the same URI. */
+function navigable(revision: string): boolean {
+  return revision === "" || revision === "EXTERNAL";
 }
 
 let openDocument: ((path: string) => Promise<void>) | null = null;
@@ -59,13 +71,13 @@ export function setDocumentOpener(opener: ((path: string) => Promise<void>) | nu
 }
 
 /** Registers a mounted editor for a URI, and wakes anyone waiting for it. */
-export function registerView(uri: string, view: EditorView) {
+export function registerView(uri: string, view: EditorView, revision = "") {
   const key = viewKey(uri);
   const views = openViews.get(key) ?? new Set();
-  views.add(view);
+  views.add({ view, revision });
   openViews.set(key, views);
   const waiting = pending.get(key);
-  if (waiting) {
+  if (waiting && navigable(revision)) {
     pending.delete(key);
     for (const resolve of waiting) resolve(view);
   }
@@ -75,15 +87,22 @@ export function unregisterView(uri: string, view: EditorView) {
   const key = viewKey(uri);
   const views = openViews.get(key);
   if (!views) return;
-  views.delete(view);
+  for (const entry of [...views]) {
+    if (entry.view === view) views.delete(entry);
+  }
   if (views.size === 0) openViews.delete(key);
 }
 
 function firstView(uri: string, prefer?: EditorView): EditorView | null {
   const views = openViews.get(viewKey(uri));
   if (!views || views.size === 0) return null;
-  if (prefer && views.has(prefer)) return prefer;
-  return views.values().next().value ?? null;
+  let fallback: EditorView | null = null;
+  for (const entry of views) {
+    if (!navigable(entry.revision)) continue;
+    if (prefer && entry.view === prefer) return entry.view;
+    fallback ??= entry.view;
+  }
+  return fallback;
 }
 
 /** A promise and its resolver. `Promise.withResolvers` is newer than this
@@ -354,37 +373,60 @@ export async function lookupTargets(
   }
 }
 
-/** Finds the usages of the symbol at a position, plus its declaration so the
- *  list can mark which row is the source. Both requests are issued together;
- *  a declaration the server cannot answer simply leaves the set empty. */
-export async function lookupUsages(view: EditorView, pos: number): Promise<LspUsageLookup> {
+/** Asks the server for the references at a position. Never throws: a server
+ *  that errors reads as a miss. */
+async function lookupReferences(view: EditorView, pos: number): Promise<LspLookup> {
   const plugin = pluginFor(view);
   if (!plugin || !supports(plugin, "referencesProvider")) {
-    return { supported: false, failed: false, targets: [], definitions: [] };
+    return { supported: false, failed: false, targets: [] };
   }
   plugin.client.sync();
-  const position = plugin.toPosition(pos);
-  const document = { uri: plugin.uri };
-  const references = plugin.client
-    .request<Record<string, unknown>, unknown>("textDocument/references", {
-      textDocument: document,
-      position,
+  try {
+    const result = await plugin.client.request<Record<string, unknown>, unknown>("textDocument/references", {
+      textDocument: { uri: plugin.uri },
+      position: plugin.toPosition(pos),
       context: { includeDeclaration: true },
-    })
-    .then((result) => ({ ok: true as const, result }))
-    .catch(() => ({ ok: false as const, result: null }));
-  const declaration = supports(plugin, "definitionProvider")
-    ? plugin.client
-        .request<Record<string, unknown>, unknown>("textDocument/definition", { textDocument: document, position })
-        .catch(() => null)
-    : Promise.resolve(null);
-  const [usages, definitions] = await Promise.all([references, declaration]);
-  return {
-    supported: true,
-    failed: !usages.ok,
-    targets: usages.ok ? normalizeTargets(usages.result, displayPath) : [],
-    definitions: definitions ? normalizeTargets(definitions, displayPath) : [],
-  };
+    });
+    return { supported: true, failed: false, targets: normalizeTargets(result, displayPath) };
+  } catch {
+    return { supported: true, failed: true, targets: [] };
+  }
+}
+
+/** Finds the usages of the symbol at a position, plus its declaration so the
+ *  list can mark which row is the source. `known` is a declaration the caller
+ *  already has, which is the case when the jump started on the declaration
+ *  itself; it saves a second definition request. */
+export async function lookupUsages(
+  view: EditorView,
+  pos: number,
+  known?: NavigationTarget[],
+): Promise<LspUsageLookup> {
+  const plugin = pluginFor(view);
+  if (!plugin) return { supported: false, failed: false, targets: [], definitions: [] };
+  const references = await lookupReferences(view, pos);
+  if (!references.supported) {
+    return { ...references, targets: [], definitions: known ?? [] };
+  }
+  if (references.failed) {
+    return { ...references, definitions: known ?? [] };
+  }
+  let definitions = known;
+  if (!definitions) {
+    if (!supports(plugin, "definitionProvider")) {
+      definitions = [];
+    } else {
+      plugin.client.sync();
+      const result = await plugin.client
+        .request<Record<string, unknown>, unknown>("textDocument/definition", {
+          textDocument: { uri: plugin.uri },
+          position: plugin.toPosition(pos),
+        })
+        .catch(() => null);
+      definitions = result ? normalizeTargets(result, displayPath) : [];
+    }
+  }
+  return { supported: true, failed: false, targets: references.targets, definitions };
 }
 
 /** The offset a 1-based line and column stands for in a view's document.
@@ -408,10 +450,11 @@ export async function openNavigationTarget(
   const uri = toUri(fromUri(target.uri));
   const view = firstView(uri, prefer) ?? (await ensureView(uri));
   if (!view) return false;
+  // IDEA puts the caret at the target's offset and leaves it collapsed; it
+  // does not select the declaration's name.
   const anchor = offsetFor(view, target.line, target.column);
-  const head = offsetFor(view, target.endLine, target.endColumn);
   view.dispatch({
-    selection: { anchor, head: Math.max(anchor, head) },
+    selection: { anchor },
     scrollIntoView: true,
     userEvent: "select.definition",
   });

@@ -2,14 +2,17 @@ import { describe, expect, it } from "bun:test";
 import {
   MAX_HISTORY,
   canStep,
+  declarationUnderCaret,
   emptyHistory,
   mergeNavigationTargets,
   normalizeTargets,
   recordPoint,
   stepHistory,
+  targetAtPosition,
   targetKey,
   targetPoint,
   targetsToHits,
+  usageTargets,
   type NavigationPoint,
   type NavigationTarget,
 } from "./navigation";
@@ -87,10 +90,12 @@ describe("navigation history", () => {
     expect(history.entries[history.index]!.path).toBe("c.go");
   });
 
-  it("does not record the same file and line twice in a row", () => {
+  it("does not record the same file, line and column twice in a row", () => {
     let history = recordPoint(emptyHistory(), point("a.go", 3));
-    history = recordPoint(history, point("a.go", 3, 8));
+    history = recordPoint(history, point("a.go", 3));
     expect(history.entries).toHaveLength(1);
+    history = recordPoint(history, point("a.go", 3, 8));
+    expect(history.entries).toHaveLength(2);
   });
 
   it("separates a revision from the working tree at the same line", () => {
@@ -142,5 +147,56 @@ describe("merging targets", () => {
     ]);
     expect(hits[0]!.text).toBe("func Run()");
     expect(hits[1]!.text).toBe("");
+  });
+});
+
+describe("declaration detection", () => {
+  const declaration: NavigationTarget = {
+    uri: "file:///repo/a.go",
+    path: "/repo/a.go",
+    line: 3,
+    column: 7,
+    endLine: 3,
+    endColumn: 10,
+  };
+
+  it("recognizes the declaration under the caret", () => {
+    expect(targetAtPosition([declaration], "/repo/a.go", 3, 7)).toBe(declaration);
+    expect(targetAtPosition([declaration], "/repo/a.go", 3, 9)).toBe(declaration);
+  });
+
+  it("rejects the columns around the name and another file", () => {
+    expect(targetAtPosition([declaration], "/repo/a.go", 3, 6)).toBeUndefined();
+    expect(targetAtPosition([declaration], "/repo/a.go", 3, 10)).toBeUndefined();
+    expect(targetAtPosition([declaration], "/repo/b.go", 3, 8)).toBeUndefined();
+  });
+
+  it("contains a position inside a multi-line range", () => {
+    const block = { ...declaration, line: 3, column: 1, endLine: 6, endColumn: 2 };
+    expect(targetAtPosition([block], "/repo/a.go", 5, 1)).toBe(block);
+    expect(targetAtPosition([block], "/repo/a.go", 6, 2)).toBeUndefined();
+  });
+
+  it("asks for usages only on a live declaration", () => {
+    const targets = [declaration];
+    expect(declarationUnderCaret("definition", "", targets, "/repo/a.go", 3, 8)).toBe(true);
+    expect(declarationUnderCaret("definition", "EXTERNAL", targets, "/repo/a.go", 3, 8)).toBe(true);
+    expect(declarationUnderCaret("definition", "", targets, "/repo/a.go", 4, 8)).toBe(false);
+    expect(declarationUnderCaret("definition", "HEAD", targets, "/repo/a.go", 3, 8)).toBe(false);
+    expect(declarationUnderCaret("implementation", "", targets, "/repo/a.go", 3, 8)).toBe(false);
+  });
+});
+
+describe("usage filtering", () => {
+  it("drops a declaration the reference list echoed", () => {
+    const declaration = target("a.go", 4, 2);
+    const usage = target("a.go", 9, 2);
+    expect(usageTargets([declaration], [declaration, usage])).toEqual([usage]);
+  });
+
+  it("keeps a reference to another symbol on the declaration's line", () => {
+    const declaration = target("a.go", 4, 2);
+    const other = { ...target("a.go", 4, 20), endColumn: 22 };
+    expect(usageTargets([declaration], [other])).toEqual([other]);
   });
 });

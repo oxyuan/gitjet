@@ -1,4 +1,4 @@
-import { useEffect, useLayoutEffect, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { useT } from "./i18n";
 import { Icon } from "./icons";
@@ -11,6 +11,8 @@ const T = {
     typeDefinition: "Choose Type Declaration",
     hint: "↑↓ choose · Enter open · Esc close",
     open: "Open",
+    filter: "Filter targets",
+    noMatches: "No target matches that filter.",
   },
   zh: {
     definition: "选择声明",
@@ -18,6 +20,8 @@ const T = {
     typeDefinition: "选择类型声明",
     hint: "↑↓ 选择 · Enter 打开 · Esc 关闭",
     open: "打开",
+    filter: "筛选目标",
+    noMatches: "没有符合筛选条件的目标。",
   },
 } as const;
 
@@ -35,10 +39,20 @@ export function TargetPopup({
   const t = useT(T);
   const ref = useRef<HTMLDivElement | null>(null);
   const [selected, setSelected] = useState(0);
+  const [query, setQuery] = useState("");
   const [pos, setPos] = useState(() => ({
     left: request.anchor?.x ?? window.innerWidth / 2 - 180,
     top: request.anchor?.y ?? 96,
   }));
+  // IDEA's chooser is a speed-search list: typing narrows it, the arrows
+  // walk what is left, and Enter opens the selected row.
+  const targets = useMemo(() => {
+    const needle = query.trim().toLowerCase();
+    if (needle === "") return request.targets;
+    return request.targets.filter((target) =>
+      `${request.word} ${target.path}:${target.line}`.toLowerCase().includes(needle),
+    );
+  }, [request, query]);
 
   useLayoutEffect(() => {
     const el = ref.current;
@@ -50,10 +64,6 @@ export function TargetPopup({
   }, [pos.left, pos.top]);
 
   useEffect(() => {
-    ref.current?.focus();
-  }, []);
-
-  useEffect(() => {
     const outside = (event: MouseEvent) => {
       if (ref.current && !ref.current.contains(event.target as Node)) onClose();
     };
@@ -61,7 +71,13 @@ export function TargetPopup({
     return () => window.removeEventListener("mousedown", outside);
   }, [onClose]);
 
-  const count = request.targets.length;
+  useEffect(() => {
+    setSelected(0);
+  }, [query]);
+
+  const count = targets.length;
+  const move = (delta: number) =>
+    setSelected((current) => (count === 0 ? 0 : (current + delta + count) % count));
 
   return createPortal(
     <div
@@ -69,25 +85,17 @@ export function TargetPopup({
       style={pos}
       ref={ref}
       role="listbox"
-      tabIndex={0}
       aria-label={t(request.targetKind)}
       onKeyDown={(event) => {
-        // A row's own Enter already runs its click; the container handles the
-        // keys that belong to the list, where nothing else has focus.
-        if (event.key === "Enter" && event.target !== event.currentTarget) return;
-        if (event.key === "ArrowDown" || event.key === "PageDown") {
-          setSelected((current) => (current + 1) % count);
-        } else if (event.key === "ArrowUp" || event.key === "PageUp") {
-          setSelected((current) => (current - 1 + count) % count);
-        } else if (event.key === "Home") {
-          setSelected(0);
-        } else if (event.key === "End") {
-          setSelected(count - 1);
-        } else if (event.key === "Enter") {
-          const target = request.targets[selected];
-          if (target) onChoose(target);
-        } else if (event.key === "Escape") {
+        // The filter owns the keys while it has focus; a row's focus still
+        // needs Escape and the arrows, as the popup's list always did.
+        if (event.target instanceof HTMLInputElement) return;
+        if (event.key === "Escape") {
           onClose();
+        } else if (event.key === "ArrowDown" || event.key === "PageDown") {
+          move(1);
+        } else if (event.key === "ArrowUp" || event.key === "PageUp") {
+          move(-1);
         } else {
           return;
         }
@@ -96,24 +104,56 @@ export function TargetPopup({
       }}
     >
       <div className="target-popup-title">{t(request.targetKind)}</div>
-      {request.targets.map((target, index) => (
-        <button
-          key={`${target.uri}:${target.line}:${target.column}`}
-          className={`target-popup-row${index === selected ? " selected" : ""}`}
-          role="option"
-          aria-selected={index === selected}
-          title={t("open")}
-          onMouseEnter={() => setSelected(index)}
-          onClick={() => onChoose(target)}
-        >
-          <Icon name="file" size={12} />
-          <span className="target-popup-name">{request.word}</span>
-          <span className="target-popup-where">
-            <span className="target-popup-path">{target.path}</span>
-            <span className="target-popup-line">{target.line}</span>
-          </span>
-        </button>
-      ))}
+      <input
+        className="symbol-filter"
+        autoFocus
+        value={query}
+        placeholder={t("filter")}
+        spellCheck={false}
+        onChange={(event) => setQuery(event.target.value)}
+        onKeyDown={(event) => {
+          if (event.key === "ArrowDown" || event.key === "PageDown") {
+            move(1);
+          } else if (event.key === "ArrowUp" || event.key === "PageUp") {
+            move(-1);
+          } else if (event.key === "Home") {
+            setSelected(0);
+          } else if (event.key === "End") {
+            setSelected(Math.max(count - 1, 0));
+          } else if (event.key === "Enter") {
+            const target = targets[Math.min(selected, count - 1)];
+            if (target) onChoose(target);
+          } else if (event.key === "Escape") {
+            onClose();
+          } else {
+            return;
+          }
+          event.preventDefault();
+          event.stopPropagation();
+        }}
+      />
+      {targets.length === 0 ? (
+        <div className="target-popup-empty">{t("noMatches")}</div>
+      ) : (
+        targets.map((target, index) => (
+          <button
+            key={`${target.uri}:${target.line}:${target.column}`}
+            className={`target-popup-row${index === selected ? " selected" : ""}`}
+            role="option"
+            aria-selected={index === selected}
+            title={t("open")}
+            onMouseEnter={() => setSelected(index)}
+            onClick={() => onChoose(target)}
+          >
+            <Icon name="file" size={12} />
+            <span className="target-popup-name">{request.word}</span>
+            <span className="target-popup-where">
+              <span className="target-popup-path">{target.path}</span>
+              <span className="target-popup-line">{target.line}</span>
+            </span>
+          </button>
+        ))
+      )}
       <div className="target-popup-hint">{t("hint")}</div>
     </div>,
     document.body,

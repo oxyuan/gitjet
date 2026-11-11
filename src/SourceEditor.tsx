@@ -22,6 +22,10 @@ const T = {
     keepWhitespaceBlame: "Attribute whitespace changes",
     closeAnnotations: "Close Annotations",
     annotateLocal: "local",
+    goToDeclaration: "Go to Declaration or Usages",
+    goToImplementation: "Go to Implementation(s)",
+    goToTypeDeclaration: "Go to Type Declaration",
+    findUsages: "Find Usages",
   },
   zh: {
     lineHistory: "查看该行的历史",
@@ -33,6 +37,10 @@ const T = {
     keepWhitespaceBlame: "归属空白改动",
     closeAnnotations: "关闭 Blame",
     annotateLocal: "本地",
+    goToDeclaration: "跳到声明或引用",
+    goToImplementation: "跳到实现",
+    goToTypeDeclaration: "跳到类型声明",
+    findUsages: "查找引用",
   },
 } as const;
 
@@ -44,6 +52,8 @@ export function SourceEditor({
   file,
   root,
   line,
+  column,
+  reveal,
   wrap,
   editable = false,
   lineEnding = "\n",
@@ -69,6 +79,10 @@ export function SourceEditor({
   /** Absolute path of the repository, for the file's URI and external paths. */
   root: string;
   line?: number;
+  /** 1-based column beside `line`, for a jump that remembers the caret. */
+  column?: number;
+  /** Changes on every jump, so a repeated jump to the same line re-reveals. */
+  reveal?: number;
   wrap: boolean;
   /** Working-tree files take edits; the index and commits do not. */
   editable?: boolean;
@@ -188,6 +202,9 @@ export function SourceEditor({
   }, [navRef]);
   const [blame, setBlame] = useState<BlameLine[] | null>(null);
   const [menu, setMenu] = useState<{ x: number; y: number; line: number } | null>(null);
+  // The code area's own menu: IDEA offers the navigation commands here, not
+  // only as keys and modified clicks.
+  const [symbolMenu, setSymbolMenu] = useState<{ x: number; y: number; pos: number } | null>(null);
   const [annotate, setAnnotate] = useStoredState<boolean>("gitjet.annotate", false);
   const [ignoreWs, setIgnoreWs] = useStoredState<boolean>("gitjet.blameIgnoreWhitespace", false);
   // Change bars belong to the working tree; blame belongs to whichever
@@ -234,7 +251,7 @@ export function SourceEditor({
     // repository-relative path made every server answer look like a
     // different file, so a jump opened a tab that could not load.
     const uri = toUri(absolutePath);
-    registerView(uri, created.view);
+    registerView(uri, created.view, file.revision);
     return () => {
       if (actions.current.editable && created.isDirty()) {
         actions.current.onDraftChange?.(created.getDoc());
@@ -259,9 +276,9 @@ export function SourceEditor({
     if (!line) return;
     // The pane has to have its height before the editor can scroll to a line,
     // and on the first frame after mount it does not.
-    const frame = requestAnimationFrame(() => editor.current?.revealLine(line));
+    const frame = requestAnimationFrame(() => editor.current?.revealLine(line, column ?? 1));
     return () => cancelAnimationFrame(frame);
-  }, [line, file.text]);
+  }, [line, column, reveal, file.text]);
 
   // Change bars describe uncommitted work; blame answers for the revision
   // this pane shows, so both the working tree and an old commit have one.
@@ -350,9 +367,59 @@ export function SourceEditor({
       })
     : [];
 
+  const symbolMenuItems: ContextItem[] = [];
+  if (symbolMenu) {
+    const pos = symbolMenu.pos;
+    symbolMenuItems.push(
+      {
+        label: t("goToDeclaration"),
+        shortcut: "⌘/Ctrl+B",
+        onClick: () => editor.current?.navigateAt(pos, "definition"),
+      },
+      {
+        label: t("goToImplementation"),
+        shortcut: "⌘/Ctrl+Alt+B",
+        onClick: () => editor.current?.navigateAt(pos, "implementation"),
+      },
+      {
+        label: t("goToTypeDeclaration"),
+        shortcut: "Ctrl+Shift+B",
+        onClick: () => editor.current?.navigateAt(pos, "typeDefinition"),
+      },
+      { separator: true },
+      {
+        label: t("findUsages"),
+        shortcut: "⌥/Alt+F7",
+        onClick: () => editor.current?.navigateAt(pos, "usages"),
+      },
+    );
+  }
+
   return (
-    <div className="source-editor" ref={host} onContextMenu={(event) => event.stopPropagation()}>
+    <div
+      className="source-editor"
+      ref={host}
+      onContextMenu={(event) => {
+        event.stopPropagation();
+        // The gutter owns its own menu (blame, history, copy hash), and the
+        // find bar keeps the text field's menu.
+        if (event.target instanceof Element && event.target.closest(".cm-gutters, .cm-panels")) return;
+        const pos = editor.current?.posAtClient(event.clientX, event.clientY);
+        if (pos == null) return;
+        event.preventDefault();
+        editor.current?.placeCaret(pos);
+        setSymbolMenu({ x: event.clientX, y: event.clientY, pos });
+      }}
+    >
       {menu && <ContextMenu x={menu.x} y={menu.y} items={menuItems} onClose={() => setMenu(null)} />}
+      {symbolMenu && (
+        <ContextMenu
+          x={symbolMenu.x}
+          y={symbolMenu.y}
+          items={symbolMenuItems}
+          onClose={() => setSymbolMenu(null)}
+        />
+      )}
     </div>
   );
 }

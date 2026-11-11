@@ -45,6 +45,7 @@ import { closeBrackets } from "@codemirror/autocomplete";
 import { languages } from "@codemirror/language-data";
 import { lookupTargets, lookupUsages, openNavigationTarget } from "./lsp";
 import {
+  declarationUnderCaret,
   targetPoint,
   type EditorNavigationRequest,
   type NavigationPoint,
@@ -887,6 +888,12 @@ function symbolLinks() {
 /** Everything the source pane needs, with the doc replaced in place. */
 export class SourceEditor {
   readonly view: EditorView;
+  /** Runs one of the IDE navigation commands at a document offset, for the
+   *  pane's context menu. */
+  readonly navigateAt: (
+    pos: number,
+    command: TargetKind | "usages",
+  ) => void;
   private languageConf = new Compartment();
   private wrapConf = new Compartment();
   private annotateConf = new Compartment();
@@ -904,23 +911,48 @@ export class SourceEditor {
     this.annotateExtension = annotateGutter(opts);
     const labels = NAV_LABELS[opts.lang ?? "en"];
 
-    // A declaration first: one target jumps, several open the chooser. With
-    // no server, or none that can answer, the name search is the fallback.
+    // IDEA's Go to Declaration or Usages: a reference jumps to its
+    // declaration, while a declaration answers with its usages instead of
+    // navigating to the line already on screen.
     const goTo = (view: EditorView, pos: number, kind: TargetKind) => {
       const word = wordAt(view, pos);
       if (!word) return;
       const origin = originAt(view, pos, opts.path, opts.revision);
+      const missing = () => {
+        if (kind === "definition") {
+          opts.onNavigate?.({ kind: "text", word, language: opts.language, origin });
+        } else {
+          opts.onNavigate?.({
+            kind: "notice",
+            message: kind === "implementation" ? labels.noImplementation : labels.noType,
+          });
+        }
+      };
       void (async () => {
         const lookup = await lookupTargets(view, pos, kind);
-        if (!lookup.supported || lookup.failed || lookup.targets.length === 0) {
-          if (kind === "definition") {
-            opts.onNavigate?.({ kind: "text", word, language: opts.language, origin });
-          } else {
-            opts.onNavigate?.({
-              kind: "notice",
-              message: kind === "implementation" ? labels.noImplementation : labels.noType,
-            });
+        if (!lookup.supported || lookup.failed) {
+          missing();
+          return;
+        }
+        if (declarationUnderCaret(kind, opts.revision, lookup.targets, opts.path, origin.line, origin.column)) {
+          // The declaration is under the caret. A server that cannot answer
+          // references leaves the jump to the text search, as before.
+          const usages = await lookupUsages(view, pos, lookup.targets);
+          if (!usages.supported || usages.failed) {
+            missing();
+            return;
           }
+          opts.onNavigate?.({
+            kind: "usages",
+            word,
+            targets: usages.targets,
+            definitions: usages.definitions,
+            origin,
+          });
+          return;
+        }
+        if (lookup.targets.length === 0) {
+          missing();
           return;
         }
         if (lookup.targets.length === 1) {
@@ -961,6 +993,11 @@ export class SourceEditor {
           origin,
         });
       })();
+    };
+
+    this.navigateAt = (pos, command) => {
+      if (command === "usages") findUsages(this.view, pos);
+      else goTo(this.view, pos, command);
     };
 
     this.view = new EditorView({
@@ -1012,7 +1049,10 @@ export class SourceEditor {
               },
             },
             {
-              key: "Mod-Shift-b",
+              // IDEA's macOS map binds the type declaration to Ctrl+Shift+B
+              // (Meta+Shift+Click); on Windows and Linux the same chord is
+              // Ctrl+Shift+B, so one binding serves every platform.
+              key: "Ctrl-Shift-b",
               run: (view) => {
                 goTo(view, view.state.selection.main.head, "typeDefinition");
                 return true;
@@ -1092,7 +1132,9 @@ export class SourceEditor {
               // Put the cursor on the click before asking the server, which
               // answers about the cursor, not about a mouse position.
               view.dispatch({ selection: { anchor: pos } });
-              if (event.altKey) findUsages(view, pos);
+              // IDEA's mouse map: Meta/Ctrl+Click is declaration or usages,
+              // Meta/Ctrl+Shift+Click is the type declaration.
+              if (event.shiftKey) goTo(view, pos, "typeDefinition");
               else goTo(view, pos, "definition");
               return true;
             },
@@ -1208,17 +1250,30 @@ export class SourceEditor {
     });
   }
 
-  revealLine(line: number, attempt = 0) {
+  /** The offset under a client point, for the context menu. */
+  posAtClient(x: number, y: number): number | null {
+    return this.view.posAtCoords({ x, y });
+  }
+
+  /** Moves the caret, as a right-click does before its menu opens. */
+  placeCaret(pos: number) {
+    this.view.dispatch({ selection: { anchor: pos } });
+  }
+
+  revealLine(line: number, column = 1, attempt = 0) {
     const doc = this.view.state.doc;
     const target = doc.line(Math.min(Math.max(line, 1), doc.lines));
-    this.view.dispatch({ selection: { anchor: target.from } });
+    // A jump remembers its column, so Back returns to the caret, not merely
+    // to the line.
+    const at = target.from + Math.min(Math.max(column - 1, 0), target.length);
+    this.view.dispatch({ selection: { anchor: at } });
     // A pane that has not been laid out yet cannot scroll anywhere, and a
     // jump usually happens in the frame the document was created in.
     if (this.view.contentDOM.clientHeight === 0 && attempt < 10) {
-      requestAnimationFrame(() => this.revealLine(line, attempt + 1));
+      requestAnimationFrame(() => this.revealLine(line, column, attempt + 1));
       return;
     }
-    this.view.dispatch({ effects: EditorView.scrollIntoView(target.from, { y: "center" }) });
+    this.view.dispatch({ effects: EditorView.scrollIntoView(at, { y: "center" }) });
     this.view.focus();
   }
 

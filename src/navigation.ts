@@ -137,6 +137,63 @@ export function targetKey(target: { path: string; line: number }): string {
   return `${target.path}:${target.line}`;
 }
 
+/** The target whose range covers a 1-based position in a document. A server
+ *  answers a request made on a declaration's own name with the declaration
+ *  itself; IDEA reads that as "the reader is on a declaration" and shows its
+ *  usages instead of navigating to the line already on screen. */
+export function targetAtPosition(
+  targets: NavigationTarget[],
+  path: string,
+  line: number,
+  column: number,
+): NavigationTarget | undefined {
+  return targets.find((target) => {
+    if (target.path !== path) return false;
+    if (line < target.line || line > target.endLine) return false;
+    if (line === target.line && column < target.column) return false;
+    // Protocol ranges are end-exclusive; `endColumn` is the first column
+    // past the name, so a caret there belongs to the next symbol.
+    if (line === target.endLine && column >= target.endColumn) return false;
+    return true;
+  });
+}
+
+/** Whether a declaration request landed on a declaration itself, which is
+ *  when IDEA's Go to Declaration or Usages shows the usages instead. HEAD and
+ *  index panes are snapshots the server's positions do not describe; the
+ *  working tree and an external file are real documents. */
+export function declarationUnderCaret(
+  kind: TargetKind,
+  revision: string,
+  targets: NavigationTarget[],
+  path: string,
+  line: number,
+  column: number,
+): boolean {
+  if (kind !== "definition" || (revision !== "" && revision !== "EXTERNAL")) return false;
+  return targets.some((target) => targetAtPosition([target], path, line, column) !== undefined);
+}
+
+/** The references that are not the declarations themselves. `references`
+ *  with `includeDeclaration` on may repeat the declaration, and IDEA's usage
+ *  count and single-usage shortcut cover references only. */
+export function usageTargets(
+  definitions: NavigationTarget[],
+  references: NavigationTarget[],
+): NavigationTarget[] {
+  return references.filter(
+    (reference) =>
+      !definitions.some(
+        (declaration) =>
+          declaration.uri === reference.uri &&
+          declaration.line === reference.line &&
+          declaration.column === reference.column &&
+          declaration.endLine === reference.endLine &&
+          declaration.endColumn === reference.endColumn,
+      ),
+  );
+}
+
 /** Declarations first, then the references that are not already one. A
  *  language server may or may not include the declaration among the
  *  references, depending on how it reads `includeDeclaration`. */
@@ -183,7 +240,12 @@ export function emptyHistory(): NavigationHistory {
 }
 
 function samePoint(a: NavigationPoint, b: NavigationPoint): boolean {
-  return a.path === b.path && a.line === b.line && (a.revision ?? "") === (b.revision ?? "");
+  return (
+    a.path === b.path &&
+    a.line === b.line &&
+    a.column === b.column &&
+    (a.revision ?? "") === (b.revision ?? "")
+  );
 }
 
 /** Records a place the reader was at. Repeating the current point does

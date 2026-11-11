@@ -80,6 +80,7 @@ import {
   targetKey,
   targetPoint,
   targetsToHits,
+  usageTargets,
   type EditorNavigationRequest,
   type NavigationHistory,
   type NavigationPoint,
@@ -159,6 +160,8 @@ const T = {
     fileSaved: "File saved",
     saveFileFailed: "Could not save the file",
     symbolLookupFailed: "Could not search for that name",
+    noUsages: "No usages of {name} were found.",
+    onlyUsage: "Only one usage found — opened it.",
     rollbackHunkTitle: "Roll back this change",
     rollbackHunkMessage: "Discard this block of changes in {path}?",
     openConflictFailed: "Could not open the conflict",
@@ -400,6 +403,8 @@ const T = {
     fileSaved: "文件已保存",
     saveFileFailed: "无法保存文件",
     symbolLookupFailed: "无法搜索该名称",
+    noUsages: "没有找到 {name} 的引用。",
+    onlyUsage: "只有一处引用，已打开。",
     rollbackHunkTitle: "回滚这段修改",
     rollbackHunkMessage: "要丢弃 {path} 里的这段修改吗?",
     openConflictFailed: "无法打开冲突文件",
@@ -629,7 +634,16 @@ function ToolTabs({
 type Doc = { id: string; title: string } & (
   | { kind: "diff"; diff: FileDiff; opts: DiffOptions }
   | { kind: "three"; three: ThreeWayDiff; opts: DiffOptions }
-  | { kind: "file"; file: SourceFile; revision: string; line?: number }
+  | {
+      kind: "file";
+      file: SourceFile;
+      revision: string;
+      line?: number;
+      /** 1-based caret column beside `line`. */
+      column?: number;
+      /** Changes on every jump so a repeat to the same line re-reveals it. */
+      reveal?: number;
+    }
   | { kind: "commit"; detail: CommitDetail }
   | { kind: "tree"; revision: string; files: RepoFile[] }
 );
@@ -944,8 +958,11 @@ function AppShell({ onLangChange }: { onLangChange: (lang: Lang) => void }) {
     [fail, logAuthor, logFilters, logPath, logLine, logRefs, logSearch, logResult?.commits.length, t],
   );
 
-  const showFileRef = useRef<(path: string, revision?: string, line?: number) => Promise<void>>(async () => {});
-  const showPathRef = useRef<(path: string, revision?: string, line?: number) => Promise<void>>(async () => {});
+  const showFileRef = useRef<(path: string, revision?: string, line?: number, column?: number) => Promise<void>>(async () => {});
+  const showPathRef = useRef<(path: string, revision?: string, line?: number, column?: number) => Promise<void>>(async () => {});
+  // Bumped for every reveal so React re-runs the scroll effect even when a
+  // jump lands on the line and column already in the props.
+  const revealSeq = useRef(0);
 
   const openDoc = useCallback((doc: Doc) => {
     setDocs((prev) => {
@@ -1444,14 +1461,14 @@ function AppShell({ onLangChange }: { onLangChange: (lang: Lang) => void }) {
     }
   };
 
-  const showFile = async (path: string, revision = "", line?: number) => {
+  const showFile = async (path: string, revision = "", line?: number, column?: number) => {
     try {
       const same = docsRef.current.find(
         (doc): doc is Extract<Doc, { kind: "file" }> =>
           doc.kind === "file" && doc.file.path === path && doc.revision === revision,
       );
       if (same) {
-        if (line !== undefined) openDoc({ ...same, line });
+        if (line !== undefined) openDoc({ ...same, line, column, reveal: ++revealSeq.current });
         else setActiveId(same.id);
         return;
       }
@@ -1471,7 +1488,16 @@ function AppShell({ onLangChange }: { onLangChange: (lang: Lang) => void }) {
       const reuse = shared && current !== undefined && !dirtyDocsRef.current.has(current.id);
       const id = reuse ? current.id : shared ? `${sharedId}@${revision || "worktree"}` : `${sharedId}@${revision}`;
       const file = await Git.file(path, revision);
-      openDoc({ id, title: path, kind: "file", file, revision, line });
+      openDoc({
+        id,
+        title: path,
+        kind: "file",
+        file,
+        revision,
+        line,
+        column,
+        reveal: line !== undefined ? ++revealSeq.current : undefined,
+      });
     } catch (err) {
       fail(t("openFileFailed"), err);
     }
@@ -1481,19 +1507,28 @@ function AppShell({ onLangChange }: { onLangChange: (lang: Lang) => void }) {
   /** A file the language server named outside the repository, such as a
    *  standard-library source. It opens read-only, beside the repository
    *  files, and never goes through git. */
-  const showExternal = async (path: string, line?: number) => {
+  const showExternal = async (path: string, line?: number, column?: number) => {
     try {
       const same = docsRef.current.find(
         (doc): doc is Extract<Doc, { kind: "file" }> =>
           doc.kind === "file" && doc.file.path === path && doc.revision === "EXTERNAL",
       );
       if (same) {
-        if (line !== undefined) openDoc({ ...same, line });
+        if (line !== undefined) openDoc({ ...same, line, column, reveal: ++revealSeq.current });
         else setActiveId(same.id);
         return;
       }
       const file = await Git.externalFile(path);
-      openDoc({ id: `external:${path}`, title: baseName(path), kind: "file", file, revision: "EXTERNAL", line });
+      openDoc({
+        id: `external:${path}`,
+        title: baseName(path),
+        kind: "file",
+        file,
+        revision: "EXTERNAL",
+        line,
+        column,
+        reveal: line !== undefined ? ++revealSeq.current : undefined,
+      });
     } catch (err) {
       fail(t("openFileFailed"), err);
     }
@@ -1501,17 +1536,17 @@ function AppShell({ onLangChange }: { onLangChange: (lang: Lang) => void }) {
 
   /** Opens a path from a jump: a file URI arrives absolute, while every
    *  ordinary dock action already speaks git paths. */
-  const showPath = async (path: string, revision = "", line?: number) => {
+  const showPath = async (path: string, revision = "", line?: number, column?: number) => {
     if (revision === "EXTERNAL") {
-      await showExternal(path, line);
+      await showExternal(path, line, column);
       return;
     }
     const target = resolveOpenPath(snapshotRef.current?.state.root ?? "", path);
     if (target.scope === "repo") {
-      await showFile(target.path, revision, line);
+      await showFile(target.path, revision, line, column);
       return;
     }
-    await showExternal(target.path, line);
+    await showExternal(target.path, line, column);
   };
   showPathRef.current = showPath;
 
@@ -1854,7 +1889,7 @@ function AppShell({ onLangChange }: { onLangChange: (lang: Lang) => void }) {
     const point = next.entries[next.index];
     if (!point) return;
     setHistoryState(next);
-    void showPath(point.path, point.revision ?? "", point.line);
+    void showPath(point.path, point.revision ?? "", point.line, point.column);
   };
 
   /** Cmd-click or F12 on a word without a language server: search the
@@ -1874,8 +1909,25 @@ function AppShell({ onLangChange }: { onLangChange: (lang: Lang) => void }) {
   };
 
   /** Fill a language server's answer with the working-tree text of each
-   *  line, so the usage list reads like IDEA's instead of path:line only. */
+   *  line, so the usage list reads like IDEA's instead of path:line only. A
+   *  single usage opens at once, and no usage is a hint rather than an empty
+   *  list, both as IDEA's Show Usages does. */
   const showUsages = async (request: UsageRequest) => {
+    const uses = usageTargets(request.definitions, request.targets);
+    if (uses.length === 0) {
+      notify("info", t("noUsages", { name: request.word }));
+      return;
+    }
+    if (uses.length === 1) {
+      const target = uses[0]!;
+      if (!(await openNavigationTarget(target))) {
+        notify("error", t("openFileFailed"), target.path);
+        return;
+      }
+      recordJump(request.origin, targetPoint(target));
+      notify("info", t("onlyUsage"));
+      return;
+    }
     const seq = ++symbolSeq.current;
     const merged = mergeNavigationTargets(request.definitions, request.targets);
     const definitions = request.definitions.map(targetKey);
@@ -3438,23 +3490,23 @@ function AppShell({ onLangChange }: { onLangChange: (lang: Lang) => void }) {
           definitions={symbol.definitions}
           server={symbol.server}
           onClose={() => setSymbol(null)}
-          onOpen={(path, line) => {
+          onOpen={(hit) => {
             const origin = symbol.origin;
             setSymbol(null);
             void (async () => {
               const target = {
-                uri: toUri(absolutePathFor(path)),
-                path,
-                line,
-                column: 1,
-                endLine: line,
-                endColumn: 2,
+                uri: toUri(absolutePathFor(hit.path)),
+                path: hit.path,
+                line: hit.line,
+                column: hit.column,
+                endLine: hit.line,
+                endColumn: hit.column + 1,
               };
               if (!(await openNavigationTarget(target))) {
-                notify("error", t("openFileFailed"), path);
+                notify("error", t("openFileFailed"), hit.path);
                 return;
               }
-              recordJump(origin, { path, line, column: 1 });
+              recordJump(origin, { path: hit.path, line: hit.line, column: hit.column });
             })();
           }}
         />
@@ -4193,6 +4245,8 @@ function RightPane({
             key={`${active.id}:${active.revision}`}
             file={active.file}
             line={active.line}
+            column={active.column}
+            reveal={active.reveal}
             root={root}
             onShowDiff={() => onOpenDiff(active.file.path, active.revision)}
             onOpenWorkingTree={() => onOpenFile(active.file.path, "")}

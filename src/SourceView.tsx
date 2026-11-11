@@ -90,6 +90,8 @@ function formatSize(bytes: number): string {
 export function SourceView({
   file,
   line,
+  column,
+  reveal,
   root,
   onShowDiff,
   onOpenWorkingTree,
@@ -115,6 +117,10 @@ export function SourceView({
   file: SourceFile;
   /** 1-based line to put the cursor on, for a jump from another file. */
   line?: number;
+  /** 1-based column beside `line`, restored by Back/Forward. */
+  column?: number;
+  /** Changes on every jump, so a repeat re-reveals the line. */
+  reveal?: number;
   /** Absolute path of the repository, for the copy menu's absolute entries. */
   root: string;
   onShowDiff?: () => void;
@@ -277,6 +283,8 @@ export function SourceView({
           file={file}
           root={root}
           line={line}
+          column={column}
+          reveal={reveal}
           wrap={wrap}
           editable={editable}
           lineEnding={lineEnding}
