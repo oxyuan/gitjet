@@ -14,6 +14,7 @@ const T = {
   en: {
     workingTree: "Working Tree",
     index: "Index",
+    external: "External file",
     deletedInWorktree: "deleted in working tree",
     meta: "{language} · {lines} · {size}",
     lines: "{n} lines",
@@ -41,6 +42,7 @@ const T = {
   zh: {
     workingTree: "工作区",
     index: "暂存区",
+    external: "外部文件",
     deletedInWorktree: "工作区中已删除",
     meta: "{language} · {lines} · {size}",
     lines: "{n} 行",
@@ -69,7 +71,8 @@ const T = {
 
 type Translate = (key: keyof typeof T["en"], vars?: Record<string, string | number>) => string;
 
-function revisionLabel(revision: string, t: Translate): string {
+function revisionLabel(revision: string, external: boolean, t: Translate): string {
+  if (external) return t("external");
   if (revision === "") return t("workingTree");
   if (revision === "INDEX") return t("index");
   if (/^[0-9a-f]{7,40}$/i.test(revision)) return revision.slice(0, 8);
@@ -158,10 +161,10 @@ export function SourceView({
 
   const dir = file.path.includes("/") ? file.path.slice(0, file.path.lastIndexOf("/") + 1) : "";
   const name = file.path.slice(dir.length);
-  const revision = revisionLabel(file.revision, t);
+  const revision = revisionLabel(file.revision, file.external, t);
   // Only a live working-tree text file can be edited; the index, a commit and
   // a truncated copy must not be overwritten from this pane.
-  const editable = file.revision === "" && file.exists && !file.binary && !file.truncated;
+  const editable = file.revision === "" && !file.external && file.exists && !file.binary && !file.truncated;
   const lineEnding = detectLineEnding(file.text);
   const handleDirty = (next: boolean) => {
     setDirty(next);
@@ -189,7 +192,7 @@ export function SourceView({
             <span className="path-name">{name}</span>
           </span>
           <span className={cx("revision-chip", file.revision === "" ? "working" : "")}>{revision}</span>
-          {!file.exists && <span className="deleted-badge">{t("deletedInWorktree")}</span>}
+          {!file.exists && !file.external && <span className="deleted-badge">{t("deletedInWorktree")}</span>}
           <span className="muted source-meta">
             {t("meta", {
               language: file.language,
@@ -198,7 +201,7 @@ export function SourceView({
             })}
           </span>
           <span className="spacer" />
-          {file.revision !== "" && onOpenWorkingTree && (
+          {!file.external && file.revision !== "" && onOpenWorkingTree && (
             <button className="toolbar-text-btn" onClick={onOpenWorkingTree} title={t("openWorkingTree")}>
               <Icon name="edit" /> {t("workingTreeButton")}
             </button>
@@ -211,12 +214,12 @@ export function SourceView({
             disabled={!canForward}
             onClick={onForward}
           />
-          {onShowDiff && (
+          {!file.external && onShowDiff && (
             <button className="toolbar-text-btn" onClick={onShowDiff} title={t("showDiff")}>
               <Icon name="diff" /> {t("diff")}
             </button>
           )}
-          {file.revision === "" && onLocalHistory && (
+          {file.revision === "" && !file.external && onLocalHistory && (
             <IconButton icon="clock" title={t("localHistory")} small onClick={onLocalHistory} />
           )}
           <PathCopyButton path={file.path} root={root} line={caret} onCopy={onCopyPath} />
@@ -272,6 +275,7 @@ export function SourceView({
       ) : (
         <SourceEditor
           file={file}
+          root={root}
           line={line}
           wrap={wrap}
           editable={editable}
@@ -289,8 +293,8 @@ export function SourceView({
           onNavigated={onNavigated}
           onHistory={onHistory}
           onCaret={setCaret}
-          onLineHistory={file.revision === "INDEX" ? undefined : onLineHistory}
-          onCommitDiff={onCommitDiff}
+          onLineHistory={file.revision === "INDEX" || file.external ? undefined : onLineHistory}
+          onCommitDiff={file.external ? undefined : onCommitDiff}
           onCopy={onCopyPath}
           onDirtyChange={handleDirty}
           onSave={onSave}

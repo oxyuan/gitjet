@@ -2,6 +2,8 @@ package git
 
 import (
 	"context"
+	"os"
+	"path/filepath"
 	"testing"
 )
 
@@ -65,5 +67,33 @@ func TestLineTextsReadsEachFileOnce(t *testing.T) {
 	})
 	if len(got) != 3 || got[0].Text != "one" || got[1].Text != "two" || got[2].Text != "one" {
 		t.Fatalf("lines = %+v", got)
+	}
+}
+
+func TestExternalFileReadsOutsideTheRepository(t *testing.T) {
+	repo, _ := newTestRepo(t)
+	outside := filepath.Join(t.TempDir(), "lib.go")
+	if err := os.WriteFile(outside, []byte("package lib\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	file, err := repo.ExternalFile(outside)
+	if err != nil {
+		t.Fatalf("ExternalFile: %v", err)
+	}
+	if !file.External || file.Revision != "EXTERNAL" || !file.Exists || file.Text != "package lib\n" {
+		t.Fatalf("file = %+v", file)
+	}
+	if file.Language != "go" {
+		t.Errorf("language = %q", file.Language)
+	}
+	missing, err := repo.ExternalFile(filepath.Join(t.TempDir(), "missing.go"))
+	if err != nil {
+		t.Fatalf("ExternalFile missing: %v", err)
+	}
+	if missing.Exists || !missing.External {
+		t.Errorf("missing = %+v", missing)
+	}
+	if _, err := repo.ExternalFile("relative.go"); err == nil {
+		t.Fatal("ExternalFile accepted a relative path")
 	}
 }

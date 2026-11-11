@@ -58,6 +58,7 @@ import { LangProvider, count, resolveLang, useT, type Lang } from "./i18n";
 import { computeMerge, conflictLabels, resolveSimpleConflicts } from "./merge";
 import { normalizeText } from "./editorText";
 import { gutterDiffOptions } from "./gutter";
+import { isAbsolutePath, joinRoot, resolveOpenPath } from "./paths";
 import { mergeConflictInMemory } from "./conflictMerge";
 import { LogDock, type LogFilters } from "./LogDock";
 import { FileTree, type ChangeView } from "./FileTree";
@@ -68,6 +69,7 @@ import { QuickOpen } from "./QuickOpen";
 import { SourceView } from "./SourceView";
 import { SymbolPanel } from "./SymbolPanel";
 import { TargetPopup } from "./TargetPopup";
+import { NotificationCenter, type Notice } from "./NotificationCenter";
 import { disconnectLSP, lspServerName, openNavigationTarget, setDocumentOpener, toUri } from "./lsp";
 import {
   canStep,
@@ -743,6 +745,9 @@ function AppShell({ onLangChange }: { onLangChange: (lang: Lang) => void }) {
   const [quickOpen, setQuickOpen] = useState(false);
   const [busy, setBusy] = useState(0);
   const [toast, setToast] = useState<{ kind: "info" | "success" | "error"; title: string; message?: string } | null>(null);
+  // The session's notification history, newest first; the bell in the status
+  // bar opens it, and the toast above it is only the transient view.
+  const [notices, setNotices] = useState<Notice[]>([]);
   const [dialog, setDialog] = useState<Dialog | null>(null);
   const [op, setOp] = useState<OperationState | null>(null);
   const [opOpen, setOpOpen] = useState(false);
@@ -800,6 +805,7 @@ function AppShell({ onLangChange }: { onLangChange: (lang: Lang) => void }) {
   const authorCache = useRef<Map<string, AuthorOption>>(new Map());
   const opLines = useRef<string[]>([]);
   const lastOperationError = useRef("");
+  const noticeSeq = useRef(0);
   const tRef = useRef(t);
   tRef.current = t;
 
@@ -836,6 +842,8 @@ function AppShell({ onLangChange }: { onLangChange: (lang: Lang) => void }) {
   const activeDoc = docs.find((d) => d.id === activeId) ?? null;
 
   const notify = useCallback((kind: "info" | "success" | "error", title: string, message?: string) => {
+    const notice: Notice = { id: ++noticeSeq.current, kind, title, message, at: Date.now() };
+    setNotices((prev) => [notice, ...prev].slice(0, 200));
     setToast({ kind, title, message });
   }, []);
 
@@ -937,6 +945,7 @@ function AppShell({ onLangChange }: { onLangChange: (lang: Lang) => void }) {
   );
 
   const showFileRef = useRef<(path: string, revision?: string, line?: number) => Promise<void>>(async () => {});
+  const showPathRef = useRef<(path: string, revision?: string, line?: number) => Promise<void>>(async () => {});
 
   const openDoc = useCallback((doc: Doc) => {
     setDocs((prev) => {
@@ -1128,7 +1137,7 @@ function AppShell({ onLangChange }: { onLangChange: (lang: Lang) => void }) {
   // the reader would have opened by hand.
   useEffect(() => {
     setDocumentOpener(async (path) => {
-      await showFileRef.current(path, "");
+      await showPathRef.current(path, "");
     });
     return () => setDocumentOpener(null);
   }, []);
@@ -1469,6 +1478,49 @@ function AppShell({ onLangChange }: { onLangChange: (lang: Lang) => void }) {
   };
   showFileRef.current = showFile;
 
+  /** A file the language server named outside the repository, such as a
+   *  standard-library source. It opens read-only, beside the repository
+   *  files, and never goes through git. */
+  const showExternal = async (path: string, line?: number) => {
+    try {
+      const same = docsRef.current.find(
+        (doc): doc is Extract<Doc, { kind: "file" }> =>
+          doc.kind === "file" && doc.file.path === path && doc.revision === "EXTERNAL",
+      );
+      if (same) {
+        if (line !== undefined) openDoc({ ...same, line });
+        else setActiveId(same.id);
+        return;
+      }
+      const file = await Git.externalFile(path);
+      openDoc({ id: `external:${path}`, title: baseName(path), kind: "file", file, revision: "EXTERNAL", line });
+    } catch (err) {
+      fail(t("openFileFailed"), err);
+    }
+  };
+
+  /** Opens a path from a jump: a file URI arrives absolute, while every
+   *  ordinary dock action already speaks git paths. */
+  const showPath = async (path: string, revision = "", line?: number) => {
+    if (revision === "EXTERNAL") {
+      await showExternal(path, line);
+      return;
+    }
+    const target = resolveOpenPath(snapshotRef.current?.state.root ?? "", path);
+    if (target.scope === "repo") {
+      await showFile(target.path, revision, line);
+      return;
+    }
+    await showExternal(target.path, line);
+  };
+  showPathRef.current = showPath;
+
+  /** The absolute path a git path names, for a URI the page builds itself. */
+  const absolutePathFor = (path: string): string => {
+    const root = snapshotRef.current?.state.root ?? "";
+    return isAbsolutePath(path) || root === "" ? path : joinRoot(root, path);
+  };
+
   const diffOptionsForEntry = (entry: FileEntry): DiffOptions => ({
     path: entry.path,
     target: entry.staged ? "staged" : "worktree",
@@ -1802,7 +1854,7 @@ function AppShell({ onLangChange }: { onLangChange: (lang: Lang) => void }) {
     const point = next.entries[next.index];
     if (!point) return;
     setHistoryState(next);
-    void showFile(point.path, point.revision ?? "", point.line);
+    void showPath(point.path, point.revision ?? "", point.line);
   };
 
   /** Cmd-click or F12 on a word without a language server: search the
@@ -3366,6 +3418,7 @@ function AppShell({ onLangChange }: { onLangChange: (lang: Lang) => void }) {
           </>
         )}
         <span className="status-item">git {snapshot?.state.gitVersion || boot.version}</span>
+        <NotificationCenter notices={notices} onClear={() => setNotices([])} />
       </footer>
 
       {quickOpen && (
@@ -3390,7 +3443,7 @@ function AppShell({ onLangChange }: { onLangChange: (lang: Lang) => void }) {
             setSymbol(null);
             void (async () => {
               const target = {
-                uri: toUri(path),
+                uri: toUri(absolutePathFor(path)),
                 path,
                 line,
                 column: 1,

@@ -10334,3 +10334,162 @@ body.resizing-row .log-detail-split::after {
 .symbol-filter:focus {
   border-color: var(--accent);
 }
+
+/* IDEA's notification bell lives at the end of the status bar: the count is
+   what arrived since it was last read, and the panel is the session's
+   history rather than one disappearing toast. */
+.notification-bell {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 20px;
+  margin-left: -2px;
+  padding: 0;
+  border: 0;
+  border-radius: 5px;
+  background: transparent;
+  color: var(--muted);
+  cursor: pointer;
+}
+
+.notification-bell:hover,
+.notification-bell.unread {
+  background: var(--hover);
+  color: var(--fg);
+}
+
+.notification-badge {
+  position: absolute;
+  top: -1px;
+  right: -2px;
+  min-width: 12px;
+  height: 12px;
+  padding: 0 3px;
+  border-radius: 999px;
+  background: var(--accent);
+  color: #fff;
+  font-family: var(--font-mono);
+  font-size: 8px;
+  line-height: 12px;
+  text-align: center;
+}
+
+.notification-panel {
+  position: fixed;
+  right: 10px;
+  bottom: 36px;
+  z-index: 130;
+  display: flex;
+  flex-direction: column;
+  width: min(390px, calc(100vw - 24px));
+  max-height: min(62vh, 540px);
+  overflow: hidden;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: color-mix(in srgb, var(--panel-raised) 96%, transparent);
+  box-shadow: var(--shadow-lg);
+  backdrop-filter: saturate(1.4) blur(24px);
+  -webkit-backdrop-filter: saturate(1.4) blur(24px);
+}
+
+.notification-head {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 10px;
+  border-bottom: 1px solid var(--border);
+  color: var(--fg-soft);
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+}
+
+.notification-action {
+  padding: 2px 6px;
+  border: 0;
+  border-radius: 4px;
+  background: transparent;
+  color: var(--muted);
+  font: inherit;
+  font-weight: 400;
+  cursor: pointer;
+}
+
+.notification-action:hover:not(:disabled) {
+  background: var(--hover);
+  color: var(--fg);
+}
+
+.notification-action:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+
+.notification-list {
+  overflow-y: auto;
+}
+
+.notification-item {
+  display: grid;
+  grid-template-columns: 18px minmax(0, 1fr);
+  gap: 7px;
+  padding: 8px 10px;
+  border-top: 1px solid var(--border);
+}
+
+.notification-item:first-child {
+  border-top: 0;
+}
+
+.notification-kind {
+  padding-top: 1px;
+  color: var(--muted);
+}
+
+.notification-item.success .notification-kind {
+  color: var(--success);
+}
+
+.notification-item.error .notification-kind {
+  color: var(--error);
+}
+
+.notification-item.info .notification-kind {
+  color: var(--accent);
+}
+
+.notification-title {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  font-size: 11.5px;
+  font-weight: 600;
+}
+
+.notification-title time {
+  margin-left: auto;
+  color: var(--muted-2);
+  font-family: var(--font-mono);
+  font-size: 9.5px;
+  font-weight: 400;
+  white-space: nowrap;
+}
+
+.notification-message {
+  margin-top: 3px;
+  max-height: 140px;
+  overflow-y: auto;
+  color: var(--muted);
+  font-size: 10.5px;
+  line-height: 1.45;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.notification-empty {
+  padding: 18px 12px;
+  color: var(--muted);
+  font-size: 11px;
+}

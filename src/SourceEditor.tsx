@@ -5,6 +5,7 @@ import { annotateDate, changeRanges, type ChangeRange } from "./annotate";
 import { gutterDiffOptions } from "./gutter";
 import { connectLSP, lspServes, registerView, unregisterView, toUri } from "./lsp";
 import type { EditorNavigationRequest, NavigationPoint } from "./navigation";
+import { isAbsolutePath, joinRoot } from "./paths";
 import { blameMenuItems } from "./blameMenu";
 import { ContextMenu, useStoredState, type ContextItem } from "./ui";
 import { useLang, useT } from "./i18n";
@@ -41,6 +42,7 @@ const T = {
  *  SourceView, which owns the document's chrome. */
 export function SourceEditor({
   file,
+  root,
   line,
   wrap,
   editable = false,
@@ -64,6 +66,8 @@ export function SourceEditor({
   navRef,
 }: {
   file: SourceFile;
+  /** Absolute path of the repository, for the file's URI and external paths. */
+  root: string;
   line?: number;
   wrap: boolean;
   /** Working-tree files take edits; the index and commits do not. */
@@ -187,8 +191,10 @@ export function SourceEditor({
   const [annotate, setAnnotate] = useStoredState<boolean>("gitjet.annotate", false);
   const [ignoreWs, setIgnoreWs] = useStoredState<boolean>("gitjet.blameIgnoreWhitespace", false);
   // Change bars belong to the working tree; blame belongs to whichever
-  // version of the file this pane shows.
-  const workingTree = file.revision === "";
+  // version of the file this pane shows. A library file outside the
+  // repository has neither.
+  const workingTree = file.revision === "" && !file.external;
+  const absolutePath = isAbsolutePath(file.path) ? file.path : joinRoot(root, file.path);
 
   // One editor per mounted document; the document itself is swapped in place
   // so scroll position and the gutter survive a reload.
@@ -224,7 +230,10 @@ export function SourceEditor({
           : { date: annotateDate(blame.time), author: blame.author },
     });
     editor.current = created;
-    const uri = toUri(file.path);
+    // The language server speaks absolute file URIs; registering a
+    // repository-relative path made every server answer look like a
+    // different file, so a jump opened a tab that could not load.
+    const uri = toUri(absolutePath);
     registerView(uri, created.view);
     return () => {
       if (actions.current.editable && created.isDirty()) {
@@ -258,7 +267,7 @@ export function SourceEditor({
   // this pane shows, so both the working tree and an old commit have one.
   useEffect(() => {
     let cancelled = false;
-    if (file.binary || !file.exists) {
+    if (file.binary || !file.exists || file.external) {
       setChanges([]);
       setBlame(null);
       return;
@@ -303,9 +312,9 @@ export function SourceEditor({
       // checked only once a session exists. A historical revision must not
       // register its text under the working-tree URI: the server would then
       // answer about a document that is not on disk.
-      if (cancelled || !client || !editor.current || file.revision !== "" || !lspServes(file.language)) return;
+      if (cancelled || !client || !editor.current || (!file.external && file.revision !== "") || !lspServes(file.language)) return;
       const languageId = file.language === "tsx" ? "typescriptreact" : file.language === "jsx" ? "javascriptreact" : file.language;
-      editor.current.withExtension(client.plugin(toUri(file.path), languageId));
+      editor.current.withExtension(client.plugin(toUri(absolutePath), languageId));
     });
     return () => {
       cancelled = true;

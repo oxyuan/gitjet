@@ -1,5 +1,5 @@
 import { describe, expect, it } from "bun:test";
-import { baseName, joinRoot, pathChoices, quoteForShell } from "./paths";
+import { baseName, isAbsolutePath, joinRoot, pathChoices, quoteForShell, repoRelative, resolveOpenPath } from "./paths";
 
 describe("joinRoot", () => {
   it("joins a posix root and a git path", () => {
@@ -73,5 +73,58 @@ describe("pathChoices", () => {
       key: "absolute",
       value: "src/diff.ts",
     });
+  });
+});
+
+describe("absolute paths and the repository", () => {
+  it("knows what disk paths look like", () => {
+    expect(isAbsolutePath("/repo/a.ts")).toBe(true);
+    expect(isAbsolutePath("C:\\repo\\a.ts")).toBe(true);
+    expect(isAbsolutePath("C:/repo/a.ts")).toBe(true);
+    expect(isAbsolutePath("\\\\server\\share\\a.ts")).toBe(true);
+    expect(isAbsolutePath("src/a.ts")).toBe(false);
+  });
+
+  it("turns an absolute path inside the repository into a git path", () => {
+    expect(repoRelative("/Users/me/repo", "/Users/me/repo/src/a.ts")).toBe("src/a.ts");
+    expect(repoRelative("/Users/me/repo/", "/Users/me/repo/src/a.ts")).toBe("src/a.ts");
+    expect(repoRelative("/Users/me/repo", "/Users/me/repo2/a.ts")).toBeNull();
+    expect(repoRelative("/Users/me/repo", "/usr/local/go/src/fmt/print.go")).toBeNull();
+    expect(repoRelative("/Users/me/repo", "src/a.ts")).toBeNull();
+  });
+
+  it("handles Windows separators and case", () => {
+    expect(repoRelative("C:\\work\\repo", "C:/work/repo/src/a.ts")).toBe("src/a.ts");
+    expect(repoRelative("C:\\work\\repo", "c:\\WORK\\repo\\src\\a.ts")).toBe("src/a.ts");
+    expect(repoRelative("C:\\work\\repo", "C:\\work\\other\\a.ts")).toBeNull();
+  });
+});
+
+describe("resolveOpenPath", () => {
+  it("keeps a git path as it is", () => {
+    expect(resolveOpenPath("/Users/me/repo", "src/a.ts")).toEqual({ scope: "repo", path: "src/a.ts" });
+  });
+
+  it("turns an absolute repository path into a git path", () => {
+    expect(resolveOpenPath("/Users/me/repo", "/Users/me/repo/src/a.ts")).toEqual({
+      scope: "repo",
+      path: "src/a.ts",
+    });
+  });
+
+  it("opens a path outside the repository as an external file", () => {
+    expect(resolveOpenPath("/Users/me/repo", "/usr/local/go/src/fmt/print.go")).toEqual({
+      scope: "external",
+      path: "/usr/local/go/src/fmt/print.go",
+    });
+  });
+});
+
+describe("pathChoices outside the repository", () => {
+  it("keeps an external absolute path as the absolute choice", () => {
+    const absolute = pathChoices({ path: "/usr/local/go/src/fmt/print.go", root: "/repo" }).find(
+      (choice) => choice.key === "absolute",
+    );
+    expect(absolute?.value).toBe("/usr/local/go/src/fmt/print.go");
   });
 });

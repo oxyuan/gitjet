@@ -1973,7 +1973,7 @@ function PushFilePreviewDialog({
           ) : source ? (
             <div className="pushd-preview-file">
               {source.truncated && <div className="diff-truncated">{t("push.fileTruncated")}</div>}
-              <SourceEditor file={source} wrap={diffWrap} />
+              <SourceEditor file={source} root={root} wrap={diffWrap} />
             </div>
           ) : null}
         </div>

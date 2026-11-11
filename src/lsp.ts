@@ -10,6 +10,7 @@ import {
 } from "@codemirror/lsp-client";
 import { Git, events } from "./mygo";
 import { normalizeTargets, type NavigationTarget, type TargetKind } from "./navigation";
+import { repoRelative } from "./paths";
 
 /** One message the Go side relays from the language server. */
 type Envelope = { id: string; message?: string; closed?: boolean; error?: string };
@@ -44,6 +45,11 @@ function encodePath(path: string): string {
 const openViews = new Map<string, Set<EditorView>>();
 const pending = new Map<string, ((view: EditorView | null) => void)[]>();
 
+/** Windows file URIs are case-insensitive; the rest are not. */
+function viewKey(uri: string): string {
+  return /^file:\/\/\/[A-Za-z]:\//.test(uri) ? uri.toLowerCase() : uri;
+}
+
 let openDocument: ((path: string) => Promise<void>) | null = null;
 
 /** The app supplies how to put a file on screen; the client needs it for
@@ -54,25 +60,27 @@ export function setDocumentOpener(opener: ((path: string) => Promise<void>) | nu
 
 /** Registers a mounted editor for a URI, and wakes anyone waiting for it. */
 export function registerView(uri: string, view: EditorView) {
-  const views = openViews.get(uri) ?? new Set();
+  const key = viewKey(uri);
+  const views = openViews.get(key) ?? new Set();
   views.add(view);
-  openViews.set(uri, views);
-  const waiting = pending.get(uri);
+  openViews.set(key, views);
+  const waiting = pending.get(key);
   if (waiting) {
-    pending.delete(uri);
+    pending.delete(key);
     for (const resolve of waiting) resolve(view);
   }
 }
 
 export function unregisterView(uri: string, view: EditorView) {
-  const views = openViews.get(uri);
+  const key = viewKey(uri);
+  const views = openViews.get(key);
   if (!views) return;
   views.delete(view);
-  if (views.size === 0) openViews.delete(uri);
+  if (views.size === 0) openViews.delete(key);
 }
 
 function firstView(uri: string, prefer?: EditorView): EditorView | null {
-  const views = openViews.get(uri);
+  const views = openViews.get(viewKey(uri));
   if (!views || views.size === 0) return null;
   if (prefer && views.has(prefer)) return prefer;
   return views.values().next().value ?? null;
@@ -94,14 +102,15 @@ async function ensureView(uri: string): Promise<EditorView | null> {
   const existing = firstView(uri);
   if (existing) return existing;
   if (!openDocument) return null;
+  const key = viewKey(uri);
   const { promise, resolve } = deferred<EditorView | null>();
-  const list = pending.get(uri) ?? [];
+  const list = pending.get(key) ?? [];
   list.push(resolve);
-  pending.set(uri, list);
+  pending.set(key, list);
   setTimeout(() => {
-    const remaining = pending.get(uri);
+    const remaining = pending.get(key);
     if (!remaining) return;
-    pending.delete(uri);
+    pending.delete(key);
     for (const settle of remaining) settle(firstView(uri));
   }, 3000);
   void openDocument(fromUri(uri));
@@ -201,6 +210,7 @@ let client: LSPClient | null = null;
 let starting: Promise<LSPClient | null> | null = null;
 let serverName = "";
 let serverLanguage = "";
+let repositoryRoot = "";
 
 /** What the probe found, for the UI to explain itself. */
 export function lspServerName(): string {
@@ -243,6 +253,7 @@ export function connectLSP(): Promise<LSPClient | null> {
     serverLanguage = server.language;
     if (!server.installed) return null;
     const info = await Git.lspStart();
+    repositoryRoot = info.root;
     const next = new LSPClient({
       rootUri: toUri(info.root),
       extensions: languageServerExtensions(),
@@ -271,6 +282,7 @@ export async function disconnectLSP() {
   const current = client;
   client = null;
   starting = null;
+  repositoryRoot = "";
   openViews.clear();
   if (current) current.disconnect();
   await Git.lspStop().catch(() => {});
@@ -311,6 +323,13 @@ function pluginFor(view: EditorView): LSPPlugin | null {
   return LSPPlugin.get(view);
 }
 
+/** A server's file URI as the page names it: a git path inside the
+ *  repository, an absolute path for a library outside it. */
+function displayPath(uri: string): string {
+  const absolute = fromUri(uri);
+  return repoRelative(repositoryRoot, absolute) ?? absolute;
+}
+
 /** Asks the server for the definitions (or implementations, or types) at a
  *  position. Never throws: a server that errors reads as a miss. */
 export async function lookupTargets(
@@ -329,7 +348,7 @@ export async function lookupTargets(
       textDocument: { uri: plugin.uri },
       position: plugin.toPosition(pos),
     });
-    return { supported: true, failed: false, targets: normalizeTargets(result, fromUri) };
+    return { supported: true, failed: false, targets: normalizeTargets(result, displayPath) };
   } catch {
     return { supported: true, failed: true, targets: [] };
   }
@@ -363,8 +382,8 @@ export async function lookupUsages(view: EditorView, pos: number): Promise<LspUs
   return {
     supported: true,
     failed: !usages.ok,
-    targets: usages.ok ? normalizeTargets(usages.result, fromUri) : [],
-    definitions: definitions ? normalizeTargets(definitions, fromUri) : [],
+    targets: usages.ok ? normalizeTargets(usages.result, displayPath) : [],
+    definitions: definitions ? normalizeTargets(definitions, displayPath) : [],
   };
 }
 
@@ -383,9 +402,10 @@ export async function openNavigationTarget(
   target: NavigationTarget,
   prefer?: EditorView,
 ): Promise<boolean> {
-  // The server's URI and the editor's registration may encode a path
-  // differently; both name the same file, so re-encode from the path.
-  const uri = toUri(target.path);
+  // Open the server's own file, not the display path: a library target is
+  // absolute, and a repository target is relative, but both have a URI.
+  // Re-encode so the view registration and this key agree.
+  const uri = toUri(fromUri(target.uri));
   const view = firstView(uri, prefer) ?? (await ensureView(uri));
   if (!view) return false;
   const anchor = offsetFor(view, target.line, target.column);

@@ -46,7 +46,7 @@ There is no router, no state library, no ORM: dock/tab/dialog state lives in
 |`internal/git/`|Git execution and parsing: `git.go` (spawn/env/paths), `status.go`, `diff.go`, `log.go`, `actions.go`, `blame.go`, `console.go`, `files.go`, `repoinfo.go`, `rewrite.go` (commit plan replay), `repo_extra.go` (worktrees, cleanup, submodules, LFS, shallow), `lifecycle.go` (clone/init), `remotes.go`, `lines.go` (line-level patches), `patch.go` (patches and shelves), `update.go` (update/push subsets), `commit_extra.go` (undo, fixup, commit checks), `localhistory.go` (content snapshots), `commit_selected.go` (the commit machinery: temporary index, real `git commit`), `cherry.go` (patch-id marks), `images.go` (image bytes), `trace.go` (command echo)|
 |`internal/proc/`|`HideConsole` (`internal/proc`, `CREATE_NO_WINDOW` on Windows): applied to every console child GitJet starts|
 |`internal/app/`|Host: `run.go` (window/menu/events, recents, window tracking), `contextmenu.go` (the page's right-click menu), `service.go` (bound services, poll), `settings.go` (`core`, persistence), `i18n.go`, `lsp.go` (language server bridge)|
-|`src/`|React UI; `*.test.ts` next to the module under test. `EditHistoryDialog.tsx` (rewrite plan) and `RepoExtrasDialog.tsx` (worktrees/submodules/LFS) are the only standalone dialogs; the rest live in `Dialogs.tsx`. Navigation is `navigation.ts` (LSP location normalization, usage grouping and history), `TargetPopup.tsx` (the multiple-declaration chooser) and `SymbolPanel.tsx` (the grouped, filtered usage list)|
+|`src/`|React UI; `*.test.ts` next to the module under test. `EditHistoryDialog.tsx` (rewrite plan) and `RepoExtrasDialog.tsx` (worktrees/submodules/LFS) are the only standalone dialogs; the rest live in `Dialogs.tsx`. Navigation is `navigation.ts` (LSP location normalization, usage grouping and history), `TargetPopup.tsx` (the multiple-declaration chooser), `SymbolPanel.tsx` (the grouped, filtered usage list) and `NotificationCenter.tsx` (the status bar bell and session notice history)|
 |`src/mygo.ts`|**Generated** bindings — never hand-edit|
 |`resources/`|`icon.png` only, copied into the bundle by MyGo|
 |`dist/`, `build/`, `.mygo/`|Build output, gitignored|
@@ -324,6 +324,10 @@ use it only for layout work. Vite's port is pinned to 5173 in **both**
   single `.notice-stack` in the bottom-right, and both `Toast` and
   `OperationDock` portal into it. Never give a new banner its own
   `position: fixed` corner — add it to the stack and give it an `order`.
+- Every `notify()` also appends to `App`'s session notice list, which
+  `NotificationCenter` shows from the status bar's bell (unread count,
+  timestamps, full message). The toast is only the transient view; do not
+  bypass `notify` for an error the reader may need later.
 - A tab's `editor-tab-kind` badge is tinted by its own kind colour through
   `currentColor`, so diff, source, merge and commit tabs read apart at a
   glance; the active tab strengthens its kind's tint, it does not turn accent.
@@ -424,6 +428,13 @@ use it only for layout work. Vite's port is pinned to 5173 in **both**
   process over `events.gitLsp` (no sockets, no workers). Without a server,
   `Git.searchSymbol` (git grep) backs the same jumps, classified by
   `src/symbols.ts`.
+- Editors register the **absolute** file URI (`joinRoot(root, file.path)`),
+  because that is what a server returns. A jump's display path is a git path
+  when it is under the root and absolute when it is not; `resolveOpenPath`
+  (`src/paths.ts`) makes that decision, and a target outside the repository
+  opens read-only through `Git.ExternalFile` (revision `EXTERNAL`) instead of
+  failing `cleanPath`. `openNavigationTarget` opens `fromUri(target.uri)`,
+  never the display path.
 - Navigation is app-owned, not the LSP package's commands: `lookupTargets`
   (`definition`/`implementation`/`typeDefinition`) and `lookupUsages` in
   `src/lsp.ts` return normalized locations from `src/navigation.ts`. One

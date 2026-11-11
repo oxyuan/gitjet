@@ -32,6 +32,45 @@ export function joinRoot(root: string, path: string): string {
   return `${base}${sep}${path.replace(/^\/+/, "").split("/").join(sep)}`;
 }
 
+/** True for a path that names a place on disk rather than a git path. */
+export function isAbsolutePath(path: string): boolean {
+  return path.startsWith("/") || path.startsWith("\\\\") || /^[A-Za-z]:[\\/]/.test(path);
+}
+
+/** The part of an absolute `path` below `root`, or null when it is outside.
+ *  The answer always uses `/`, the way git names paths. */
+export function repoRelative(root: string, path: string): string | null {
+  if (!root || !isAbsolutePath(path)) return null;
+  const windows = isWindowsRoot(root);
+  const sep = windows ? "\\" : "/";
+  const normalize = (value: string) => {
+    const slashed = windows ? value.replace(/\//g, "\\") : value;
+    return slashed.replace(/[\\/]+$/, "");
+  };
+  const base = normalize(root);
+  const file = normalize(path);
+  if (base === "") return null;
+  const inside = windows
+    ? file.toLowerCase().startsWith((base + sep).toLowerCase())
+    : file.startsWith(base + sep);
+  if (!inside) return null;
+  return file.slice(base.length + 1).split(sep).join("/");
+}
+
+/** How the dock should open a path a jump named: a git path inside the
+ *  repository, or an absolute library file outside it. */
+export type OpenPath =
+  | { scope: "repo"; path: string }
+  | { scope: "external"; path: string };
+
+export function resolveOpenPath(root: string, path: string): OpenPath {
+  if (!isAbsolutePath(path)) return { scope: "repo", path };
+  const relative = repoRelative(root, path);
+  return relative !== null && relative !== ""
+    ? { scope: "repo", path: relative }
+    : { scope: "external", path };
+}
+
 /** Last segment of a git path (`src/diff.ts` -> `diff.ts`). */
 export function baseName(path: string): string {
   const cut = path.lastIndexOf("/");
@@ -52,7 +91,11 @@ export function quoteForShell(path: string): string {
  * when a line is known.
  */
 export function pathChoices(input: { path: string; root: string; line?: number }): PathChoice[] {
-  const absolute = input.root ? joinRoot(input.root, input.path) : input.path;
+  const absolute = isAbsolutePath(input.path)
+    ? input.path
+    : input.root
+      ? joinRoot(input.root, input.path)
+      : input.path;
   const name = baseName(input.path);
   const line = input.line && input.line > 0 ? input.line : 0;
   const out: PathChoice[] = [

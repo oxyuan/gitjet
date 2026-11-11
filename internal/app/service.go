@@ -1813,6 +1813,16 @@ func (g *Git) File(path, revision string) (git.SourceFile, error) {
 	return repo.FileContent(context.Background(), path, revision)
 }
 
+// ExternalFile reads one file outside the repository, for a declaration a
+// language server reported in a library. The page shows it read-only.
+func (g *Git) ExternalFile(path string) (git.SourceFile, error) {
+	repo, err := g.c.currentRepo()
+	if err != nil {
+		return git.SourceFile{}, err
+	}
+	return repo.ExternalFile(path)
+}
+
 // LineTexts reads the working-tree lines a usage list wants to preview. It
 // answers one entry per readable line, in the order asked.
 func (g *Git) LineTexts(refs []git.LineRef) ([]git.LineText, error) {

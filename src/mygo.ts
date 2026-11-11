@@ -638,6 +638,7 @@ export interface SourceFile {
   truncated: boolean;
   size: number;
   language: string;
+  external: boolean;
 }
 
 export interface Stash {
@@ -1035,6 +1036,13 @@ export const Git = {
   /** ExternalDiff opens the user's difftool for one file. */
   externalDiff(opts: DiffOptions): Promise<string> {
     return call("Git.ExternalDiff", opts);
+  },
+  /**
+   * ExternalFile reads one file outside the repository, for a declaration a
+   * language server reported in a library. The page shows it read-only.
+   */
+  externalFile(path: string): Promise<SourceFile> {
+    return call("Git.ExternalFile", path);
   },
   /** Fetch fetches and streams git's output. */
   fetch(opts: FetchOptions, out: Channel<string>): Promise<string> {

@@ -19,6 +19,9 @@ type SourceFile struct {
 	Truncated bool   `json:"truncated"`
 	Size      int64  `json:"size"`
 	Language  string `json:"language"`
+	// External marks a read-only file outside the repository, such as a
+	// language server's answer in a standard library.
+	External bool `json:"external"`
 }
 
 // RepoFile is a file in the working tree, tracked or not.
@@ -154,6 +157,44 @@ func (r *Repo) FileContent(ctx context.Context, path, revision string) (SourceFi
 	out.Exists = true
 	out.Text = text
 	out.Truncated = truncated
+	return out, nil
+}
+
+// ExternalFile reads one file outside the repository, for a declaration the
+// language server reported in a standard library or another dependency. It is
+// read-only in the page and never goes through git; only regular files are
+// read, and the source viewer's 8 MiB cap applies.
+func (r *Repo) ExternalFile(path string) (SourceFile, error) {
+	if !filepath.IsAbs(path) {
+		return SourceFile{}, errors.New("an external file needs an absolute path")
+	}
+	clean := filepath.Clean(path)
+	out := SourceFile{
+		Path:     filepath.ToSlash(clean),
+		Revision: "EXTERNAL",
+		External: true,
+		Language: languageOf(clean),
+	}
+	const limit = 8 << 20
+	st, err := os.Stat(clean)
+	if err != nil || !st.Mode().IsRegular() {
+		return out, nil
+	}
+	out.Exists = true
+	out.Size = st.Size()
+	if st.Size() > int64(limit) {
+		out.Truncated = true
+		return out, nil
+	}
+	body, err := os.ReadFile(clean)
+	if err != nil {
+		return SourceFile{}, err
+	}
+	if looksBinary(string(body)) {
+		out.Binary = true
+		return out, nil
+	}
+	out.Text = string(body)
 	return out, nil
 }
 
