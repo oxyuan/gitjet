@@ -96,6 +96,12 @@ const PATHS: Record<string, ReactNode> = {
       <path d="m10.3 10.3 3.5 3.5" />
     </>
   ),
+  locate: (
+    <>
+      <circle cx="8" cy="8" r="3.1" />
+      <path d="M8 1.8v2.1M8 12.1v2.1M1.8 8h2.1M12.1 8h2.1" />
+    </>
+  ),
   close: <path d="m3.5 3.5 9 9M12.5 3.5l-9 9" />,
   chevronDown: <path d="m4.2 6 3.8 3.8L11.8 6" />,
   chevronRight: <path d="m6 4.2 3.8 3.8L6 11.8" />,

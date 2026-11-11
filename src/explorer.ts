@@ -85,3 +85,19 @@ export function visibleFiles<T extends { path: string }>(
   walk(buildChangeTree(files));
   return shown;
 }
+
+/**
+ * Every directory above a file, outermost first, as the keys `buildChangeTree`
+ * uses. A folded chain is keyed by its outermost directory, so adding every
+ * prefix opens the row that covers it.
+ */
+export function ancestorDirs(path: string): string[] {
+  const dirs: string[] = [];
+  let prefix = "";
+  const parts = path.split("/");
+  for (let i = 0; i < parts.length - 1; i++) {
+    prefix = prefix === "" ? parts[i]! : `${prefix}/${parts[i]!}`;
+    dirs.push(prefix);
+  }
+  return dirs;
+}

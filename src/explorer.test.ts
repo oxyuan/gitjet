@@ -1,6 +1,6 @@
 import { describe, expect, it } from "bun:test";
 import { buildChangeTree } from "./changes";
-import { expandedTo, filterFiles, matchIndices, visibleFiles } from "./explorer";
+import { ancestorDirs, expandedTo, filterFiles, matchIndices, visibleFiles } from "./explorer";
 
 const files = [
   { path: "src/App.tsx" },
@@ -36,6 +36,17 @@ describe("expandedTo", () => {
     // A directory holding nothing but another directory is folded into one
     // row, so "internal/git" is the key that covers both.
     expect([...keys].sort()).toEqual(["internal", "src"]);
+  });
+});
+
+describe("ancestorDirs", () => {
+  it("lists every folder above a file, outermost first", () => {
+    expect(ancestorDirs("internal/git/files.go")).toEqual(["internal", "internal/git"]);
+    expect(ancestorDirs("src/App.tsx")).toEqual(["src"]);
+  });
+
+  it("has no folders for a root file", () => {
+    expect(ancestorDirs("readme.md")).toEqual([]);
   });
 });
 

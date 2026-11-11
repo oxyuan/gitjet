@@ -2,7 +2,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import type { ReactNode } from "react";
 import { Git, type RepoFile } from "./mygo";
 import { buildChangeTree } from "./changes";
-import { expandedTo, filterFiles, matchIndices, visibleFiles } from "./explorer";
+import { ancestorDirs, expandedTo, filterFiles, matchIndices, visibleFiles } from "./explorer";
 import { FileTree, type ChangeView, type ListedFile } from "./FileTree";
 import { useFileMenu } from "./FileMenu";
 import { FileIcon, Icon } from "./icons";
@@ -20,6 +20,7 @@ const T = {
     untracked: "Not tracked by git yet",
     expandAll: "Expand all",
     collapseAll: "Collapse all",
+    locate: "Locate the opened file",
     viewTree: "Group by folder",
     viewFlat: "Plain file list",
     trackedCount: "{n} files",
@@ -38,6 +39,7 @@ const T = {
     untracked: "尚未被 git 跟踪",
     expandAll: "全部展开",
     collapseAll: "全部折叠",
+    locate: "定位到打开的文件",
     viewTree: "按目录分组",
     viewFlat: "平铺文件列表",
     trackedCount: "{n} 个文件",
@@ -118,6 +120,10 @@ export function SourceTree({
 
   const visible = useMemo(() => filterFiles(files, query), [files, query]);
   const filtered = query.trim() !== "";
+  const activeInTree = useMemo(
+    () => activePath !== undefined && files.some((f) => f.path === activePath),
+    [files, activePath],
+  );
 
   // A filter is a search result, not a browsing session: the tree opens fully
   // so matches are visible rather than hidden inside collapsed folders.
@@ -222,6 +228,35 @@ export function SourceTree({
     row?.scrollIntoView({ block: "nearest" });
   }, [hit]);
 
+  // Locating is a request, not a render-time scan: opening the file's folders
+  // and clearing a filter that hides it must land in the DOM before the row
+  // can be measured. The tick is the only dependency, so unrelated renders
+  // never pull focus away from the tree.
+  const [locateAt, setLocateAt] = useState(0);
+  useEffect(() => {
+    if (locateAt === 0) return;
+    const row = bodyRef.current?.querySelector<HTMLElement>(
+      `[data-path="${CSS.escape(activePath ?? "")}"]`,
+    );
+    if (!row) return;
+    row.scrollIntoView({ block: "center" });
+    row.focus({ preventScroll: true });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [locateAt]);
+
+  const locate = () => {
+    if (!repoOpen || !activePath || !activeInTree) return;
+    // A filter is a search result; locating the open file replaces it rather
+    // than leaving the target out of the tree.
+    if (!visible.some((f) => f.path === activePath)) setQuery("");
+    if (viewMode === "tree") {
+      const next = new Set(expanded);
+      for (const dir of ancestorDirs(activePath)) next.add(dir);
+      setExpanded(next);
+    }
+    setLocateAt((n) => n + 1);
+  };
+
   return (
     <div className="source-tree-panel">
       <div className="panel-toolbar explorer-toolbar">
@@ -268,6 +303,13 @@ export function SourceTree({
         )}
         <span className="spacer" />
         {loading && <Spinner />}
+        <IconButton
+          icon="locate"
+          title={t("locate")}
+          small
+          disabled={!repoOpen || !activeInTree}
+          onClick={locate}
+        />
         <IconButton
           icon="expand"
           title={t("expandAll")}
@@ -323,8 +365,14 @@ export function SourceTree({
                   )}
                   style={{ paddingLeft: 6 + depth * 12 }}
                   data-path={file.path}
+                  tabIndex={-1}
                   title={file.untracked ? `${file.path}\n${t("untracked")}` : file.path}
                   onClick={() => onOpen(file.path)}
+                  onKeyDown={(e) => {
+                    if (e.key !== "Enter") return;
+                    e.preventDefault();
+                    onOpen(file.path);
+                  }}
                   onContextMenu={(e) => menu.openMenu(e, { path: file.path, isDir: false })}
                 >
                   <span className="tree-chevron-spacer" />

@@ -335,6 +335,11 @@ use it only for layout work. Vite's port is pinned to 5173 in **both**
   the keyboard cannot land on a file hidden inside a closed folder. The
   listener is registered once and reads the latest buffer and matches through
   a ref: re-subscribing per keystroke could drop characters.
+- The explorer's Locate button (crosshair) reveals the file the editor is
+  showing: it clears a filter that hides it, opens its ancestor folders
+  (`ancestorDirs`), centers the row and focuses it, so the tree, not just the
+  editor, owns the keyboard. It is disabled when no file is open or the path
+  has no working-tree row.
 - `ThreeWayView` (`DiffView.tsx`) is a document kind of its own: three
   read-only panes (HEAD, index, working tree) plus a hunk chip per side.
   Each chip calls the ordinary `ApplyHunk`/`ApplyFile` with the side's own

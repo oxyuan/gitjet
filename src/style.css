@@ -10184,3 +10184,14 @@ body.resizing-row .log-detail-split::after {
 .diff-row .line-text .search-hit.search-current {
   background: var(--search-current);
 }
+
+/* Locating the open file gives its row real focus so Enter reopens it; the
+   selection already marks the file, so only keyboard navigation shows a ring. */
+.tree-row.file:focus {
+  outline: none;
+}
+
+.tree-row.file:focus-visible {
+  outline: 1px solid var(--accent);
+  outline-offset: -1px;
+}
