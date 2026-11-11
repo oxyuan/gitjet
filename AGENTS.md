@@ -393,8 +393,22 @@ use it only for layout work. Vite's port is pinned to 5173 in **both**
   the line-number menu means the same thing in both.
 - The editor's state fields must exist from construction (they start empty and
   are filled by effects). Dispatching an effect whose field is absent throws.
-- `SourceView` is keyed by document id: without the key, React reuses the pane
-  and the old CodeMirror instance keeps the previous file.
+- `SourceView` is keyed by document id **and revision**: the working tree and
+  HEAD share one `file:<path>` document, and switching revisions replaces that
+  tab's content in place, so the key must change with the revision or
+  CodeMirror keeps the old text.
+- The working tree and HEAD are two states of one file, not two tabs: opening
+  HEAD from a working-tree file (or the reverse) reuses the tab and its
+  revision chip, and the header buttons are switches rather than jumps to a
+  second view. A **dirty** buffer is never replaced — the other revision opens
+  beside it instead, and the index or a historical commit always opens beside
+  it. When two tabs would share a base title, the strip appends the revision or
+  the diff's base pair (`tabDetail` in `App.tsx`), as IDEA titles a staged
+  revision tab; a unique tab keeps the short path.
+- The source pane's Diff action follows the view it is on: the working tree
+  compares the index with the file, HEAD compares the commit with the working
+  tree, the index compares HEAD with the index, and a commit compares it with
+  its parent. The worktree target stays the one with hunk/staging actions.
 - Language servers are optional. `internal/lsp.Detect` maps repo markers to a
   server; `Git.lspStart/lspWrite/lspStop` move bytes between the page and the
   process over `events.gitLsp` (no sockets, no workers). Without a server,

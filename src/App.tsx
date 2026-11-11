@@ -163,6 +163,8 @@ const T = {
     closeLeftTabs: "Close to the Left",
     closeRightTabs: "Close to the Right",
     unsaved: "Unsaved changes",
+    tabWorkingTree: "Working Tree",
+    tabIndex: "Index",
     discardTitle: "Unsaved Changes",
     discardMessage: "Discard unsaved changes in the tabs being closed?",
     discard: "Discard",
@@ -402,6 +404,8 @@ const T = {
     closeLeftTabs: "关闭左侧标签页",
     closeRightTabs: "关闭右侧标签页",
     unsaved: "未保存的更改",
+    tabWorkingTree: "工作区",
+    tabIndex: "暂存区",
     discardTitle: "未保存的更改",
     discardMessage: "要丢弃正在关闭的标签页中的未保存更改吗？",
     discard: "丢弃",
@@ -1398,15 +1402,32 @@ function AppShell({ onLangChange }: { onLangChange: (lang: Lang) => void }) {
 
   const showFile = async (path: string, revision = "", line?: number) => {
     try {
+      const same = docsRef.current.find(
+        (doc): doc is Extract<Doc, { kind: "file" }> =>
+          doc.kind === "file" && doc.file.path === path && doc.revision === revision,
+      );
+      if (same) {
+        if (line !== undefined) openDoc({ ...same, line });
+        else setActiveId(same.id);
+        return;
+      }
+      // The working tree and HEAD are two states of one file, so they share
+      // one editor tab; a dirty buffer keeps its own tab, and the index or a
+      // historical revision opens beside it rather than replacing it. The
+      // lookup is by path and state, not by a fixed id, so a tab opened
+      // before the pair was unified is adopted instead of duplicated.
+      const sharedId = `file:${path}`;
+      const shared = revision === "" || revision === "HEAD";
+      const current = docsRef.current.find(
+        (doc): doc is Extract<Doc, { kind: "file" }> =>
+          doc.kind === "file" &&
+          doc.file.path === path &&
+          (doc.revision === "" || doc.revision === "HEAD"),
+      );
+      const reuse = shared && current !== undefined && !dirtyDocsRef.current.has(current.id);
+      const id = reuse ? current.id : shared ? `${sharedId}@${revision || "worktree"}` : `${sharedId}@${revision}`;
       const file = await Git.file(path, revision);
-      openDoc({
-        id: `file:${revision || "worktree"}:${path}`,
-        title: path,
-        kind: "file",
-        file,
-        revision,
-        line,
-      });
+      openDoc({ id, title: path, kind: "file", file, revision, line });
     } catch (err) {
       fail(t("openFileFailed"), err);
     }
@@ -1459,8 +1480,12 @@ function AppShell({ onLangChange }: { onLangChange: (lang: Lang) => void }) {
       whitespace,
       noText: false,
     };
-    if (revision === "" || revision === "WORKTREE" || revision === "HEAD") {
+    if (revision === "" || revision === "WORKTREE") {
       await showDiff({ ...base, target: "worktree" }, path);
+    } else if (revision === "HEAD") {
+      // A HEAD view shows the commit against what is on disk, not the index:
+      // the index has its own transition in the Changes list.
+      await showDiff({ ...base, target: "head" }, path);
     } else if (revision === "INDEX") {
       await showDiff({ ...base, target: "staged" }, path);
     } else {
@@ -3643,6 +3668,46 @@ function tabTitle(doc: Doc, t: Translate): string {
   }
 }
 
+function shortRevision(revision: string): string {
+  if (/^[0-9a-f]{7,40}$/i.test(revision)) return revision.slice(0, 8);
+  return revision;
+}
+
+/**
+ * The half of a tab title that tells two otherwise identical tabs apart: the
+ * revision a file was opened at, or the pair a diff compares. It is only
+ * drawn when the base title repeats, so an ordinary tab stays short — the
+ * same reason IDEA titles a staged revision tab and leaves the working copy
+ * plain.
+ */
+function tabDetail(doc: Doc, t: Translate): string {
+  switch (doc.kind) {
+    case "file":
+      if (doc.revision === "") return t("tabWorkingTree");
+      if (doc.revision === "INDEX") return t("tabIndex");
+      return shortRevision(doc.revision);
+    case "diff": {
+      if (doc.opts.target === "commit") return shortRevision(doc.opts.revision);
+      if (doc.opts.target === "range") {
+        return `${shortRevision(doc.opts.from)} ↔ ${shortRevision(doc.opts.revision)}`;
+      }
+      const side = (label: string) =>
+        label === "Working Tree"
+          ? t("tabWorkingTree")
+          : label === "Index"
+            ? t("tabIndex")
+            : shortRevision(label);
+      const left = side(doc.diff.oldLabel);
+      const right = side(doc.diff.newLabel);
+      return left === "" || right === "" ? "" : `${left} ↔ ${right}`;
+    }
+    case "three":
+    case "commit":
+    case "tree":
+      return "";
+  }
+}
+
 function RightPane({
   root,
   repoOpen,
@@ -3845,11 +3910,20 @@ function RightPane({
     return <main className="editor-area">{welcome}</main>;
   }
 
+  // Two views of one path (working tree and HEAD, or two diff bases) would
+  // otherwise read as identical tabs. Only duplicates get the extra half.
+  const baseTitles = docs.map((doc) => tabTitle(doc, t));
+  const titleCounts = new Map<string, number>();
+  for (const title of baseTitles) titleCounts.set(title, (titleCounts.get(title) ?? 0) + 1);
+
   return (
     <main className="editor-area">
       <div className="editor-tabs" role="tablist">
-        {docs.map((doc) => {
+        {docs.map((doc, index) => {
           const path = docPath(doc);
+          const base = baseTitles[index]!;
+          const detail = (titleCounts.get(base) ?? 0) > 1 ? tabDetail(doc, t) : "";
+          const label = detail === "" ? base : `${base} · ${detail}`;
           return (
           <div
             key={doc.id}
@@ -3870,7 +3944,7 @@ function RightPane({
                 fileMenu.openMenu(e, { path, isDir: false }, [], closeTabItems(doc));
               }
             }}
-            title={doc.kind === "diff" ? doc.opts.path : doc.kind === "file" ? doc.file.path : doc.title}
+            title={`${path || doc.title}${detail === "" ? "" : ` · ${detail}`}`}
           >
             {path !== "" ? (
               <span className="editor-tab-file" title={kindLabel(doc, t)}>
@@ -3881,7 +3955,7 @@ function RightPane({
                 <Icon name={docIcon(doc)} size={11} />
               </span>
             )}
-            <span className="editor-tab-title">{tabTitle(doc, t)}</span>
+            <span className="editor-tab-title">{label}</span>
             {doc.kind === "diff" && (
               <span className={cx("tab-status", `st-${doc.diff.status === "modified" ? "modified" : doc.diff.status === "added" ? "added" : "deleted"}`)}>
                 {doc.diff.status === "added" ? "A" : doc.diff.status === "deleted" ? "D" : doc.diff.status === "renamed" ? "R" : "M"}
@@ -3906,16 +3980,14 @@ function RightPane({
       <div className="editor-content">
         {active.kind === "file" && (
           <SourceView
-            key={active.id}
+            key={`${active.id}:${active.revision}`}
             file={active.file}
             line={active.line}
             root={root}
             onShowDiff={() => onOpenDiff(active.file.path, active.revision)}
             onOpenWorkingTree={() => onOpenFile(active.file.path, "")}
             onOpenRevision={
-              active.revision === ""
-                ? () => onOpenFile(active.file.path, "HEAD")
-                : undefined
+              active.revision === "HEAD" ? undefined : () => onOpenFile(active.file.path, "HEAD")
             }
             onCopyPath={(text) => onCopyPath(text)}
             onReveal={() => onReveal(active.file.path)}
