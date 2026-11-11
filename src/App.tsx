@@ -3986,9 +3986,6 @@ function RightPane({
             root={root}
             onShowDiff={() => onOpenDiff(active.file.path, active.revision)}
             onOpenWorkingTree={() => onOpenFile(active.file.path, "")}
-            onOpenRevision={
-              active.revision === "HEAD" ? undefined : () => onOpenFile(active.file.path, "HEAD")
-            }
             onCopyPath={(text) => onCopyPath(text)}
             onReveal={() => onReveal(active.file.path)}
             onRollbackHunk={(hunk) => onRollbackHunk(active.file.path, hunk)}

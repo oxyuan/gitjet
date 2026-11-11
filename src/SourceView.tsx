@@ -16,7 +16,6 @@ const T = {
     deletedInWorktree: "deleted in working tree",
     meta: "{language} · {lines} · {size}",
     lines: "{n} lines",
-    openHead: "Switch to the HEAD version",
     openWorkingTree: "Switch to the working tree version",
     workingTreeButton: "Working Tree",
     showDiff: "Show this file as a diff",
@@ -42,7 +41,6 @@ const T = {
     deletedInWorktree: "工作区中已删除",
     meta: "{language} · {lines} · {size}",
     lines: "{n} 行",
-    openHead: "切换到 HEAD 版本",
     openWorkingTree: "切换到工作区版本",
     workingTreeButton: "工作区",
     showDiff: "以差异方式显示此文件",
@@ -87,7 +85,6 @@ export function SourceView({
   root,
   onShowDiff,
   onOpenWorkingTree,
-  onOpenRevision,
   onCopyPath,
   onReveal,
   onRollbackHunk,
@@ -110,7 +107,6 @@ export function SourceView({
   root: string;
   onShowDiff?: () => void;
   onOpenWorkingTree?: () => void;
-  onOpenRevision?: () => void;
   onCopyPath: (text: string) => void;
   onReveal?: () => void;
   onRollbackHunk?: (hunk: number) => void;
@@ -189,11 +185,6 @@ export function SourceView({
             })}
           </span>
           <span className="spacer" />
-          {file.revision === "" && onOpenRevision && (
-            <button className="toolbar-text-btn" onClick={onOpenRevision} title={t("openHead")}>
-              <Icon name="hash" /> HEAD
-            </button>
-          )}
           {file.revision !== "" && onOpenWorkingTree && (
             <button className="toolbar-text-btn" onClick={onOpenWorkingTree} title={t("openWorkingTree")}>
               <Icon name="edit" /> {t("workingTreeButton")}

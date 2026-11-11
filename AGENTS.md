@@ -398,9 +398,11 @@ use it only for layout work. Vite's port is pinned to 5173 in **both**
   tab's content in place, so the key must change with the revision or
   CodeMirror keeps the old text.
 - The working tree and HEAD are two states of one file, not two tabs: opening
-  HEAD from a working-tree file (or the reverse) reuses the tab and its
-  revision chip, and the header buttons are switches rather than jumps to a
-  second view. A **dirty** buffer is never replaced — the other revision opens
+  a HEAD copy (from a diff side) reuses a clean working-tree tab, and a
+  revision view's Working Tree button returns to it. The working-tree file
+  itself has no HEAD button — the revision tab usually sits in the strip
+  already, and a second HEAD tab would duplicate it; its Diff action is the
+  comparison. A **dirty** buffer is never replaced — the other revision opens
   beside it instead, and the index or a historical commit always opens beside
   it. When two tabs would share a base title, the strip appends the revision or
   the diff's base pair (`tabDetail` in `App.tsx`), as IDEA titles a staged
