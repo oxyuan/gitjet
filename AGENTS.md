@@ -426,8 +426,10 @@ use it only for layout work. Vite's port is pinned to 5173 in **both**
 - Language servers are optional. `internal/lsp.Detect` maps repo markers to a
   server; `Git.lspStart/lspWrite/lspStop` move bytes between the page and the
   process over `events.gitLsp` (no sockets, no workers). Without a server,
-  `Git.searchSymbol` (git grep) backs the same jumps, classified by
-  `src/symbols.ts`.
+  `Git.searchSymbol` (git grep) backs the same jumps: `planTextJump`
+  (`src/navigation.ts`) reads the hits through `classifyHits`, so a click on
+  a usage jumps to the one declaration it finds and a click on a declaration
+  lists its uses; several declarations open the same chooser.
 - Editors register the **absolute** file URI (`joinRoot(root, file.path)`),
   because that is what a server returns. A jump's display path is a git path
   when it is under the root and absolute when it is not; `resolveOpenPath`

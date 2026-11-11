@@ -75,6 +75,7 @@ import {
   canStep,
   emptyHistory,
   mergeNavigationTargets,
+  planTextJump,
   recordPoint,
   stepHistory,
   targetKey,
@@ -1893,19 +1894,58 @@ function AppShell({ onLangChange }: { onLangChange: (lang: Lang) => void }) {
   };
 
   /** Cmd-click or F12 on a word without a language server: search the
-   *  working tree and let the reader pick the declaration. */
-  const lookUpSymbol = async (word: string, language: string, origin: NavigationPoint) => {
+   *  working tree, then read the result the way the server path reads its
+   *  answer. A click on a usage jumps to the one declaration the search
+   *  found; a click on the declaration itself lists its uses instead of
+   *  navigating to the line already on screen. */
+  const lookUpSymbol = async (
+    word: string,
+    language: string,
+    origin: NavigationPoint,
+    action: "jump" | "list",
+    anchor?: { x: number; y: number },
+  ) => {
     const seq = ++symbolSeq.current;
-    setSymbol({ word, language, hits: null, source: "text", origin });
+    let hits: SymbolHit[];
     try {
-      const found = await Git.searchSymbol(word, 300);
-      if (seq !== symbolSeq.current) return;
-      setSymbol({ word, language, hits: found.hits, source: "text", origin });
+      hits = (await Git.searchSymbol(word, 300)).hits;
     } catch (err) {
       if (seq !== symbolSeq.current) return;
-      setSymbol(null);
       fail(t("symbolLookupFailed"), err);
+      return;
     }
+    if (seq !== symbolSeq.current) return;
+    if (action === "list") {
+      setSymbol({ word, language, hits, source: "text", origin });
+      return;
+    }
+    const plan = planTextJump(word, language, origin, hits);
+    if (plan.kind === "target" || plan.kind === "choose") {
+      const found = plan.kind === "target" ? [plan.hit] : plan.hits;
+      const targets: NavigationTarget[] = found.map((hit) => {
+        const column = Math.max(hit.column, 1);
+        return {
+          uri: toUri(absolutePathFor(hit.path)),
+          path: hit.path,
+          line: hit.line,
+          column,
+          endLine: hit.line,
+          endColumn: column + word.length,
+        };
+      });
+      if (plan.kind === "target") {
+        const target = targets[0]!;
+        if (await openNavigationTarget(target)) {
+          recordJump(origin, targetPoint(target));
+        } else {
+          notify("error", t("openFileFailed"), target.path);
+        }
+        return;
+      }
+      setTargetChoice({ kind: "targets", word, targetKind: "definition", targets, origin, anchor });
+      return;
+    }
+    setSymbol({ word, language, hits, source: "text", origin });
   };
 
   /** Fill a language server's answer with the working-tree text of each
@@ -1971,7 +2011,7 @@ function AppShell({ onLangChange }: { onLangChange: (lang: Lang) => void }) {
   const handleEditorNavigation = (request: EditorNavigationRequest) => {
     switch (request.kind) {
       case "text":
-        void lookUpSymbol(request.word, request.language, request.origin);
+        void lookUpSymbol(request.word, request.language, request.origin, request.action, request.anchor);
         break;
       case "targets":
         setTargetChoice(request);

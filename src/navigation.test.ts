@@ -1,4 +1,5 @@
 import { describe, expect, it } from "bun:test";
+import type { SymbolHit } from "./mygo";
 import {
   MAX_HISTORY,
   canStep,
@@ -6,6 +7,7 @@ import {
   emptyHistory,
   mergeNavigationTargets,
   normalizeTargets,
+  planTextJump,
   recordPoint,
   stepHistory,
   targetAtPosition,
@@ -198,5 +200,50 @@ describe("usage filtering", () => {
     const declaration = target("a.go", 4, 2);
     const other = { ...target("a.go", 4, 20), endColumn: 22 };
     expect(usageTargets([declaration], [other])).toEqual([other]);
+  });
+});
+
+function hit(path: string, line: number, column: number, text: string): SymbolHit {
+  return { path, line, column, text };
+}
+
+describe("planTextJump", () => {
+  // What `git grep -w` returns for `greet`: one declaration, one call and a
+  // same-named symbol that is not a declaration of this word.
+  const hits = [
+    hit("/repo/a.ts", 2, 17, "export function greet(name: string): string {"),
+    hit("/repo/a.ts", 7, 15, '  console.log(greet("x"));'),
+    hit("/repo/b.ts", 4, 10, "function greet2(): void {}"),
+  ];
+
+  it("jumps from a usage to the one declaration", () => {
+    const plan = planTextJump("greet", "typescript", point("/repo/a.ts", 7, 15), hits);
+    expect(plan).toEqual({ kind: "target", hit: hits[0]! });
+  });
+
+  it("lists the usages when the click is on the declaration", () => {
+    expect(planTextJump("greet", "typescript", point("/repo/a.ts", 2, 17), hits)).toEqual({
+      kind: "declaration",
+    });
+  });
+
+  it("asks which declaration when the search finds several", () => {
+    const second = hit("/repo/c.ts", 9, 17, "export function greet(name: string): string {");
+    const plan = planTextJump("greet", "typescript", point("/repo/a.ts", 7, 15), [...hits, second]);
+    expect(plan).toEqual({ kind: "choose", hits: [hits[0]!, second] });
+  });
+
+  it("keeps the list when nothing reads as a declaration", () => {
+    expect(planTextJump("value", "typescript", point("/repo/a.ts", 7, 15), [hits[1]!])).toEqual({
+      kind: "list",
+    });
+  });
+
+  it("keeps the list in a snapshot revision", () => {
+    const origin = { ...point("/repo/a.ts", 2, 17), revision: "HEAD" };
+    expect(planTextJump("greet", "typescript", origin, hits)).toEqual({ kind: "list" });
+    expect(planTextJump("greet", "typescript", { ...origin, revision: "EXTERNAL" }, hits)).toEqual({
+      kind: "list",
+    });
   });
 });

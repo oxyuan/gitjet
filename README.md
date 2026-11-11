@@ -110,5 +110,5 @@ go test ./... && go vet ./... && bun run typecheck && bun run test:web && bun ru
 ## 📌 说明
 
 - 不内置 Git，版本过低会直接提示。
-- 语言服务器不随应用打包，只从 `PATH` 找；没有服务器时跳转退化为文本搜索。
+- 语言服务器不随应用打包，只从 `PATH` 找；没有服务器时用 `classifyHits` 读取 `git grep` 的结果，调用处仍跳到声明，在声明上则列出引用。
 - 构建产物未签名（macOS 为 ad-hoc），没有自动更新。

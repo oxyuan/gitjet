@@ -920,7 +920,14 @@ export class SourceEditor {
       const origin = originAt(view, pos, opts.path, opts.revision);
       const missing = () => {
         if (kind === "definition") {
-          opts.onNavigate?.({ kind: "text", word, language: opts.language, origin });
+          opts.onNavigate?.({
+            kind: "text",
+            word,
+            language: opts.language,
+            origin,
+            action: "jump",
+            anchor: anchorAt(view, pos),
+          });
         } else {
           opts.onNavigate?.({
             kind: "notice",
@@ -982,7 +989,7 @@ export class SourceEditor {
       void (async () => {
         const lookup = await lookupUsages(view, pos);
         if (!lookup.supported || lookup.failed) {
-          opts.onNavigate?.({ kind: "text", word, language: opts.language, origin });
+          opts.onNavigate?.({ kind: "text", word, language: opts.language, origin, action: "list" });
           return;
         }
         opts.onNavigate?.({

@@ -1,4 +1,5 @@
 import type { LineText, SymbolHit } from "./mygo";
+import { classifyHits } from "./symbols";
 
 /** The declarations a language server can ask for. Each name maps to a
  *  protocol method and the capability that announces it. */
@@ -27,7 +28,14 @@ export type NavigationTarget = {
 
 /** The page asks the app to act on what a language server answered. */
 export type EditorNavigationRequest =
-  | { kind: "text"; word: string; language: string; origin: NavigationPoint }
+  | {
+      kind: "text";
+      word: string;
+      language: string;
+      origin: NavigationPoint;
+      action: "jump" | "list";
+      anchor?: { x: number; y: number };
+    }
   | {
       kind: "targets";
       word: string;
@@ -192,6 +200,33 @@ export function usageTargets(
           declaration.endColumn === reference.endColumn,
       ),
   );
+}
+
+/** What a text search should do with a click, decided the way a language
+ *  server's answer is read: on a declaration the reader wants its usages,
+ *  and on any other mention the one declaration it names. A snapshot
+ *  revision or an external file keeps the plain list, because the search
+ *  describes the working tree and its line numbers need not match. */
+export type TextJump =
+  | { kind: "list" }
+  | { kind: "declaration" }
+  | { kind: "target"; hit: SymbolHit }
+  | { kind: "choose"; hits: SymbolHit[] };
+
+export function planTextJump(
+  word: string,
+  language: string,
+  origin: NavigationPoint,
+  hits: SymbolHit[],
+): TextJump {
+  if ((origin.revision ?? "") !== "") return { kind: "list" };
+  const { definitions } = classifyHits(hits, word, language);
+  if (definitions.length === 0) return { kind: "list" };
+  if (definitions.some((hit) => hit.path === origin.path && hit.line === origin.line)) {
+    return { kind: "declaration" };
+  }
+  if (definitions.length === 1) return { kind: "target", hit: definitions[0]! };
+  return { kind: "choose", hits: definitions };
 }
 
 /** Declarations first, then the references that are not already one. A
