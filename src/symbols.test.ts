@@ -1,5 +1,5 @@
 import { describe, expect, it } from "bun:test";
-import { classifyHits, hitText, wordAt } from "./symbols";
+import { classifyHits, filterHits, groupHits, hitKey, hitText, wordAt } from "./symbols";
 import type { SymbolHit } from "./mygo";
 
 function hit(path: string, line: number, text: string): SymbolHit {
@@ -67,5 +67,35 @@ describe("hitText", () => {
     expect(hitText(hit("a.go", 1, "   func Run(){}"))).toBe("func Run(){}");
     const long = "x".repeat(200);
     expect(hitText(hit("a.go", 1, long))).toHaveLength(160);
+  });
+});
+
+describe("usage list helpers", () => {
+  const hits: SymbolHit[] = [
+    { path: "src/a.ts", line: 1, column: 1, text: "import { Run } from './b'" },
+    { path: "src/a.ts", line: 9, column: 5, text: "  Run();" },
+    { path: "src/b.ts", line: 3, column: 7, text: "export function Run() {}" },
+  ];
+
+  it("groups rows by file without reordering them", () => {
+    const groups = groupHits(hits);
+    expect(groups.map((group) => group.path)).toEqual(["src/a.ts", "src/b.ts"]);
+    expect(groups[0]!.hits.map((hit) => hit.line)).toEqual([1, 9]);
+  });
+
+  it("keeps one group when a file's rows are not adjacent", () => {
+    const groups = groupHits([hits[0]!, hits[2]!, hits[1]!]);
+    expect(groups.map((group) => group.path)).toEqual(["src/a.ts", "src/b.ts"]);
+    expect(groups[0]!.hits.map((hit) => hit.line)).toEqual([1, 9]);
+  });
+
+  it("filters on the path or the line text, case-insensitively", () => {
+    expect(filterHits(hits, "b.ts").map((hit) => hit.path)).toEqual(["src/b.ts"]);
+    expect(filterHits(hits, "run();").map((hit) => hit.line)).toEqual([9]);
+    expect(filterHits(hits, "")).toHaveLength(3);
+  });
+
+  it("keys a declaration by path and line", () => {
+    expect(hitKey(hits[2]!)).toBe("src/b.ts:3");
   });
 });

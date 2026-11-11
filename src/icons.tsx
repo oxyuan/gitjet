@@ -158,6 +158,8 @@ const PATHS: Record<string, ReactNode> = {
   ),
   prevDiff: <path d="m6.8 8 4.6-4.6M3.2 3.2v9.6M11.4 3.4v9.2" />,
   nextDiff: <path d="m9.2 8-4.6 4.6M12.8 3.2v9.6M4.6 3.4v9.2" />,
+  back: <path d="M13 8H3M6.4 4.6 3 8l3.4 3.4" />,
+  forward: <path d="M3 8h10M9.6 4.6 13 8l-3.4 3.4" />,
   stage: (
     <>
       <rect x="2.2" y="2.2" width="11.6" height="11.6" rx="1.4" opacity=".45" />

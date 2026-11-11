@@ -6,6 +6,7 @@ import { cx, formatWhen, IconButton } from "./ui";
 import { PathCopyButton } from "./PathCopy";
 import { useT } from "./i18n";
 import { detectLineEnding } from "./editorText";
+import type { EditorNavigationRequest, NavigationPoint } from "./navigation";
 import { ImageDiff } from "./ImageDiff";
 import { isImagePath } from "./images";
 
@@ -24,6 +25,8 @@ const T = {
     localHistory: "Local History",
     previousChange: "Previous change",
     nextChange: "Next change",
+    back: "Back (⌘/Ctrl+Alt+←)",
+    forward: "Forward (⌘/Ctrl+Alt+→)",
     revealInManager: "Reveal in file manager",
     wrap: "Wrap",
     save: "Save",
@@ -49,6 +52,8 @@ const T = {
     localHistory: "本地历史",
     previousChange: "上一处更改",
     nextChange: "下一处更改",
+    back: "后退（⌘/Ctrl+Alt+←）",
+    forward: "前进（⌘/Ctrl+Alt+→）",
     revealInManager: "在文件管理器中显示",
     wrap: "折行",
     save: "保存",
@@ -90,9 +95,13 @@ export function SourceView({
   onRollbackHunk,
   onRollbackLine,
   onLocalHistory,
-  onSymbol,
-  onJump,
-  onReferences,
+  onNavigate,
+  onNavigated,
+  onHistory,
+  canBack,
+  canForward,
+  onBack,
+  onForward,
   onLineHistory,
   onCommitDiff,
   draft,
@@ -112,9 +121,13 @@ export function SourceView({
   onRollbackHunk?: (hunk: number) => void;
   onRollbackLine?: (line: number) => void;
   onLocalHistory?: () => void;
-  onSymbol?: (word: string) => void;
-  onJump?: (word: string) => void;
-  onReferences?: (word: string) => void;
+  onNavigate?: (request: EditorNavigationRequest) => void;
+  onNavigated?: (from: NavigationPoint, to: NavigationPoint) => void;
+  onHistory?: (delta: -1 | 1) => void;
+  canBack?: boolean;
+  canForward?: boolean;
+  onBack?: () => void;
+  onForward?: () => void;
   /** The gutter menu's "history of this line". */
   onLineHistory?: (line: number) => void;
   /** The gutter menu's diff of the commit that last touched the line. */
@@ -190,6 +203,14 @@ export function SourceView({
               <Icon name="edit" /> {t("workingTreeButton")}
             </button>
           )}
+          <IconButton icon="back" title={t("back")} small disabled={!canBack} onClick={onBack} />
+          <IconButton
+            icon="forward"
+            title={t("forward")}
+            small
+            disabled={!canForward}
+            onClick={onForward}
+          />
           {onShowDiff && (
             <button className="toolbar-text-btn" onClick={onShowDiff} title={t("showDiff")}>
               <Icon name="diff" /> {t("diff")}
@@ -264,9 +285,9 @@ export function SourceView({
           }
           onRollbackHunk={onRollbackHunk}
           onRollbackLine={onRollbackLine}
-          onSymbol={onSymbol}
-          onJump={onJump}
-          onReferences={onReferences}
+          onNavigate={onNavigate}
+          onNavigated={onNavigated}
+          onHistory={onHistory}
           onCaret={setCaret}
           onLineHistory={file.revision === "INDEX" ? undefined : onLineHistory}
           onCommitDiff={onCommitDiff}

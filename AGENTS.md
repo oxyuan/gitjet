@@ -46,7 +46,7 @@ There is no router, no state library, no ORM: dock/tab/dialog state lives in
 |`internal/git/`|Git execution and parsing: `git.go` (spawn/env/paths), `status.go`, `diff.go`, `log.go`, `actions.go`, `blame.go`, `console.go`, `files.go`, `repoinfo.go`, `rewrite.go` (commit plan replay), `repo_extra.go` (worktrees, cleanup, submodules, LFS, shallow), `lifecycle.go` (clone/init), `remotes.go`, `lines.go` (line-level patches), `patch.go` (patches and shelves), `update.go` (update/push subsets), `commit_extra.go` (undo, fixup, commit checks), `localhistory.go` (content snapshots), `commit_selected.go` (the commit machinery: temporary index, real `git commit`), `cherry.go` (patch-id marks), `images.go` (image bytes), `trace.go` (command echo)|
 |`internal/proc/`|`HideConsole` (`internal/proc`, `CREATE_NO_WINDOW` on Windows): applied to every console child GitJet starts|
 |`internal/app/`|Host: `run.go` (window/menu/events, recents, window tracking), `contextmenu.go` (the page's right-click menu), `service.go` (bound services, poll), `settings.go` (`core`, persistence), `i18n.go`, `lsp.go` (language server bridge)|
-|`src/`|React UI; `*.test.ts` next to the module under test. `EditHistoryDialog.tsx` (rewrite plan) and `RepoExtrasDialog.tsx` (worktrees/submodules/LFS) are the only standalone dialogs; the rest live in `Dialogs.tsx`|
+|`src/`|React UI; `*.test.ts` next to the module under test. `EditHistoryDialog.tsx` (rewrite plan) and `RepoExtrasDialog.tsx` (worktrees/submodules/LFS) are the only standalone dialogs; the rest live in `Dialogs.tsx`. Navigation is `navigation.ts` (LSP location normalization, usage grouping and history), `TargetPopup.tsx` (the multiple-declaration chooser) and `SymbolPanel.tsx` (the grouped, filtered usage list)|
 |`src/mygo.ts`|**Generated** bindings — never hand-edit|
 |`resources/`|`icon.png` only, copied into the bundle by MyGo|
 |`dist/`, `build/`, `.mygo/`|Build output, gitignored|
@@ -373,9 +373,12 @@ use it only for layout work. Vite's port is pinned to 5173 in **both**
   system-dark breaks. Class names are flat kebab-case with shared modifiers
   (`active`, `selected`, `muted`) applied via `cx(...)`. Inline styles only for
   dynamic geometry.
-- Shortcuts are native menu accelerators in `internal/app/run.go` (`CmdOrCtrl`),
-  not `keydown` handlers. To add one: menu item + `send("cmd")` + `case` in
-  `App.handleCommand` + Go i18n label + README table.
+- App-wide shortcuts are native menu accelerators in `internal/app/run.go`
+  (`CmdOrCtrl`), not `keydown` handlers. To add one: menu item + `send("cmd")`
+  + `case` in `App.handleCommand` + Go i18n label + README table. Keys that
+  belong to the code editor (declaration, usages, history) live in the
+  CodeMirror keymap in `src/editor.ts` instead, because they act on its
+  selection.
 
 ### Editing and language servers
 
@@ -421,9 +424,31 @@ use it only for layout work. Vite's port is pinned to 5173 in **both**
   process over `events.gitLsp` (no sockets, no workers). Without a server,
   `Git.searchSymbol` (git grep) backs the same jumps, classified by
   `src/symbols.ts`.
+- Navigation is app-owned, not the LSP package's commands: `lookupTargets`
+  (`definition`/`implementation`/`typeDefinition`) and `lookupUsages` in
+  `src/lsp.ts` return normalized locations from `src/navigation.ts`. One
+  target opens directly; several open `TargetPopup`. References are never
+  dropped for unopened files — `lookupUsages` returns every location and
+  `Git.lineTexts` adds each line's text for `SymbolPanel`, which groups by
+  file, filters as you type, and walks `↑`/`↓`/Enter. Text search remains the
+  fallback only when the server has no capability or the request fails.
+- The editor keys mirror IDEA: `Mod-b`/F12 declaration, `Mod-Alt-b`
+  implementation, `Mod-Shift-b` type declaration, `Alt-F7`/`Mod-Alt-F7`/
+  `Shift-F12` usages, `Mod-Alt-Left`/`Mod-[` back and `Mod-Alt-Right`/`Mod-]`
+  forward. Cmd/Ctrl+Click is declaration, Cmd/Ctrl+Alt+Click is usages, and
+  holding the modifier underlines the word. History lives in `App`
+  (`navHistory`): a direct jump records both ends, a chooser or usage row
+  records the origin when it opens a target, and the toolbar's back/forward
+  arrows use the same stack.
+- `DockWorkspace.syncFiles` must return the editors' unsynced changes and
+  advance each file's version; returning `[]` (as an earlier version did)
+  left the server answering about the text it saw on open, so jumps drifted
+  after any edit.
 - Attach the LSP plugin only when the server speaks the file's language
-  (`lspServes`): a Go module with a `package.json` gets gopls, which must not
-  receive TypeScript documents.
+  (`lspServes`) **and** the view is the working tree: a Go module with a
+  `package.json` gets gopls, which must not receive TypeScript documents, and
+  a HEAD or index snapshot must not register its text under the working-tree
+  URI. Revision views fall back to the text search.
 
 ### TypeScript
 

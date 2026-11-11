@@ -4,6 +4,7 @@ import { SourceEditor as Editor } from "./editor";
 import { annotateDate, changeRanges, type ChangeRange } from "./annotate";
 import { gutterDiffOptions } from "./gutter";
 import { connectLSP, lspServes, registerView, unregisterView, toUri } from "./lsp";
+import type { EditorNavigationRequest, NavigationPoint } from "./navigation";
 import { blameMenuItems } from "./blameMenu";
 import { ContextMenu, useStoredState, type ContextItem } from "./ui";
 import { useLang, useT } from "./i18n";
@@ -49,9 +50,9 @@ export function SourceEditor({
   blameFormat,
   onRollbackHunk,
   onRollbackLine,
-  onSymbol,
-  onJump,
-  onReferences,
+  onNavigate,
+  onNavigated,
+  onHistory,
   onCaret,
   onLineHistory,
   onCommitDiff,
@@ -75,9 +76,9 @@ export function SourceEditor({
   blameFormat?: (line: BlameLine) => string;
   onRollbackHunk?: (hunk: number) => void;
   onRollbackLine?: (line: number) => void;
-  onSymbol?: (word: string) => void;
-  onJump?: (word: string) => void;
-  onReferences?: (word: string) => void;
+  onNavigate?: (request: EditorNavigationRequest) => void;
+  onNavigated?: (from: NavigationPoint, to: NavigationPoint) => void;
+  onHistory?: (delta: -1 | 1) => void;
   onCaret?: (line: number) => void;
   /** Show the history of one line of this file. */
   onLineHistory?: (line: number) => void;
@@ -101,9 +102,9 @@ export function SourceEditor({
   const actions = useRef({
     onRollbackHunk,
     onRollbackLine,
-    onSymbol,
-    onJump,
-    onReferences,
+    onNavigate,
+    onNavigated,
+    onHistory,
     onCaret,
     onLineHistory,
     onCommitDiff,
@@ -117,9 +118,9 @@ export function SourceEditor({
   actions.current = {
     onRollbackHunk,
     onRollbackLine,
-    onSymbol,
-    onJump,
-    onReferences,
+    onNavigate,
+    onNavigated,
+    onHistory,
     onCaret,
     onLineHistory,
     onCommitDiff,
@@ -206,9 +207,11 @@ export function SourceEditor({
       onSaveRequest: editable ? () => void saveLatest.current() : undefined,
       onRollbackHunk: (hunk) => actions.current.onRollbackHunk?.(hunk),
       onRollbackLine: (line) => actions.current.onRollbackLine?.(line),
-      onSymbol: (word) => (actions.current.onSymbol ?? actions.current.onJump)?.(word),
-      onJump: (word) => actions.current.onJump?.(word),
-      onReferences: (word) => actions.current.onReferences?.(word),
+      path: file.path,
+      revision: file.revision,
+      onNavigate: (request) => actions.current.onNavigate?.(request),
+      onNavigated: (from, to) => actions.current.onNavigated?.(from, to),
+      onHistory: (delta) => actions.current.onHistory?.(delta),
       onCaret: (n) => {
         caretLine.current = n;
         actions.current.onCaret?.(n);
@@ -297,8 +300,10 @@ export function SourceEditor({
     let cancelled = false;
     void connectLSP().then((client) => {
       // The probe decides which language the server speaks, so the file is
-      // checked only once a session exists.
-      if (cancelled || !client || !editor.current || !lspServes(file.language)) return;
+      // checked only once a session exists. A historical revision must not
+      // register its text under the working-tree URI: the server would then
+      // answer about a document that is not on disk.
+      if (cancelled || !client || !editor.current || file.revision !== "" || !lspServes(file.language)) return;
       const languageId = file.language === "tsx" ? "typescriptreact" : file.language === "jsx" ? "javascriptreact" : file.language;
       editor.current.withExtension(client.plugin(toUri(file.path), languageId));
     });

@@ -326,6 +326,17 @@ export interface LSPInfo {
   name: string;
 }
 
+export interface LineRef {
+  path: string;
+  line: number;
+}
+
+export interface LineText {
+  path: string;
+  line: number;
+  text: string;
+}
+
 export interface LocalHistoryEntry {
   path: string;
   time: number;
@@ -1114,6 +1125,13 @@ export const Git = {
   /** LastCommitMessage returns HEAD's message. */
   lastCommitMessage(): Promise<string> {
     return call("Git.LastCommitMessage");
+  },
+  /**
+   * LineTexts reads the working-tree lines a usage list wants to preview. It
+   * answers one entry per readable line, in the order asked.
+   */
+  lineTexts(refs: LineRef[]): Promise<LineText[]> {
+    return call("Git.LineTexts", refs);
   },
   /** LocalHistory lists the saved copies of a file, newest first. */
   localHistory(path: string): Promise<LocalHistoryEntry[]> {

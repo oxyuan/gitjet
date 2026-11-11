@@ -26,3 +26,44 @@ func TestTreeAtRevisionListsTheFilesOfACommit(t *testing.T) {
 		t.Fatal("TreeAtRevision accepted an unknown revision")
 	}
 }
+
+func TestLineTextsReadsWorkingTreeLines(t *testing.T) {
+	repo, dir := newTestRepo(t)
+	writeFile(t, dir, "a.txt", "first\r\n  second  \nthird\n")
+	writeFile(t, dir, "bin.dat", "a\x00b")
+	got := repo.LineTexts([]LineRef{
+		{Path: "a.txt", Line: 1},
+		{Path: "./a.txt", Line: 2},
+		{Path: "a.txt", Line: 3},
+		{Path: "a.txt", Line: 99},
+		{Path: "../outside.txt", Line: 1},
+		{Path: "/etc/passwd", Line: 1},
+		{Path: "bin.dat", Line: 1},
+		{Path: "missing.txt", Line: 1},
+	})
+	if len(got) != 3 {
+		t.Fatalf("lines = %+v", got)
+	}
+	if got[0].Path != "a.txt" || got[0].Line != 1 || got[0].Text != "first" {
+		t.Errorf("line 1 = %+v", got[0])
+	}
+	if got[1].Text != "second" {
+		t.Errorf("line 2 = %+v", got[1])
+	}
+	if got[2].Text != "third" {
+		t.Errorf("line 3 = %+v", got[2])
+	}
+}
+
+func TestLineTextsReadsEachFileOnce(t *testing.T) {
+	repo, dir := newTestRepo(t)
+	writeFile(t, dir, "a.txt", "one\ntwo\n")
+	got := repo.LineTexts([]LineRef{
+		{Path: "a.txt", Line: 1},
+		{Path: "a.txt", Line: 2},
+		{Path: "a.txt", Line: 1},
+	})
+	if len(got) != 3 || got[0].Text != "one" || got[1].Text != "two" || got[2].Text != "one" {
+		t.Fatalf("lines = %+v", got)
+	}
+}

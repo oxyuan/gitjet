@@ -67,7 +67,24 @@ import { OperationDock, type OperationState } from "./OperationDock";
 import { QuickOpen } from "./QuickOpen";
 import { SourceView } from "./SourceView";
 import { SymbolPanel } from "./SymbolPanel";
-import { disconnectLSP, setDocumentOpener } from "./lsp";
+import { TargetPopup } from "./TargetPopup";
+import { disconnectLSP, lspServerName, openNavigationTarget, setDocumentOpener, toUri } from "./lsp";
+import {
+  canStep,
+  emptyHistory,
+  mergeNavigationTargets,
+  recordPoint,
+  stepHistory,
+  targetKey,
+  targetPoint,
+  targetsToHits,
+  type EditorNavigationRequest,
+  type NavigationHistory,
+  type NavigationPoint,
+  type NavigationTarget,
+  type TargetRequest,
+  type UsageRequest,
+} from "./navigation";
 import {
   Button,
   ConfirmDialog,
@@ -704,7 +721,25 @@ function AppShell({ onLangChange }: { onLangChange: (lang: Lang) => void }) {
   const [activeId, setActiveId] = useState<string | null>(null);
   const [dirtyDocs, setDirtyDocs] = useState<Set<string>>(new Set());
   // The word a Cmd-click asked about, and where it turns up.
-  const [symbol, setSymbol] = useState<{ word: string; language: string; hits: SymbolHit[] | null } | null>(null);
+  const [symbol, setSymbol] = useState<{
+    word: string;
+    language: string;
+    hits: SymbolHit[] | null;
+    source: "lsp" | "text";
+    definitions?: string[];
+    server?: string;
+    origin: NavigationPoint;
+  } | null>(null);
+  // A declaration with several answers waits for the reader to pick one.
+  const [targetChoice, setTargetChoice] = useState<TargetRequest | null>(null);
+  // Where jumps started, for the IDE's back and forward keys.
+  const [navHistory, setNavHistory] = useState<NavigationHistory>(emptyHistory());
+  const navHistoryRef = useRef<NavigationHistory>(emptyHistory());
+  const symbolSeq = useRef(0);
+  const setHistoryState = (next: NavigationHistory) => {
+    navHistoryRef.current = next;
+    setNavHistory(next);
+  };
   const [quickOpen, setQuickOpen] = useState(false);
   const [busy, setBusy] = useState(0);
   const [toast, setToast] = useState<{ kind: "info" | "success" | "error"; title: string; message?: string } | null>(null);
@@ -1751,16 +1786,98 @@ function AppShell({ onLangChange }: { onLangChange: (lang: Lang) => void }) {
     });
   };
 
+  /** Records both ends of a jump. Repeating the point already at the top of
+   *  the history does nothing, so opening a usage from the file it is in does
+   *  not fill the list. */
+  const recordJump = (from: NavigationPoint, to: NavigationPoint) => {
+    let next = recordPoint(navHistoryRef.current, from);
+    next = recordPoint(next, to);
+    setHistoryState(next);
+  };
+
+  /** Cmd/Ctrl+Alt+Left and the toolbar arrows: IDEA's navigation history. */
+  const navigateHistory = (delta: -1 | 1) => {
+    const next = stepHistory(navHistoryRef.current, delta);
+    if (!next) return;
+    const point = next.entries[next.index];
+    if (!point) return;
+    setHistoryState(next);
+    void showFile(point.path, point.revision ?? "", point.line);
+  };
+
   /** Cmd-click or F12 on a word without a language server: search the
    *  working tree and let the reader pick the declaration. */
-  const lookUpSymbol = async (word: string, language: string) => {
-    setSymbol({ word, language, hits: null });
+  const lookUpSymbol = async (word: string, language: string, origin: NavigationPoint) => {
+    const seq = ++symbolSeq.current;
+    setSymbol({ word, language, hits: null, source: "text", origin });
     try {
       const found = await Git.searchSymbol(word, 300);
-      setSymbol({ word, language, hits: found.hits });
+      if (seq !== symbolSeq.current) return;
+      setSymbol({ word, language, hits: found.hits, source: "text", origin });
     } catch (err) {
+      if (seq !== symbolSeq.current) return;
       setSymbol(null);
       fail(t("symbolLookupFailed"), err);
+    }
+  };
+
+  /** Fill a language server's answer with the working-tree text of each
+   *  line, so the usage list reads like IDEA's instead of path:line only. */
+  const showUsages = async (request: UsageRequest) => {
+    const seq = ++symbolSeq.current;
+    const merged = mergeNavigationTargets(request.definitions, request.targets);
+    const definitions = request.definitions.map(targetKey);
+    const server = lspServerName();
+    setSymbol({
+      word: request.word,
+      language: "",
+      hits: null,
+      source: "lsp",
+      definitions,
+      server,
+      origin: request.origin,
+    });
+    try {
+      const texts = merged.length
+        ? await Git.lineTexts(merged.map((target) => ({ path: target.path, line: target.line })))
+        : [];
+      if (seq !== symbolSeq.current) return;
+      setSymbol((current) => (current ? { ...current, hits: targetsToHits(merged, texts) } : current));
+    } catch {
+      if (seq !== symbolSeq.current) return;
+      setSymbol((current) => (current ? { ...current, hits: [] } : current));
+    }
+  };
+
+  /** A declaration chooser was answered: open it and remember the trip. */
+  const chooseTarget = (target: NavigationTarget) => {
+    const request = targetChoice;
+    if (!request) return;
+    setTargetChoice(null);
+    void (async () => {
+      if (!(await openNavigationTarget(target))) {
+        notify("error", t("openFileFailed"), target.path);
+        return;
+      }
+      recordJump(request.origin, targetPoint(target));
+    })();
+  };
+
+  /** The editor asks the app to show what a language server answered. */
+  const handleEditorNavigation = (request: EditorNavigationRequest) => {
+    switch (request.kind) {
+      case "text":
+        void lookUpSymbol(request.word, request.language, request.origin);
+        break;
+      case "targets":
+        setTargetChoice(request);
+        break;
+      case "usages":
+        void showUsages(request);
+        break;
+      case "notice":
+        notify("info", request.message);
+        break;
     }
   };
 
@@ -3083,7 +3200,13 @@ function AppShell({ onLangChange }: { onLangChange: (lang: Lang) => void }) {
               void Git.externalDiff(opts).catch((err) => fail(t("externalDiffFailed"), err))
             }
             onLocalHistory={(path) => setDialog({ kind: "localHistory", path })}
-            onSymbol={(word, language) => void lookUpSymbol(word, language)}
+            onNavigate={handleEditorNavigation}
+            onNavigated={recordJump}
+            onHistory={navigateHistory}
+            canBack={canStep(navHistory, -1)}
+            canForward={canStep(navHistory, 1)}
+            onBack={() => navigateHistory(-1)}
+            onForward={() => navigateHistory(1)}
             busy={diffBusy}
             reloadKey={reloadKey}
             onShowFileHistory={showFileHistory}
@@ -3258,11 +3381,37 @@ function AppShell({ onLangChange }: { onLangChange: (lang: Lang) => void }) {
           word={symbol.word}
           language={symbol.language}
           hits={symbol.hits}
+          source={symbol.source}
+          definitions={symbol.definitions}
+          server={symbol.server}
           onClose={() => setSymbol(null)}
           onOpen={(path, line) => {
+            const origin = symbol.origin;
             setSymbol(null);
-            void showFile(path, "", line);
+            void (async () => {
+              const target = {
+                uri: toUri(path),
+                path,
+                line,
+                column: 1,
+                endLine: line,
+                endColumn: 2,
+              };
+              if (!(await openNavigationTarget(target))) {
+                notify("error", t("openFileFailed"), path);
+                return;
+              }
+              recordJump(origin, { path, line, column: 1 });
+            })();
           }}
+        />
+      )}
+
+      {targetChoice && (
+        <TargetPopup
+          request={targetChoice}
+          onChoose={chooseTarget}
+          onClose={() => setTargetChoice(null)}
         />
       )}
 
@@ -3736,7 +3885,13 @@ function RightPane({
   onRollbackHunk,
   onRollbackLine,
   onLocalHistory,
-  onSymbol,
+  onNavigate,
+  onNavigated,
+  onHistory,
+  canBack,
+  canForward,
+  onBack,
+  onForward,
   busy,
   reloadKey,
   onShowFileHistory,
@@ -3778,7 +3933,13 @@ function RightPane({
   onRollbackHunk: (path: string, hunk: number) => void;
   onRollbackLine: (path: string, line: number) => void;
   onLocalHistory: (path: string) => void;
-  onSymbol: (word: string, language: string) => void;
+  onNavigate: (request: EditorNavigationRequest) => void;
+  onNavigated: (from: NavigationPoint, to: NavigationPoint) => void;
+  onHistory: (delta: -1 | 1) => void;
+  canBack: boolean;
+  canForward: boolean;
+  onBack: () => void;
+  onForward: () => void;
   busy: boolean;
   reloadKey: number;
   onShowFileHistory: (path: string, line?: number, revision?: string) => void;
@@ -3987,9 +4148,13 @@ function RightPane({
             onRollbackHunk={(hunk) => onRollbackHunk(active.file.path, hunk)}
             onRollbackLine={(line) => onRollbackLine(active.file.path, line)}
             onLocalHistory={() => onLocalHistory(active.file.path)}
-            onSymbol={(word) => onSymbol(word, active.file.language)}
-            onJump={(word) => onSymbol(word, active.file.language)}
-            onReferences={(word) => onSymbol(word, active.file.language)}
+            onNavigate={onNavigate}
+            onNavigated={onNavigated}
+            onHistory={onHistory}
+            canBack={canBack}
+            canForward={canForward}
+            onBack={onBack}
+            onForward={onForward}
             onLineHistory={(line) => onShowFileHistory(active.file.path, line, active.revision)}
             onCommitDiff={(hash) => onOpenDiff(active.file.path, hash)}
             draft={drafts.current.get(active.id)}

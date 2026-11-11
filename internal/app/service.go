@@ -1813,6 +1813,16 @@ func (g *Git) File(path, revision string) (git.SourceFile, error) {
 	return repo.FileContent(context.Background(), path, revision)
 }
 
+// LineTexts reads the working-tree lines a usage list wants to preview. It
+// answers one entry per readable line, in the order asked.
+func (g *Git) LineTexts(refs []git.LineRef) ([]git.LineText, error) {
+	repo, err := g.c.currentRepo()
+	if err != nil {
+		return []git.LineText{}, err
+	}
+	return repo.LineTexts(refs), nil
+}
+
 // Image reads one version of an image file for the viewer.
 func (g *Git) Image(path, revision string) (git.ImageData, error) {
 	repo, err := g.c.currentRepo()

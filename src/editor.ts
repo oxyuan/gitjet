@@ -43,7 +43,13 @@ import {
 } from "@codemirror/search";
 import { closeBrackets } from "@codemirror/autocomplete";
 import { languages } from "@codemirror/language-data";
-import { findReferences, jumpToDefinition } from "@codemirror/lsp-client";
+import { lookupTargets, lookupUsages, openNavigationTarget } from "./lsp";
+import {
+  targetPoint,
+  type EditorNavigationRequest,
+  type NavigationPoint,
+  type TargetKind,
+} from "./navigation";
 import { editorHighlightStyle } from "./highlight";
 import type { BlameLine } from "./mygo";
 import { blameDepth, type ChangeRange } from "./annotate";
@@ -654,9 +660,18 @@ export type EditorOptions = {
   onRollbackHunk?: (hunk: number) => void;
   /** Alt-click on a change bar: roll back only the line that bar covers. */
   onRollbackLine?: (line: number) => void;
-  onSymbol?: (word: string) => void;
-  onJump?: (word: string) => void;
-  onReferences?: (word: string) => void;
+  /** Repository-relative path of the document, so a jump can remember where
+   *  it started. */
+  path: string;
+  /** The revision this editor shows; "" is the working tree. */
+  revision: string;
+  /** What a declaration, implementation or usage request produced. The app
+   *  owns the chooser and the usage list, so the editor never draws them. */
+  onNavigate?: (request: EditorNavigationRequest) => void;
+  /** A jump the editor performed itself, for the navigation history. */
+  onNavigated?: (from: NavigationPoint, to: NavigationPoint) => void;
+  /** Back (-1) and forward (1), for the IDE's history keys. */
+  onHistory?: (delta: -1 | 1) => void;
   /** Fires with the 1-based line under the caret, for things like copying a
    *  path with its line number. */
   onCaret?: (line: number) => void;
@@ -761,6 +776,114 @@ function openGutterMenu(
   return true;
 }
 
+const NAV_LABELS = {
+  en: {
+    noImplementation: "No implementation found",
+    noType: "No type declaration found",
+    openFailed: "Could not open the declaration",
+  },
+  zh: {
+    noImplementation: "没有找到该方法的实现",
+    noType: "没有找到类型声明",
+    openFailed: "无法打开声明所在位置",
+  },
+} as const;
+
+/** The line and column a jump starts from, for the history. */
+function originAt(view: EditorView, pos: number, path: string, revision: string): NavigationPoint {
+  const line = view.state.doc.lineAt(pos);
+  return { path, line: line.number, column: pos - line.from + 1, revision };
+}
+
+/** Where a chooser for this position should appear, when the position is on
+ *  screen. */
+function anchorAt(view: EditorView, pos: number): { x: number; y: number } | undefined {
+  const rect = view.coordsAtPos(pos);
+  return rect ? { x: rect.left, y: rect.bottom } : undefined;
+}
+
+/** Links symbol under the pointer while Meta or Control is held, so a
+ *  Cmd-click reads as a link the way an IDE's does. The decoration follows
+ *  the word under the pointer, not the caret. */
+function symbolLinks() {
+  const setLink = StateEffect.define<{ from: number; to: number } | null>();
+  const field = StateField.define<DecorationSet>({
+    create: () => Decoration.none,
+    update(marks, tr) {
+      let next = marks.map(tr.changes);
+      for (const effect of tr.effects) {
+        if (!effect.is(setLink)) continue;
+        next = effect.value
+          ? Decoration.set([Decoration.mark({ class: "cm-symbol-link" }).range(effect.value.from, effect.value.to)])
+          : Decoration.none;
+      }
+      return next;
+    },
+    provide: (f) => EditorView.decorations.from(f),
+  });
+  const plugin = ViewPlugin.fromClass(
+    class {
+      private held = false;
+      private at: { x: number; y: number } | null = null;
+      private linked: { from: number; to: number } | null = null;
+      private readonly onKeyDown = (event: KeyboardEvent) => {
+        if (event.key !== "Meta" && event.key !== "Control") return;
+        this.held = true;
+        this.refresh();
+      };
+      private readonly onKeyUp = (event: KeyboardEvent) => {
+        if (event.key !== "Meta" && event.key !== "Control") return;
+        this.held = false;
+        this.clear();
+      };
+      private readonly onMove = (event: MouseEvent) => {
+        this.at = { x: event.clientX, y: event.clientY };
+        this.refresh();
+      };
+      private readonly onLeave = () => {
+        this.at = null;
+        this.clear();
+      };
+      private readonly onBlur = () => {
+        this.held = false;
+        this.clear();
+      };
+      constructor(readonly view: EditorView) {
+        view.dom.addEventListener("mousemove", this.onMove);
+        view.dom.addEventListener("mouseleave", this.onLeave);
+        window.addEventListener("keydown", this.onKeyDown, true);
+        window.addEventListener("keyup", this.onKeyUp, true);
+        window.addEventListener("blur", this.onBlur);
+      }
+      private refresh() {
+        if (!this.held || !this.at) {
+          this.clear();
+          return;
+        }
+        const pos = this.view.posAtCoords(this.at);
+        const word = pos === null ? null : wordRangeAt(this.view, pos);
+        const next = word ? { from: word.from, to: word.to } : null;
+        if (next?.from === this.linked?.from && next?.to === this.linked?.to) return;
+        this.linked = next;
+        this.view.dispatch({ effects: setLink.of(next) });
+      }
+      private clear() {
+        if (!this.linked && this.view.state.field(field).size === 0) return;
+        this.linked = null;
+        this.view.dispatch({ effects: setLink.of(null) });
+      }
+      destroy() {
+        this.view.dom.removeEventListener("mousemove", this.onMove);
+        this.view.dom.removeEventListener("mouseleave", this.onLeave);
+        window.removeEventListener("keydown", this.onKeyDown, true);
+        window.removeEventListener("keyup", this.onKeyUp, true);
+        window.removeEventListener("blur", this.onBlur);
+      }
+    },
+  );
+  return [field, plugin];
+}
+
 /** Everything the source pane needs, with the doc replaced in place. */
 export class SourceEditor {
   readonly view: EditorView;
@@ -779,6 +902,67 @@ export class SourceEditor {
     this.savedDoc = normalizeText(opts.baseline ?? opts.doc);
     this.onDirtyChange = opts.onDirtyChange;
     this.annotateExtension = annotateGutter(opts);
+    const labels = NAV_LABELS[opts.lang ?? "en"];
+
+    // A declaration first: one target jumps, several open the chooser. With
+    // no server, or none that can answer, the name search is the fallback.
+    const goTo = (view: EditorView, pos: number, kind: TargetKind) => {
+      const word = wordAt(view, pos);
+      if (!word) return;
+      const origin = originAt(view, pos, opts.path, opts.revision);
+      void (async () => {
+        const lookup = await lookupTargets(view, pos, kind);
+        if (!lookup.supported || lookup.failed || lookup.targets.length === 0) {
+          if (kind === "definition") {
+            opts.onNavigate?.({ kind: "text", word, language: opts.language, origin });
+          } else {
+            opts.onNavigate?.({
+              kind: "notice",
+              message: kind === "implementation" ? labels.noImplementation : labels.noType,
+            });
+          }
+          return;
+        }
+        if (lookup.targets.length === 1) {
+          const target = lookup.targets[0]!;
+          if (await openNavigationTarget(target, opts.revision === "" ? view : undefined)) {
+            opts.onNavigated?.(origin, targetPoint(target));
+          } else {
+            opts.onNavigate?.({ kind: "notice", message: labels.openFailed });
+          }
+          return;
+        }
+        opts.onNavigate?.({
+          kind: "targets",
+          word,
+          targetKind: kind,
+          targets: lookup.targets,
+          origin,
+          anchor: anchorAt(view, pos),
+        });
+      })();
+    };
+
+    const findUsages = (view: EditorView, pos: number) => {
+      const word = wordAt(view, pos);
+      if (!word) return;
+      const origin = originAt(view, pos, opts.path, opts.revision);
+      void (async () => {
+        const lookup = await lookupUsages(view, pos);
+        if (!lookup.supported || lookup.failed) {
+          opts.onNavigate?.({ kind: "text", word, language: opts.language, origin });
+          return;
+        }
+        opts.onNavigate?.({
+          kind: "usages",
+          word,
+          targets: lookup.targets,
+          definitions: lookup.definitions,
+          origin,
+        });
+      })();
+    };
+
     this.view = new EditorView({
       parent,
       state: EditorState.create({
@@ -810,45 +994,83 @@ export class SourceEditor {
             ...historyKeymap,
             ...searchKeymap,
             {
-              // Mod-b is what the IDE world presses; F12 is the other habit.
+              // The IDE's set: declaration, implementation and type
+              // declaration each get their own chord, and the history has the
+              // two pairs of keys IDEA accepts. F12/Shift+F12 stay for the
+              // editors that use them.
               key: "Mod-b",
               run: (view) => {
-                if (jumpToDefinition(view)) return true;
-                const word = wordAt(view, view.state.selection.main.head);
-                if (!word || !opts.onJump) return false;
-                opts.onJump(word);
+                goTo(view, view.state.selection.main.head, "definition");
+                return true;
+              },
+            },
+            {
+              key: "Mod-Alt-b",
+              run: (view) => {
+                goTo(view, view.state.selection.main.head, "implementation");
                 return true;
               },
             },
             {
               key: "Mod-Shift-b",
               run: (view) => {
-                if (findReferences(view)) return true;
-                const word = wordAt(view, view.state.selection.main.head);
-                if (!word || !opts.onReferences) return false;
-                opts.onReferences(word);
+                goTo(view, view.state.selection.main.head, "typeDefinition");
                 return true;
               },
             },
             {
-              // The language server answers when there is one; the text
-              // search is the fallback, so the key always does something.
               key: "F12",
               run: (view) => {
-                if (jumpToDefinition(view)) return true;
-                const word = wordAt(view, view.state.selection.main.head);
-                if (!word || !opts.onJump) return false;
-                opts.onJump(word);
+                goTo(view, view.state.selection.main.head, "definition");
+                return true;
+              },
+            },
+            {
+              key: "Alt-F7",
+              run: (view) => {
+                findUsages(view, view.state.selection.main.head);
+                return true;
+              },
+            },
+            {
+              key: "Mod-Alt-F7",
+              run: (view) => {
+                findUsages(view, view.state.selection.main.head);
                 return true;
               },
             },
             {
               key: "Shift-F12",
               run: (view) => {
-                if (findReferences(view)) return true;
-                const word = wordAt(view, view.state.selection.main.head);
-                if (!word || !opts.onReferences) return false;
-                opts.onReferences(word);
+                findUsages(view, view.state.selection.main.head);
+                return true;
+              },
+            },
+            {
+              key: "Mod-Alt-ArrowLeft",
+              run: () => {
+                opts.onHistory?.(-1);
+                return true;
+              },
+            },
+            {
+              key: "Mod-Alt-ArrowRight",
+              run: () => {
+                opts.onHistory?.(1);
+                return true;
+              },
+            },
+            {
+              key: "Mod-[",
+              run: () => {
+                opts.onHistory?.(-1);
+                return true;
+              },
+            },
+            {
+              key: "Mod-]",
+              run: () => {
+                opts.onHistory?.(1);
                 return true;
               },
             },
@@ -865,20 +1087,17 @@ export class SourceEditor {
               if (!(event.metaKey || event.ctrlKey) || event.button !== 0) return false;
               const pos = view.posAtCoords({ x: event.clientX, y: event.clientY });
               if (pos == null) return false;
-              const word = wordAt(view, pos);
-              if (!word) return false;
+              if (!wordAt(view, pos)) return false;
               event.preventDefault();
               // Put the cursor on the click before asking the server, which
               // answers about the cursor, not about a mouse position.
               view.dispatch({ selection: { anchor: pos } });
-              if (event.altKey) {
-                if (!findReferences(view)) opts.onReferences?.(word);
-                return true;
-              }
-              if (!jumpToDefinition(view)) (opts.onSymbol ?? opts.onJump)?.(word);
+              if (event.altKey) findUsages(view, pos);
+              else goTo(view, pos, "definition");
               return true;
             },
           }),
+          ...symbolLinks(),
           syntaxHighlighting(editorHighlightStyle),
           editorTheme,
           editorSelectionTheme,
@@ -1013,7 +1232,7 @@ export class SourceEditor {
   }
 }
 
-function wordAt(view: EditorView, pos: number): string | null {
+function wordRangeAt(view: EditorView, pos: number): { word: string; from: number; to: number } | null {
   const line = view.state.doc.lineAt(pos);
   const text = line.text;
   let start = pos - line.from;
@@ -1023,5 +1242,9 @@ function wordAt(view: EditorView, pos: number): string | null {
   while (end < text.length && isWord(text[end] ?? "")) end++;
   const word = text.slice(start, end);
   if (!word || /^\d+$/.test(word)) return null;
-  return word;
+  return { word, from: line.from + start, to: line.from + end };
+}
+
+function wordAt(view: EditorView, pos: number): string | null {
+  return wordRangeAt(view, pos)?.word ?? null;
 }

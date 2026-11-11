@@ -27,6 +27,64 @@ type RepoFile struct {
 	Tracked bool   `json:"tracked"`
 }
 
+// LineRef asks for one line of the working tree, for the row of a usage
+// list. Line is 1-based.
+type LineRef struct {
+	Path string `json:"path"`
+	Line int    `json:"line"`
+}
+
+// LineText is the trimmed text of one requested line. A path that cannot be
+// read, a line past the end, and a binary file are simply absent from the
+// answer, so the page can lay the hits out by path and line.
+type LineText struct {
+	Path string `json:"path"`
+	Line int    `json:"line"`
+	Text string `json:"text"`
+}
+
+// maxLineTexts bounds one usage list: a language server can return thousands
+// of references, and reading them all would cost more than the list is worth.
+const maxLineTexts = 2000
+
+// LineTexts reads the requested lines from the working tree. Each file is
+// read once however many of its lines were asked for, and a file over the
+// source viewer's 8 MiB cap is skipped rather than loaded.
+func (r *Repo) LineTexts(refs []LineRef) []LineText {
+	if len(refs) > maxLineTexts {
+		refs = refs[:maxLineTexts]
+	}
+	out := make([]LineText, 0, len(refs))
+	lines := make(map[string][]string)
+	seen := make(map[string]bool)
+	const limit = 8 << 20
+	for _, ref := range refs {
+		clean, err := cleanPath(ref.Path)
+		if err != nil || ref.Line < 1 {
+			continue
+		}
+		if !seen[clean] {
+			seen[clean] = true
+			st, err := os.Stat(r.AbsPath(clean))
+			if err != nil || st.IsDir() || st.Size() > int64(limit) {
+				continue
+			}
+			body, err := os.ReadFile(r.AbsPath(clean))
+			if err != nil || looksBinary(string(body)) {
+				continue
+			}
+			lines[clean] = strings.Split(string(body), "\n")
+		}
+		fileLines := lines[clean]
+		if ref.Line > len(fileLines) {
+			continue
+		}
+		text := strings.TrimSpace(strings.TrimSuffix(fileLines[ref.Line-1], "\r"))
+		out = append(out, LineText{Path: clean, Line: ref.Line, Text: text})
+	}
+	return out
+}
+
 // FileContent reads a file at a revision. An empty revision or "WORKTREE"
 // reads the file on disk, "INDEX" reads the index, and anything else is
 // resolved by git, such as HEAD, a branch, a tag or a commit hash. When the

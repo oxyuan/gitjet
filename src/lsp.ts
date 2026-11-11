@@ -1,12 +1,15 @@
 import { EditorView } from "@codemirror/view";
+import type { ChangeSet, Text } from "@codemirror/state";
 import {
   LSPClient,
+  LSPPlugin,
   Workspace,
   languageServerExtensions,
   type Transport,
   type WorkspaceFile,
 } from "@codemirror/lsp-client";
 import { Git, events } from "./mygo";
+import { normalizeTargets, type NavigationTarget, type TargetKind } from "./navigation";
 
 /** One message the Go side relays from the language server. */
 type Envelope = { id: string; message?: string; closed?: boolean; error?: string };
@@ -111,20 +114,33 @@ class DockWorkspace extends Workspace {
   files: WorkspaceFile[] = [];
 
   private entry(uri: string, view: EditorView, languageId = "plaintext"): WorkspaceFile {
-    const entry: WorkspaceFile = {
+    return {
       uri,
       languageId,
-      version: 1,
-      get doc() {
-        return view.state.doc;
-      },
+      version: 0,
+      doc: view.state.doc,
       getView: (main?: EditorView) => firstView(uri, main),
     };
-    return entry;
   }
 
-  syncFiles() {
-    return [];
+  /** Sends what the editors have typed since the last request, and advances
+   *  each file's version. Returning no updates, as an earlier version of
+   *  this workspace did, left the server reading the text it saw on open. */
+  syncFiles(): { file: WorkspaceFile; prevDoc: Text; changes: ChangeSet }[] {
+    const updates: { file: WorkspaceFile; prevDoc: Text; changes: ChangeSet }[] = [];
+    for (const file of this.files) {
+      const view = file.getView();
+      if (!view) continue;
+      const plugin = LSPPlugin.get(view);
+      if (!plugin) continue;
+      const changes = plugin.unsyncedChanges;
+      if (changes.empty) continue;
+      updates.push({ file, prevDoc: file.doc, changes });
+      file.doc = view.state.doc;
+      file.version += 1;
+      plugin.clear();
+    }
+    return updates;
   }
 
   async requestFile(uri: string): Promise<WorkspaceFile | null> {
@@ -263,6 +279,124 @@ export async function disconnectLSP() {
 /** The extension a source editor adds once a session exists. */
 export function lspPlugin(uri: string, languageId: string) {
   return client ? client.plugin(uri, languageId) : [];
+}
+
+/** What a jump request could get out of the server. `supported` separates
+ *  "this server cannot answer" from "it answered with nothing", which is the
+ *  difference between falling back to a text search and reporting a miss. */
+export type LspLookup = {
+  supported: boolean;
+  failed: boolean;
+  targets: NavigationTarget[];
+};
+
+export type LspUsageLookup = LspLookup & {
+  definitions: NavigationTarget[];
+};
+
+const lookups: Record<TargetKind, { method: string; capability: string }> = {
+  definition: { method: "textDocument/definition", capability: "definitionProvider" },
+  implementation: { method: "textDocument/implementation", capability: "implementationProvider" },
+  typeDefinition: { method: "textDocument/typeDefinition", capability: "typeDefinitionProvider" },
+};
+
+function supports(plugin: LSPPlugin, capability: string): boolean {
+  const caps = plugin.client.serverCapabilities as unknown as Record<string, unknown> | null;
+  if (!caps) return false;
+  const value = caps[capability];
+  return value !== undefined && value !== null && value !== false;
+}
+
+function pluginFor(view: EditorView): LSPPlugin | null {
+  return LSPPlugin.get(view);
+}
+
+/** Asks the server for the definitions (or implementations, or types) at a
+ *  position. Never throws: a server that errors reads as a miss. */
+export async function lookupTargets(
+  view: EditorView,
+  pos: number,
+  kind: TargetKind,
+): Promise<LspLookup> {
+  const plugin = pluginFor(view);
+  const lookup = lookups[kind];
+  if (!plugin || !supports(plugin, lookup.capability)) {
+    return { supported: false, failed: false, targets: [] };
+  }
+  plugin.client.sync();
+  try {
+    const result = await plugin.client.request<Record<string, unknown>, unknown>(lookup.method, {
+      textDocument: { uri: plugin.uri },
+      position: plugin.toPosition(pos),
+    });
+    return { supported: true, failed: false, targets: normalizeTargets(result, fromUri) };
+  } catch {
+    return { supported: true, failed: true, targets: [] };
+  }
+}
+
+/** Finds the usages of the symbol at a position, plus its declaration so the
+ *  list can mark which row is the source. Both requests are issued together;
+ *  a declaration the server cannot answer simply leaves the set empty. */
+export async function lookupUsages(view: EditorView, pos: number): Promise<LspUsageLookup> {
+  const plugin = pluginFor(view);
+  if (!plugin || !supports(plugin, "referencesProvider")) {
+    return { supported: false, failed: false, targets: [], definitions: [] };
+  }
+  plugin.client.sync();
+  const position = plugin.toPosition(pos);
+  const document = { uri: plugin.uri };
+  const references = plugin.client
+    .request<Record<string, unknown>, unknown>("textDocument/references", {
+      textDocument: document,
+      position,
+      context: { includeDeclaration: true },
+    })
+    .then((result) => ({ ok: true as const, result }))
+    .catch(() => ({ ok: false as const, result: null }));
+  const declaration = supports(plugin, "definitionProvider")
+    ? plugin.client
+        .request<Record<string, unknown>, unknown>("textDocument/definition", { textDocument: document, position })
+        .catch(() => null)
+    : Promise.resolve(null);
+  const [usages, definitions] = await Promise.all([references, declaration]);
+  return {
+    supported: true,
+    failed: !usages.ok,
+    targets: usages.ok ? normalizeTargets(usages.result, fromUri) : [],
+    definitions: definitions ? normalizeTargets(definitions, fromUri) : [],
+  };
+}
+
+/** The offset a 1-based line and column stands for in a view's document.
+ *  The plugin's own conversion needs the plugin, which a file opened by a
+ *  jump may not have attached yet. */
+function offsetFor(view: EditorView, line: number, column: number): number {
+  const doc = view.state.doc;
+  const target = doc.line(Math.min(Math.max(line, 1), doc.lines));
+  return Math.min(target.from + Math.max(column - 1, 0), target.to);
+}
+
+/** Puts a target on screen: opens its file when needed, selects the reported
+ *  range and gives it focus. Resolves false when the file could not open. */
+export async function openNavigationTarget(
+  target: NavigationTarget,
+  prefer?: EditorView,
+): Promise<boolean> {
+  // The server's URI and the editor's registration may encode a path
+  // differently; both name the same file, so re-encode from the path.
+  const uri = toUri(target.path);
+  const view = firstView(uri, prefer) ?? (await ensureView(uri));
+  if (!view) return false;
+  const anchor = offsetFor(view, target.line, target.column);
+  const head = offsetFor(view, target.endLine, target.endColumn);
+  view.dispatch({
+    selection: { anchor, head: Math.max(anchor, head) },
+    scrollIntoView: true,
+    userEvent: "select.definition",
+  });
+  view.focus();
+  return true;
 }
 
 /** Keeps hover text from becoming script execution: the server is a local

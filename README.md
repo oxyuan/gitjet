@@ -95,7 +95,12 @@ go test ./... && go vet ./... && bun run typecheck && bun run test:web && bun ru
 | `⌘/Ctrl+Shift+S` | Stash |
 | `` ⌘/Ctrl+Shift+` `` | 分支弹窗 |
 | `⌘/Ctrl+9` / `⌘/Ctrl+0` | 提交 / 分支工具窗口 |
-| `⌘/Ctrl+B` / `⌘/Ctrl+Shift+B` | 跳到定义 / 列出引用 |
+| `⌘/Ctrl+B` / `F12` | 跳到声明（多个目标时选择） |
+| `⌘/Ctrl+Alt+B` | 跳到实现 |
+| `⌘/Ctrl+Shift+B` | 跳到类型声明 |
+| `⌥F7` / `⇧F12` | 查找引用（按文件分组、可筛选） |
+| `⌘/Ctrl+Alt+←` / `⌘/Ctrl+[` | 导航后退 |
+| `⌘/Ctrl+Alt+→` / `⌘/Ctrl+]` | 导航前进 |
 | `⌘/Ctrl+S` | 保存源码 / 应用冲突结果 |
 | `⌘/Ctrl+F` | 在差异中查找 |
 | `F7` / `Shift+F7` | 下一处 / 上一处变更（差异与冲突视图） |

@@ -83,6 +83,36 @@ function escape(text: string): string {
   return text.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
 
+/** Narrows a usage list to rows whose path or text contains the query. */
+export function filterHits(hits: SymbolHit[], query: string): SymbolHit[] {
+  const needle = query.trim().toLowerCase();
+  if (needle === "") return hits;
+  return hits.filter(
+    (hit) => hit.path.toLowerCase().includes(needle) || hit.text.toLowerCase().includes(needle),
+  );
+}
+
+/** Groups a usage list by file, keeping the order the hits arrived in. */
+export function groupHits(hits: SymbolHit[]): { path: string; hits: SymbolHit[] }[] {
+  const groups: { path: string; hits: SymbolHit[] }[] = [];
+  const byPath = new Map<string, SymbolHit[]>();
+  for (const hit of hits) {
+    let group = byPath.get(hit.path);
+    if (!group) {
+      group = [];
+      byPath.set(hit.path, group);
+      groups.push({ path: hit.path, hits: group });
+    }
+    group.push(hit);
+  }
+  return groups;
+}
+
+/** The key a declaration mark uses to find its row. */
+export function hitKey(hit: { path: string; line: number }): string {
+  return `${hit.path}:${hit.line}`;
+}
+
 /** The hit's own line, trimmed for display. */
 export function hitText(hit: SymbolHit): string {
   const text = hit.text.trim();
