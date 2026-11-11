@@ -8,11 +8,21 @@ import { isImagePath } from "./images";
 import { FileIcon, Icon } from "./icons";
 import { useT } from "./i18n";
 import { paintLine, tokenize, type LineTokens } from "./syntax";
+import { markSearch, searchRows, type SearchHit, type SearchSpan } from "./search";
 import { ContextMenu, cx, formatWhen, IconButton, Spinner, useStoredState, type ContextItem } from "./ui";
 import { PathCopyButton } from "./PathCopy";
 import { ribbonPath, ribbonTone, type RibbonSpan, type RibbonTone } from "./ribbons";
 
 type Mode = "split" | "unified";
+
+/** The search spans one row needs, per pane, plus the active hit's span. */
+interface RowSearchMarks {
+  left: SearchSpan[];
+  right: SearchSpan[];
+  leftActive?: SearchSpan;
+  rightActive?: SearchSpan;
+}
+type SearchMarkMap = Map<number, RowSearchMarks>;
 
 const T = {
   en: {
@@ -26,8 +36,14 @@ const T = {
     wrapLongLines: "Wrap long lines",
     wrap: "Wrap",
     whitespace: "Whitespace",
-    previousChange: "Previous change",
-    nextChange: "Next change",
+    previousChange: "Previous change (Shift+F7)",
+    nextChange: "Next change (F7)",
+    findInDiff: "Find in the diff (⌘/Ctrl+F)",
+    findPlaceholder: "Find in the diff",
+    matchCase: "Match case",
+    closeFind: "Close find",
+    noResults: "No results",
+    openAtLine: "Open in the editor at this line (⌘/Ctrl+click)",
     noChanges: "No changes",
     position: "{current} of {total}",
     stageWholeFile: "Stage the whole file",
@@ -87,8 +103,14 @@ const T = {
     wrapLongLines: "长行折行显示",
     wrap: "折行",
     whitespace: "忽略空白",
-    previousChange: "上一处更改",
-    nextChange: "下一处更改",
+    previousChange: "上一处更改（Shift+F7）",
+    nextChange: "下一处更改（F7）",
+    findInDiff: "在差异中查找（⌘/Ctrl+F）",
+    findPlaceholder: "在差异中查找",
+    matchCase: "区分大小写",
+    closeFind: "关闭查找",
+    noResults: "无结果",
+    openAtLine: "在编辑器中打开此行（⌘/Ctrl+点击）",
     noChanges: "无更改",
     position: "{current} / {total}",
     stageWholeFile: "Stage 整个文件",
@@ -168,7 +190,7 @@ export function DiffView({
   onApply: (hunk: number, action: "stage" | "unstage" | "rollback") => void;
   onApplyFile: (action: "stage" | "unstage" | "rollback") => void;
   onApplyLines: (lines: number[], action: "stage" | "unstage" | "rollback") => void;
-  onOpenFile: () => void;
+  onOpenFile: (side: "before" | "after", line?: number, path?: string) => void;
   onExternalDiff?: () => void;
   /** Line history of one side of the diff, at that side's revision. */
   onShowFileHistory?: (path: string, line: number, revision: string) => void;
@@ -203,6 +225,44 @@ export function DiffView({
   const [open, setOpen] = useState<Set<number>>(new Set());
   const visible = useMemo(() => visibleRows(rows, folds, open), [rows, folds, open]);
   const [current, setCurrent] = useState(-1);
+  // Find is IDEA's editor search inside the diff: one match list over both
+  // versions, navigated with Enter/F3. A context row counts once even though
+  // the split viewer draws it twice. `pendingRow` is the row a hit asked to
+  // see, so a match inside a closed fold opens that fold before scrolling.
+  const [findOpen, setFindOpen] = useState(false);
+  const [query, setQuery] = useState("");
+  const [matchCase, setMatchCase] = useState(false);
+  const hits = useMemo(() => searchRows(rows, query, matchCase), [rows, query, matchCase]);
+  const [hitIndex, setHitIndex] = useState(-1);
+  const [pendingRow, setPendingRow] = useState<number | null>(null);
+  const findInput = useRef<HTMLInputElement>(null);
+  const activeHit: SearchHit | undefined = hitIndex >= 0 ? hits[hitIndex] : undefined;
+  // Marks are grouped by row and side so a pane can ask for its own spans
+  // without walking the whole match list on every rendered line.
+  const searchMarks = useMemo<SearchMarkMap>(() => {
+    const map: SearchMarkMap = new Map();
+    if (!findOpen) return map;
+    for (const hit of hits) {
+      const entry = map.get(hit.row) ?? { left: [], right: [] };
+      if (hit.both) {
+        entry.left.push(hit);
+        entry.right.push(hit);
+      } else if (hit.side === "left") {
+        entry.left.push(hit);
+      } else {
+        entry.right.push(hit);
+      }
+      map.set(hit.row, entry);
+    }
+    if (activeHit) {
+      const entry = map.get(activeHit.row);
+      if (entry) {
+        if (activeHit.both || activeHit.side === "left") entry.leftActive = activeHit;
+        if (activeHit.both || activeHit.side === "right") entry.rightActive = activeHit;
+      }
+    }
+    return map;
+  }, [hits, activeHit, findOpen]);
   const [wsMenu, setWsMenu] = useState<{ x: number; y: number } | null>(null);
   const [hlMenu, setHlMenu] = useState<{ x: number; y: number } | null>(null);
   const bodyRef = useRef<HTMLDivElement>(null);
@@ -326,6 +386,79 @@ export function DiffView({
     return () => window.removeEventListener("keydown", onKey);
   }, []);
 
+  // Find, as IDEA's diff editors have it: Ctrl/Cmd+F opens the bar, Enter or
+  // F3 steps forward, Shift reverses, Escape closes. A hit hidden inside a
+  // closed fold opens that fold first, so every jump lands on visible text.
+  const openFind = () => {
+    if (diff.binary) return;
+    setFindOpen(true);
+    requestAnimationFrame(() => {
+      findInput.current?.focus();
+      findInput.current?.select();
+    });
+  };
+  const closeFind = () => {
+    setFindOpen(false);
+    setQuery("");
+    setHitIndex(-1);
+    setPendingRow(null);
+  };
+  const stepHit = (delta: number) => {
+    if (hits.length === 0) return;
+    const next =
+      hitIndex < 0
+        ? delta > 0
+          ? 0
+          : hits.length - 1
+        : (hitIndex + delta + hits.length) % hits.length;
+    setHitIndex(next);
+    setPendingRow(hits[next]!.row);
+  };
+  useEffect(() => {
+    if (pendingRow === null) return;
+    const fold = folds.find((range) => pendingRow >= range.start && pendingRow < range.end);
+    if (fold && !open.has(fold.start)) {
+      setOpen((prev) => new Set(prev).add(fold.start));
+      return;
+    }
+    const frame = requestAnimationFrame(() => {
+      bodyRef.current?.querySelector<HTMLElement>(`[data-row="${pendingRow}"]`)?.scrollIntoView({ block: "center" });
+      setPendingRow(null);
+    });
+    return () => cancelAnimationFrame(frame);
+  }, [pendingRow, folds, open, visible]);
+  useEffect(() => {
+    if (!findOpen) return;
+    if (hits.length === 0) {
+      setHitIndex(-1);
+      return;
+    }
+    setHitIndex(0);
+    setPendingRow(hits[0]!.row);
+  }, [hits, findOpen]);
+  useEffect(() => {
+    const onKey = (event: KeyboardEvent) => {
+      const target = event.target as HTMLElement | null;
+      const typing =
+        !!target && (target.tagName === "INPUT" || target.tagName === "TEXTAREA" || !!target.isContentEditable);
+      // A text field owns its keys; Ctrl+F belongs to whichever editor the
+      // reader is actually typing in.
+      if (typing) return;
+      if ((event.metaKey || event.ctrlKey) && !event.altKey && !event.shiftKey && event.key.toLowerCase() === "f") {
+        event.preventDefault();
+        openFind();
+      } else if (event.key === "F3" && findOpen) {
+        event.preventDefault();
+        stepHit(event.shiftKey ? -1 : 1);
+      } else if (event.key === "Escape" && findOpen) {
+        event.preventDefault();
+        closeFind();
+      }
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [findOpen, hits, hitIndex]);
+
   const canApply = opts.target === "worktree" || opts.target === "staged";
   const fileAction = opts.target === "staged" ? "unstage" : "stage";
   const hunkAction = opts.target === "staged" ? "unstage" : "stage";
@@ -425,6 +558,12 @@ export function DiffView({
           ? t("hlNone")
           : t("hlWords");
   const stats = `${diff.additions > 0 ? "+" + diff.additions : ""}${diff.additions > 0 && diff.deletions > 0 ? " " : ""}${diff.deletions > 0 ? "−" + diff.deletions : ""}`;
+  // IDEA's "Open in editor" follows the caret; without one, the change the
+  // reader is on is the position that means something.
+  const currentRow = current >= 0 ? rows[changeRows[current]!] : undefined;
+  const currentLine = currentRow?.right?.no ?? currentRow?.left?.no;
+  const openAt = (side: Side, line: number) =>
+    onOpenFile(side, line, side === "before" ? beforePath : diff.path);
 
   return (
     <div className="diff-view">
@@ -441,7 +580,17 @@ export function DiffView({
           {stats && <span className="diff-stats">{stats}</span>}
           {busy && <Spinner />}
           <span className="spacer" />
-          <button className="toolbar-text-btn" onClick={onOpenFile} title={t("openSourceFile")}>
+          <button
+            className="toolbar-text-btn"
+            onClick={() =>
+              onOpenFile(
+                diff.status === "deleted" ? "before" : "after",
+                currentLine,
+                diff.status === "deleted" ? beforePath : diff.path,
+              )
+            }
+            title={t("openSourceFile")}
+          >
             <Icon name="file" /> {t("openFile")}
           </button>
           {onExternalDiff && (
@@ -514,6 +663,15 @@ export function DiffView({
               setOpen(new Set());
             }}
           />
+          {!diff.binary && (
+            <IconButton
+              icon="search"
+              title={t("findInDiff")}
+              small
+              active={findOpen}
+              onClick={() => (findOpen ? closeFind() : openFind())}
+            />
+          )}
           <span className="toolbar-sep" />
           <IconButton icon="prevDiff" title={t("previousChange")} small onClick={() => goto(-1)} />
           <IconButton icon="nextDiff" title={t("nextChange")} small onClick={() => goto(1)} />
@@ -571,6 +729,59 @@ export function DiffView({
             </>
           )}
         </div>
+        {findOpen && !diff.binary && (
+          <div className="diff-find">
+            <Icon name="search" size={12} />
+            <input
+              ref={findInput}
+              className="diff-find-input"
+              value={query}
+              placeholder={t("findPlaceholder")}
+              spellCheck={false}
+              autoCapitalize="off"
+              autoCorrect="off"
+              onChange={(e) => setQuery(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === "Enter") {
+                  e.preventDefault();
+                  stepHit(e.shiftKey ? -1 : 1);
+                } else if (e.key === "Escape") {
+                  e.preventDefault();
+                  closeFind();
+                }
+              }}
+            />
+            <button
+              className={cx("toolbar-text-btn diff-find-case", matchCase && "active")}
+              onClick={() => setMatchCase(!matchCase)}
+              title={t("matchCase")}
+            >
+              Aa
+            </button>
+            <span className="diff-find-count">
+              {query === ""
+                ? ""
+                : hits.length === 0
+                  ? t("noResults")
+                  : t("position", { current: hitIndex + 1, total: hits.length })}
+            </span>
+            <IconButton
+              icon="chevronUp"
+              title={t("previousChange")}
+              small
+              disabled={hits.length === 0}
+              onClick={() => stepHit(-1)}
+            />
+            <IconButton
+              icon="chevronDown"
+              title={t("nextChange")}
+              small
+              disabled={hits.length === 0}
+              onClick={() => stepHit(1)}
+            />
+            <IconButton icon="close" title={t("closeFind")} small onClick={closeFind} />
+          </div>
+        )}
       </div>
       {diff.binary ? (
         isImagePath(diff.path) ? (
@@ -624,6 +835,8 @@ export function DiffView({
               local={t("local")}
               showWhitespace={showWhitespace}
               highlight={highlight}
+              onOpenAt={openAt}
+              searchMarks={searchMarks}
             />
           ) : (
             <UnifiedRows
@@ -645,6 +858,8 @@ export function DiffView({
               onGutter={openGutter}
               local={t("local")}
               showWhitespace={showWhitespace}
+              onOpenAt={openAt}
+              searchMarks={searchMarks}
             />
           )}
           {diff.truncated && <div className="diff-truncated">{t("truncated")}</div>}
@@ -817,6 +1032,8 @@ function LineText({
   segs,
   tokens,
   showWhitespace,
+  searchSpans,
+  activeSpan,
 }: {
   text: string;
   /** Line number in the side's own text, which is how tokens are keyed. */
@@ -824,10 +1041,17 @@ function LineText({
   segs?: WordSegment[];
   tokens?: LineTokens | null;
   showWhitespace?: boolean;
+  /** Occurrences of the find query on this side, with the active one. */
+  searchSpans?: readonly SearchSpan[];
+  activeSpan?: SearchSpan;
 }) {
   const spans = no === undefined ? undefined : tokens?.get(no);
   const pieces = useMemo(() => paintLine(text, spans, segs), [text, spans, segs]);
-  const shown = useMemo(() => (showWhitespace ? revealWhitespace(pieces) : pieces), [pieces, showWhitespace]);
+  const marked = useMemo(
+    () => (searchSpans && searchSpans.length > 0 ? markSearch(pieces, searchSpans, activeSpan) : pieces),
+    [pieces, searchSpans, activeSpan],
+  );
+  const shown = useMemo(() => (showWhitespace ? revealWhitespace(marked) : marked), [marked, showWhitespace]);
   if (text === "") return <>{"\u00a0"}</>;
   return (
     <>
@@ -927,6 +1151,8 @@ function SplitRows({
   onSelect,
   showWhitespace,
   highlight,
+  onOpenAt,
+  searchMarks,
 }: {
   visible: VisibleRow[];
   onToggleFold: (start: number) => void;
@@ -940,7 +1166,10 @@ function SplitRows({
   currentRow: number;
   showWhitespace: boolean;
   highlight: HighlightMode;
+  onOpenAt: (side: Side, line: number) => void;
+  searchMarks: SearchMarkMap;
 } & GutterProps) {
+  const t = useT(T);
   // The divider between the panes carries one ribbon per change block, the
   // way the IDE connects the two sides. Its geometry is read from the laid
   // out rows, because wrapping and folded markers make heights uneven; the
@@ -1065,6 +1294,7 @@ function SplitRows({
     const i = item.index;
     const isFirst = firstRowOfHunk.get(aligned.hunk) === i;
     const block = wholeFileBlocks ? wholeFileBlocks.get(i) : undefined;
+    const marks = searchMarks.get(i);
     const oldLine = aligned.left;
     const newLine = aligned.right;
     // Both sides of a modification share one tone, as the IDE bands them: a
@@ -1093,11 +1323,19 @@ function SplitRows({
         )}
         <div
           className={cx("line-no", leftTone === "del" && "del", leftTone === "mod" && "mod")}
+          title={oldLine ? t("openAtLine") : undefined}
           onClick={
             oldLine
-              ? canApply && oldLine.kind !== "context"
-                ? (e) => onSelect(oldLine.no, "old", i, e)
-                : (e) => onGutter("before", oldLine.no, e.clientX, e.clientY)
+              ? (e) => {
+                  if ((e.metaKey || e.ctrlKey) && !e.altKey) {
+                    e.preventDefault();
+                    onOpenAt("before", oldLine.no);
+                  } else if (canApply && oldLine.kind !== "context") {
+                    onSelect(oldLine.no, "old", i, e);
+                  } else {
+                    onGutter("before", oldLine.no, e.clientX, e.clientY);
+                  }
+                }
               : undefined
           }
           onContextMenu={
@@ -1119,6 +1357,8 @@ function SplitRows({
               segs={oldLine.segments}
               tokens={tokens.left}
               showWhitespace={showWhitespace}
+              searchSpans={marks?.left}
+              activeSpan={marks?.leftActive}
             />
           ) : (
             "\u00a0"
@@ -1147,11 +1387,19 @@ function SplitRows({
         )}
         <div
           className={cx("line-no", rightTone === "add" && "add", rightTone === "mod" && "mod")}
+          title={newLine ? t("openAtLine") : undefined}
           onClick={
             newLine
-              ? canApply && newLine.kind !== "context"
-                ? (e) => onSelect(newLine.no, "new", i, e)
-                : (e) => onGutter("after", newLine.no, e.clientX, e.clientY)
+              ? (e) => {
+                  if ((e.metaKey || e.ctrlKey) && !e.altKey) {
+                    e.preventDefault();
+                    onOpenAt("after", newLine.no);
+                  } else if (canApply && newLine.kind !== "context") {
+                    onSelect(newLine.no, "new", i, e);
+                  } else {
+                    onGutter("after", newLine.no, e.clientX, e.clientY);
+                  }
+                }
               : undefined
           }
           onContextMenu={
@@ -1173,6 +1421,8 @@ function SplitRows({
               segs={newLine.segments}
               tokens={tokens.right}
               showWhitespace={showWhitespace}
+              searchSpans={marks?.right}
+              activeSpan={marks?.rightActive}
             />
           ) : (
             "\u00a0"
@@ -1214,6 +1464,8 @@ function UnifiedRows({
   selected,
   onSelect,
   showWhitespace,
+  onOpenAt,
+  searchMarks,
 }: {
   visible: VisibleRow[];
   onToggleFold: (start: number) => void;
@@ -1226,7 +1478,10 @@ function UnifiedRows({
   onApplyLines: (lines: number[], action: "stage" | "unstage" | "rollback") => void;
   currentRow: number;
   showWhitespace: boolean;
+  onOpenAt: (side: Side, line: number) => void;
+  searchMarks: SearchMarkMap;
 } & GutterProps) {
+  const t = useT(T);
   const out: React.ReactNode[] = [];
   visible.forEach((item) => {
     if (item.kind === "fold") {
@@ -1243,6 +1498,7 @@ function UnifiedRows({
     const i = item.index;
     const isFirst = firstRowOfHunk.get(aligned.hunk) === i;
     const block = wholeFileBlocks ? wholeFileBlocks.get(i) : undefined;
+    const marks = searchMarks.get(i);
     // An unchanged line exists on both sides; a unified view shows it once,
     // with the after side's blame, and only changed rows are drawn twice.
     const firstSide: Side = aligned.kind !== "context" && aligned.left ? "before" : "after";
@@ -1271,11 +1527,17 @@ function UnifiedRows({
           )}
           <div
             className={cx("line-no", line.kind === "del" && "del", line.kind === "add" && "add")}
-            onClick={
-              canApply && line.kind !== "context"
-                ? (e) => onSelect(line.no, line.kind === "del" ? "old" : "new", i, e)
-                : (e) => onGutter(side, line.no, e.clientX, e.clientY)
-            }
+            title={t("openAtLine")}
+            onClick={(e) => {
+              if ((e.metaKey || e.ctrlKey) && !e.altKey) {
+                e.preventDefault();
+                onOpenAt(side, line.no);
+              } else if (canApply && line.kind !== "context") {
+                onSelect(line.no, line.kind === "del" ? "old" : "new", i, e);
+              } else {
+                onGutter(side, line.no, e.clientX, e.clientY);
+              }
+            }}
             onContextMenu={(e) => {
               e.preventDefault();
               onGutter(side, line.no, e.clientX, e.clientY);
@@ -1291,6 +1553,8 @@ function UnifiedRows({
               segs={line.segments}
               tokens={side === "before" ? tokens.left : tokens.right}
               showWhitespace={showWhitespace}
+              searchSpans={side === "before" ? marks?.left : marks?.right}
+              activeSpan={side === "before" ? marks?.leftActive : marks?.rightActive}
             />
           </div>
           {(wholeFileBlocks ? block !== undefined && side === firstSide : isFirst && side === firstSide) ? (

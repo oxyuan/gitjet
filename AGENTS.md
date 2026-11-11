@@ -225,7 +225,8 @@ use it only for layout work. Vite's port is pinned to 5173 in **both**
 - Pure logic lives in React-free modules with a colocated test: `diff.ts`,
   `graph.ts`, `changes.ts`, `branches.ts`, `merge.ts`, `explorer.ts`,
   `syntax.ts`, `paths.ts`, `tabs.ts`, `myers.ts`, `ideaDiff.ts`,
-  `worddiff.ts`, `wordmerge.ts`. Keep them free of `react`/`dom` imports.
+  `worddiff.ts`, `wordmerge.ts`, `search.ts`. Keep them free of `react`/`dom`
+  imports.
 - The conflict view's wand resolves a range with the IDE's own text merge:
   `wordmerge.ts` ports `MergeResolveUtil.tryResolve` (word/newline chunks,
   whitespace-sensitive pass then a whitespace-ignoring one), and `ideaDiff.ts`
@@ -270,6 +271,14 @@ use it only for layout work. Vite's port is pinned to 5173 in **both**
 - A diff opens at its first change, as `SimpleDiffViewer` does with
   `ScrollToPolicy.FIRST_CHANGE`; the counter then reads `1 of N`. A refresh
   keeps the current change unless the block is gone.
+- The diff searches in place, as IDEA's diff editors do: Ctrl/⌘+F opens the
+  bar, Enter/F3 and Shift+Enter/Shift+F3 walk the hits, Esc closes. The hit
+  list covers both versions (`search.ts`); a context row whose sides are
+  identical is one hit that marks both panes, and a hit hidden inside a
+  closed fold opens that fold before scrolling. Ctrl/⌘+click on a line number
+  opens that side's revision at the line (`diffRevisions` names it), and the
+  header's Open File uses the current change's line — the diff's stand-in for
+  IDEA's caret.
 - A merge band is keyed by what happened to the text, never by the pane that
   holds it: `rangeTone` (`merge.ts`) maps a range's kind to `inserted`,
   `deleted`, `modified` or `conflict`, and every pane the range touches paints

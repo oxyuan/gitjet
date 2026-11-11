@@ -28,7 +28,7 @@ import { ConsolePanel } from "./ConsolePanel";
 import { SourceTree } from "./SourceTree";
 import { normalizeTabOrder, type ToolTab, TOOL_TABS, TOOL_TAB_ICONS } from "./tabs";
 import { isProtectedBranch } from "./protected";
-import { DiffView, ThreeWayView } from "./DiffView";
+import { DiffView, ThreeWayView, diffRevisions } from "./DiffView";
 import type { WhitespaceMode } from "./diff";
 import {
   ChangelistDialog,
@@ -3052,7 +3052,7 @@ function AppShell({ onLangChange }: { onLangChange: (lang: Lang) => void }) {
             }}
             onApplyThreeHunk={applyThreeHunk}
             onApplyThreeFile={applyThreeFile}
-            onOpenFile={(path, revision) => void showFile(path, revision)}
+            onOpenFile={(path, revision, line) => void showFile(path, revision, line)}
             onOpenDiff={(path, revision) => void showFileDiff(path, revision)}
             onCopyPath={copyText}
             onReveal={(path) => void Workspace.reveal(path).catch((err) => fail(t("revealFailed"), err))}
@@ -3709,7 +3709,7 @@ function RightPane({
   onApplyLines: (lines: number[], action: "stage" | "unstage" | "rollback") => void;
   onApplyThreeHunk: (side: "staged" | "unstaged", hunk: number, action: "stage" | "unstage" | "rollback") => void;
   onApplyThreeFile: (side: "staged" | "unstaged", action: "stage" | "unstage" | "rollback") => void;
-  onOpenFile: (path: string, revision: string) => void;
+  onOpenFile: (path: string, revision: string, line?: number) => void;
   onExternalDiff: (opts: DiffOptions) => void;
   onOpenDiff: (path: string, revision: string) => void;
   onCopyPath: (text: string) => void;
@@ -4064,16 +4064,10 @@ function RightPane({
             onApplyFile={onApplyFile}
             onApplyLines={onApplyLines}
             onExternalDiff={() => onExternalDiff(active.opts)}
-            onOpenFile={() =>
-              onOpenFile(
-                active.opts.path,
-                active.opts.target === "commit" || active.opts.target === "range"
-                  ? active.opts.revision
-                  : active.opts.target === "staged"
-                    ? "INDEX"
-                    : "",
-              )
-            }
+            onOpenFile={(side, line, path) => {
+              const revisions = diffRevisions(active.opts);
+              onOpenFile(path || active.opts.path, side === "before" ? revisions.before : revisions.after, line);
+            }}
             onShowFileHistory={onShowFileHistory}
             root={root}
             onCopyPath={(text) => onCopyPath(text)}

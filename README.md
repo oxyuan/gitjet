@@ -43,7 +43,7 @@ Go 调用你机器上的 git，React 画界面。hooks、filters、credential he
 - 🌿 **分支与远端** —— 检出 / 更新、标签、清理已合并分支、工作树、子模块、LFS、钩子、push 预览与 refspec。
 - 🕰️ **历史** —— 多 lane 提交图、多分支过滤与搜索、显示实际 git 命令、任意比较、cherry-pick / revert / reset、文件历史、blame。
 - 🔀 **冲突与重写** —— 三栏合并与内存三方合并（按 git 的 diff3 算法，不触碰工作区即可暂存结果）；merge / rebase / cherry-pick / revert 的继续、跳过与中止；交互式 rebase。
-- 👀 **阅读** —— 并排 / 统一差异、图片对照、可编辑源码、LSP、快速打开、多标签。
+- 👀 **阅读** —— 并排 / 统一差异、差异内查找、图片对照、可编辑源码、LSP、快速打开、多标签。
 - 🖥️ **工具** —— 控制台与操作日志、快捷键、主题与语言、最近仓库、系统集成。
 
 ## 🚀 快速开始
@@ -97,6 +97,7 @@ go test ./... && go vet ./... && bun run typecheck && bun run test:web && bun ru
 | `⌘/Ctrl+9` / `⌘/Ctrl+0` | 提交 / 分支工具窗口 |
 | `⌘/Ctrl+B` / `⌘/Ctrl+Shift+B` | 跳到定义 / 列出引用 |
 | `⌘/Ctrl+S` | 保存源码 / 应用冲突结果 |
+| `⌘/Ctrl+F` | 在差异中查找 |
 | `F7` / `Shift+F7` | 下一处 / 上一处变更（差异与冲突视图） |
 
 ## 📌 说明
