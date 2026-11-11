@@ -307,6 +307,12 @@ use it only for layout work. Vite's port is pinned to 5173 in **both**
   edited only in Settings → General ("Dock tabs"), whose arrows call
   `moveItem`; the strip is a plain list of buttons. The arrows write the order
   immediately — it is a view preference, not part of the dialog's draft.
+- The Settings sheet has one height for every tab (`height: min(672px,
+  calc(var(--window-h) - 56px))` in `.settings-modal`). The tabs differ a lot
+  in volume, and a sheet sized to its content re-centers — the whole dialog's
+  top edge jumps on each switch. The frame, the tab strip and the footer stay
+  put; only `.modal-body` scrolls (it takes `flex: 1` so the footer is pinned).
+  Do not go back to an auto height for a "tighter" sheet.
 - `useStoredState` (`src/ui.tsx`) persists view preferences under `gitjet.*`
   keys. Its setter takes a **value**, not an updater function. Settings are not
   localStorage — they live in Go (`<config dir>/GitJet/settings.json`).

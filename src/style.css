@@ -5308,9 +5308,17 @@ kbd {
    starts on the same x whether it is a select, an input or a checkbox. */
 .settings-modal {
   --settings-field: 300px;
+  /* One height for every tab. The three tabs hold wildly different amounts of
+     settings, and a sheet that sizes to its content moves its own top edge
+     (the overlay centers it) on each switch — the whole window appears to
+     bounce. Fixed, the frame, the tab strip and the footer stay put and only
+     the panel area scrolls. The value fits the tallest tab that is short
+     enough to fit; the Git tab scrolls, as it did before. */
+  height: min(672px, calc(var(--window-h, 100vh) - 56px));
 }
 
 .settings-modal .modal-body {
+  flex: 1;
   padding: 0;
   min-height: 0;
   overflow-y: auto;
