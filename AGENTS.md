@@ -272,7 +272,8 @@ use it only for layout work. Vite's port is pinned to 5173 in **both**
   `ScrollToPolicy.FIRST_CHANGE`; the counter then reads `1 of N`. A refresh
   keeps the current change unless the block is gone. Clicking the counter
   opens IDEA's "Go to change" list: one row per block with the header git
-  printed for it, the current block checked.
+  printed for it, the current block checked; a click inside a changed row
+  makes that block current, as the IDE's counter follows the caret.
 - The diff searches in place, as IDEA's diff editors do: Ctrl/⌘+F opens the
   bar, Enter/F3 and Shift+Enter/Shift+F3 walk the hits, Esc closes. The hit
   list covers both versions (`search.ts`); a context row whose sides are
