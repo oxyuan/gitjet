@@ -90,7 +90,7 @@ export function SourceEditor({
   lineEnding?: LineEnding;
   /** Text restored after switching away with unsaved edits. */
   draft?: string;
-  labels?: { addedHere: string; deletedHere: string };
+  labels?: { addedHere: string; deletedHere: string; modifiedHere: string };
   blameFormat?: (line: BlameLine) => string;
   onRollbackHunk?: (hunk: number) => void;
   onRollbackLine?: (line: number) => void;
@@ -104,8 +104,9 @@ export function SourceEditor({
   onCommitDiff?: (hash: string) => void;
   onCopy?: (text: string) => void;
   onDirtyChange?: (dirty: boolean) => void;
-  /** Writes the text to disk; resolves true when it succeeded. */
-  onSave?: (text: string) => Promise<boolean>;
+  /** Writes the text to disk; resolves true when it succeeded. `quiet` is
+   *  an automatic save, which must not toast. */
+  onSave?: (text: string, quiet?: boolean) => Promise<boolean>;
   /** Preserves a draft while the tab is not the active one. */
   onDraftChange?: (text: string) => void;
   /** Lets the header's Save button invoke the same write as Ctrl/Cmd-S. */
@@ -151,17 +152,25 @@ export function SourceEditor({
   };
   const saving = useRef(false);
   const caretLine = useRef(1);
-  const save = async (): Promise<boolean> => {
+  // IDEA writes an edited file by itself: after a pause in typing and when
+  // the window loses focus, so a repository never holds a buffer the disk
+  // does not have. The write is silent; the tab's dot is the feedback.
+  const AUTO_SAVE_DELAY = 1000;
+  const autoTimer = useRef<number | null>(null);
+  const save = async (quiet = false): Promise<boolean> => {
     const current = editor.current;
     const write = actions.current.onSave;
     if (!current || !actions.current.editable || !write || saving.current) return false;
     saving.current = true;
     try {
       const doc = current.getDoc();
-      const ok = await write(withLineEnding(doc, actions.current.lineEnding));
+      const ok = await write(withLineEnding(doc, actions.current.lineEnding), quiet);
       if (ok) {
         current.markSaved(doc);
-        current.view.focus();
+        // Typing during the write leaves newer text behind; that buffer is
+        // still dirty and deserves its own save.
+        if (current.isDirty()) scheduleAutoSave();
+        else if (!quiet) current.view.focus();
       }
       return ok;
     } catch {
@@ -172,6 +181,19 @@ export function SourceEditor({
   };
   const saveLatest = useRef(save);
   saveLatest.current = save;
+  const cancelAutoSave = () => {
+    if (autoTimer.current === null) return;
+    window.clearTimeout(autoTimer.current);
+    autoTimer.current = null;
+  };
+  const scheduleAutoSave = () => {
+    if (!actions.current.editable || !actions.current.onSave) return;
+    cancelAutoSave();
+    autoTimer.current = window.setTimeout(() => {
+      autoTimer.current = null;
+      if (editor.current?.isDirty()) void saveLatest.current(true);
+    }, AUTO_SAVE_DELAY);
+  };
 
   useEffect(() => {
     if (!saveRef) return;
@@ -226,7 +248,11 @@ export function SourceEditor({
       lang,
       labels,
       blameFormat,
-      onDirtyChange: (dirty) => actions.current.onDirtyChange?.(dirty),
+      onDirtyChange: (dirty) => {
+        actions.current.onDirtyChange?.(dirty);
+        if (dirty) scheduleAutoSave();
+        else cancelAutoSave();
+      },
       onSaveRequest: editable ? () => void saveLatest.current() : undefined,
       onRollbackHunk: (hunk) => actions.current.onRollbackHunk?.(hunk),
       onRollbackLine: (line) => actions.current.onRollbackLine?.(line),
@@ -247,12 +273,20 @@ export function SourceEditor({
           : { date: annotateDate(blame.time), author: blame.author },
     });
     editor.current = created;
+    // Switching to another application is IDEA's other save trigger: the
+    // file on disk must already hold what the reader typed.
+    const flush = () => {
+      if (created.isDirty()) void saveLatest.current(true);
+    };
+    window.addEventListener("blur", flush);
     // The language server speaks absolute file URIs; registering a
     // repository-relative path made every server answer look like a
     // different file, so a jump opened a tab that could not load.
     const uri = toUri(absolutePath);
     registerView(uri, created.view, file.revision);
     return () => {
+      window.removeEventListener("blur", flush);
+      cancelAutoSave();
       if (actions.current.editable && created.isDirty()) {
         actions.current.onDraftChange?.(created.getDoc());
       }

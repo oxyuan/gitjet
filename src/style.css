@@ -10706,3 +10706,39 @@ body.resizing-row .log-detail-split::after {
 .tree-row.file.flat .file-dir {
   font-size: inherit;
 }
+
+/* The change gutter distinguishes an edit from an insertion: a replaced
+   line is the modification tone, not the added one. IDEA's own palette
+   paints modified lines blue, added lines green and deletions a wedge. */
+.cm-change-mod {
+  background: var(--accent);
+  opacity: 0.8;
+}
+
+/* Clicking the change counter opens IDEA's "Go to change" list. */
+button.diff-nav-count {
+  border: 1px solid transparent;
+  border-radius: 5px;
+  background: none;
+  padding: 0 5px;
+  height: 20px;
+  cursor: pointer;
+  color: var(--muted-2);
+  font-size: 10.5px;
+  white-space: nowrap;
+}
+
+button.diff-nav-count:hover:not(:disabled) {
+  background: var(--hover);
+  border-color: var(--border);
+  color: var(--fg);
+}
+
+button.diff-nav-count:disabled {
+  cursor: default;
+}
+
+.context-menu .menu-item.change-jump {
+  font-family: var(--font-mono, ui-monospace, monospace);
+  font-size: 11px;
+}

@@ -153,15 +153,22 @@ export function loadLanguage(name: string): Promise<LanguageSupport | null> {
 class ChangeMarker extends GutterMarker {
   constructor(
     readonly hunk: number,
-    readonly kind: "add" | "del",
+    readonly kind: "add" | "del" | "mod",
     readonly line: number,
-    readonly onClick: (hunk: number, kind: "add" | "del", line: number, alt: boolean) => void,
+    readonly onClick: (hunk: number, kind: "add" | "del" | "mod", line: number, alt: boolean) => void,
     readonly label: string,
   ) {
     super();
   }
   eq(other: ChangeMarker) {
-    return other.hunk === this.hunk && other.kind === this.kind && other.label === this.label;
+    // The line matters: a reused marker would otherwise fire the handler
+    // closed over the line it used to mark.
+    return (
+      other.hunk === this.hunk &&
+      other.kind === this.kind &&
+      other.line === this.line &&
+      other.label === this.label
+    );
   }
   toDOM() {
     const el = document.createElement("div");
@@ -192,10 +199,12 @@ const changeField = StateField.define<ChangeRange[]>({
   },
 });
 
-/** A gutter column of add/delete bars, clickable per hunk. */
+/** A gutter column of change bars, one per changed line as an IDE draws
+ *  them, clickable per hunk. A deletion has no line of its own, so its wedge
+ *  sits on the line the text disappeared from. */
 function changeGutter(
-  onClick: (hunk: number, kind: "add" | "del", line: number, alt: boolean) => void,
-  labels: { add: string; del: string },
+  onClick: (hunk: number, kind: "add" | "del" | "mod", line: number, alt: boolean) => void,
+  labels: { add: string; del: string; mod: string },
 ): Extension {
   return [
     changeField,
@@ -206,13 +215,19 @@ function changeGutter(
         if (ranges.length === 0) return RangeSet.empty as RangeSet<GutterMarker>;
         const builder = new RangeSetBuilder<GutterMarker>();
         for (const range of ranges) {
-          const line = view.state.doc.line(Math.min(Math.max(range.start, 1), view.state.doc.lines));
-          const label = range.kind === "add" ? labels.add : labels.del;
-          builder.add(
-            line.from,
-            line.from,
-            new ChangeMarker(range.hunk, range.kind, range.start, onClick, label),
-          );
+          const label = range.kind === "add" ? labels.add : range.kind === "mod" ? labels.mod : labels.del;
+          // Every line of a span gets its own bar, the way the IDE covers a
+          // changed block line by line instead of marking only its head.
+          const first = Math.min(Math.max(range.start, 1), view.state.doc.lines);
+          const last = Math.min(first + Math.max(range.count - 1, 0), view.state.doc.lines);
+          for (let no = first; no <= last; no++) {
+            const line = view.state.doc.line(no);
+            builder.add(
+              line.from,
+              line.from,
+              new ChangeMarker(range.hunk, range.kind, no, onClick, label),
+            );
+          }
         }
         return builder.finish();
       },
@@ -653,7 +668,7 @@ export type EditorOptions = {
   /** Ctrl/Cmd-S. The page owns the actual write. */
   onSaveRequest?: () => void;
   /** Copy the editor needs, in the reader's language. */
-  labels?: { addedHere?: string; deletedHere?: string };
+  labels?: { addedHere?: string; deletedHere?: string; modifiedHere?: string };
   /** Formats one blame line; the app owns the wording. */
   blameFormat?: (line: BlameLine, fallback: string) => string;
   changes?: ChangeRange[];
@@ -1159,7 +1174,11 @@ export class SourceEditor {
               if (alt && opts.onRollbackLine) opts.onRollbackLine(line);
               else opts.onRollbackHunk?.(hunk);
             },
-            { add: opts.labels?.addedHere ?? "Changed here", del: opts.labels?.deletedHere ?? "Deleted here" },
+            {
+              add: opts.labels?.addedHere ?? "Added here",
+              del: opts.labels?.deletedHere ?? "Deleted here",
+              mod: opts.labels?.modifiedHere ?? "Modified here",
+            },
           ),
           blameLine(opts.blameFormat),
           // The line the caret sits on is what "copy path with line" means;

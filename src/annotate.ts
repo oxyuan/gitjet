@@ -6,56 +6,64 @@ export type ChangeRange = {
   start: number;
   /** How many lines the bar covers; 0 for a deletion. */
   count: number;
-  kind: "add" | "del";
+  /** `mod` is a line that exists on both sides with different text, `add` a
+   *  line only the new side has, `del` a removal anchored at the line after
+   *  it — the three tones an IDE's change gutter draws. */
+  kind: "add" | "del" | "mod";
   /** The hunk it belongs to, which is what rollback names. */
   hunk: number;
 };
 
 /** Turns a file diff into the bars a change gutter draws.
  *
- *  Added lines become spans; a run of deleted lines becomes one marker on the
- *  line after them (or the hunk's first new line when nothing survives),
- *  which is where an IDE puts the wedge. */
+ *  A replaced block is one modification, not an unrelated deletion and
+ *  insertion: the overlapping lines are `mod` and only the surplus is an
+ *  `add` or a `del`. That is how the IDE marks every changed line rather
+ *  than the first line of a block. A deletion has no line of its own, so it
+ *  becomes one marker on the line after it (or the line after the paired
+ *  lines when only part of a block was replaced). */
 export function changeRanges(diff: FileDiff | null): ChangeRange[] {
   if (!diff || diff.binary || !diff.hunks?.length) return [];
   const ranges: ChangeRange[] = [];
   diff.hunks.forEach((hunk, index) => {
     let lastNew = hunk.newStart > 0 ? hunk.newStart : 1;
+    // One run between two context lines: git lists the deletions first and
+    // the additions after them.
+    let dels = 0;
     let addStart = 0;
-    let addCount = 0;
-    let delStart = 0;
-    let delCount = 0;
-    const flushAdd = () => {
-      if (addCount > 0) ranges.push({ start: addStart, count: addCount, kind: "add", hunk: index });
+    let adds = 0;
+    const flush = () => {
+      if (dels === 0 && adds === 0) return;
+      const paired = Math.min(dels, adds);
+      if (paired > 0) ranges.push({ start: addStart, count: paired, kind: "mod", hunk: index });
+      if (adds > paired) ranges.push({ start: addStart + paired, count: adds - paired, kind: "add", hunk: index });
+      if (dels > paired) {
+        // After the lines that still exist the surplus deletions get the
+        // wedge; a pure deletion sits on the first line of the new side.
+        const at = adds > 0 ? addStart + paired : Math.min(lastNew + 1, hunk.newStart + Math.max(hunk.newLines, 1));
+        ranges.push({ start: at, count: 0, kind: "del", hunk: index });
+      }
+      dels = 0;
+      adds = 0;
       addStart = 0;
-      addCount = 0;
-    };
-    const flushDel = () => {
-      if (delCount > 0) ranges.push({ start: delStart, count: 0, kind: "del", hunk: index });
-      delStart = 0;
-      delCount = 0;
     };
     for (const line of hunk.lines) {
       if (line.kind === "add") {
-        flushDel();
-        if (addCount === 0) addStart = line.newNo;
-        addCount++;
+        if (adds === 0) addStart = line.newNo;
+        adds++;
         lastNew = line.newNo;
         continue;
       }
-      flushAdd();
       if (line.kind === "del") {
-        if (delCount === 0) delStart = Math.min(lastNew + 1, hunk.newStart + Math.max(hunk.newLines, 1));
-        delCount++;
+        dels++;
         continue;
       }
-      flushDel();
+      flush();
       lastNew = line.newNo;
     }
-    flushAdd();
-    flushDel();
+    flush();
   });
-  return ranges.sort((a, b) => a.start - b.start);
+  return ranges.sort((a, b) => a.start - b.start || Number(a.kind === "del") - Number(b.kind === "del"));
 }
 
 /** How strongly a blame row is tinted, 0 being the freshest and 5 the oldest,

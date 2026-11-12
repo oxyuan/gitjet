@@ -54,7 +54,7 @@ describe("changeRanges", () => {
     expect(ranges).toEqual([{ start: 11, count: 0, kind: "del", hunk: 0 }]);
   });
 
-  it("splits an add run when a deletion interrupts it", () => {
+  it("turns a replaced line into one modification and keeps the surplus", () => {
     const ranges = changeRanges(
       diff([
         ["add", 0, 10],
@@ -62,7 +62,23 @@ describe("changeRanges", () => {
         ["add", 0, 11],
       ]),
     );
-    expect(ranges.map((r) => `${r.kind}:${r.start}:${r.count}`)).toEqual(["add:10:1", "del:11:0", "add:11:1"]);
+    // One old line became two new ones: the first is a modification, the
+    // second an addition, and nothing is left unpaired.
+    expect(ranges.map((r) => `${r.kind}:${r.start}:${r.count}`)).toEqual(["mod:10:1", "add:11:1"]);
+  });
+
+  it("covers every line of a replaced block, not only its first", () => {
+    const ranges = changeRanges(
+      diff([
+        ["context", 8, 10],
+        ["del", 9, 0],
+        ["del", 10, 0],
+        ["add", 0, 11],
+        ["add", 0, 12],
+        ["context", 11, 13],
+      ]),
+    );
+    expect(ranges).toEqual([{ start: 11, count: 2, kind: "mod", hunk: 0 }]);
   });
 
   it("keeps one marker for a deletion at the end of the file", () => {

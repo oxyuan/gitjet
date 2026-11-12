@@ -270,7 +270,9 @@ use it only for layout work. Vite's port is pinned to 5173 in **both**
   `pointer-events: none`; the apply buttons are positioned above it.
 - A diff opens at its first change, as `SimpleDiffViewer` does with
   `ScrollToPolicy.FIRST_CHANGE`; the counter then reads `1 of N`. A refresh
-  keeps the current change unless the block is gone.
+  keeps the current change unless the block is gone. Clicking the counter
+  opens IDEA's "Go to change" list: one row per block with the header git
+  printed for it, the current block checked.
 - The diff searches in place, as IDEA's diff editors do: Ctrl/⌘+F opens the
   bar, Enter/F3 and Shift+Enter/Shift+F3 walk the hits, Esc closes. The hit
   list covers both versions (`search.ts`); a context row whose sides are
@@ -419,9 +421,15 @@ use it only for layout work. Vite's port is pinned to 5173 in **both**
   `SourceView` keeps an inactive dirty tab's text in `RightPane`'s `drafts`
   map; a clean tab is always re-read from `file.text`. A refresh from disk never
   replaces a dirty document.
+- Edits save themselves, as IDEA does: `SourceEditor` writes one second after
+  typing stops and again when the window loses focus, through the same
+  `Git.saveFile` path and with `quiet` set so no toast appears. The tab's dot,
+  not a notification, is the feedback.
 - Change bars come from `Git.diff({target:"worktree"})` hunks, mapped to lines by
-  `src/annotate.ts`; clicking a bar calls `Git.applyHunk(..., "rollback")` with
-  the same hunk index. Blame comes from `Git.blame(path, revision)` (`""` is
+  `src/annotate.ts`; every line of a span gets its own bar, a replaced block is
+  a `mod` and only its surplus an `add`, and a deletion is a wedge on the line
+  after it. Clicking a bar calls `Git.applyHunk(..., "rollback")` with the same
+  hunk index. Blame comes from `Git.blame(path, revision)` (`""` is
   the worktree, `"INDEX"` the staged copy), rendered on the cursor line and in
   the annotation column. Source and diff gutters share `src/blameMenu.ts`, so
   the line-number menu means the same thing in both.

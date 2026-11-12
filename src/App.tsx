@@ -1125,7 +1125,7 @@ function AppShell({ onLangChange }: { onLangChange: (lang: Lang) => void }) {
    *  The saved text is put into the open documents immediately so a tab that
    *  is already mounted does not wait for the refresh. */
   const saveFile = useCallback(
-    async (path: string, text: string) => {
+    async (path: string, text: string, quiet = false) => {
       try {
         await Git.saveFile(path, text);
         const size = new TextEncoder().encode(text).length;
@@ -1137,7 +1137,9 @@ function AppShell({ onLangChange }: { onLangChange: (lang: Lang) => void }) {
           ),
         );
         await reload(false);
-        notify("success", t("fileSaved"), path);
+        // An automatic save is silent: a toast per pause in typing would be
+        // noise, while the tab's dot already reports the state.
+        if (!quiet) notify("success", t("fileSaved"), path);
         return true;
       } catch (err) {
         fail(t("saveFileFailed"), err);
@@ -4095,7 +4097,7 @@ function RightPane({
   onDocDirty: (id: string, dirty: boolean) => void;
   onFilesChanged: () => void;
   onFileError: (err: unknown) => void;
-  onSaveFile: (path: string, text: string) => Promise<boolean>;
+  onSaveFile: (path: string, text: string, quiet?: boolean) => Promise<boolean>;
   diffWrap: boolean;
   onToggleWrap: () => void;
   diffMode: "split" | "unified";
@@ -4343,7 +4345,7 @@ function RightPane({
             onCommitDiff={(hash) => onOpenDiff(active.file.path, hash)}
             draft={drafts.current.get(active.id)}
             onDraftChange={(text) => drafts.current.set(active.id, text)}
-            onSave={(text) => onSaveFile(active.file.path, text)}
+            onSave={(text, quiet) => onSaveFile(active.file.path, text, quiet)}
             onDirtyChange={(dirty) => onDocDirty(active.id, dirty)}
           />
         )}

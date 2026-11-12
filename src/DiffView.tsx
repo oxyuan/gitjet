@@ -38,6 +38,7 @@ const T = {
     whitespace: "Whitespace",
     previousChange: "Previous change (Shift+F7)",
     nextChange: "Next change (F7)",
+    goToChange: "Go to change",
     findInDiff: "Find in the diff (⌘/Ctrl+F)",
     findPlaceholder: "Find in the diff",
     matchCase: "Match case",
@@ -105,6 +106,7 @@ const T = {
     whitespace: "忽略空白",
     previousChange: "上一处更改（Shift+F7）",
     nextChange: "下一处更改（F7）",
+    goToChange: "跳转到更改",
     findInDiff: "在差异中查找（⌘/Ctrl+F）",
     findPlaceholder: "在差异中查找",
     matchCase: "区分大小写",
@@ -265,6 +267,7 @@ export function DiffView({
   }, [hits, activeHit, findOpen]);
   const [wsMenu, setWsMenu] = useState<{ x: number; y: number } | null>(null);
   const [hlMenu, setHlMenu] = useState<{ x: number; y: number } | null>(null);
+  const [changeMenu, setChangeMenu] = useState<{ x: number; y: number } | null>(null);
   const bodyRef = useRef<HTMLDivElement>(null);
   // One annotation preference for every viewer: the source pane and the diff
   // gutter answer the same way.
@@ -358,16 +361,33 @@ export function DiffView({
     [rows, diff.wholeFile],
   );
 
-  const goto = (delta: number) => {
-    if (changeRows.length === 0) return;
-    let idx = current;
-    if (idx === -1) idx = delta > 0 ? 0 : changeRows.length - 1;
-    else idx = (idx + delta + changeRows.length) % changeRows.length;
+  const revealChange = (idx: number) => {
+    if (idx < 0 || idx >= changeRows.length) return;
     setCurrent(idx);
     const rowIndex = changeRows[idx]!;
     const el = bodyRef.current?.querySelector<HTMLElement>(`[data-row="${rowIndex}"]`);
     el?.scrollIntoView({ block: "center" });
   };
+  const goto = (delta: number) => {
+    if (changeRows.length === 0) return;
+    let idx = current;
+    if (idx === -1) idx = delta > 0 ? 0 : changeRows.length - 1;
+    else idx = (idx + delta + changeRows.length) % changeRows.length;
+    revealChange(idx);
+  };
+  // The changes list IDEA opens from its "N of M" counter: every block with
+  // the header git printed for it, so a reader can jump anywhere.
+  const changeItems: ContextItem[] = changeRows.map((rowIndex, index) => {
+    const hunk = diff.hunks[rows[rowIndex]?.hunk ?? -1];
+    return {
+      label: hunk ? `${index + 1}  ${hunk.header}` : `${index + 1}`,
+      checked: index === current,
+      onClick: () => {
+        setChangeMenu(null);
+        revealChange(index);
+      },
+    };
+  });
   // F7/Shift+F7 walk the changes, as they do in the IDE's diff viewer. The
   // listener is registered once and reads the latest `goto` through a ref.
   const gotoRef = useRef(goto);
@@ -675,11 +695,21 @@ export function DiffView({
           <span className="toolbar-sep" />
           <IconButton icon="prevDiff" title={t("previousChange")} small onClick={() => goto(-1)} />
           <IconButton icon="nextDiff" title={t("nextChange")} small onClick={() => goto(1)} />
-          <span className="diff-nav-count">
+          <button
+            className="diff-nav-count"
+            disabled={changeRows.length === 0}
+            title={t("goToChange")}
+            onClick={(e) => {
+              setMenu(null);
+              setWsMenu(null);
+              setHlMenu(null);
+              setChangeMenu({ x: e.clientX, y: e.clientY });
+            }}
+          >
             {changeRows.length === 0
               ? t("noChanges")
               : t("position", { current: current + 1 || "–", total: changeRows.length })}
-          </span>
+          </button>
           <span className="spacer" />
           {canApply && (
             <>
@@ -866,6 +896,14 @@ export function DiffView({
         </div>
       )}
       {menu && <ContextMenu x={menu.x} y={menu.y} items={menuItems} onClose={() => setMenu(null)} />}
+      {changeMenu && (
+        <ContextMenu
+          x={changeMenu.x}
+          y={changeMenu.y}
+          items={[{ header: true, label: t("goToChange") }, ...changeItems]}
+          onClose={() => setChangeMenu(null)}
+        />
+      )}
       {wsMenu && (
         <ContextMenu x={wsMenu.x} y={wsMenu.y} items={whitespaceItems} onClose={() => setWsMenu(null)} />
       )}

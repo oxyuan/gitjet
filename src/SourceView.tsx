@@ -35,7 +35,8 @@ const T = {
     truncated: "File truncated at 8 MB",
     binaryFile: "Binary file — no text to show",
     missingFile: "File does not exist in this revision",
-    addedHere: "Changed here — click to roll this block back",
+    addedHere: "Added here — click to roll this block back",
+    modifiedHere: "Modified here — click to roll this block back",
     deletedHere: "Deleted here — click to roll this back",
     blameUncommitted: "You · uncommitted",
   },
@@ -63,7 +64,8 @@ const T = {
     truncated: "文件已截断至 8 MB",
     binaryFile: "二进制文件 — 无文本可显示",
     missingFile: "此版本中不存在该文件",
-    addedHere: "此处的修改 — 点击回滚这一块",
+    addedHere: "此处新增 — 点击回滚这一块",
+    modifiedHere: "此处修改 — 点击回滚这一块",
     deletedHere: "此处有删除 — 点击回滚",
     blameUncommitted: "你 · 未提交",
   },
@@ -145,7 +147,7 @@ export function SourceView({
   draft?: string;
   onDraftChange?: (text: string) => void;
   /** Writes the working-tree file; resolves false when the write failed. */
-  onSave?: (text: string) => Promise<boolean>;
+  onSave?: (text: string, quiet?: boolean) => Promise<boolean>;
   /** Tells the tab strip whether this document has unsaved edits. */
   onDirtyChange?: (dirty: boolean) => void;
 }) {
@@ -289,7 +291,7 @@ export function SourceView({
           editable={editable}
           lineEnding={lineEnding}
           draft={draft}
-          labels={{ addedHere: t("addedHere"), deletedHere: t("deletedHere") }}
+          labels={{ addedHere: t("addedHere"), deletedHere: t("deletedHere"), modifiedHere: t("modifiedHere") }}
           blameFormat={(blame) =>
             blame.uncommitted
               ? t("blameUncommitted")
