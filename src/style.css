@@ -10696,3 +10696,13 @@ body.resizing-row .log-detail-split::after {
 .empty-section {
   padding-left: 34px;
 }
+
+/* A file row is checkbox → one icon → name, exactly like a directory row at
+   the same depth, so the two views share one column grid. */
+.tree-row.file .tree-name {
+  font-weight: 450;
+}
+
+.tree-row.file.flat .file-dir {
+  font-size: inherit;
+}

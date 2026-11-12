@@ -373,6 +373,11 @@ use it only for layout work. Vite's port is pinned to 5173 in **both**
   "Delete local copies of added files" option: `Repo.Rollback(paths,
   deleteAdded)` keeps an added file's copy unless that option is set. The
   choice is remembered in `Settings.RollbackDeleteAdded`.
+- A commit-list file row spends one slot on its icon and colours the name by
+  status, as IDEA does; a status letter would push the icon and name one
+  column right of a directory row at the same depth. Both views therefore
+  share one grid: chevron, checkbox, icon, name, and the flat view's
+  directory suffix is the same size as the name.
 - Merging follows IDEA's two-part shape: the branch popup's "Merge “x” into
   “y”" runs `Git.merge` with git's defaults at once (`defaultMergeOptions` in
   `App.tsx`), the way `GitBranchPopupActions.MergeAction` calls the brancher

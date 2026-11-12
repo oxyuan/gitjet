@@ -12,9 +12,21 @@ import {
   cx,
   IconButton,
   type ContextItem,
-  StatusMark,
 } from "./ui";
 import type { TreeNode } from "./changes";
+
+/** IDEA colours a changed file's name instead of printing a status letter. */
+const STATUS_CLASS: Record<string, string> = {
+  added: "st-added",
+  deleted: "st-deleted",
+  modified: "st-modified",
+  renamed: "st-renamed",
+  copied: "st-renamed",
+  typechange: "st-modified",
+  conflict: "st-conflict",
+  untracked: "st-untracked",
+  ignored: "st-ignored",
+};
 
 const T = {
   en: {
@@ -490,7 +502,7 @@ export function CommitPanel({
     const isSelected = selected.has(entry.path);
     const slash = entry.path.lastIndexOf("/");
     const name = slash < 0 ? entry.path : entry.path.slice(slash + 1);
-    const dir = slash < 0 ? "" : entry.path.slice(0, slash + 1);
+    const dir = slash < 0 ? "" : entry.path.slice(0, slash);
     return (
       <div
         key={"file:" + entry.path + (entry.staged ? ":s" : "")}
@@ -508,13 +520,12 @@ export function CommitPanel({
         ) : (
           <Checkbox checked={checked.has(entry.path)} onChange={(v) => toggle([entry.path], v)} />
         )}
-        {entry.staged && <span className="staged-dot" title={t("staged")} />}
-        <StatusMark kind={entry.kind} staged={entry.staged} />
         <FileIcon path={entry.path} size={14} />
-        <span className="tree-name">
+        <span className={cx("tree-name", STATUS_CLASS[entry.kind] ?? "st-modified")}>
           <span className="file-base">{name}</span>
           {flat && dir !== "" && <span className="file-dir">{dir}</span>}
         </span>
+        {entry.staged && <span className="staged-dot" title={t("staged")} />}
       </div>
     );
   };
