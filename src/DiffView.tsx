@@ -375,6 +375,17 @@ export function DiffView({
     else idx = (idx + delta + changeRows.length) % changeRows.length;
     revealChange(idx);
   };
+  // A click inside a change makes that block current, the way the IDE's
+  // counter follows the caret instead of waiting for F7.
+  const blockOfRow = useMemo(() => {
+    const map = new Map<number, number>();
+    changeRows.forEach((row, index) => map.set(row, index));
+    return map;
+  }, [changeRows]);
+  const focusRow = (row: number) => {
+    const block = blockOfRow.get(row);
+    if (block !== undefined) setCurrent(block);
+  };
   // The changes list IDEA opens from its "N of M" counter: every block with
   // the header git printed for it, so a reader can jump anywhere.
   const changeItems: ContextItem[] = changeRows.map((rowIndex, index) => {
@@ -867,6 +878,7 @@ export function DiffView({
               highlight={highlight}
               onOpenAt={openAt}
               searchMarks={searchMarks}
+              onFocusRow={focusRow}
             />
           ) : (
             <UnifiedRows
@@ -890,6 +902,7 @@ export function DiffView({
               showWhitespace={showWhitespace}
               onOpenAt={openAt}
               searchMarks={searchMarks}
+              onFocusRow={focusRow}
             />
           )}
           {diff.truncated && <div className="diff-truncated">{t("truncated")}</div>}
@@ -1191,6 +1204,7 @@ function SplitRows({
   highlight,
   onOpenAt,
   searchMarks,
+  onFocusRow,
 }: {
   visible: VisibleRow[];
   onToggleFold: (start: number) => void;
@@ -1206,6 +1220,7 @@ function SplitRows({
   highlight: HighlightMode;
   onOpenAt: (side: Side, line: number) => void;
   searchMarks: SearchMarkMap;
+  onFocusRow: (row: number) => void;
 } & GutterProps) {
   const t = useT(T);
   // The divider between the panes carries one ribbon per change block, the
@@ -1349,6 +1364,7 @@ function SplitRows({
         )}
         key={i}
         data-row={i}
+        onClick={() => onFocusRow(i)}
       >
         {annotate && (
           <AnnotateCell
@@ -1504,6 +1520,7 @@ function UnifiedRows({
   showWhitespace,
   onOpenAt,
   searchMarks,
+  onFocusRow,
 }: {
   visible: VisibleRow[];
   onToggleFold: (start: number) => void;
@@ -1518,6 +1535,7 @@ function UnifiedRows({
   showWhitespace: boolean;
   onOpenAt: (side: Side, line: number) => void;
   searchMarks: SearchMarkMap;
+  onFocusRow: (row: number) => void;
 } & GutterProps) {
   const t = useT(T);
   const out: React.ReactNode[] = [];
@@ -1553,6 +1571,7 @@ function UnifiedRows({
           )}
           key={`${i}-${side}`}
           data-row={side === firstSide ? i : undefined}
+          onClick={() => onFocusRow(i)}
         >
           {annotate && (
             <AnnotateCell
