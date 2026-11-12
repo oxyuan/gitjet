@@ -10651,3 +10651,48 @@ body.resizing-row .log-detail-split::after {
 .rollback-hint {
   margin-top: 8px;
 }
+
+/* IDEA's changes list has one chevron column and one checkbox column: a
+   changelist header and its rows share the chevron's x, and the
+   unversioned node's checkbox lines up with the checkboxes of the files
+   under it. The header itself has no checkbox, so its title starts just
+   left of the checkbox column. */
+.tree-chevron,
+.tree-chevron-spacer {
+  margin-right: 10px;
+}
+
+.section-header > .tree-chevron {
+  margin-right: 0;
+}
+
+.section-title.changelist {
+  color: var(--muted);
+  font-weight: 500;
+}
+
+.section-title.changelist.active {
+  color: var(--fg);
+  font-weight: 600;
+}
+
+/* The changelist and unversioned actions appear on hover, as IDEA's do. */
+.section-extra {
+  opacity: 0;
+  transition: opacity 0.12s ease;
+}
+
+.section-header:hover .section-extra,
+.section-extra:focus-within {
+  opacity: 1;
+}
+
+.tree-count {
+  margin-left: 6px;
+  font-size: inherit;
+  letter-spacing: 0;
+}
+
+.empty-section {
+  padding-left: 34px;
+}

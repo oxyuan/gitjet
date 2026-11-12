@@ -37,7 +37,6 @@ const T = {
     setActive: "Set Active",
     newChangelistTitle: "New changelist",
     changelistActions: "Changelist actions",
-    changelistActive: "{name} (active)",
     changesChangelist: "Changes",
     untrackedFiles: "Unversioned Files",
     changedOne: "1 file",
@@ -128,7 +127,6 @@ const T = {
     setActive: "设为活动列表",
     newChangelistTitle: "新建变更列表",
     changelistActions: "变更列表操作",
-    changelistActive: "{name}（活动）",
     changesChangelist: "更改",
     untrackedFiles: "未进行版本管理的文件",
     changedOne: "1 个文件",
@@ -488,7 +486,7 @@ export function CommitPanel({
     );
   };
 
-  const renderFileRow = (entry: FileEntry, depth: number, flat: boolean) => {
+  const renderFileRow = (entry: FileEntry, _depth: number, flat: boolean, padding: number) => {
     const isSelected = selected.has(entry.path);
     const slash = entry.path.lastIndexOf("/");
     const name = slash < 0 ? entry.path : entry.path.slice(slash + 1);
@@ -497,7 +495,7 @@ export function CommitPanel({
       <div
         key={"file:" + entry.path + (entry.staged ? ":s" : "")}
         className={cx("tree-row file", flat && "flat", isSelected && "selected")}
-        style={{ paddingLeft: 6 + depth * 12 }}
+        style={{ paddingLeft: padding }}
         onClick={(e) => selectRow(e, entry)}
         onContextMenu={(e) => {
           menuFor(entry, e);
@@ -517,15 +515,11 @@ export function CommitPanel({
           <span className="file-base">{name}</span>
           {flat && dir !== "" && <span className="file-dir">{dir}</span>}
         </span>
-        <span className="tree-stats">
-          {entry.additions > 0 && <span className="add-count">+{entry.additions}</span>}
-          {entry.deletions > 0 && <span className="del-count">−{entry.deletions}</span>}
-        </span>
       </div>
     );
   };
 
-  const renderList = (files: FileEntry[], indent = 6) => (
+  const renderList = (files: FileEntry[], indent = 4) => (
     <FileTree
       files={files}
       view={viewMode}
@@ -533,6 +527,7 @@ export function CommitPanel({
       onToggleDir={toggleDir}
       renderFile={renderFileRow}
       renderDirLead={renderDirLead}
+      showStats={false}
       onDirContextMenu={(node, e) => fileMenu.openMenu(e, { path: node.path, isDir: true })}
       indent={indent}
     />
@@ -552,7 +547,15 @@ export function CommitPanel({
     );
   };
 
-  const section = (key: string, title: string, icon: React.ReactNode, count: number, children: React.ReactNode, extra?: React.ReactNode) => {
+  const section = (
+    key: string,
+    title: string,
+    icon: React.ReactNode,
+    count: number | null,
+    children: React.ReactNode,
+    extra?: React.ReactNode,
+    titleClass?: string,
+  ) => {
     const isCollapsed = collapsed.has(key);
     return (
       <div className="change-section">
@@ -565,10 +568,12 @@ export function CommitPanel({
             setCollapsed(next);
           }}
         >
-          <Icon name={isCollapsed ? "chevronRight" : "chevronDown"} size={12} />
+          <span className="tree-chevron">
+            <Icon name={isCollapsed ? "chevronRight" : "chevronDown"} size={12} />
+          </span>
           {icon}
-          <span className="section-title">{title}</span>
-          <span className="section-count">{count}</span>
+          <span className={cx("section-title", titleClass)}>{title}</span>
+          {count != null && <span className="section-count">{count}</span>}
           {extra && (
             <span className="section-extra" onClick={(e) => e.stopPropagation()}>
               {extra}
@@ -591,13 +596,11 @@ export function CommitPanel({
     const open = !collapsed.has(key);
     const paths = files.map((f) => f.path);
     const state = checkState(paths);
-    const additions = files.reduce((n, f) => n + f.additions, 0);
-    const deletions = files.reduce((n, f) => n + f.deletions, 0);
     return (
       <div key={key}>
         <div
           className={cx("tree-row group", open && "expanded")}
-          style={{ paddingLeft: 18 }}
+          style={{ paddingLeft: 4 }}
           onClick={() => {
             const next = new Set(collapsed);
             if (open) next.add(key);
@@ -618,15 +621,10 @@ export function CommitPanel({
               onChange={(v) => toggle(paths, v)}
             />
           </span>
-          <Icon name="folder" />
           <span className="tree-name">{t("untrackedFiles")}</span>
           <span className="tree-count">{countLabel(files.length)}</span>
-          <span className="tree-stats">
-            {additions > 0 && <span className="add-count">+{additions}</span>}
-            {deletions > 0 && <span className="del-count">−{deletions}</span>}
-          </span>
         </div>
-        {open && renderList(files, 30)}
+        {open && renderList(files, 4)}
       </div>
     );
   };
@@ -635,7 +633,7 @@ export function CommitPanel({
     const { tracked, untracked } = splitTracked(list);
     return (
       <>
-        {tracked.length > 0 && renderList(tracked, 18)}
+        {tracked.length > 0 && renderList(tracked, 4)}
         {untracked.length > 0 && renderUnversioned(changelistID, untracked)}
       </>
     );
@@ -684,15 +682,16 @@ export function CommitPanel({
       <div key={cl.id}>
         {section(
           "cl:" + cl.id,
-          isActive ? t("changelistActive", { name }) : name,
-          <Icon name={isActive ? "check" : "list"} />,
-          list.length,
+          name,
+          null,
+          null,
           list.length === 0 ? (
             entries.length === 0 ? null : <div className="empty-section">{t("noChanges")}</div>
           ) : (
             renderChangelistBody(cl.id, list)
           ),
           extra,
+          cx("changelist", isActive && "active"),
         )}
       </div>
     );

@@ -30,32 +30,47 @@ export function FileTree<T extends ListedFile>({
   onDirContextMenu,
   indent = 6,
   step = 12,
+  showStats = true,
 }: {
   files: T[];
   /** "tree" groups by directory, "flat" lists every file by path. */
   view?: ChangeView;
   expanded: ReadonlySet<string>;
   onToggleDir: (key: string) => void;
-  renderFile: (file: T, depth: number, flat: boolean) => ReactNode;
+  /** The last argument is the row's own indent, so a file row lines up
+   *  with the directory row it belongs to. */
+  renderFile: (file: T, depth: number, flat: boolean, padding: number) => ReactNode;
   /** Extra controls shown before the folder icon of a directory row. */
   renderDirLead?: (node: TreeNode<T>) => ReactNode;
   /** Right-click on a directory row; file rows own their own handler. */
   onDirContextMenu?: (node: TreeNode<T>, event: MouseEvent) => void;
   indent?: number;
   step?: number;
+  /** Directory totals. The commit list shows the IDEA-style count alone. */
+  showStats?: boolean;
 }) {
   if (view === "flat") {
     const ordered = [...files].sort((a, b) =>
       a.path.localeCompare(b.path, undefined, { sensitivity: "base" }),
     );
-    return <>{ordered.map((file) => <div key={"f:" + file.path}>{renderFile(file, 0, true)}</div>)}</>;
+    return (
+      <>
+        {ordered.map((file) => (
+          <div key={"f:" + file.path}>{renderFile(file, 0, true, indent)}</div>
+        ))}
+      </>
+    );
   }
   const nodes = buildChangeTree(files);
   return <>{nodes.map((node) => renderNode(node, 0))}</>;
 
   function renderNode(node: TreeNode<T>, depth: number): ReactNode {
     if (!node.isDir) {
-      return <div key={"f:" + node.path}>{renderFile(node.file, depth, false)}</div>;
+      return (
+        <div key={"f:" + node.path}>
+          {renderFile(node.file, depth, false, indent + depth * step)}
+        </div>
+      );
     }
     const open = expanded.has(node.path);
     const totals = treeTotals(node, (file) => file);
@@ -82,10 +97,12 @@ export function FileTree<T extends ListedFile>({
           <Icon name="folder" />
           <span className="tree-name">{node.name}</span>
           <span className="tree-count">{totals.files}</span>
-          <span className="tree-stats">
-            {totals.additions > 0 && <span className="add-count">+{totals.additions}</span>}
-            {totals.deletions > 0 && <span className="del-count">−{totals.deletions}</span>}
-          </span>
+          {showStats && (
+            <span className="tree-stats">
+              {totals.additions > 0 && <span className="add-count">+{totals.additions}</span>}
+              {totals.deletions > 0 && <span className="del-count">−{totals.deletions}</span>}
+            </span>
+          )}
         </div>
         {open && node.children.map((child) => renderNode(child, depth + 1))}
       </div>
