@@ -18,7 +18,7 @@ func TestPatchRoundTripsTheWorkingTree(t *testing.T) {
 	if !strings.Contains(patch, "+patched") {
 		t.Fatalf("patch does not contain the change:\n%s", patch)
 	}
-	if err := repo.Rollback(context.Background(), []string{"a.txt"}); err != nil {
+	if err := repo.Rollback(context.Background(), []string{"a.txt"}, true); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := repo.ApplyPatch(context.Background(), patch, false, false); err != nil {

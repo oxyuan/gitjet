@@ -214,7 +214,7 @@ func (r *Repo) SaveShelf(ctx context.Context, name string, opts PatchOptions) (S
 	// Shelving takes the changes away: keep them only in the patch.
 	if len(clean) > 0 {
 		targets := append(append([]string{}, clean...), untracked...)
-		if err := r.rollbackLocked(ctx, targets); err != nil {
+		if err := r.rollbackLocked(ctx, targets, true); err != nil {
 			_ = os.Remove(file)
 			_ = os.Remove(indexFile)
 			return Shelf{}, err

@@ -671,7 +671,7 @@ func (r *Repo) ApplyDiffHunkFile(ctx context.Context, opts DiffOptions, action s
 	case "unstage":
 		return r.Unstage(ctx, []string{path})
 	case "rollback":
-		return r.Rollback(ctx, []string{path})
+		return r.Rollback(ctx, []string{path}, true)
 	}
 	return fmt.Errorf("unknown action %q", action)
 }

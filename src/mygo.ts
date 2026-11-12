@@ -603,6 +603,11 @@ export interface Settings {
   updateMethod: string;
   confirmForcePush: boolean;
   confirmRollback: boolean;
+  /**
+   * RollbackDeleteAdded remembers the rollback dialog's "Delete local
+   * copies of added files" choice, the option IDEA keeps too.
+   */
+  rollbackDeleteAdded: boolean;
   /** Commit checks warn before a commit, as IDEA's do. */
   commitCheckCrlf: boolean;
   commitCheckLargeMB: number;
@@ -1329,9 +1334,13 @@ export const Git = {
   rewritePlan(onto: string): Promise<PlanCommit[]> {
     return call("Git.RewritePlan", onto);
   },
-  /** Rollback discards local changes. */
-  rollback(paths: string[]): Promise<void> {
-    return call("Git.Rollback", paths);
+  /**
+   * Rollback discards local changes. deleteAdded also deletes the local
+   * copies of files HEAD does not have; unchecked, they stay on disk as
+   * untracked files.
+   */
+  rollback(paths: string[], deleteAdded: boolean): Promise<void> {
+    return call("Git.Rollback", paths, deleteAdded);
   },
   /** SaveFile replaces an existing working-tree file's text. */
   saveFile(path: string, text: string): Promise<void> {

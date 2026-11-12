@@ -151,10 +151,12 @@ func (r *Repo) Unstage(ctx context.Context, paths []string) error {
 }
 
 // Rollback discards local changes to paths: the index entry goes back to
-// HEAD and the working tree file is restored. Files that HEAD does not
-// have are removed. This is the destructive action behind "Rollback" in
-// the commit tool window, so the caller must confirm it.
-func (r *Repo) Rollback(ctx context.Context, paths []string) error {
+// HEAD and the working tree file is restored. A path HEAD does not have is
+// an added or untracked file: it leaves the index, and its local copy is
+// deleted only when deleteAdded asks for it, as IDEA's rollback dialog
+// does. This is the destructive action behind "Rollback" in the commit
+// tool window, so the caller must confirm it.
+func (r *Repo) Rollback(ctx context.Context, paths []string, deleteAdded bool) error {
 	clean, err := cleanPaths(paths)
 	if err != nil {
 		return err
@@ -164,12 +166,12 @@ func (r *Repo) Rollback(ctx context.Context, paths []string) error {
 	}
 	r.write.Lock()
 	defer r.write.Unlock()
-	return r.rollbackLocked(ctx, clean)
+	return r.rollbackLocked(ctx, clean, deleteAdded)
 }
 
 // rollbackLocked is Rollback for a caller that already holds the write
 // lock; paths must be clean.
-func (r *Repo) rollbackLocked(ctx context.Context, clean []string) error {
+func (r *Repo) rollbackLocked(ctx context.Context, clean []string, deleteAdded bool) error {
 	pairs := r.renamePairs(ctx)
 	expanded := r.expandRenames(ctx, clean)
 	for _, p := range expanded {
@@ -180,7 +182,9 @@ func (r *Repo) rollbackLocked(ctx context.Context, clean []string) error {
 			// A rename: HEAD has the old path, and the renamed file on
 			// disk is a leftover that rollback has to remove. Checking
 			// out the new path cannot work here, so deleting it is the
-			// only way back to HEAD.
+			// only way back to HEAD. Both copies cannot be kept: the
+			// restore would leave the renamed content next to the
+			// original, so this deletion is not optional.
 			if _, err := r.run(ctx, "checkout", "HEAD", "--", literalPath(old)); err != nil {
 				return err
 			}
@@ -190,9 +194,13 @@ func (r *Repo) rollbackLocked(ctx context.Context, clean []string) error {
 			continue
 		}
 		if _, err := r.run(ctx, "checkout", "HEAD", "--", literalPath(p)); err != nil {
-			// Not in HEAD: an added file, which rollback deletes.
-			if err := os.RemoveAll(r.AbsPath(p)); err != nil && !os.IsNotExist(err) {
-				return err
+			// Not in HEAD: an added or untracked file. Give up the index
+			// entry (the loop above already did), and delete the local copy
+			// only when the user asked for it.
+			if deleteAdded {
+				if err := os.RemoveAll(r.AbsPath(p)); err != nil && !os.IsNotExist(err) {
+					return err
+				}
 			}
 		}
 	}

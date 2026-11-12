@@ -38,7 +38,7 @@ const T = {
     newChangelistTitle: "New changelist",
     changelistActions: "Changelist actions",
     changelistActive: "{name} (active)",
-    changedFiles: "Changed",
+    changesChangelist: "Changes",
     untrackedFiles: "Unversioned Files",
     changedOne: "1 file",
     changedOther: "{n} files",
@@ -129,7 +129,7 @@ const T = {
     newChangelistTitle: "新建变更列表",
     changelistActions: "变更列表操作",
     changelistActive: "{name}（活动）",
-    changedFiles: "更改",
+    changesChangelist: "更改",
     untrackedFiles: "未进行版本管理的文件",
     changedOne: "1 个文件",
     changedOther: "{n} 个文件",
@@ -374,6 +374,7 @@ export function CommitPanel({
   }, [entries]);
 
   const allPaths = entries.filter((e) => !e.unmerged && !e.ignored).map((e) => e.path);
+  const rollbackable = entries.some((e) => !e.unmerged && !e.ignored);
   const uniqueChecked = [...new Set(allPaths)].filter((p) => checked.has(p));
 
   const toggle = (paths: string[], value: boolean) => {
@@ -544,7 +545,11 @@ export function CommitPanel({
 
   const filesOfChangelist = (cl: Changelist) => {
     const paths = new Set(cl.paths);
-    return entries.filter((e) => !e.staged && !e.unmerged && !e.ignored && paths.has(e.path));
+    // A staged file shown by the staged section is not repeated here; with
+    // that section hidden it is still a change, and must stay visible.
+    return entries.filter(
+      (e) => !e.unmerged && !e.ignored && paths.has(e.path) && (!e.staged || !showStaged),
+    );
   };
 
   const section = (key: string, title: string, icon: React.ReactNode, count: number, children: React.ReactNode, extra?: React.ReactNode) => {
@@ -578,32 +583,60 @@ export function CommitPanel({
   const countLabel = (n: number) => count(n, t("changedOne"), t("changedOther", { n }));
 
   // Untracked files are not part of the change yet, so they get their own
-  // group instead of sitting between modified files.
-  const renderChangelistBody = (list: FileEntry[]) => {
+  // node instead of sitting between modified files, like IDEA's
+  // "Unversioned Files". The node collapses as one row, which is what
+  // "Collapse All" and the chevron act on.
+  const renderUnversioned = (changelistID: string, files: FileEntry[]) => {
+    const key = "group:" + changelistID;
+    const open = !collapsed.has(key);
+    const paths = files.map((f) => f.path);
+    const state = checkState(paths);
+    const additions = files.reduce((n, f) => n + f.additions, 0);
+    const deletions = files.reduce((n, f) => n + f.deletions, 0);
+    return (
+      <div key={key}>
+        <div
+          className={cx("tree-row group", open && "expanded")}
+          style={{ paddingLeft: 18 }}
+          onClick={() => {
+            const next = new Set(collapsed);
+            if (open) next.add(key);
+            else next.delete(key);
+            setCollapsed(next);
+          }}
+          role="treeitem"
+          aria-expanded={open}
+          title={paths.slice(0, 12).join("\n")}
+        >
+          <button className="tree-chevron" tabIndex={-1}>
+            <Icon name={open ? "chevronDown" : "chevronRight"} size={12} />
+          </button>
+          <span className="dir-check" onClick={(e) => e.stopPropagation()}>
+            <Checkbox
+              checked={state === true}
+              indeterminate={state === "mixed"}
+              onChange={(v) => toggle(paths, v)}
+            />
+          </span>
+          <Icon name="folder" />
+          <span className="tree-name">{t("untrackedFiles")}</span>
+          <span className="tree-count">{countLabel(files.length)}</span>
+          <span className="tree-stats">
+            {additions > 0 && <span className="add-count">+{additions}</span>}
+            {deletions > 0 && <span className="del-count">−{deletions}</span>}
+          </span>
+        </div>
+        {open && renderList(files, 30)}
+      </div>
+    );
+  };
+
+  const renderChangelistBody = (changelistID: string, list: FileEntry[]) => {
     const { tracked, untracked } = splitTracked(list);
-    const split = tracked.length > 0 && untracked.length > 0;
     return (
       <>
-        {tracked.length > 0 && (
-          <>
-            {split && (
-              <div className="change-subgroup">
-                {t("changedFiles")}
-                <span className="subgroup-count">{countLabel(tracked.length)}</span>
-              </div>
-            )}
-            {renderList(tracked, 18)}
-          </>
-        )}
-        {untracked.length > 0 && (
-          <>
-            <div className="change-subgroup">
-              {t("untrackedFiles")}
-              <span className="subgroup-count">{countLabel(untracked.length)}</span>
-            </div>
-            {renderList(untracked, 18)}
-          </>
-        )}
+        {tracked.length > 0 && renderList(tracked, 18)}
+        {untracked.length > 0 && renderUnversioned(changelistID, untracked)}
       </>
     );
   };
@@ -646,17 +679,18 @@ export function CommitPanel({
         />
       </>
     );
+    const name = cl.default && cl.name === "Changes" ? t("changesChangelist") : cl.name;
     return (
       <div key={cl.id}>
         {section(
           "cl:" + cl.id,
-          isActive ? t("changelistActive", { name: cl.name }) : cl.name,
+          isActive ? t("changelistActive", { name }) : name,
           <Icon name={isActive ? "check" : "list"} />,
           list.length,
           list.length === 0 ? (
             entries.length === 0 ? null : <div className="empty-section">{t("noChanges")}</div>
           ) : (
-            renderChangelistBody(list)
+            renderChangelistBody(cl.id, list)
           ),
           extra,
         )}
@@ -691,13 +725,23 @@ export function CommitPanel({
           title={t("collapseAll")}
           onClick={() => {
             const next = new Set<string>();
-            for (const cl of changelists.items) next.add("cl:" + cl.id);
+            for (const cl of changelists.items) {
+              next.add("cl:" + cl.id);
+              next.add("group:" + cl.id);
+            }
             next.add("staged");
             next.add("conflicts");
             next.add("ignored");
             setCollapsed(next);
             setExpanded(new Set());
           }}
+        />
+        <span className="toolbar-sep" />
+        <IconButton
+          icon="undo"
+          title={t("rollback")}
+          disabled={!rollbackable}
+          onClick={() => actions.onRollback(selected.size > 0 ? [...selected] : [])}
         />
         <span className="spacer" />
         <IconButton

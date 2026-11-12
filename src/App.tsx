@@ -48,6 +48,7 @@ import {
   ConflictSummaryDialog,
   LocalHistoryDialog,
   ReviewDialog,
+  RollbackDialog,
 } from "./Dialogs";
 import { EditHistoryDialog } from "./EditHistoryDialog";
 import { CloneDialog, InitDialog, RemotesDialog } from "./RepoSetupDialogs";
@@ -192,14 +193,11 @@ const T = {
     discardMessage: "Discard unsaved changes in the tabs being closed?",
     discard: "Discard",
     unsavedCloseRepo: "Open tabs have unsaved changes.",
-    rollbackChangesTitle: "Rollback Changes",
-    rollbackFilesOne: "Discard local changes to {n} file?",
-    rollbackFilesOther: "Discard local changes to {n} files?",
-    rollbackChangesDetail: "The files are restored from HEAD. This cannot be undone.",
     rollback: "Rollback",
     delete: "Delete",
     rollbackFileTitle: "Rollback File",
     rollbackFileMessage: "Discard all changes to {path}?",
+    rollbackChangesDetail: "The files are restored from HEAD. This cannot be undone.",
     forcePushTitle: "Force Push",
     forcePushMessage: "Force push rewrites the remote branch. Continue?",
     forcePushDetail: "{ref} will be updated with --force-with-lease.",
@@ -435,14 +433,11 @@ const T = {
     discardMessage: "要丢弃正在关闭的标签页中的未保存更改吗？",
     discard: "丢弃",
     unsavedCloseRepo: "已打开的标签页中有未保存的更改。",
-    rollbackChangesTitle: "回滚更改",
-    rollbackFilesOne: "放弃对 {n} 个文件的本地更改？",
-    rollbackFilesOther: "放弃对 {n} 个文件的本地更改？",
-    rollbackChangesDetail: "文件将从 HEAD 恢复。此操作无法撤销。",
     rollback: "回滚",
     delete: "删除",
     rollbackFileTitle: "回滚文件",
     rollbackFileMessage: "放弃对 {path} 的所有更改？",
+    rollbackChangesDetail: "文件将从 HEAD 恢复。此操作无法撤销。",
     forcePushTitle: "Force Push",
     forcePushMessage: "Force Push 会重写远程分支。是否继续？",
     forcePushDetail: "{ref} 将使用 --force-with-lease 更新。",
@@ -672,6 +667,7 @@ type Dialog =
   | { kind: "rebase"; onto: string }
   | { kind: "localHistory"; path: string }
   | { kind: "review" }
+  | { kind: "rollback"; paths: string[] }
   | { kind: "pushCommits"; hash: string };
 
 interface ConfirmState {
@@ -1180,7 +1176,7 @@ function AppShell({ onLangChange }: { onLangChange: (lang: Lang) => void }) {
         if (b.error) notify("error", tRef.current("reopenRepo"), b.error);
       })
       .catch((err) => {
-        setBoot({ settings: { version: 2, gitPath: "", sshCommand: "", fetchTagsMode: "auto", language: "system", theme: "system", diffContext: -1, ignoreWhitespace: false, showIgnored: false, autoFetch: false, autoFetchMinutes: 15, updateMethod: "merge", confirmForcePush: true, confirmRollback: true, commitCheckCrlf: true, commitCheckLargeMB: 10, commitCheckNames: true, commitCheckHead: true, commitTemplate: "", protectedBranches: [], autoUpdateOnReject: true, openInNewWindow: false, uiScale: 100, recent: [] }, repo: null, error: String(err), version: "", platform: "" });
+        setBoot({ settings: { version: 2, gitPath: "", sshCommand: "", fetchTagsMode: "auto", language: "system", theme: "system", diffContext: -1, ignoreWhitespace: false, showIgnored: false, autoFetch: false, autoFetchMinutes: 15, updateMethod: "merge", confirmForcePush: true, confirmRollback: true, rollbackDeleteAdded: false, commitCheckCrlf: true, commitCheckLargeMB: 10, commitCheckNames: true, commitCheckHead: true, commitTemplate: "", protectedBranches: [], autoUpdateOnReject: true, openInNewWindow: false, uiScale: 100, recent: [] }, repo: null, error: String(err), version: "", platform: "" });
         notify("error", tRef.current("startFailed"), err instanceof Error ? err.message : String(err));
       });
   }, [applyCheckedDefaults, notify, reload]);
@@ -1706,21 +1702,49 @@ function AppShell({ onLangChange }: { onLangChange: (lang: Lang) => void }) {
       await reload(false);
     });
 
-  const rollback = async (paths: string[]) => {
-    if (settings?.confirmRollback) {
-      const ok = await ask({
-        title: t("rollbackChangesTitle"),
-        message: count(paths.length, t("rollbackFilesOne", { n: paths.length }), t("rollbackFilesOther", { n: paths.length })),
-        detail: t("rollbackChangesDetail"),
-        confirmLabel: t("rollback"),
-        danger: true,
-      });
-      if (!ok) return;
-    }
+  const runRollback = async (paths: string[], deleteAdded: boolean) => {
     await withBusy(async () => {
-      await Git.rollback(paths);
+      await Git.rollback(paths, deleteAdded);
       await reload(false);
     });
+  };
+
+  // IDEA's rollback: the action covers the selection, or every local change
+  // when nothing is selected, and the dialog decides whether added files
+  // keep their local copy. With confirmation off the saved choice applies.
+  const rollback = (paths: string[]) => {
+    const snap = snapshotRef.current;
+    if (!snap) return;
+    const eligible = [
+      ...new Set(
+        snap.changes
+          .filter((c) => !c.unmerged && c.kind !== "ignored" && c.kind !== "conflict")
+          .map((c) => c.path),
+      ),
+    ];
+    const picked = paths.filter((p) => eligible.includes(p));
+    const targets = picked.length > 0 ? picked : eligible;
+    if (targets.length === 0) return;
+    const current = settingsRef.current;
+    if (!current || !current.confirmRollback) {
+      void runRollback(targets, current?.rollbackDeleteAdded ?? false);
+      return;
+    }
+    setDialog({ kind: "rollback", paths: targets });
+  };
+
+  // The checkbox is a remembered preference, as IDEA's PropertiesComponent
+  // value is: toggling it writes the setting, confirming the dialog does not.
+  const rememberRollbackDeleteAdded = async (deleteAdded: boolean) => {
+    const current = settingsRef.current;
+    if (!current || current.rollbackDeleteAdded === deleteAdded) return;
+    try {
+      const saved = await Workspace.saveSettings({ ...current, rollbackDeleteAdded: deleteAdded });
+      settingsRef.current = saved;
+      setSettings(saved);
+    } catch (err) {
+      fail(t("saveSettingsFailed"), err);
+    }
   };
 
   const ignorePaths = (paths: string[]) =>
@@ -3589,6 +3613,19 @@ function AppShell({ onLangChange }: { onLangChange: (lang: Lang) => void }) {
               await reload(false);
               void loadLog(true);
             });
+          }}
+        />
+      )}
+      {dialog?.kind === "rollback" && snapshot && (
+        <RollbackDialog
+          entries={entriesFor(snapshot)}
+          selected={dialog.paths}
+          deleteAdded={settings.rollbackDeleteAdded}
+          onDeleteAdded={(value) => void rememberRollbackDeleteAdded(value)}
+          onClose={() => setDialog(null)}
+          onConfirm={(paths, deleteAdded) => {
+            setDialog(null);
+            void runRollback(paths, deleteAdded);
           }}
         />
       )}

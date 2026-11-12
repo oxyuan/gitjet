@@ -39,6 +39,9 @@ type Settings struct {
 	UpdateMethod     string `json:"updateMethod"` // merge, rebase
 	ConfirmForcePush bool   `json:"confirmForcePush"`
 	ConfirmRollback  bool   `json:"confirmRollback"`
+	// RollbackDeleteAdded remembers the rollback dialog's "Delete local
+	// copies of added files" choice, the option IDEA keeps too.
+	RollbackDeleteAdded bool `json:"rollbackDeleteAdded"`
 	// Commit checks warn before a commit, as IDEA's do.
 	CommitCheckCRLF    bool   `json:"commitCheckCrlf"`
 	CommitCheckLargeMB int    `json:"commitCheckLargeMB"`
@@ -76,6 +79,14 @@ type RepoMeta struct {
 	// which the branch list shows above the rest.
 	RecentBranches []string `json:"recentBranches"`
 }
+
+// The default changelist is not a user-created name, so it uses the same
+// label IDEA gives it ("Changes"); legacyChangelistName is the name older
+// versions stored, migrated in ensureMeta.
+const (
+	defaultChangelistName = "Changes"
+	legacyChangelistName  = "Default Changelist"
+)
 
 // settingsVersion is bumped whenever a stored default has to be rewritten;
 // see the migration in loadSettings.
@@ -189,7 +200,7 @@ func loadRepoMeta(root string) RepoMeta {
 		Active:      "default",
 		Assignments: map[string]string{},
 		Changelists: []git.Changelist{{
-			ID: "default", Name: "Default Changelist", Default: true,
+			ID: "default", Name: defaultChangelistName, Default: true,
 		}},
 	}
 	if b, err := os.ReadFile(repoMetaPath(root)); err == nil {
@@ -218,7 +229,14 @@ func ensureMeta(meta *RepoMeta) {
 		meta.Assignments = map[string]string{}
 	}
 	if len(meta.Changelists) == 0 {
-		meta.Changelists = []git.Changelist{{ID: "default", Name: "Default Changelist", Default: true}}
+		meta.Changelists = []git.Changelist{{ID: "default", Name: defaultChangelistName, Default: true}}
+	}
+	// IDEA renamed its default changelist from "Default Changelist" to
+	// "Changes"; a stored list from before that carries the old built-in name.
+	for i := range meta.Changelists {
+		if meta.Changelists[i].Default && meta.Changelists[i].Name == legacyChangelistName {
+			meta.Changelists[i].Name = defaultChangelistName
+		}
 	}
 	found := false
 	for _, cl := range meta.Changelists {

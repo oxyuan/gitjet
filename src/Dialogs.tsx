@@ -292,6 +292,12 @@ const T = {
     "review.loading": "Reading the diff",
     "review.empty": "There are no changes to review",
     "review.failed": "The diff could not be read",
+    "rollback.title": "Rollback Changes",
+    "rollback.files": "Changes to roll back",
+    "rollback.empty": "There are no changes to roll back",
+    "rollback.deleteAdded": "Delete local copies of added files",
+    "rollback.action": "Rollback",
+    "rollback.hint": "Rolling back restores the selected paths to HEAD; a file HEAD does not have leaves the index.",
     "stashd.restoreIndex": "Reinstate the index (--index)",
     "stashd.compareLocal": "Compare with the working tree",
     "stashd.branch": "Restore on a new branch",
@@ -576,6 +582,12 @@ const T = {
     "review.loading": "正在读取差异",
     "review.empty": "没有可 Review 的更改",
     "review.failed": "无法读取差异",
+    "rollback.title": "回滚更改",
+    "rollback.files": "要回滚的更改",
+    "rollback.empty": "没有可回滚的更改",
+    "rollback.deleteAdded": "删除添加的文件的本地副本",
+    "rollback.action": "回滚",
+    "rollback.hint": "回滚会把选中的路径恢复为 HEAD；HEAD 中没有的文件会退出暂存区。",
     "stashd.restoreIndex": "还原暂存区（--index）",
     "stashd.compareLocal": "与工作区比较",
     "stashd.branch": "恢复到新分支",
@@ -2293,6 +2305,109 @@ export function ResetDialog({
 
 function shortHash(hash: string): string {
   return hash.length > 8 ? hash.slice(0, 8) : hash;
+}
+
+/** IDEA's rollback dialog: the changes to discard, one checkbox each, and
+ *  the option that decides whether added files keep their local copy. */
+export function RollbackDialog({
+  entries,
+  selected,
+  deleteAdded,
+  onDeleteAdded,
+  onClose,
+  onConfirm,
+}: {
+  entries: FileEntry[];
+  /** Paths checked when the dialog opens. */
+  selected: string[];
+  deleteAdded: boolean;
+  onDeleteAdded: (value: boolean) => void;
+  onClose: () => void;
+  onConfirm: (paths: string[], deleteAdded: boolean) => void;
+}) {
+  const t = useT(T);
+  // A path can be listed twice (staged and working-tree sides); rollback
+  // speaks paths, so the dialog shows it once and prefers the worktree row.
+  const files = useMemo(() => {
+    const seen = new Map<string, FileEntry>();
+    for (const entry of entries) {
+      if (entry.ignored || entry.unmerged) continue;
+      const previous = seen.get(entry.path);
+      if (!previous || (previous.staged && !entry.staged)) seen.set(entry.path, entry);
+    }
+    return [...seen.values()];
+  }, [entries]);
+  const [checked, setChecked] = useState<Set<string>>(
+    () => new Set(selected.filter((path) => files.some((f) => f.path === path))),
+  );
+  // An untracked file has no index entry to give up, so keeping its local
+  // copy would be a no-op; when that is all the dialog started with, the
+  // option starts checked. Mixed selections follow the remembered choice.
+  const [deleteLocal, setDeleteLocal] = useState(() => {
+    const picked = files.filter((f) => checked.has(f.path));
+    return deleteAdded || (picked.length > 0 && picked.every((f) => f.kind === "untracked"));
+  });
+  const included = files.filter((f) => checked.has(f.path));
+  const hasAdded = included.some((f) => f.kind === "untracked" || f.kind === "added");
+
+  const toggle = (path: string, value: boolean) => {
+    const next = new Set(checked);
+    if (value) next.add(path);
+    else next.delete(path);
+    setChecked(next);
+  };
+
+  return (
+    <Modal
+      title={t("rollback.title")}
+      icon="undo"
+      width={600}
+      onClose={onClose}
+      footer={
+        <>
+          <Button onClick={onClose}>{t("common.close")}</Button>
+          <Button
+            variant="danger"
+            disabled={included.length === 0}
+            onClick={() => onConfirm(included.map((f) => f.path), deleteLocal)}
+          >
+            {t("rollback.action")}
+          </Button>
+        </>
+      }
+    >
+      {files.length === 0 ? (
+        <p className="setting-hint">{t("rollback.empty")}</p>
+      ) : (
+        <div className="rollback-list">
+          <div className="rollback-list-title">{t("rollback.files")}</div>
+          {files.map((entry) => (
+            <label key={entry.path} className={cx("rollback-row", checked.has(entry.path) && "checked")} title={entry.path}>
+              <input
+                type="checkbox"
+                checked={checked.has(entry.path)}
+                onChange={(e) => toggle(entry.path, e.target.checked)}
+              />
+              <StatusMark kind={entry.kind} staged={entry.staged} />
+              <span className="rollback-path">{entry.path}</span>
+            </label>
+          ))}
+        </div>
+      )}
+      <p className="setting-hint rollback-hint">{t("rollback.hint")}</p>
+      <div className="rollback-delete">
+        <Checkbox
+          checked={deleteLocal}
+          disabled={!hasAdded}
+          onChange={(value) => {
+            setDeleteLocal(value);
+            onDeleteAdded(value);
+          }}
+          label={t("rollback.deleteAdded")}
+        />
+      </div>
+    </Modal>
+  );
 }
 
 export function TagDialog({

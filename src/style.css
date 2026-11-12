@@ -1085,22 +1085,6 @@ body.resizing-row * {
   flex: none;
 }
 
-.change-subgroup {
-  display: flex;
-  align-items: baseline;
-  gap: 6px;
-  padding: 7px 8px 3px 10px;
-  color: var(--fg-soft);
-  font-size: 11.5px;
-  font-weight: 600;
-}
-
-.subgroup-count {
-  color: var(--muted-2);
-  font-weight: 500;
-  font-size: 10.5px;
-}
-
 .tree-count {
   color: var(--muted-2);
   font-size: 10.5px;
@@ -3843,16 +3827,16 @@ kbd {
 }
 
 .section-header {
-  height: 30px;
-  padding: 0 8px;
-  gap: 6px;
+  height: 25px;
+  padding: 0 8px 0 4px;
+  gap: 5px;
   border-radius: 6px;
   background: transparent;
-  color: var(--muted);
-  font-size: 10.5px;
-  font-weight: 650;
-  letter-spacing: 0.045em;
-  text-transform: uppercase;
+  color: var(--fg);
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0;
+  text-transform: none;
 }
 
 .section-header:hover {
@@ -10612,4 +10596,58 @@ body.resizing-row .log-detail-split::after {
   padding: 18px 12px;
   color: var(--muted);
   font-size: 11px;
+}
+
+/* Untracked files are a node of the change tree, as IDEA's "Unversioned
+   Files" is: one row that folds every file under it. */
+.tree-row.group {
+  font-weight: 500;
+}
+
+.rollback-list {
+  max-height: 340px;
+  overflow: auto;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 4px;
+}
+
+.rollback-list-title {
+  padding: 4px 6px;
+  font-size: 11px;
+  color: var(--muted);
+}
+
+.rollback-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  height: 26px;
+  padding: 0 6px;
+  border-radius: 6px;
+  font-size: 12.5px;
+}
+
+.rollback-row:hover {
+  background: var(--hover);
+}
+
+.rollback-row input {
+  accent-color: var(--accent);
+  flex: none;
+}
+
+.rollback-path {
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.rollback-delete {
+  margin-top: 10px;
+}
+
+.rollback-hint {
+  margin-top: 8px;
 }

@@ -539,13 +539,15 @@ func (g *Git) Unstage(paths []string) error {
 	return nil
 }
 
-// Rollback discards local changes.
-func (g *Git) Rollback(paths []string) error {
+// Rollback discards local changes. deleteAdded also deletes the local
+// copies of files HEAD does not have; unchecked, they stay on disk as
+// untracked files.
+func (g *Git) Rollback(paths []string, deleteAdded bool) error {
 	repo, err := g.c.currentRepo()
 	if err != nil {
 		return err
 	}
-	if err := repo.Rollback(context.Background(), paths); err != nil {
+	if err := repo.Rollback(context.Background(), paths, deleteAdded); err != nil {
 		return err
 	}
 	g.notify()

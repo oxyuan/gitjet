@@ -155,7 +155,7 @@ func TestUnstageClearsBothSidesOfARename(t *testing.T) {
 func TestRollbackRestoresARenameWithoutLeavingACopy(t *testing.T) {
 	repo, dir := newTestRepo(t)
 	runGit(t, dir, "mv", "a.txt", "b.txt")
-	if err := repo.Rollback(context.Background(), []string{"b.txt"}); err != nil {
+	if err := repo.Rollback(context.Background(), []string{"b.txt"}, true); err != nil {
 		t.Fatalf("Rollback: %v", err)
 	}
 	if _, err := os.Stat(filepath.Join(dir, "a.txt")); err != nil {
@@ -166,6 +166,34 @@ func TestRollbackRestoresARenameWithoutLeavingACopy(t *testing.T) {
 	}
 	if status := runGit(t, dir, "status", "--porcelain"); status != "" {
 		t.Fatalf("status = %q, want clean", status)
+	}
+}
+
+func TestRollbackKeepsAddedFilesUnlessDeletionIsRequested(t *testing.T) {
+	repo, dir := newTestRepo(t)
+	writeFile(t, dir, "added.txt", "added\n")
+	runGit(t, dir, "add", "added.txt")
+
+	// Unchecked, rollback returns the path to untracked without touching the
+	// local copy, as IDEA's "Delete local copies of added files" does.
+	if err := repo.Rollback(context.Background(), []string{"added.txt"}, false); err != nil {
+		t.Fatalf("Rollback: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(dir, "added.txt")); err != nil {
+		t.Fatalf("added.txt was deleted without being asked: %v", err)
+	}
+	if staged := runGit(t, dir, "diff", "--cached", "--name-only"); staged != "" {
+		t.Fatalf("staged after rollback = %q, want nothing", staged)
+	}
+	if status := runGit(t, dir, "status", "--porcelain"); status != "?? added.txt" {
+		t.Fatalf("status = %q, want the file untracked", status)
+	}
+
+	if err := repo.Rollback(context.Background(), []string{"added.txt"}, true); err != nil {
+		t.Fatalf("Rollback with deletion: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(dir, "added.txt")); !os.IsNotExist(err) {
+		t.Fatalf("added.txt survived a deleting rollback (err=%v)", err)
 	}
 }
 

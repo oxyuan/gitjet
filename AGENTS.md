@@ -362,6 +362,17 @@ use it only for layout work. Vite's port is pinned to 5173 in **both**
   existing `DiffView` against HEAD; `LocalHistoryDialog` takes `path:""`
   for repository-wide history. Dialogs stay in `Dialogs.tsx` unless they
   own a standalone file (`EditHistoryDialog.tsx`, `RepoExtrasDialog.tsx`).
+- The commit page follows IDEA's names and shape: the default changelist is
+  "Changes" (`internal/app/settings.go`; older "Default Changelist" metas are
+  migrated in `ensureMeta`), the tracked files sit directly under it, and
+  untracked files are one collapsible "Unversioned Files" node with a
+  select-all checkbox. Collapse All folds that node too, and a staged file
+  stays visible when the staged section is hidden, so no checked file can be
+  invisible. The toolbar's Rollback action covers the selection (or every
+  local change) and opens `RollbackDialog`, IDEA's file list with the
+  "Delete local copies of added files" option: `Repo.Rollback(paths,
+  deleteAdded)` keeps an added file's copy unless that option is set. The
+  choice is remembered in `Settings.RollbackDeleteAdded`.
 - Merging follows IDEA's two-part shape: the branch popup's "Merge “x” into
   “y”" runs `Git.merge` with git's defaults at once (`defaultMergeOptions` in
   `App.tsx`), the way `GitBranchPopupActions.MergeAction` calls the brancher
