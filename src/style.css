@@ -7173,10 +7173,13 @@ body.resizing-row .log-detail-split::after {
   align-items: stretch;
 }
 
-/* The blame of the line the cursor is on, in the trailing space. */
+/* The blame of the line the cursor is on, in the trailing space. The gap is
+   padding, not margin: CodeMirror counts a widget's margin into the position
+   it belongs to, which drew the caret after the gap on an empty line or at
+   the end of the line, leaving an undeletable blank in front of it. */
 .cm-blame {
   display: inline-block;
-  margin-left: 18px;
+  padding-left: 18px;
   color: var(--muted-2);
   font-family: var(--font-ui, inherit);
   font-size: 10.5px;
