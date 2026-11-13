@@ -1694,11 +1694,13 @@ export function ConflictView({
         event.preventDefault();
         const range = rangeAtCaret();
         if (range?.kind === "conflict") applyRange(range.index, event.key === "ArrowRight" ? "ours" : "theirs");
-      } else if (event.altKey && !event.ctrlKey && event.key === "ArrowLeft") {
+      } else if (event.altKey && !event.ctrlKey && !event.defaultPrevented && event.key === "ArrowLeft") {
+        // The editors bind Alt+Arrow to word movement and consume it; only a
+        // key nothing else handled means "take this side".
         event.preventDefault();
         const range = rangeAtCaret();
         if (range?.kind === "conflict") applyRange(range.index, "ours");
-      } else if (event.altKey && !event.ctrlKey && event.key === "ArrowRight") {
+      } else if (event.altKey && !event.ctrlKey && !event.defaultPrevented && event.key === "ArrowRight") {
         event.preventDefault();
         const range = rangeAtCaret();
         if (range?.kind === "conflict") applyRange(range.index, "theirs");

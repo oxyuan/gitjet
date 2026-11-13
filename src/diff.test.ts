@@ -1,7 +1,7 @@
 import { describe, expect, it } from "bun:test";
 import type { FileDiff } from "./mygo";
 import type { AlignedRow } from "./diff";
-import { buildDiffRows, changeBlockRows, changeBlockSelections, charDiff, foldRanges, lineWidth, revealWhitespace, textLines, visibleRows, wordDiff } from "./diff";
+import { buildDiffRows, changeBlockIndex, changeBlockRows, changeBlockSelections, charDiff, foldRanges, lineWidth, revealWhitespace, textLines, visibleRows, wordDiff } from "./diff";
 
 describe("textLines", () => {
   it("drops the empty tail after a final newline", () => {
@@ -27,7 +27,42 @@ describe("charDiff", () => {
     expect(right.some((s) => s.changed && s.text === "X")).toBe(true);
     expect(left.filter((s) => !s.changed).map((s) => s.text).join("")).toBe("abd");
   });
+
+  it("keeps the equal run IDEA's engine keeps when a character repeats", () => {
+    // Both sides contain spaces; IntelliJ's ByCharRt.compare aligns the text
+    // with a plain Myers pass, which keeps the space at the start, not the
+    // one further right that a suffix-LCS table would pick.
+    const [left, right] = charDiff("  bar. 1 ,->foo", "] ");
+    expect(changedRuns(left)).toEqual([
+      [0, 1],
+      [2, 15],
+    ]);
+    expect(changedRuns(right)).toEqual([[0, 1]]);
+  });
+
+  it("keeps surrogate pairs whole", () => {
+    const [left, right] = charDiff("😀a", "😁a");
+    expect(changedRuns(left)).toEqual([[0, 2]]);
+    expect(changedRuns(right)).toEqual([[0, 2]]);
+    expect(left.map((s) => s.text).join("")).toBe("😀a");
+    expect(right.map((s) => s.text).join("")).toBe("😁a");
+  });
 });
+
+/** The changed runs of a segment list, in UTF-16 offsets. */
+function changedRuns(segments: { text: string; changed: boolean }[]): number[][] {
+  const out: number[][] = [];
+  let offset = 0;
+  for (const segment of segments) {
+    if (segment.changed) {
+      const last = out[out.length - 1];
+      if (last && last[1] === offset) last[1] = offset + segment.text.length;
+      else out.push([offset, offset + segment.text.length]);
+    }
+    offset += segment.text.length;
+  }
+  return out;
+}
 
 describe("buildDiffRows", () => {
   const file: FileDiff = {
@@ -324,6 +359,26 @@ describe("changeBlockRows", () => {
       ),
     );
     expect(changeBlockRows(rows)).toEqual([1, 3]);
+  });
+
+  it("names the block of every changed row, not only the first", () => {
+    const rows = buildDiffRows(
+      fileWith(
+        [
+          { kind: "context", oldNo: 1, newNo: 1, text: "a" },
+          { kind: "del", oldNo: 2, newNo: 0, text: "b" },
+          { kind: "add", oldNo: 0, newNo: 2, text: "B" },
+          { kind: "del", oldNo: 3, newNo: 0, text: "c" },
+          { kind: "add", oldNo: 0, newNo: 3, text: "C" },
+          { kind: "context", oldNo: 4, newNo: 4, text: "d" },
+          { kind: "del", oldNo: 5, newNo: 0, text: "e" },
+          { kind: "add", oldNo: 0, newNo: 5, text: "E" },
+        ],
+        "a\nb\nc\nd\ne\n",
+        "a\nB\nC\nd\nE\n",
+      ),
+    );
+    expect(changeBlockIndex(rows)).toEqual([-1, 0, 0, -1, 1]);
   });
 });
 

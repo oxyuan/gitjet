@@ -2,7 +2,7 @@ import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } fr
 import { annotateDate, blameDepth } from "./annotate";
 import { blameMenuItems } from "./blameMenu";
 import { Git, type BlameLine, type DiffOptions, type FileDiff, type ThreeWayDiff } from "./mygo";
-import { buildDiffRows, changeBlockRows, changeBlockSelections, foldRanges, lineWidth, revealWhitespace, visibleRows, type FoldRange, type HighlightMode, type VisibleRow, type WhitespaceMode, type WordSegment } from "./diff";
+import { buildDiffRows, changeBlockIndex, changeBlockRows, changeBlockSelections, foldRanges, lineWidth, revealWhitespace, visibleRows, type FoldRange, type HighlightMode, type VisibleRow, type WhitespaceMode, type WordSegment } from "./diff";
 import { ImageDiff } from "./ImageDiff";
 import { isImagePath } from "./images";
 import { FileIcon, Icon } from "./icons";
@@ -328,9 +328,23 @@ export function DiffView({
   }, [reloadKey, diff.path, diff]);
 
   const changeRows = useMemo(() => changeBlockRows(rows), [rows]);
-  // The IDE opens a diff at the first change rather than at line 1. Jump once
-  // per mounted viewer: a refresh after staging must not steal the scroll.
+  // One viewer instance can be handed another file: a commit's file tabs share
+  // one id, so stepping through them reuses this component. The counter, the
+  // find hit and the "jumped to the first change" flag belong to the file, not
+  // to the instance.
+  const viewKey = `${opts.target}\u0000${opts.revision}\u0000${opts.from}\u0000${diff.path}`;
+  const viewRef = useRef(viewKey);
   const jumped = useRef(false);
+  useEffect(() => {
+    if (viewRef.current === viewKey) return;
+    viewRef.current = viewKey;
+    jumped.current = false;
+    setCurrent(-1);
+    setHitIndex(-1);
+    setPendingRow(null);
+  }, [viewKey]);
+  // The IDE opens a diff at the first change rather than at line 1. Jump once
+  // per file: a refresh after staging must not steal the scroll.
   useEffect(() => {
     if (jumped.current || changeRows.length === 0) return;
     jumped.current = true;
@@ -396,15 +410,12 @@ export function DiffView({
     revealChange(idx);
   };
   // A click inside a change makes that block current, the way the IDE's
-  // counter follows the caret instead of waiting for F7.
-  const blockOfRow = useMemo(() => {
-    const map = new Map<number, number>();
-    changeRows.forEach((row, index) => map.set(row, index));
-    return map;
-  }, [changeRows]);
+  // counter follows the caret instead of waiting for F7 — the second line of
+  // a multi-line change as much as the first.
+  const blockOfRow = useMemo(() => changeBlockIndex(rows), [rows]);
   const focusRow = (row: number) => {
-    const block = blockOfRow.get(row);
-    if (block !== undefined) setCurrent(block);
+    const block = blockOfRow[row];
+    if (block !== undefined && block >= 0) setCurrent(block);
   };
   // The changes list IDEA opens from its "N of M" counter: every block with
   // the header git printed for it, so a reader can jump anywhere.
@@ -1063,6 +1074,10 @@ function ApplyChevrons({
 }) {
   const t = useT(T);
   if (!canApply) return <div className="diff-action" />;
+  // A whole-file diff has one hunk covering every change, so a hunk-level
+  // apply would stage the file, not the block under the button. The block's
+  // own signed lines are what the button means there; an ordinary diff has
+  // no block selection and applies its hunk.
   const apply = (next: "stage" | "unstage" | "rollback") => {
     if (lines) onApplyLines(lines, next);
     else onApply(hunk, next);
@@ -1074,7 +1089,7 @@ function ApplyChevrons({
         title={action === "stage" ? t("stageHunk") : t("unstageHunk")}
         onClick={(e) => {
           e.stopPropagation();
-          onApply(hunk, action);
+          apply(action);
         }}
       >
         <Icon name={action === "stage" ? "chevronRight" : "chevronLeft"} size={12} />

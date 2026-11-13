@@ -1233,7 +1233,13 @@ function AppShell({ onLangChange }: { onLangChange: (lang: Lang) => void }) {
     if (!doc) return;
     if (doc.kind === "diff" && (doc.opts.target === "worktree" || doc.opts.target === "staged")) {
       Git.diff(doc.opts)
-        .then((diff) => setDocs((prev) => prev.map((d) => (d.id === doc.id ? { ...d, diff } : d))))
+        .then((diff) =>
+          // The policy may have changed while this read was in flight; only a
+          // response fetched with the options the tab still holds may land.
+          setDocs((prev) =>
+            prev.map((d) => (d.id === doc.id && d.kind === "diff" && d.opts === doc.opts ? { ...d, diff } : d)),
+          ),
+        )
         .catch(() => {});
     } else if (doc.kind === "file" && doc.revision === "") {
       Git.file(doc.file.path, "")
@@ -1674,11 +1680,42 @@ function AppShell({ onLangChange }: { onLangChange: (lang: Lang) => void }) {
     return true;
   };
 
+  /**
+   * The ignore-whitespace policy is a view setting, as it is in IDEA's
+   * per-place diff settings: every open viewer re-reads its diff, because a
+   * tab left under the old policy would show that policy's hunks beneath a
+   * toolbar that already names the new one.
+   */
   const chooseWhitespace = (mode: WhitespaceMode) => {
     setWhitespace(mode);
-    const active = docsRef.current.find((d) => d.id === activeIdRef.current);
-    if (active?.kind === "diff") {
-      void showDiff({ ...active.opts, whitespace: mode }, active.title);
+    for (const doc of docsRef.current) {
+      if (doc.kind === "diff") {
+        const opts = { ...doc.opts, whitespace: mode };
+        // Adopt the new options at once, so a response for an older policy is
+        // recognisable as stale when it lands and cannot repaint the tab.
+        setDocs((prev) => prev.map((d) => (d.id === doc.id && d.kind === "diff" ? { ...d, opts } : d)));
+        void Git.diff(opts).then(
+          (diff) =>
+            setDocs((prev) =>
+              prev.map((d) =>
+                d.id === doc.id && d.kind === "diff" && d.opts === opts ? { ...d, diff } : d,
+              ),
+            ),
+          () => {},
+        );
+      } else if (doc.kind === "three") {
+        const opts = { ...doc.opts, whitespace: mode };
+        setDocs((prev) => prev.map((d) => (d.id === doc.id && d.kind === "three" ? { ...d, opts } : d)));
+        void Git.threeWay(opts).then(
+          (three) =>
+            setDocs((prev) =>
+              prev.map((d) =>
+                d.id === doc.id && d.kind === "three" && d.opts === opts ? { ...d, three } : d,
+              ),
+            ),
+          () => {},
+        );
+      }
     }
   };
 
@@ -1886,6 +1923,10 @@ function AppShell({ onLangChange }: { onLangChange: (lang: Lang) => void }) {
     target: side === "staged" ? "staged" : "worktree",
     revision: "",
     from: "",
+    // The chips are built from the hunks `ThreeWay` returned: it pins a
+    // non-positive context to 3, so applying by index must read the same
+    // hunks — the user's whole-file setting would renumber them.
+    context: doc.opts.context > 0 ? doc.opts.context : 3,
   });
 
   const refreshThree = async (doc: Extract<Doc, { kind: "three" }>) => {

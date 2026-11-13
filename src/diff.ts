@@ -1,4 +1,5 @@
 import type { DiffHunk, DiffLine, FileDiff } from "./mygo";
+import { elementIds, ideaBlocks } from "./ideaDiff";
 import { compareAndSplit, type WordFragment } from "./worddiff";
 
 export interface WordSegment {
@@ -65,6 +66,27 @@ export function changeBlockRows(rows: readonly AlignedRow[]): number[] {
     if (!inBlock) out.push(i);
     inBlock = true;
   });
+  return out;
+}
+
+/**
+ * The change block every row belongs to, indexed like `changeBlockRows`:
+ * a click anywhere inside a change must make that block current, not only a
+ * click on its first row. Context rows are -1, the way they are no block.
+ */
+export function changeBlockIndex(rows: readonly AlignedRow[]): number[] {
+  const out: number[] = [];
+  let block = -1;
+  let next = 0;
+  for (const row of rows) {
+    if (row.kind === "context") {
+      block = -1;
+      out.push(-1);
+      continue;
+    }
+    if (block < 0) block = next++;
+    out.push(block);
+  }
   return out;
 }
 
@@ -159,9 +181,52 @@ export function wordDiff(a: string, b: string): [WordSegment[], WordSegment[]] {
   return diffTokens(tokenize(a), tokenize(b));
 }
 
-/** charDiff highlights the individual characters that differ. */
+/**
+ * charDiff highlights the individual characters that differ. IDEA compares
+ * the code points with its own diff engine (`ByCharRt.compare`), so this uses
+ * the same ported engine: the suffix-LCS table would keep a different — equally
+ * long — equal run wherever a character repeats, and the marks would sit on
+ * other characters than the IDE's.
+ */
 export function charDiff(a: string, b: string): [WordSegment[], WordSegment[]] {
-  return diffTokens(Array.from(a), Array.from(b));
+  const charsA = Array.from(a);
+  const charsB = Array.from(b);
+  // The engine is the IDE's, and the IDE gives up on a huge inner diff too:
+  // a minified line would otherwise spend its time in Myers for no readable
+  // gain. The whole line stays marked as one change. Ten thousand code
+  // points caps a worst-case pair near a hundred milliseconds of UI thread.
+  if (charsA.length + charsB.length > 10_000) {
+    return [
+      [{ text: a, changed: true }],
+      [{ text: b, changed: true }],
+    ];
+  }
+  const ids = new Map<number, number>();
+  const blocks = ideaBlocks(
+    elementIds(charsA.map((ch) => ch.codePointAt(0) ?? 0), ids),
+    elementIds(charsB.map((ch) => ch.codePointAt(0) ?? 0), ids),
+  );
+  const runs = (side: "a" | "b"): number[][] => {
+    const out: number[][] = [];
+    for (const block of blocks) {
+      const start = side === "a" ? block.aStart : block.bStart;
+      const end = side === "a" ? block.aEnd : block.bEnd;
+      if (end > start) out.push([start, end]);
+    }
+    return out;
+  };
+  const segments = (chars: string[], changed: number[][]): WordSegment[] => {
+    const out: WordSegment[] = [];
+    let index = 0;
+    for (const [start, end] of changed) {
+      if (start! > index) out.push({ text: chars.slice(index, start).join(""), changed: false });
+      out.push({ text: chars.slice(start!, end!).join(""), changed: true });
+      index = end!;
+    }
+    if (index < chars.length) out.push({ text: chars.slice(index).join(""), changed: false });
+    return out;
+  };
+  return [segments(charsA, runs("a")), segments(charsB, runs("b"))];
 }
 
 /**
