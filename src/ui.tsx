@@ -388,6 +388,53 @@ export function ConfirmDialog({
   );
 }
 
+/** A confirm dialog with more than two answers, for a decision that cannot
+ *  be expressed as "OK / Cancel" — closing an edited tab offers Save,
+ *  Discard and Cancel, as an editor does. */
+export function ChoiceDialog({
+  title,
+  message,
+  detail,
+  choices,
+  onChoose,
+  onCancel,
+}: {
+  title: string;
+  message: ReactNode;
+  detail?: ReactNode;
+  choices: { value: string; label: string; variant?: "default" | "primary" | "danger" }[];
+  onChoose: (value: string) => void;
+  onCancel: () => void;
+}) {
+  const t = useT(T);
+  return (
+    <Modal
+      title={title}
+      icon="warning"
+      width={460}
+      onClose={onCancel}
+      footer={
+        <>
+          {choices.map((choice) => (
+            <Button
+              key={choice.value}
+              variant={choice.variant}
+              onClick={() => onChoose(choice.value)}
+              autoFocus={choice.variant === "primary"}
+            >
+              {choice.label}
+            </Button>
+          ))}
+          <Button onClick={onCancel}>{t("cancel")}</Button>
+        </>
+      }
+    >
+      <div className="confirm-message">{message}</div>
+      {detail && <div className="confirm-detail">{detail}</div>}
+    </Modal>
+  );
+}
+
 export type ContextItem =
   | {
       separator: true;

@@ -103,7 +103,7 @@ go test ./... && go vet ./... && bun run typecheck && bun run test:web && bun ru
 | `⌥F7` / `⌘/Ctrl+Alt+F7` / `⇧F12` | 查找引用（按文件分组、可筛选；只有一处时直接打开） |
 | `⌘/Ctrl+Alt+←` / `⌘/Ctrl+[` | 导航后退 |
 | `⌘/Ctrl+Alt+→` / `⌘/Ctrl+]` | 导航前进 |
-| `⌘/Ctrl+S` | 保存源码 / 应用冲突结果 |
+| `⌘/Ctrl+S` | 全部保存（写入所有未保存的标签页） |
 | `⌘/Ctrl+F` | 在差异中查找 |
 | `⌘/Ctrl+Space` | 代码补全（语言服务器或文件内单词） |
 | `⌘/Ctrl+/` | 行注释；`⌘/Ctrl+Shift+/` 块注释 |

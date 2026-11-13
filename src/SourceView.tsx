@@ -1,6 +1,6 @@
 import { useMemo, useRef, useState } from "react";
 import type { SourceFile } from "./mygo";
-import { SourceEditor } from "./SourceEditor";
+import { SourceEditor, type EditorSaveHandle } from "./SourceEditor";
 import { Icon } from "./icons";
 import { cx, formatWhen, IconButton } from "./ui";
 import { PathCopyButton } from "./PathCopy";
@@ -111,9 +111,10 @@ export function SourceView({
   onCommitDiff,
   draft,
   onDraftChange,
-  onSave,
+  onSaveRequest,
+  onEdit,
   onDirtyChange,
-  autoSaveIdleSeconds = 0,
+  saveRef,
 }: {
   file: SourceFile;
   /** 1-based line to put the cursor on, for a jump from another file. */
@@ -145,12 +146,14 @@ export function SourceView({
   /** Text kept while this tab was inactive. */
   draft?: string;
   onDraftChange?: (text: string) => void;
-  /** Writes the working-tree file; resolves false when the write failed. */
-  onSave?: (text: string, quiet?: boolean) => Promise<boolean>;
+  /** IDEA's Save All; the page owns the write. */
+  onSaveRequest?: () => void;
   /** Tells the tab strip whether this document has unsaved edits. */
   onDirtyChange?: (dirty: boolean) => void;
-  /** IDEA's opt-in idle save, in seconds; 0 when the setting is off. */
-  autoSaveIdleSeconds?: number;
+  /** Every text change, for the pane's idle-save timer. */
+  onEdit?: () => void;
+  /** The mounted editor's text and saved baseline, for Save All. */
+  saveRef?: { current: EditorSaveHandle | null };
 }) {
   const t = useT(T);
   const [wrap, setWrap] = useState(false);
@@ -290,9 +293,10 @@ export function SourceView({
           onCommitDiff={file.external ? undefined : onCommitDiff}
           onCopy={onCopyPath}
           onDirtyChange={handleDirty}
-          onSave={onSave}
+          onSaveRequest={onSaveRequest}
+          onEdit={onEdit}
           onDraftChange={onDraftChange}
-          autoSaveIdleSeconds={autoSaveIdleSeconds}
+          saveRef={saveRef}
           navRef={navRef}
         />
       )}

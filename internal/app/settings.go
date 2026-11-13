@@ -32,9 +32,13 @@ type Settings struct {
 	Language      string `json:"language"` // system, en, zh
 	Theme         string `json:"theme"`    // system, light, dark
 	DiffContext   int    `json:"diffContext"`
+	// SaveOnDeactivation is IDEA's "Save files on frame deactivation": every
+	// unsaved tab is written when the window loses focus. On by default, as
+	// IDEA has it.
+	SaveOnDeactivation bool `json:"saveOnDeactivation"`
 	// AutoSaveIdle is IDEA's "Save files automatically if application is
-	// idle"; off by default, as IDEA has it. The always-on trigger is the
-	// frame deactivation save, not this timer.
+	// idle"; off by default, as IDEA has it. It is the opt-in timer, not the
+	// deactivation save above.
 	AutoSaveIdle        bool   `json:"autoSaveIdle"`
 	AutoSaveIdleSeconds int    `json:"autoSaveIdleSeconds"`
 	IgnoreWhitespace    bool   `json:"ignoreWhitespace"`
@@ -103,6 +107,7 @@ func defaultSettings() Settings {
 		Language:            "system",
 		Theme:               "system",
 		DiffContext:         -1,
+		SaveOnDeactivation:  true,
 		AutoSaveIdleSeconds: 15,
 		UpdateMethod:        "merge",
 		ConfirmRollback:     true,

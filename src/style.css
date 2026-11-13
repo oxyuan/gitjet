@@ -10763,3 +10763,23 @@ button.diff-nav-count:disabled {
   max-height: calc(100vh - 16px);
   overflow-y: auto;
 }
+
+/* The status bar's Save All: one click writes every edited tab, as IDEA's
+   Save All action does. */
+.status-save {
+  height: 20px;
+  padding: 0 6px;
+  gap: 4px;
+  border-radius: 5px;
+  color: var(--fg-soft);
+  font-variant-numeric: tabular-nums;
+}
+
+.status-save:hover {
+  background: var(--hover);
+  color: var(--fg);
+}
+
+.status-save .icon {
+  color: var(--accent);
+}

@@ -48,7 +48,10 @@ func (r *Repo) CreateFile(ctx context.Context, path string) error {
 
 // SaveFile replaces the contents of an existing working-tree file. Creating
 // one is CreateFile's job, and a directory or a missing path is an error so a
-// save can never turn a typo into a new file. The file's mode is kept.
+// save can never turn a typo into a new file. The file's mode is kept, and
+// the write is atomic: the text lands in a temporary file beside the target
+// and is renamed over it, as IDEA's "safe write" does, so an interrupted
+// save cannot truncate a source file.
 func (r *Repo) SaveFile(_ context.Context, path, text string) error {
 	clean, err := cleanWorkPath(path)
 	if err != nil {
@@ -69,7 +72,31 @@ func (r *Repo) SaveFile(_ context.Context, path, text string) error {
 	if st.IsDir() {
 		return fmt.Errorf("%s is a directory", clean)
 	}
-	return os.WriteFile(abs, []byte(text), st.Mode().Perm())
+	return writeFileAtomic(abs, []byte(text), st.Mode().Perm())
+}
+
+// writeFileAtomic writes data to a temporary file in path's directory, gives
+// it the target's mode, and renames it into place. The temporary file lives
+// beside the target so the rename stays on one filesystem, and it is removed
+// if any step fails.
+func writeFileAtomic(path string, data []byte, mode os.FileMode) error {
+	tmp, err := os.CreateTemp(filepath.Dir(path), "."+filepath.Base(path)+".gitjet-*")
+	if err != nil {
+		return err
+	}
+	name := tmp.Name()
+	defer os.Remove(name)
+	if _, err := tmp.Write(data); err != nil {
+		tmp.Close()
+		return err
+	}
+	if err := tmp.Close(); err != nil {
+		return err
+	}
+	if err := os.Chmod(name, mode); err != nil {
+		return err
+	}
+	return os.Rename(name, path)
 }
 
 // CreateDir creates a directory, making missing parents. An existing path is

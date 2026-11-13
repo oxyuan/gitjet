@@ -55,6 +55,17 @@ const T = {
 } as const;
 
 
+/** What Save All needs from the mounted editor: the text it would write, the
+ *  baseline to adopt once that text is on disk, and whether it still has
+ *  newer keystrokes. */
+export type EditorSaveHandle = {
+  /** The document with the file's own line separator, ready to write. */
+  text: () => string;
+  /** Adopts the snapshot returned by the last `text()` call as saved. */
+  markSaved: () => void;
+  isDirty: () => boolean;
+};
+
 /** The text itself, in a real editor: highlighting, a change gutter, the
  *  blame of the current line, and jumps. The header and toolbar stay in
  *  SourceView, which owns the document's chrome. */
@@ -81,9 +92,10 @@ export function SourceEditor({
   onCommitDiff,
   onCopy,
   onDirtyChange,
-  onSave,
+  onSaveRequest,
+  onEdit,
   onDraftChange,
-  autoSaveIdleSeconds = 0,
+  saveRef,
   navRef,
 }: {
   file: SourceFile;
@@ -117,13 +129,16 @@ export function SourceEditor({
   onCommitDiff?: (hash: string) => void;
   onCopy?: (text: string) => void;
   onDirtyChange?: (dirty: boolean) => void;
-  /** Writes the text to disk; resolves true when it succeeded. `quiet` is
-   *  an automatic save, which must not toast. */
-  onSave?: (text: string, quiet?: boolean) => Promise<boolean>;
+  /** IDEA's Save All. The page writes every unsaved document, not just this
+   *  one, so the editor only forwards the request. */
+  onSaveRequest?: () => void;
+  /** Every text change, so the pane can restart its idle-save timer. */
+  onEdit?: () => void;
   /** Preserves a draft while the tab is not the active one. */
   onDraftChange?: (text: string) => void;
-  /** IDEA's opt-in "save if idle" timeout; 0 keeps the timer off. */
-  autoSaveIdleSeconds?: number;
+  /** Hands the page this editor's text and its saved baseline, so Save All
+   *  can write the mounted document without a second copy of it. */
+  saveRef?: { current: EditorSaveHandle | null };
   /** Lets the header's change arrows step through the gutter's ranges. */
   navRef?: { current: ((delta: number) => void) | null };
 }) {
@@ -145,7 +160,8 @@ export function SourceEditor({
     editable,
     lineEnding,
     onDirtyChange,
-    onSave,
+    onSaveRequest,
+    onEdit,
     onDraftChange,
   });
   actions.current = {
@@ -162,59 +178,11 @@ export function SourceEditor({
     editable,
     lineEnding,
     onDirtyChange,
-    onSave,
+    onSaveRequest,
+    onEdit,
     onDraftChange,
   };
-  const saving = useRef(false);
   const caretLine = useRef(1);
-  // IDEA's default save trigger is frame deactivation, not a typing timer:
-  // `GeneralSettings.isSaveOnFrameDeactivation` (backed by `autoSaveFiles`)
-  // is on, while `autoSaveIfInactive` is off. The idle timer below is the
-  // opt-in `autoSaveIfInactive`; the write is silent, the tab's dot is the
-  // feedback.
-  const idleSeconds = useRef(autoSaveIdleSeconds);
-  idleSeconds.current = autoSaveIdleSeconds;
-  const idleTimer = useRef<number | null>(null);
-  const saveLatest = useRef<(quiet?: boolean) => Promise<boolean>>(async () => false);
-  const clearIdle = () => {
-    if (idleTimer.current === null) return;
-    window.clearTimeout(idleTimer.current);
-    idleTimer.current = null;
-  };
-  const scheduleIdle = () => {
-    const seconds = idleSeconds.current;
-    if (seconds <= 0 || !actions.current.editable || !actions.current.onSave) return;
-    clearIdle();
-    idleTimer.current = window.setTimeout(() => {
-      idleTimer.current = null;
-      if (editor.current?.isDirty()) void saveLatest.current(true);
-    }, seconds * 1000);
-  };
-  const save = async (quiet = false): Promise<boolean> => {
-    const current = editor.current;
-    const write = actions.current.onSave;
-    if (!current || !actions.current.editable || !write || saving.current) return false;
-    saving.current = true;
-    try {
-      const doc = current.getDoc();
-      const ok = await write(withLineEnding(doc, actions.current.lineEnding), quiet);
-      if (ok) {
-        current.markSaved(doc);
-        // Typing during the write leaves newer text behind; the idle timer
-        // owns that buffer again.
-        if (current.isDirty()) scheduleIdle();
-        // A manual save may have been triggered from another control; the
-        // caret belongs to the reader either way.
-        if (!quiet) current.view.focus();
-      }
-      return ok;
-    } catch {
-      return false;
-    } finally {
-      saving.current = false;
-    }
-  };
-  saveLatest.current = save;
   const [changes, setChanges] = useState<ChangeRange[]>([]);
   // The header's prev/next change buttons reach the ranges this pane drew.
   const changeNav = useRef<(delta: number) => void>(() => {});
@@ -267,12 +235,9 @@ export function SourceEditor({
       labels,
       notices: { noFormatter: t("noFormatter"), noRename: t("noRename") },
       blameFormat,
-      onDirtyChange: (dirty) => {
-        actions.current.onDirtyChange?.(dirty);
-        if (dirty) scheduleIdle();
-        else clearIdle();
-      },
-      onSaveRequest: editable ? () => void saveLatest.current() : undefined,
+      onDirtyChange: (dirty) => actions.current.onDirtyChange?.(dirty),
+      onDocChange: () => actions.current.onEdit?.(),
+      onSaveRequest: editable ? () => actions.current.onSaveRequest?.() : undefined,
       onChangeClick: (hunk, line, alt, x, y) => {
         // Alt-click keeps the direct line rollback; a plain click opens the
         // menu IDEA shows, so a stray click cannot discard a block.
@@ -296,20 +261,32 @@ export function SourceEditor({
           : { date: annotateDate(blame.time), author: blame.author },
     });
     editor.current = created;
-    // Switching to another application is IDEA's other save trigger: the
-    // file on disk must already hold what the reader typed.
-    const flush = () => {
-      if (created.isDirty()) void saveLatest.current(true);
-    };
-    window.addEventListener("blur", flush);
+    // Save All writes this text and then adopts the same snapshot as the
+    // baseline. Keeping the snapshot here is what keeps a save honest when
+    // the reader types while the write is in flight: `markSaved` compares
+    // against what reached disk, not against the newer buffer.
+    let pending: string | null = null;
+    if (saveRef) {
+      saveRef.current = {
+        text: () => {
+          pending = created.getDoc();
+          return withLineEnding(pending, actions.current.lineEnding);
+        },
+        markSaved: () => {
+          if (pending === null) return;
+          created.markSaved(pending);
+          pending = null;
+        },
+        isDirty: () => created.isDirty(),
+      };
+    }
     // The language server speaks absolute file URIs; registering a
     // repository-relative path made every server answer look like a
     // different file, so a jump opened a tab that could not load.
     const uri = toUri(absolutePath);
     registerView(uri, created.view, file.revision);
     return () => {
-      window.removeEventListener("blur", flush);
-      clearIdle();
+      if (saveRef) saveRef.current = null;
       if (actions.current.editable && created.isDirty()) {
         actions.current.onDraftChange?.(created.getDoc());
       }

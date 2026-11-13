@@ -596,9 +596,15 @@ export interface Settings {
   theme: string;
   diffContext: number;
   /**
+   * SaveOnDeactivation is IDEA's "Save files on frame deactivation": every
+   * unsaved tab is written when the window loses focus. On by default, as
+   * IDEA has it.
+   */
+  saveOnDeactivation: boolean;
+  /**
    * AutoSaveIdle is IDEA's "Save files automatically if application is
-   * idle"; off by default, as IDEA has it. The always-on trigger is the
-   * frame deactivation save, not this timer.
+   * idle"; off by default, as IDEA has it. It is the opt-in timer, not the
+   * deactivation save above.
    */
   autoSaveIdle: boolean;
   autoSaveIdleSeconds: number;

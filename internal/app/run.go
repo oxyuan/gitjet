@@ -179,6 +179,8 @@ func buildMenu(l lang) *mygo.Menu {
 			// back through App.OnOpenFile.
 			{Role: mygo.RoleOpenRecent},
 			{Label: l.tr("menu.quickOpen"), Accelerator: "CmdOrCtrl+P", Click: send("quickopen")},
+			// IDEA's Save All: every unsaved tab, one refresh.
+			{Label: l.tr("menu.saveAll"), Accelerator: "CmdOrCtrl+S", Click: send("save")},
 			{Label: l.tr("menu.closeTab"), Accelerator: "CmdOrCtrl+W", Click: send("closetab")},
 			{Label: l.tr("menu.closeRepo"), Accelerator: "CmdOrCtrl+Shift+W", Click: send("close")},
 			mygo.Separator(),

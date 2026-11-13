@@ -1235,6 +1235,9 @@ export type EditorOptions = {
   /** Reports when the document differs from the last saved text, so the tab
    *  can show a dot and "close unmodified" can leave it alone. */
   onDirtyChange?: (dirty: boolean) => void;
+  /** Fires on every text change, so an idle-save timer can restart on each
+   *  keystroke rather than on the first edit of a dirty document. */
+  onDocChange?: () => void;
   /** Ctrl/Cmd-S. The page owns the actual write. */
   onSaveRequest?: () => void;
   /** Copy the editor needs, in the reader's language. */
@@ -1489,6 +1492,7 @@ export class SourceEditor {
   private savedDoc: string;
   private dirty = false;
   private onDirtyChange?: (dirty: boolean) => void;
+  private onDocChange?: () => void;
 
   constructor(parent: HTMLElement, opts: EditorOptions) {
     let lastLine = 1;
@@ -1497,6 +1501,7 @@ export class SourceEditor {
     const lang = opts.lang ?? "en";
     this.savedDoc = normalizeText(opts.baseline ?? opts.doc);
     this.onDirtyChange = opts.onDirtyChange;
+    this.onDocChange = opts.onDocChange;
     this.annotateExtension = annotateGutter(opts);
     const labels = NAV_LABELS[lang];
 
@@ -1810,9 +1815,11 @@ export class SourceEditor {
                 },
               },
               {
+                // IDEA's Save All: it writes every unsaved document, so a
+                // clean editor still forwards the request.
                 key: "Mod-s",
                 run: () => {
-                  if (opts.onSaveRequest && this.dirty) opts.onSaveRequest();
+                  opts.onSaveRequest?.();
                   return true;
                 },
               },
@@ -1887,6 +1894,7 @@ export class SourceEditor {
   }
 
   private noteDoc(text: string) {
+    this.onDocChange?.();
     this.setDirty(text !== this.savedDoc);
   }
 

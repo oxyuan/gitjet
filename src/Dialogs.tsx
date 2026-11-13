@@ -95,9 +95,10 @@ const T = {
     "settings.themeSystem": "Use system setting",
     "settings.themeLight": "Light",
     "settings.themeDark": "Dark",
+    "settings.saveOnDeactivation": "Save files on frame deactivation",
     "settings.save": "Save files automatically if the application is idle",
     "settings.saveHint":
-      "Saving on window deactivation is always on, as in IDEA; the idle timer is opt-in.",
+      "As in IDEA, the deactivation save is on by default and the idle timer is opt-in.",
     "settings.saveSeconds": "Idle seconds",
     "settings.uiScale": "Font size",
     "settings.uiScaleSmall": "Small",
@@ -389,8 +390,9 @@ const T = {
     "settings.themeSystem": "跟随系统",
     "settings.themeLight": "浅色",
     "settings.themeDark": "深色",
+    "settings.saveOnDeactivation": "窗口失活时保存文件",
     "settings.save": "应用空闲时自动保存文件",
-    "settings.saveHint": "窗口失活时保存始终开启（与 IDEA 一致）；空闲定时保存是可选项。",
+    "settings.saveHint": "与 IDEA 一致：失活保存默认开启，空闲定时保存是可选项。",
     "settings.saveSeconds": "空闲秒数",
     "settings.uiScale": "字号",
     "settings.uiScaleSmall": "小",
@@ -953,6 +955,13 @@ export function SettingsDialog({
                       <option value="same">{t("settings.openRepoSame")}</option>
                       <option value="new">{t("settings.openRepoNew")}</option>
                     </Select>
+                  </SettingRow>
+                  <SettingRow>
+                    <Checkbox
+                      checked={draft.saveOnDeactivation}
+                      onChange={(v) => set("saveOnDeactivation", v)}
+                      label={t("settings.saveOnDeactivation")}
+                    />
                   </SettingRow>
                   <SettingRow hint={t("settings.saveHint")}>
                     <Checkbox

@@ -4,6 +4,7 @@ import (
 	"context"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -31,6 +32,33 @@ func TestSaveFileReplacesContent(t *testing.T) {
 	}
 	if string(got) != "one\nTHREE\n" {
 		t.Fatalf("content = %q", got)
+	}
+}
+
+func TestSaveFileKeepsModeAndLeavesNoTemporary(t *testing.T) {
+	repo, dir := newTestRepo(t)
+	path := filepath.Join(dir, "run.sh")
+	if err := os.WriteFile(path, []byte("old\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := repo.SaveFile(context.Background(), "run.sh", "new\n"); err != nil {
+		t.Fatalf("SaveFile: %v", err)
+	}
+	st, err := os.Stat(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if st.Mode().Perm() != 0o755 {
+		t.Fatalf("mode = %v, want 0755", st.Mode().Perm())
+	}
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, entry := range entries {
+		if strings.HasPrefix(entry.Name(), ".run.sh.gitjet-") {
+			t.Fatalf("temporary file %q survived the save", entry.Name())
+		}
 	}
 }
 

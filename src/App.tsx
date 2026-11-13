@@ -57,7 +57,8 @@ import { FileIcon, Icon } from "./icons";
 import { useFileMenu } from "./FileMenu";
 import { LangProvider, count, resolveLang, useT, type Lang } from "./i18n";
 import { computeMerge, conflictLabels, resolveSimpleConflicts } from "./merge";
-import { normalizeText } from "./editorText";
+import { detectLineEnding, normalizeText, withLineEnding } from "./editorText";
+import type { EditorSaveHandle } from "./SourceEditor";
 import { gutterDiffOptions } from "./gutter";
 import { isAbsolutePath, joinRoot, resolveOpenPath } from "./paths";
 import { mergeConflictInMemory } from "./conflictMerge";
@@ -92,6 +93,7 @@ import {
 } from "./navigation";
 import {
   Button,
+  ChoiceDialog,
   ConfirmDialog,
   ContextMenu,
   type ContextItem,
@@ -160,7 +162,10 @@ const T = {
     openFileFailed: "Could not open the file",
     fileActionFailed: "Could not change the file",
     fileSaved: "File saved",
+    filesSaved: "{n} files saved",
     saveFileFailed: "Could not save the file",
+    saveAll: "Save All",
+    saveAllHint: "Save all unsaved files (⌘/Ctrl+S)",
     symbolLookupFailed: "Could not search for that name",
     noUsages: "No usages of {name} were found.",
     onlyUsage: "Only one usage found — opened it.",
@@ -190,7 +195,7 @@ const T = {
     tabWorkingTree: "Working Tree",
     tabIndex: "Index",
     discardTitle: "Unsaved Changes",
-    discardMessage: "Discard unsaved changes in the tabs being closed?",
+    unsavedMessage: "Save the edited tabs before continuing?",
     discard: "Discard",
     unsavedCloseRepo: "Open tabs have unsaved changes.",
     rollback: "Rollback",
@@ -400,7 +405,10 @@ const T = {
     openFileFailed: "无法打开文件",
     fileActionFailed: "无法修改文件",
     fileSaved: "文件已保存",
+    filesSaved: "已保存 {n} 个文件",
     saveFileFailed: "无法保存文件",
+    saveAll: "全部保存",
+    saveAllHint: "保存所有未保存的文件（⌘/Ctrl+S）",
     symbolLookupFailed: "无法搜索该名称",
     noUsages: "没有找到 {name} 的引用。",
     onlyUsage: "只有一处引用，已打开。",
@@ -430,7 +438,7 @@ const T = {
     tabWorkingTree: "工作区",
     tabIndex: "暂存区",
     discardTitle: "未保存的更改",
-    discardMessage: "要丢弃正在关闭的标签页中的未保存更改吗？",
+    unsavedMessage: "继续之前要保存已编辑的标签页吗？",
     discard: "丢弃",
     unsavedCloseRepo: "已打开的标签页中有未保存的更改。",
     rollback: "回滚",
@@ -670,6 +678,14 @@ type Dialog =
   | { kind: "rollback"; paths: string[] }
   | { kind: "pushCommits"; hash: string };
 
+interface ChoiceState {
+  title: string;
+  message: string;
+  detail?: string;
+  choices: { value: string; label: string; variant?: "default" | "primary" | "danger" }[];
+  resolve: (value: string | null) => void;
+}
+
 interface ConfirmState {
   title: string;
   message: string;
@@ -765,6 +781,7 @@ function AppShell({ onLangChange }: { onLangChange: (lang: Lang) => void }) {
   const [fetchMenu, setFetchMenu] = useState<{ x: number; y: number } | null>(null);
   const [fetchOptions, setFetchOptions] = useStoredState("gitjet.fetchOptions", { prune: true, tags: true });
   const [confirm, setConfirm] = useState<ConfirmState | null>(null);
+  const [choice, setChoice] = useState<ChoiceState | null>(null);
   const [splitWidth, setSplitWidth] = useStoredState<number>("gitjet.split", 430);
   const [diffMode, setDiffMode] = useStoredState<"split" | "unified">("gitjet.diffMode", "split");
   const [diffWrap, setDiffWrap] = useStoredState<boolean>("gitjet.diffWrap", true);
@@ -807,6 +824,9 @@ function AppShell({ onLangChange }: { onLangChange: (lang: Lang) => void }) {
   const docsRef = useRef<Doc[]>([]);
   const activeIdRef = useRef<string | null>(null);
   const dirtyDocsRef = useRef<Set<string>>(new Set());
+  // RightPane installs its Save All here: the menu, the status bar and the
+  // deactivation save all reach the one implementation that owns the drafts.
+  const saveAllRef = useRef<(quiet?: boolean) => Promise<string[]>>(async () => []);
   const repoOpenRef = useRef(false);
   const refreshRef = useRef<(() => void) | null>(null);
   const amendBackup = useRef("");
@@ -879,6 +899,41 @@ function AppShell({ onLangChange }: { onLangChange: (lang: Lang) => void }) {
         },
       });
     });
+
+  /** A question with more than two answers; resolves null when the dialog is
+   *  dismissed, which every caller treats as Cancel. */
+  const choose = (opts: Omit<ChoiceState, "resolve">) =>
+    new Promise<string | null>((resolve) => {
+      setChoice({
+        ...opts,
+        resolve: (value) => {
+          setChoice(null);
+          resolve(value);
+        },
+      });
+    });
+
+  /** What to do with edited tabs before an action would drop them: IDEA's
+   *  Save All, discard, or cancel. Closing a tab is never a silent loss. */
+  const resolveUnsaved = async (names: string[]) => {
+    const answer = await choose({
+      title: t("discardTitle"),
+      message: t("unsavedMessage"),
+      detail: names.join(", "),
+      choices: [
+        { value: "save", label: t("saveAll"), variant: "primary" },
+        { value: "discard", label: t("discard"), variant: "danger" },
+      ],
+    });
+    return answer === "save" || answer === "discard" ? answer : "cancel";
+  };
+
+  /** Runs Save All and reports whether every id it had to write is clean.
+   *  A failed write, or text typed during it, keeps the document dirty. */
+  const saveBefore = async (ids: string[]) => {
+    const still = await saveAllRef.current(false);
+    return ids.every((id) => !still.includes(id));
+  };
 
   const applyCheckedDefaults = useCallback((snap: ChangesSnapshot) => {
     const eligible = new Set<string>();
@@ -1019,14 +1074,10 @@ function AppShell({ onLangChange }: { onLangChange: (lang: Lang) => void }) {
       const doc = docsRef.current.find((d) => d.id === id);
       return doc ? tabTitle(doc, t) : id;
     });
-    void ask({
-      title: t("discardTitle"),
-      message: t("discardMessage"),
-      detail: names.join(", "),
-      confirmLabel: t("discard"),
-      danger: true,
-    }).then((ok) => {
-      if (ok) closeDocs(ids);
+    void resolveUnsaved(names).then(async (answer) => {
+      if (answer === "cancel") return;
+      if (answer === "save" && !(await saveBefore(dirty))) return;
+      closeDocs(ids);
     });
   };
 
@@ -1121,33 +1172,66 @@ function AppShell({ onLangChange }: { onLangChange: (lang: Lang) => void }) {
     void reload(false);
   };
 
-  /** Writes an edited working-tree file, then refreshes status, diff and blame.
-   *  The saved text is put into the open documents immediately so a tab that
-   *  is already mounted does not wait for the refresh. */
-  const saveFile = useCallback(
-    async (path: string, text: string, quiet = false) => {
-      try {
-        await Git.saveFile(path, text);
-        const size = new TextEncoder().encode(text).length;
+  /** Writes one Save All pass, then refreshes the repository once. The saved
+   *  text is put into the open documents immediately so a mounted tab does
+   *  not wait for the refresh. Returns the ids that reached disk; a failure
+   *  keeps its document dirty and is reported once, after the writes. */
+  const saveFiles = useCallback(
+    async (entries: { id: string; path: string; text: string }[], quiet: boolean) => {
+      const saved: string[] = [];
+      const written = new Map<string, string>();
+      let failure: unknown = null;
+      for (const entry of entries) {
+        try {
+          await Git.saveFile(entry.path, entry.text);
+          saved.push(entry.id);
+          written.set(entry.path, entry.text);
+        } catch (err) {
+          failure ??= err;
+        }
+      }
+      if (saved.length > 0) {
         setDocs((prev) =>
-          prev.map((d) =>
-            d.kind === "file" && d.file.path === path && d.revision === ""
-              ? { ...d, file: { ...d.file, text, size } }
-              : d,
-          ),
+          prev.map((d) => {
+            if (d.kind !== "file" || d.revision !== "") return d;
+            const text = written.get(d.file.path);
+            if (text === undefined) return d;
+            return { ...d, file: { ...d.file, text, size: new TextEncoder().encode(text).length } };
+          }),
         );
+        setDirtyDocs((prev) => {
+          let next: Set<string> | null = null;
+          for (const id of saved) {
+            if (!prev.has(id)) continue;
+            next ??= new Set(prev);
+            next.delete(id);
+          }
+          return next ?? prev;
+        });
         await reload(false);
         // An automatic save is silent: a toast per pause in typing would be
         // noise, while the tab's dot already reports the state.
-        if (!quiet) notify("success", t("fileSaved"), path);
-        return true;
-      } catch (err) {
-        fail(t("saveFileFailed"), err);
-        return false;
+        if (!quiet) {
+          const paths = entries.filter((entry) => saved.includes(entry.id)).map((entry) => entry.path);
+          if (paths.length === 1) notify("success", t("fileSaved"), paths[0]);
+          else notify("success", t("filesSaved", { n: paths.length }));
+        }
       }
+      if (failure) fail(t("saveFileFailed"), failure);
+      return saved;
     },
     [fail, notify, reload, t],
   );
+
+  // IDEA's "Save files on frame deactivation": every unsaved tab is written,
+  // not only the one whose editor is mounted. The setting is IDEA's own
+  // GeneralSettings.isSaveOnFrameDeactivation.
+  useEffect(() => {
+    if (!settings?.saveOnDeactivation) return;
+    const flush = () => void saveAllRef.current(true);
+    window.addEventListener("blur", flush);
+    return () => window.removeEventListener("blur", flush);
+  }, [settings?.saveOnDeactivation]);
 
   // A definition jump opens the file it lands in, through the same dock tab
   // the reader would have opened by hand.
@@ -1178,7 +1262,7 @@ function AppShell({ onLangChange }: { onLangChange: (lang: Lang) => void }) {
         if (b.error) notify("error", tRef.current("reopenRepo"), b.error);
       })
       .catch((err) => {
-        setBoot({ settings: { version: 2, gitPath: "", sshCommand: "", fetchTagsMode: "auto", language: "system", theme: "system", diffContext: -1, autoSaveIdle: false, autoSaveIdleSeconds: 15, ignoreWhitespace: false, showIgnored: false, autoFetch: false, autoFetchMinutes: 15, updateMethod: "merge", confirmForcePush: true, confirmRollback: true, rollbackDeleteAdded: false, commitCheckCrlf: true, commitCheckLargeMB: 10, commitCheckNames: true, commitCheckHead: true, commitTemplate: "", protectedBranches: [], autoUpdateOnReject: true, openInNewWindow: false, uiScale: 100, recent: [] }, repo: null, error: String(err), version: "", platform: "" });
+        setBoot({ settings: { version: 2, gitPath: "", sshCommand: "", fetchTagsMode: "auto", language: "system", theme: "system", diffContext: -1, saveOnDeactivation: true, autoSaveIdle: false, autoSaveIdleSeconds: 15, ignoreWhitespace: false, showIgnored: false, autoFetch: false, autoFetchMinutes: 15, updateMethod: "merge", confirmForcePush: true, confirmRollback: true, rollbackDeleteAdded: false, commitCheckCrlf: true, commitCheckLargeMB: 10, commitCheckNames: true, commitCheckHead: true, commitTemplate: "", protectedBranches: [], autoUpdateOnReject: true, openInNewWindow: false, uiScale: 100, recent: [] }, repo: null, error: String(err), version: "", platform: "" });
         notify("error", tRef.current("startFailed"), err instanceof Error ? err.message : String(err));
       });
   }, [applyCheckedDefaults, notify, reload]);
@@ -1318,13 +1402,11 @@ function AppShell({ onLangChange }: { onLangChange: (lang: Lang) => void }) {
       return;
     }
     if (dirtyDocsRef.current.size > 0) {
-      const ok = await ask({
-        title: t("discardTitle"),
-        message: t("discardMessage"),
-        confirmLabel: t("discard"),
-        danger: true,
-      });
-      if (!ok) return;
+      const dirty = [...dirtyDocsRef.current];
+      const names = docsRef.current.filter((d) => dirty.includes(d.id)).map((d) => tabTitle(d, t));
+      const answer = await resolveUnsaved(names);
+      if (answer === "cancel") return;
+      if (answer === "save" && !(await saveBefore(dirty))) return;
     }
     setBusy((n) => n + 1);
     try {
@@ -1426,13 +1508,20 @@ function AppShell({ onLangChange }: { onLangChange: (lang: Lang) => void }) {
   };
 
   const closeRepo = async () => {
+    const dirty = [...dirtyDocsRef.current];
     const ok = await ask({
       title: t("closeRepoTitle"),
       message: t("closeRepoMessage"),
-      detail: dirtyDocsRef.current.size > 0 ? t("unsavedCloseRepo") : undefined,
+      detail: dirty.length > 0 ? t("unsavedCloseRepo") : undefined,
       confirmLabel: t("close"),
     });
     if (!ok) return;
+    if (dirty.length > 0) {
+      const names = docsRef.current.filter((d) => dirty.includes(d.id)).map((d) => tabTitle(d, t));
+      const answer = await resolveUnsaved(names);
+      if (answer === "cancel") return;
+      if (answer === "save" && !(await saveBefore(dirty))) return;
+    }
     await Workspace.close();
     void disconnectLSP();
     repoOpenRef.current = false;
@@ -2907,6 +2996,9 @@ function AppShell({ onLangChange }: { onLangChange: (lang: Lang) => void }) {
         case "quickopen":
           if (repoOpenRef.current) setQuickOpen(true);
           break;
+        case "save":
+          void saveAllRef.current(false);
+          break;
         case "closetab":
           if (activeIdRef.current) requestCloseDoc(activeIdRef.current);
           break;
@@ -3358,7 +3450,8 @@ function AppShell({ onLangChange }: { onLangChange: (lang: Lang) => void }) {
             onDocDirty={setDocDirty}
             onFilesChanged={() => void reload(false)}
             onFileError={(err) => fail(t("fileActionFailed"), err)}
-            onSaveFile={saveFile}
+            onSaveFiles={saveFiles}
+            saveAllRef={saveAllRef}
             autoSaveIdleSeconds={settings?.autoSaveIdle ? settings.autoSaveIdleSeconds : 0}
             diffWrap={diffWrap}
             onToggleWrap={() => setDiffWrap(!diffWrap)}
@@ -3542,6 +3635,12 @@ function AppShell({ onLangChange }: { onLangChange: (lang: Lang) => void }) {
           </span>
         ) : null}
         <span className="spacer" />
+        {dirtyDocs.size > 0 && (
+          <button className="status-save" title={t("saveAllHint")} onClick={() => void saveAllRef.current(false)}>
+            <Icon name="save" size={12} />
+            <span>{dirtyDocs.size}</span>
+          </button>
+        )}
         {snapshot && (
           <>
             <span className="status-item">{t("changed", { n: snapshot.state.changed })}</span>
@@ -3840,6 +3939,16 @@ function AppShell({ onLangChange }: { onLangChange: (lang: Lang) => void }) {
           }}
         />
       )}
+      {choice && (
+        <ChoiceDialog
+          title={choice.title}
+          message={choice.message}
+          detail={choice.detail}
+          choices={choice.choices}
+          onChoose={(value) => choice.resolve(value)}
+          onCancel={() => choice.resolve(null)}
+        />
+      )}
       {confirm && (
         <ConfirmDialog
           title={confirm.title}
@@ -4066,7 +4175,8 @@ function RightPane({
   onDocDirty,
   onFilesChanged,
   onFileError,
-  onSaveFile,
+  onSaveFiles,
+  saveAllRef,
   autoSaveIdleSeconds,
   diffMode,
   diffWrap,
@@ -4116,7 +4226,12 @@ function RightPane({
   onDocDirty: (id: string, dirty: boolean) => void;
   onFilesChanged: () => void;
   onFileError: (err: unknown) => void;
-  onSaveFile: (path: string, text: string, quiet?: boolean) => Promise<boolean>;
+  /** Writes every document Save All collected and resolves with the ids that
+   *  reached disk. */
+  onSaveFiles: (entries: { id: string; path: string; text: string }[], quiet: boolean) => Promise<string[]>;
+  /** Set to this pane's Save All, so the menu, the status bar, the idle timer
+   *  and the window's deactivation all reach one implementation. */
+  saveAllRef: { current: (quiet?: boolean) => Promise<string[]> };
   /** IDEA's opt-in idle save, in seconds; 0 when the setting is off. */
   autoSaveIdleSeconds: number;
   diffWrap: boolean;
@@ -4175,6 +4290,97 @@ function RightPane({
       if (!open.has(id) || !dirtyIds.has(id)) drafts.current.delete(id);
     }
   }, [docs, dirtyIds]);
+
+  // Save All runs from a menu command, the status bar, the idle timer and the
+  // window's deactivation, all of which outlive a render; these refs give it
+  // the latest list without re-creating the callback on every keystroke.
+  const docsRef = useRef(docs);
+  docsRef.current = docs;
+  const dirtyRef = useRef(dirtyIds);
+  dirtyRef.current = dirtyIds;
+  const activeRef = useRef(active);
+  activeRef.current = active;
+  // The mounted editor's own text and baseline; every other dirty tab lives
+  // in `drafts`.
+  const editorSave = useRef<EditorSaveHandle | null>(null);
+
+  /** IDEA's Save All: write every unsaved document in one pass, then adopt
+   *  each written snapshot as its saved baseline. Returns the ids that are
+   *  still dirty — a failed write, or text typed while the write was in
+   *  flight, leaves the document dirty, exactly as FileDocumentManager's
+   *  loop does. */
+  const saving = useRef<Promise<string[]> | null>(null);
+  const saveAll = useCallback(
+    (quiet = false): Promise<string[]> => {
+      // The menu accelerator and the editor's Mod-s can both fire; a second
+      // request while a write is in flight joins it instead of racing it.
+      if (saving.current) return saving.current;
+      const run = (async (): Promise<string[]> => {
+        const dirty = dirtyRef.current;
+        if (dirty.size === 0) return [];
+        const activeNow = activeRef.current;
+        const entries: { id: string; path: string; text: string }[] = [];
+        for (const id of dirty) {
+          const doc = docsRef.current.find((d) => d.id === id);
+          if (!doc || doc.kind !== "file" || doc.revision !== "" || doc.file.external) continue;
+          let text: string | undefined;
+          if (doc.id === activeNow?.id) text = editorSave.current?.text();
+          if (text === undefined) {
+            const draft = drafts.current.get(id);
+            if (draft !== undefined) text = withLineEnding(draft, detectLineEnding(doc.file.text));
+          }
+          if (text === undefined) continue;
+          entries.push({ id, path: doc.file.path, text });
+        }
+        if (entries.length === 0) return [...dirty];
+        const saved = await onSaveFiles(entries, quiet);
+        const own = entries.find((entry) => entry.id === activeNow?.id);
+        if (own && saved.includes(own.id)) editorSave.current?.markSaved();
+        const handled = new Set(entries.map((entry) => entry.id));
+        return [...dirty].filter(
+          (id) =>
+            !handled.has(id) ||
+            !saved.includes(id) ||
+            (id === activeNow?.id && (editorSave.current?.isDirty() ?? false)),
+        );
+      })();
+      saving.current = run.finally(() => {
+        saving.current = null;
+      });
+      return saving.current;
+    },
+    [onSaveFiles],
+  );
+  saveAllRef.current = saveAll;
+
+  // IDEA's opt-in "save if the application is idle": one timer for the whole
+  // pane, restarted by every keystroke in the mounted editor. Keeping it here
+  // rather than in the editor means switching tabs cannot strand an edited
+  // tab that nobody is typing in.
+  const idleTimer = useRef<number | null>(null);
+  const idleSeconds = useRef(autoSaveIdleSeconds);
+  idleSeconds.current = autoSaveIdleSeconds;
+  const armIdle = useCallback(() => {
+    if (idleTimer.current !== null) window.clearTimeout(idleTimer.current);
+    idleTimer.current = null;
+    const seconds = idleSeconds.current;
+    if (seconds <= 0) return;
+    idleTimer.current = window.setTimeout(() => {
+      idleTimer.current = null;
+      if (dirtyRef.current.size > 0) void saveAllRef.current(true);
+    }, seconds * 1000);
+  }, [saveAllRef]);
+  useEffect(() => {
+    if (dirtyIds.size !== 0) return;
+    if (idleTimer.current !== null) window.clearTimeout(idleTimer.current);
+    idleTimer.current = null;
+  }, [dirtyIds]);
+  useEffect(
+    () => () => {
+      if (idleTimer.current !== null) window.clearTimeout(idleTimer.current);
+    },
+    [],
+  );
 
   const closeTabItems = (doc: Doc): ContextItem[] => {
     const index = docs.findIndex((d) => d.id === doc.id);
@@ -4368,9 +4574,10 @@ function RightPane({
             onCommitDiff={(hash) => onOpenDiff(active.file.path, hash)}
             draft={drafts.current.get(active.id)}
             onDraftChange={(text) => drafts.current.set(active.id, text)}
-            onSave={(text, quiet) => onSaveFile(active.file.path, text, quiet)}
+            onSaveRequest={() => void saveAllRef.current()}
+            onEdit={armIdle}
+            saveRef={editorSave}
             onDirtyChange={(dirty) => onDocDirty(active.id, dirty)}
-            autoSaveIdleSeconds={autoSaveIdleSeconds}
           />
         )}
         {active.kind === "commit" && (

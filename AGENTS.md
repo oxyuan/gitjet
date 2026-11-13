@@ -417,23 +417,36 @@ use it only for layout work. Vite's port is pinned to 5173 in **both**
 - The working-tree source pane is editable CodeMirror; the index and historical
   revisions use `EditorState.readOnly`, never `EditorView.editable(false)` — the
   latter makes the DOM unfocusable and kills the arrow keys, `⌘B` and copy.
-  Saving goes through `Git.saveFile` (Ctrl/Cmd-S, window deactivation, or the
-  opt-in idle timer), which refuses directories and missing paths. `src/editorText.ts` folds CRLF for CodeMirror
-  and restores the file's separator on write.
+  Saving goes through `Git.saveFile` (Save All, window deactivation, or the
+  opt-in idle timer), which refuses directories and missing paths.
+  `src/editorText.ts` folds CRLF for CodeMirror and restores the file's
+  separator on write; `Repo.SaveFile` writes a temporary file beside the
+  target and renames it over it (IDEA's safe write), keeping the mode.
 - Dirty state is owned by `App` (`dirtyDocs`): the editor compares against its
   saved baseline, the tab shows a dot, and closing a dirty tab asks first.
   `SourceView` keeps an inactive dirty tab's text in `RightPane`'s `drafts`
   map; a clean tab is always re-read from `file.text`. A refresh from disk never
   replaces a dirty document.
-- Edits save the way IDEA saves them: the always-on trigger is window
-  deactivation (`GeneralSettings.isSaveOnFrameDeactivation`, IDEA's default),
-  through the same `Git.saveFile` path with `quiet` set so no toast appears.
-  IDEA's `autoSaveIfInactive` is opt-in and off by default; Settings → General
-  exposes it as `autoSaveIdle` + `autoSaveIdleSeconds` (15 s, clamped 1..300)
-  and `SourceEditor` runs the timer only when it is on. The tab's dot, not a
-  notification, is the feedback; there is no Save button. A save must never
-  re-reveal the opening line — the reveal effect is keyed on `line`/`reveal`,
-  never on `file.text`, or the caret drifts to the top after every write.
+- Save is IDEA's Save All, not a per-tab write: `RightPane.saveAll` collects
+  the mounted editor's text (`EditorSaveHandle`) and every inactive draft,
+  writes them through `onSaveFiles`, and refreshes once. The File menu's Save
+  All (⌘/Ctrl-S), the status bar's unsaved count and the editor's Mod-s all
+  call it; a second request while a write is in flight joins the first.
+  `markSaved` adopts the snapshot that reached disk, so typing during the
+  write keeps the tab dirty, and a failed write leaves it dirty and blocks a
+  close that chose Save.
+- Edits save the way IDEA saves them: window deactivation
+  (`Settings.SaveOnDeactivation`, IDEA's `isSaveOnFrameDeactivation`, on by
+  default) writes every unsaved tab, through the same `saveAll` path with
+  `quiet` set so no toast appears. IDEA's `autoSaveIfInactive` is opt-in and
+  off by default; Settings → General exposes it as `autoSaveIdle` +
+  `autoSaveIdleSeconds` (15 s, clamped 1..300), and `RightPane` runs one timer
+  restarted by every keystroke. The tab's dot, not a notification, is the
+  feedback. Closing an edited tab, opening another repository or closing the
+  repository offers Save / Discard / Cancel (`ChoiceDialog`), never a
+  discard-only prompt. A save must never re-reveal the opening line — the
+  reveal effect is keyed on `line`/`reveal`, never on `file.text`, or the
+  caret drifts to the top after every write.
 - Change bars come from `Git.diff({target:"worktree"})` hunks, mapped to lines by
   `src/annotate.ts`; every line of a span gets its own bar, a replaced block is
   a `mod` and only its surplus an `add`, and a deletion is a wedge on the line
