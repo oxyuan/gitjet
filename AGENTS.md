@@ -273,7 +273,10 @@ use it only for layout work. Vite's port is pinned to 5173 in **both**
   keeps the current change unless the block is gone. Clicking the counter
   opens IDEA's "Go to change" list: one row per block with the header git
   printed for it, the current block checked; a click inside a changed row
-  makes that block current, as the IDE's counter follows the caret.
+  makes that block current, as the IDE's counter follows the caret. F7 past
+  the last change opens the next changed file (and Shift+F7 the previous
+  one), replacing the diff tab, as IDEA's "go to the next file after reaching
+  last change" does.
 - The diff searches in place, as IDEA's diff editors do: Ctrl/⌘+F opens the
   bar, Enter/F3 and Shift+Enter/Shift+F3 walk the hits, Esc closes. The hit
   list covers both versions (`search.ts`); a context row whose sides are
@@ -414,23 +417,30 @@ use it only for layout work. Vite's port is pinned to 5173 in **both**
 - The working-tree source pane is editable CodeMirror; the index and historical
   revisions use `EditorState.readOnly`, never `EditorView.editable(false)` — the
   latter makes the DOM unfocusable and kills the arrow keys, `⌘B` and copy.
-  Saving goes through `Git.saveFile` (Ctrl/Cmd-S or the toolbar), which refuses
-  directories and missing paths. `src/editorText.ts` folds CRLF for CodeMirror
+  Saving goes through `Git.saveFile` (Ctrl/Cmd-S, window deactivation, or the
+  opt-in idle timer), which refuses directories and missing paths. `src/editorText.ts` folds CRLF for CodeMirror
   and restores the file's separator on write.
 - Dirty state is owned by `App` (`dirtyDocs`): the editor compares against its
   saved baseline, the tab shows a dot, and closing a dirty tab asks first.
   `SourceView` keeps an inactive dirty tab's text in `RightPane`'s `drafts`
   map; a clean tab is always re-read from `file.text`. A refresh from disk never
   replaces a dirty document.
-- Edits save themselves, as IDEA does: `SourceEditor` writes one second after
-  typing stops and again when the window loses focus, through the same
-  `Git.saveFile` path and with `quiet` set so no toast appears. The tab's dot,
-  not a notification, is the feedback.
+- Edits save the way IDEA saves them: the always-on trigger is window
+  deactivation (`GeneralSettings.isSaveOnFrameDeactivation`, IDEA's default),
+  through the same `Git.saveFile` path with `quiet` set so no toast appears.
+  IDEA's `autoSaveIfInactive` is opt-in and off by default; Settings → General
+  exposes it as `autoSaveIdle` + `autoSaveIdleSeconds` (15 s, clamped 1..300)
+  and `SourceEditor` runs the timer only when it is on. The tab's dot, not a
+  notification, is the feedback; there is no Save button. A save must never
+  re-reveal the opening line — the reveal effect is keyed on `line`/`reveal`,
+  never on `file.text`, or the caret drifts to the top after every write.
 - Change bars come from `Git.diff({target:"worktree"})` hunks, mapped to lines by
   `src/annotate.ts`; every line of a span gets its own bar, a replaced block is
   a `mod` and only its surplus an `add`, and a deletion is a wedge on the line
-  after it. Clicking a bar calls `Git.applyHunk(..., "rollback")` with the same
-  hunk index. Blame comes from `Git.blame(path, revision)` (`""` is
+  after it. Clicking a bar opens IDEA's marker menu (Show Diff / Roll back
+  This Block / Roll back This Line); Alt-clicking keeps the direct line
+  rollback. The menu calls `Git.applyHunk(..., "rollback")` with the same hunk
+  index. Blame comes from `Git.blame(path, revision)` (`""` is
   the worktree, `"INDEX"` the staged copy), rendered on the cursor line and in
   the annotation column. Source and diff gutters share `src/blameMenu.ts`, so
   the line-number menu means the same thing in both.

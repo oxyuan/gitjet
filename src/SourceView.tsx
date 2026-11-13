@@ -30,8 +30,6 @@ const T = {
     forward: "Forward (⌘/Ctrl+Alt+→)",
     revealInManager: "Reveal in file manager",
     wrap: "Wrap",
-    save: "Save",
-    saveHint: "Save (⌘/Ctrl+S)",
     truncated: "File truncated at 8 MB",
     binaryFile: "Binary file — no text to show",
     missingFile: "File does not exist in this revision",
@@ -59,8 +57,6 @@ const T = {
     forward: "前进（⌘/Ctrl+Alt+→）",
     revealInManager: "在文件管理器中显示",
     wrap: "折行",
-    save: "保存",
-    saveHint: "保存（⌘/Ctrl+S）",
     truncated: "文件已截断至 8 MB",
     binaryFile: "二进制文件 — 无文本可显示",
     missingFile: "此版本中不存在该文件",
@@ -115,6 +111,7 @@ export function SourceView({
   onDraftChange,
   onSave,
   onDirtyChange,
+  autoSaveIdleSeconds = 0,
 }: {
   file: SourceFile;
   /** 1-based line to put the cursor on, for a jump from another file. */
@@ -150,13 +147,12 @@ export function SourceView({
   onSave?: (text: string, quiet?: boolean) => Promise<boolean>;
   /** Tells the tab strip whether this document has unsaved edits. */
   onDirtyChange?: (dirty: boolean) => void;
+  /** IDEA's opt-in idle save, in seconds; 0 when the setting is off. */
+  autoSaveIdleSeconds?: number;
 }) {
   const t = useT(T);
   const [wrap, setWrap] = useState(false);
   const navRef = useRef<((delta: number) => void) | null>(null);
-  const saveRef = useRef<(() => Promise<boolean>) | null>(null);
-  const [dirty, setDirty] = useState(false);
-  const [saving, setSaving] = useState(false);
   // The line the menu offers alongside the path: where the caret is.
   const [caret, setCaret] = useState<number | undefined>(undefined);
   const lines = useMemo(() => {
@@ -174,20 +170,7 @@ export function SourceView({
   // a truncated copy must not be overwritten from this pane.
   const editable = file.revision === "" && !file.external && file.exists && !file.binary && !file.truncated;
   const lineEnding = detectLineEnding(file.text);
-  const handleDirty = (next: boolean) => {
-    setDirty(next);
-    onDirtyChange?.(next);
-  };
-  const runSave = async () => {
-    if (saving) return;
-    setSaving(true);
-    try {
-      await saveRef.current?.();
-    } finally {
-      setSaving(false);
-    }
-  };
-
+  const handleDirty = (next: boolean) => onDirtyChange?.(next);
   return (
     <div className="source-view">
       <div className="diff-header source-header">
@@ -237,16 +220,6 @@ export function SourceView({
           <button className={cx("toolbar-text-btn", wrap && "active")} onClick={() => setWrap((v) => !v)}>
             <Icon name="rows" /> {t("wrap")}
           </button>
-          {editable && (
-            <button
-              className={cx("toolbar-text-btn", dirty && "active")}
-              onClick={() => void runSave()}
-              disabled={!dirty || saving}
-              title={t("saveHint")}
-            >
-              <Icon name="save" /> {t("save")}
-            </button>
-          )}
           <IconButton
             icon="prevDiff"
             title={t("previousChange")}
@@ -299,6 +272,7 @@ export function SourceView({
           }
           onRollbackHunk={onRollbackHunk}
           onRollbackLine={onRollbackLine}
+          onShowDiff={onShowDiff}
           onNavigate={onNavigate}
           onNavigated={onNavigated}
           onHistory={onHistory}
@@ -309,7 +283,7 @@ export function SourceView({
           onDirtyChange={handleDirty}
           onSave={onSave}
           onDraftChange={onDraftChange}
-          saveRef={saveRef}
+          autoSaveIdleSeconds={autoSaveIdleSeconds}
           navRef={navRef}
         />
       )}

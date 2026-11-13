@@ -155,7 +155,14 @@ class ChangeMarker extends GutterMarker {
     readonly hunk: number,
     readonly kind: "add" | "del" | "mod",
     readonly line: number,
-    readonly onClick: (hunk: number, kind: "add" | "del" | "mod", line: number, alt: boolean) => void,
+    readonly onClick: (
+      hunk: number,
+      kind: "add" | "del" | "mod",
+      line: number,
+      alt: boolean,
+      x: number,
+      y: number,
+    ) => void,
     readonly label: string,
   ) {
     super();
@@ -180,7 +187,7 @@ class ChangeMarker extends GutterMarker {
     el.addEventListener("mousedown", (event) => {
       event.preventDefault();
       event.stopPropagation();
-      this.onClick(this.hunk, this.kind, this.line, event.altKey);
+      this.onClick(this.hunk, this.kind, this.line, event.altKey, event.clientX, event.clientY);
     });
     return el;
   }
@@ -203,7 +210,7 @@ const changeField = StateField.define<ChangeRange[]>({
  *  them, clickable per hunk. A deletion has no line of its own, so its wedge
  *  sits on the line the text disappeared from. */
 function changeGutter(
-  onClick: (hunk: number, kind: "add" | "del" | "mod", line: number, alt: boolean) => void,
+  onClick: (hunk: number, kind: "add" | "del" | "mod", line: number, alt: boolean, x: number, y: number) => void,
   labels: { add: string; del: string; mod: string },
 ): Extension {
   return [
@@ -673,9 +680,9 @@ export type EditorOptions = {
   blameFormat?: (line: BlameLine, fallback: string) => string;
   changes?: ChangeRange[];
   blame?: BlameLine[] | null;
-  onRollbackHunk?: (hunk: number) => void;
-  /** Alt-click on a change bar: roll back only the line that bar covers. */
-  onRollbackLine?: (line: number) => void;
+  /** A click on a change bar, with the pointer position for its menu.
+   *  Alt-clicking is the quick "roll back this line" path. */
+  onChangeClick?: (hunk: number, line: number, alt: boolean, x: number, y: number) => void;
   /** Repository-relative path of the document, so a jump can remember where
    *  it started. */
   path: string;
@@ -1170,9 +1177,8 @@ export class SourceEditor {
           // Both start empty and fill in when the data arrives, so the
           // effects that carry it always have a field to land in.
           changeGutter(
-            (hunk, kind, line, alt) => {
-              if (alt && opts.onRollbackLine) opts.onRollbackLine(line);
-              else opts.onRollbackHunk?.(hunk);
+            (hunk, kind, line, alt, x, y) => {
+              opts.onChangeClick?.(hunk, line, alt, x, y);
             },
             {
               add: opts.labels?.addedHere ?? "Added here",

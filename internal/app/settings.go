@@ -28,17 +28,22 @@ type Settings struct {
 	// SshCommand replaces the SSH client git runs, e.g. with a key.
 	SshCommand string `json:"sshCommand"`
 	// FetchTagsMode is auto, always or never.
-	FetchTagsMode    string `json:"fetchTagsMode"`
-	Language         string `json:"language"` // system, en, zh
-	Theme            string `json:"theme"`    // system, light, dark
-	DiffContext      int    `json:"diffContext"`
-	IgnoreWhitespace bool   `json:"ignoreWhitespace"`
-	ShowIgnored      bool   `json:"showIgnored"`
-	AutoFetch        bool   `json:"autoFetch"`
-	AutoFetchMinutes int    `json:"autoFetchMinutes"`
-	UpdateMethod     string `json:"updateMethod"` // merge, rebase
-	ConfirmForcePush bool   `json:"confirmForcePush"`
-	ConfirmRollback  bool   `json:"confirmRollback"`
+	FetchTagsMode string `json:"fetchTagsMode"`
+	Language      string `json:"language"` // system, en, zh
+	Theme         string `json:"theme"`    // system, light, dark
+	DiffContext   int    `json:"diffContext"`
+	// AutoSaveIdle is IDEA's "Save files automatically if application is
+	// idle"; off by default, as IDEA has it. The always-on trigger is the
+	// frame deactivation save, not this timer.
+	AutoSaveIdle        bool   `json:"autoSaveIdle"`
+	AutoSaveIdleSeconds int    `json:"autoSaveIdleSeconds"`
+	IgnoreWhitespace    bool   `json:"ignoreWhitespace"`
+	ShowIgnored         bool   `json:"showIgnored"`
+	AutoFetch           bool   `json:"autoFetch"`
+	AutoFetchMinutes    int    `json:"autoFetchMinutes"`
+	UpdateMethod        string `json:"updateMethod"` // merge, rebase
+	ConfirmForcePush    bool   `json:"confirmForcePush"`
+	ConfirmRollback     bool   `json:"confirmRollback"`
 	// RollbackDeleteAdded remembers the rollback dialog's "Delete local
 	// copies of added files" choice, the option IDEA keeps too.
 	RollbackDeleteAdded bool `json:"rollbackDeleteAdded"`
@@ -94,20 +99,21 @@ const settingsVersion = 2
 
 func defaultSettings() Settings {
 	return Settings{
-		Version:            settingsVersion,
-		Language:           "system",
-		Theme:              "system",
-		DiffContext:        -1,
-		UpdateMethod:       "merge",
-		ConfirmRollback:    true,
-		ConfirmForcePush:   true,
-		CommitCheckCRLF:    true,
-		AutoUpdateOnReject: true,
-		CommitCheckLargeMB: 10,
-		CommitCheckNames:   true,
-		CommitCheckHead:    true,
-		AutoFetchMinutes:   15,
-		UIScale:            100,
+		Version:             settingsVersion,
+		Language:            "system",
+		Theme:               "system",
+		DiffContext:         -1,
+		AutoSaveIdleSeconds: 15,
+		UpdateMethod:        "merge",
+		ConfirmRollback:     true,
+		ConfirmForcePush:    true,
+		CommitCheckCRLF:     true,
+		AutoUpdateOnReject:  true,
+		CommitCheckLargeMB:  10,
+		CommitCheckNames:    true,
+		CommitCheckHead:     true,
+		AutoFetchMinutes:    15,
+		UIScale:             100,
 	}
 }
 
@@ -146,6 +152,10 @@ func (s *Settings) clamp() {
 	// else (a stale 0, a hand-edited number) goes back to the whole file.
 	if s.DiffContext < -1 || s.DiffContext > 100 || s.DiffContext == 0 {
 		s.DiffContext = -1
+	}
+	// IDEA clamps its idle timeout to 1..300 seconds.
+	if s.AutoSaveIdleSeconds < 1 || s.AutoSaveIdleSeconds > 300 {
+		s.AutoSaveIdleSeconds = 15
 	}
 	if s.Theme != "light" && s.Theme != "dark" {
 		s.Theme = "system"

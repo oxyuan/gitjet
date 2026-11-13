@@ -182,6 +182,7 @@ export function DiffView({
   reloadKey,
   wrap,
   onToggleWrap,
+  onNextFile,
 }: {
   diff: FileDiff;
   opts: DiffOptions;
@@ -202,6 +203,9 @@ export function DiffView({
   reloadKey: number;
   wrap: boolean;
   onToggleWrap: () => void;
+  /** IDEA's "go to the next file after reaching last change": F7 past the
+   *  last block opens the next changed file instead of wrapping. */
+  onNextFile?: (delta: 1 | -1) => void;
 }) {
   const t = useT(T);
   // git names these sides; translate the two the app itself introduces.
@@ -369,10 +373,26 @@ export function DiffView({
     el?.scrollIntoView({ block: "center" });
   };
   const goto = (delta: number) => {
-    if (changeRows.length === 0) return;
+    if (changeRows.length === 0) {
+      onNextFile?.(delta > 0 ? 1 : -1);
+      return;
+    }
     let idx = current;
     if (idx === -1) idx = delta > 0 ? 0 : changeRows.length - 1;
-    else idx = (idx + delta + changeRows.length) % changeRows.length;
+    else {
+      const next = idx + delta;
+      if (next < 0 || next >= changeRows.length) {
+        // IDEA leaves the file rather than wrapping when there is another
+        // changed file to look at.
+        if (onNextFile) {
+          onNextFile(delta > 0 ? 1 : -1);
+          return;
+        }
+        idx = (next + changeRows.length) % changeRows.length;
+      } else {
+        idx = next;
+      }
+    }
     revealChange(idx);
   };
   // A click inside a change makes that block current, the way the IDE's

@@ -595,6 +595,13 @@ export interface Settings {
   /** system, light, dark */
   theme: string;
   diffContext: number;
+  /**
+   * AutoSaveIdle is IDEA's "Save files automatically if application is
+   * idle"; off by default, as IDEA has it. The always-on trigger is the
+   * frame deactivation save, not this timer.
+   */
+  autoSaveIdle: boolean;
+  autoSaveIdleSeconds: number;
   ignoreWhitespace: boolean;
   showIgnored: boolean;
   autoFetch: boolean;

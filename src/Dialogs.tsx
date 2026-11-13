@@ -95,6 +95,10 @@ const T = {
     "settings.themeSystem": "Use system setting",
     "settings.themeLight": "Light",
     "settings.themeDark": "Dark",
+    "settings.save": "Save files automatically if the application is idle",
+    "settings.saveHint":
+      "Saving on window deactivation is always on, as in IDEA; the idle timer is opt-in.",
+    "settings.saveSeconds": "Idle seconds",
     "settings.uiScale": "Font size",
     "settings.uiScaleSmall": "Small",
     "settings.uiScaleNormal": "Default",
@@ -385,6 +389,9 @@ const T = {
     "settings.themeSystem": "跟随系统",
     "settings.themeLight": "浅色",
     "settings.themeDark": "深色",
+    "settings.save": "应用空闲时自动保存文件",
+    "settings.saveHint": "窗口失活时保存始终开启（与 IDEA 一致）；空闲定时保存是可选项。",
+    "settings.saveSeconds": "空闲秒数",
     "settings.uiScale": "字号",
     "settings.uiScaleSmall": "小",
     "settings.uiScaleNormal": "默认",
@@ -947,6 +954,28 @@ export function SettingsDialog({
                       <option value="new">{t("settings.openRepoNew")}</option>
                     </Select>
                   </SettingRow>
+                  <SettingRow hint={t("settings.saveHint")}>
+                    <Checkbox
+                      checked={draft.autoSaveIdle}
+                      onChange={(v) => set("autoSaveIdle", v)}
+                      label={t("settings.save")}
+                    />
+                  </SettingRow>
+                  {draft.autoSaveIdle && (
+                    <SettingRow label={t("settings.saveSeconds")}>
+                      <input
+                        className="text-input number"
+                        type="number"
+                        min={1}
+                        max={300}
+                        value={draft.autoSaveIdleSeconds}
+                        onChange={(e) => {
+                          const n = Number.parseInt(e.target.value, 10);
+                          set("autoSaveIdleSeconds", Number.isNaN(n) ? 15 : n);
+                        }}
+                      />
+                    </SettingRow>
+                  )}
                 </>,
               )}
 

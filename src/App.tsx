@@ -1178,7 +1178,7 @@ function AppShell({ onLangChange }: { onLangChange: (lang: Lang) => void }) {
         if (b.error) notify("error", tRef.current("reopenRepo"), b.error);
       })
       .catch((err) => {
-        setBoot({ settings: { version: 2, gitPath: "", sshCommand: "", fetchTagsMode: "auto", language: "system", theme: "system", diffContext: -1, ignoreWhitespace: false, showIgnored: false, autoFetch: false, autoFetchMinutes: 15, updateMethod: "merge", confirmForcePush: true, confirmRollback: true, rollbackDeleteAdded: false, commitCheckCrlf: true, commitCheckLargeMB: 10, commitCheckNames: true, commitCheckHead: true, commitTemplate: "", protectedBranches: [], autoUpdateOnReject: true, openInNewWindow: false, uiScale: 100, recent: [] }, repo: null, error: String(err), version: "", platform: "" });
+        setBoot({ settings: { version: 2, gitPath: "", sshCommand: "", fetchTagsMode: "auto", language: "system", theme: "system", diffContext: -1, autoSaveIdle: false, autoSaveIdleSeconds: 15, ignoreWhitespace: false, showIgnored: false, autoFetch: false, autoFetchMinutes: 15, updateMethod: "merge", confirmForcePush: true, confirmRollback: true, rollbackDeleteAdded: false, commitCheckCrlf: true, commitCheckLargeMB: 10, commitCheckNames: true, commitCheckHead: true, commitTemplate: "", protectedBranches: [], autoUpdateOnReject: true, openInNewWindow: false, uiScale: 100, recent: [] }, repo: null, error: String(err), version: "", platform: "" });
         notify("error", tRef.current("startFailed"), err instanceof Error ? err.message : String(err));
       });
   }, [applyCheckedDefaults, notify, reload]);
@@ -1612,6 +1612,21 @@ function AppShell({ onLangChange }: { onLangChange: (lang: Lang) => void }) {
     } else {
       await showDiff({ ...base, target: "commit", revision }, path);
     }
+  };
+
+  /** F7 past the last change of a working-tree diff opens the next changed
+   *  file in the same tab, the way IDEA walks a change set. */
+  const nextDiffFile = (path: string, revision: string, delta: 1 | -1) => {
+    const list = (snapshotRef.current?.changes ?? []).map((change) => change.path);
+    if (list.length === 0) return;
+    const at = list.indexOf(path);
+    const next =
+      at < 0 ? (delta > 0 ? list[0] : list[list.length - 1]) : list[(at + delta + list.length) % list.length];
+    if (!next || next === path) return;
+    const from = activeIdRef.current;
+    void showFileDiff(next, revision).then(() => {
+      if (from) closeDoc(from);
+    });
   };
 
   // Every merge editor is its own window: the repository window keeps its
@@ -3344,6 +3359,7 @@ function AppShell({ onLangChange }: { onLangChange: (lang: Lang) => void }) {
             onFilesChanged={() => void reload(false)}
             onFileError={(err) => fail(t("fileActionFailed"), err)}
             onSaveFile={saveFile}
+            autoSaveIdleSeconds={settings?.autoSaveIdle ? settings.autoSaveIdleSeconds : 0}
             diffWrap={diffWrap}
             onToggleWrap={() => setDiffWrap(!diffWrap)}
             onApplyHunk={(hunk, action) => {
@@ -3362,6 +3378,7 @@ function AppShell({ onLangChange }: { onLangChange: (lang: Lang) => void }) {
             onApplyThreeFile={applyThreeFile}
             onOpenFile={(path, revision, line) => void showFile(path, revision, line)}
             onOpenDiff={(path, revision) => void showFileDiff(path, revision)}
+            onNextDiffFile={nextDiffFile}
             onCopyPath={copyText}
             onReveal={(path) => void Workspace.reveal(path).catch((err) => fail(t("revealFailed"), err))}
             onRollbackHunk={(path, hunk) => void rollbackEditorHunk(path, hunk)}
@@ -4050,6 +4067,7 @@ function RightPane({
   onFilesChanged,
   onFileError,
   onSaveFile,
+  autoSaveIdleSeconds,
   diffMode,
   diffWrap,
   onToggleWrap,
@@ -4064,6 +4082,7 @@ function RightPane({
   onOpenFile,
   onExternalDiff,
   onOpenDiff,
+  onNextDiffFile,
   onCopyPath,
   onReveal,
   onRollbackHunk,
@@ -4098,6 +4117,8 @@ function RightPane({
   onFilesChanged: () => void;
   onFileError: (err: unknown) => void;
   onSaveFile: (path: string, text: string, quiet?: boolean) => Promise<boolean>;
+  /** IDEA's opt-in idle save, in seconds; 0 when the setting is off. */
+  autoSaveIdleSeconds: number;
   diffWrap: boolean;
   onToggleWrap: () => void;
   diffMode: "split" | "unified";
@@ -4112,6 +4133,8 @@ function RightPane({
   onOpenFile: (path: string, revision: string, line?: number) => void;
   onExternalDiff: (opts: DiffOptions) => void;
   onOpenDiff: (path: string, revision: string) => void;
+  /** Moves to the neighbouring changed file of the same transition. */
+  onNextDiffFile: (path: string, revision: string, delta: 1 | -1) => void;
   onCopyPath: (text: string) => void;
   onReveal: (path: string) => void;
   onRollbackHunk: (path: string, hunk: number) => void;
@@ -4347,6 +4370,7 @@ function RightPane({
             onDraftChange={(text) => drafts.current.set(active.id, text)}
             onSave={(text, quiet) => onSaveFile(active.file.path, text, quiet)}
             onDirtyChange={(dirty) => onDocDirty(active.id, dirty)}
+            autoSaveIdleSeconds={autoSaveIdleSeconds}
           />
         )}
         {active.kind === "commit" && (
@@ -4491,6 +4515,12 @@ function RightPane({
             reloadKey={reloadKey}
             wrap={diffWrap}
             onToggleWrap={onToggleWrap}
+            onNextFile={
+              active.opts.target === "worktree" || active.opts.target === "staged"
+                ? (delta) =>
+                    onNextDiffFile(active.opts.path, active.opts.target === "staged" ? "INDEX" : "", delta)
+                : undefined
+            }
           />
         )}
       </div>
