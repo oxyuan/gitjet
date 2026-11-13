@@ -93,7 +93,6 @@ import {
 } from "./navigation";
 import {
   Button,
-  ChoiceDialog,
   ConfirmDialog,
   ContextMenu,
   type ContextItem,
@@ -164,8 +163,6 @@ const T = {
     fileSaved: "File saved",
     filesSaved: "{n} files saved",
     saveFileFailed: "Could not save the file",
-    saveAll: "Save All",
-    saveAllHint: "Save all unsaved files (⌘/Ctrl+S)",
     symbolLookupFailed: "Could not search for that name",
     noUsages: "No usages of {name} were found.",
     onlyUsage: "Only one usage found — opened it.",
@@ -191,13 +188,8 @@ const T = {
     closeUnmodifiedTabs: "Close Unmodified",
     closeLeftTabs: "Close to the Left",
     closeRightTabs: "Close to the Right",
-    unsaved: "Unsaved changes",
     tabWorkingTree: "Working Tree",
     tabIndex: "Index",
-    discardTitle: "Unsaved Changes",
-    unsavedMessage: "Save the edited tabs before continuing?",
-    discard: "Discard",
-    unsavedCloseRepo: "Open tabs have unsaved changes.",
     rollback: "Rollback",
     delete: "Delete",
     rollbackFileTitle: "Rollback File",
@@ -407,8 +399,6 @@ const T = {
     fileSaved: "文件已保存",
     filesSaved: "已保存 {n} 个文件",
     saveFileFailed: "无法保存文件",
-    saveAll: "全部保存",
-    saveAllHint: "保存所有未保存的文件（⌘/Ctrl+S）",
     symbolLookupFailed: "无法搜索该名称",
     noUsages: "没有找到 {name} 的引用。",
     onlyUsage: "只有一处引用，已打开。",
@@ -434,13 +424,8 @@ const T = {
     closeUnmodifiedTabs: "关闭未修改标签页",
     closeLeftTabs: "关闭左侧标签页",
     closeRightTabs: "关闭右侧标签页",
-    unsaved: "未保存的更改",
     tabWorkingTree: "工作区",
     tabIndex: "暂存区",
-    discardTitle: "未保存的更改",
-    unsavedMessage: "继续之前要保存已编辑的标签页吗？",
-    discard: "丢弃",
-    unsavedCloseRepo: "已打开的标签页中有未保存的更改。",
     rollback: "回滚",
     delete: "删除",
     rollbackFileTitle: "回滚文件",
@@ -678,14 +663,6 @@ type Dialog =
   | { kind: "rollback"; paths: string[] }
   | { kind: "pushCommits"; hash: string };
 
-interface ChoiceState {
-  title: string;
-  message: string;
-  detail?: string;
-  choices: { value: string; label: string; variant?: "default" | "primary" | "danger" }[];
-  resolve: (value: string | null) => void;
-}
-
 interface ConfirmState {
   title: string;
   message: string;
@@ -781,7 +758,6 @@ function AppShell({ onLangChange }: { onLangChange: (lang: Lang) => void }) {
   const [fetchMenu, setFetchMenu] = useState<{ x: number; y: number } | null>(null);
   const [fetchOptions, setFetchOptions] = useStoredState("gitjet.fetchOptions", { prune: true, tags: true });
   const [confirm, setConfirm] = useState<ConfirmState | null>(null);
-  const [choice, setChoice] = useState<ChoiceState | null>(null);
   const [splitWidth, setSplitWidth] = useStoredState<number>("gitjet.split", 430);
   const [diffMode, setDiffMode] = useStoredState<"split" | "unified">("gitjet.diffMode", "split");
   const [diffWrap, setDiffWrap] = useStoredState<boolean>("gitjet.diffWrap", true);
@@ -899,41 +875,6 @@ function AppShell({ onLangChange }: { onLangChange: (lang: Lang) => void }) {
         },
       });
     });
-
-  /** A question with more than two answers; resolves null when the dialog is
-   *  dismissed, which every caller treats as Cancel. */
-  const choose = (opts: Omit<ChoiceState, "resolve">) =>
-    new Promise<string | null>((resolve) => {
-      setChoice({
-        ...opts,
-        resolve: (value) => {
-          setChoice(null);
-          resolve(value);
-        },
-      });
-    });
-
-  /** What to do with edited tabs before an action would drop them: IDEA's
-   *  Save All, discard, or cancel. Closing a tab is never a silent loss. */
-  const resolveUnsaved = async (names: string[]) => {
-    const answer = await choose({
-      title: t("discardTitle"),
-      message: t("unsavedMessage"),
-      detail: names.join(", "),
-      choices: [
-        { value: "save", label: t("saveAll"), variant: "primary" },
-        { value: "discard", label: t("discard"), variant: "danger" },
-      ],
-    });
-    return answer === "save" || answer === "discard" ? answer : "cancel";
-  };
-
-  /** Runs Save All and reports whether every id it had to write is clean.
-   *  A failed write, or text typed during it, keeps the document dirty. */
-  const saveBefore = async (ids: string[]) => {
-    const still = await saveAllRef.current(false);
-    return ids.every((id) => !still.includes(id));
-  };
 
   const applyCheckedDefaults = useCallback((snap: ChangesSnapshot) => {
     const eligible = new Set<string>();
@@ -1070,13 +1011,11 @@ function AppShell({ onLangChange }: { onLangChange: (lang: Lang) => void }) {
       closeDocs(ids);
       return;
     }
-    const names = dirty.map((id) => {
-      const doc = docsRef.current.find((d) => d.id === id);
-      return doc ? tabTitle(doc, t) : id;
-    });
-    void resolveUnsaved(names).then(async (answer) => {
-      if (answer === "cancel") return;
-      if (answer === "save" && !(await saveBefore(dirty))) return;
+    // Closing a tab is not a decision about saving: the edits go to disk
+    // first, as IDEA keeps an edited document when its tab closes. A write
+    // that failed keeps the tab open and its text in memory.
+    void saveAllRef.current(true).then((still) => {
+      if (dirty.some((id) => still.includes(id))) return;
       closeDocs(ids);
     });
   };
@@ -1232,6 +1171,12 @@ function AppShell({ onLangChange }: { onLangChange: (lang: Lang) => void }) {
     window.addEventListener("blur", flush);
     return () => window.removeEventListener("blur", flush);
   }, [settings?.saveOnDeactivation]);
+
+  // A window close or an app quit with edited tabs is deferred by the host
+  // until this page has written them; the count is what the host checks.
+  useEffect(() => {
+    void Workspace.setUnsaved(dirtyDocs.size);
+  }, [dirtyDocs.size]);
 
   // A definition jump opens the file it lands in, through the same dock tab
   // the reader would have opened by hand.
@@ -1403,10 +1348,8 @@ function AppShell({ onLangChange }: { onLangChange: (lang: Lang) => void }) {
     }
     if (dirtyDocsRef.current.size > 0) {
       const dirty = [...dirtyDocsRef.current];
-      const names = docsRef.current.filter((d) => dirty.includes(d.id)).map((d) => tabTitle(d, t));
-      const answer = await resolveUnsaved(names);
-      if (answer === "cancel") return;
-      if (answer === "save" && !(await saveBefore(dirty))) return;
+      const still = await saveAllRef.current(true);
+      if (dirty.some((id) => still.includes(id))) return;
     }
     setBusy((n) => n + 1);
     try {
@@ -1512,15 +1455,12 @@ function AppShell({ onLangChange }: { onLangChange: (lang: Lang) => void }) {
     const ok = await ask({
       title: t("closeRepoTitle"),
       message: t("closeRepoMessage"),
-      detail: dirty.length > 0 ? t("unsavedCloseRepo") : undefined,
       confirmLabel: t("close"),
     });
     if (!ok) return;
     if (dirty.length > 0) {
-      const names = docsRef.current.filter((d) => dirty.includes(d.id)).map((d) => tabTitle(d, t));
-      const answer = await resolveUnsaved(names);
-      if (answer === "cancel") return;
-      if (answer === "save" && !(await saveBefore(dirty))) return;
+      const still = await saveAllRef.current(true);
+      if (dirty.some((id) => still.includes(id))) return;
     }
     await Workspace.close();
     void disconnectLSP();
@@ -2999,6 +2939,16 @@ function AppShell({ onLangChange }: { onLangChange: (lang: Lang) => void }) {
         case "save":
           void saveAllRef.current(false);
           break;
+        case "save-and-close":
+          void saveAllRef.current(true).then(async (still) => {
+            if (still.length === 0) await Workspace.closeWindow();
+          });
+          break;
+        case "save-and-quit":
+          void saveAllRef.current(true).then(async (still) => {
+            if (still.length === 0) await Workspace.quitApp();
+          });
+          break;
         case "closetab":
           if (activeIdRef.current) requestCloseDoc(activeIdRef.current);
           break;
@@ -3635,12 +3585,6 @@ function AppShell({ onLangChange }: { onLangChange: (lang: Lang) => void }) {
           </span>
         ) : null}
         <span className="spacer" />
-        {dirtyDocs.size > 0 && (
-          <button className="status-save" title={t("saveAllHint")} onClick={() => void saveAllRef.current(false)}>
-            <Icon name="save" size={12} />
-            <span>{dirtyDocs.size}</span>
-          </button>
-        )}
         {snapshot && (
           <>
             <span className="status-item">{t("changed", { n: snapshot.state.changed })}</span>
@@ -3937,16 +3881,6 @@ function AppShell({ onLangChange }: { onLangChange: (lang: Lang) => void }) {
             setDialog(null);
             void continueOperation();
           }}
-        />
-      )}
-      {choice && (
-        <ChoiceDialog
-          title={choice.title}
-          message={choice.message}
-          detail={choice.detail}
-          choices={choice.choices}
-          onChoose={(value) => choice.resolve(value)}
-          onCancel={() => choice.resolve(null)}
         />
       )}
       {confirm && (
@@ -4531,7 +4465,6 @@ function RightPane({
                 {doc.diff.status === "added" ? "A" : doc.diff.status === "deleted" ? "D" : doc.diff.status === "renamed" ? "R" : "M"}
               </span>
             )}
-            {dirtyIds.has(doc.id) && <span className="tab-dirty" title={t("unsaved")} />}
             <button
               className="editor-tab-close"
               title={t("close")}

@@ -422,30 +422,39 @@ use it only for layout work. Vite's port is pinned to 5173 in **both**
   `src/editorText.ts` folds CRLF for CodeMirror and restores the file's
   separator on write; `Repo.SaveFile` writes a temporary file beside the
   target and renames it over it (IDEA's safe write), keeping the mode.
-- Dirty state is owned by `App` (`dirtyDocs`): the editor compares against its
-  saved baseline, the tab shows a dot, and closing a dirty tab asks first.
-  `SourceView` keeps an inactive dirty tab's text in `RightPane`'s `drafts`
-  map; a clean tab is always re-read from `file.text`. A refresh from disk never
-  replaces a dirty document.
+- Dirty state is owned by `App` (`dirtyDocs`) but is deliberately invisible:
+  there is no dot and no unsaved counter, because saving is not a decision the
+  reader makes. `SourceView` keeps an inactive dirty tab's text in
+  `RightPane`'s `drafts` map; a clean tab is always re-read from `file.text`.
+  A refresh from disk never replaces a dirty document.
 - Save is IDEA's Save All, not a per-tab write: `RightPane.saveAll` collects
   the mounted editor's text (`EditorSaveHandle`) and every inactive draft,
   writes them through `onSaveFiles`, and refreshes once. The File menu's Save
-  All (⌘/Ctrl-S), the status bar's unsaved count and the editor's Mod-s all
-  call it; a second request while a write is in flight joins the first.
-  `markSaved` adopts the snapshot that reached disk, so typing during the
-  write keeps the tab dirty, and a failed write leaves it dirty and blocks a
-  close that chose Save.
-- Edits save the way IDEA saves them: window deactivation
+  All (⌘/Ctrl-S) and the editor's Mod-s call it, but nothing requires it; a
+  second request while a write is in flight joins the first. `markSaved`
+  adopts the snapshot that reached disk, so typing during the write keeps the
+  document dirty, and a failed write keeps its text and blocks the close that
+  asked for it.
+- Closing a tab is not a save question: `requestCloseDocs` writes the tab's
+  text first and closes only when the write succeeded. Opening another
+  repository and closing the repository do the same. Nothing prompts for a
+  save; a failed write is the only outcome that keeps a tab open, and its
+  error names the path.
+- Window close and app quit are deferred by the host: the page reports
+  `dirtyDocs.size` through `Workspace.SetUnsaved`, `saveGate` in
+  `internal/app/run.go` prevents the `OnClose`/`OnBeforeQuit` event while that
+  count is non-zero, broadcasts `save-and-close` or `save-and-quit`, and the
+  page answers with `Workspace.closeWindow()` or `Workspace.quitApp()` once
+  `saveAll` returns no still-dirty id. A failed write leaves the window or the
+  quit canceled rather than losing the edits.
+- Edits also save the way IDEA saves them: window deactivation
   (`Settings.SaveOnDeactivation`, IDEA's `isSaveOnFrameDeactivation`, on by
   default) writes every unsaved tab, through the same `saveAll` path with
   `quiet` set so no toast appears. IDEA's `autoSaveIfInactive` is opt-in and
   off by default; Settings → General exposes it as `autoSaveIdle` +
   `autoSaveIdleSeconds` (15 s, clamped 1..300), and `RightPane` runs one timer
-  restarted by every keystroke. The tab's dot, not a notification, is the
-  feedback. Closing an edited tab, opening another repository or closing the
-  repository offers Save / Discard / Cancel (`ChoiceDialog`), never a
-  discard-only prompt. A save must never re-reveal the opening line — the
-  reveal effect is keyed on `line`/`reveal`, never on `file.text`, or the
+  restarted by every keystroke. A save must never re-reveal the opening line —
+  the reveal effect is keyed on `line`/`reveal`, never on `file.text`, or the
   caret drifts to the top after every write.
 - Change bars come from `Git.diff({target:"worktree"})` hunks, mapped to lines by
   `src/annotate.ts`; every line of a span gets its own bar, a replaced block is

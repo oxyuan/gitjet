@@ -787,7 +787,9 @@ export const Workspace = {
   },
   /**
    * CloseWindow closes the window the call came from. The merge editor calls it
-   * when its file is applied, saved or handed to the next conflict.
+   * when its file is applied, saved or handed to the next conflict. On the
+   * repository window it also opens the save gate, so the close it retries is
+   * the one the page already saved for.
    */
   closeWindow(): Promise<void> {
     return call("Workspace.CloseWindow");
@@ -831,6 +833,13 @@ export const Workspace = {
   openURL(url: string): Promise<void> {
     return call("Workspace.OpenURL", url);
   },
+  /**
+   * QuitApp retries a quit the save gate deferred, once the page has written
+   * its documents.
+   */
+  quitApp(): Promise<void> {
+    return call("Workspace.QuitApp");
+  },
   /** Recent returns the recent repositories, newest first. */
   recent(): Promise<RecentRepo[]> {
     return call("Workspace.Recent");
@@ -849,6 +858,14 @@ export const Workspace = {
    */
   saveSettings(s: Settings): Promise<Settings> {
     return call("Workspace.SaveSettings", s);
+  },
+  /**
+   * SetUnsaved is the page's unsaved-document count. A close or a quit with
+   * edits is deferred until the page has written them, as IDEA defers its own
+   * exit; the count is the same dirty set Save All writes.
+   */
+  setUnsaved(n: number): Promise<void> {
+    return call("Workspace.SetUnsaved", n);
   },
   /** Settings returns the current settings. */
   settings(): Promise<Settings> {

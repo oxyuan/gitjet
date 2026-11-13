@@ -16,6 +16,17 @@ import (
 // "open", "commit" or "fetch".
 var Command = mygo.NewEvent[string]("app:command")
 
+// saveGate decides whether a close or a quit may proceed: the page reports
+// its unsaved count, and a close with edits is deferred until the page has
+// written them. The page then calls CloseWindow or QuitApp, which open the
+// gate for the retried close.
+var saveGate struct {
+	mu         sync.Mutex
+	unsaved    int
+	allowClose bool
+	allowQuit  bool
+}
+
 // Run starts GitJet with its services and window.
 func Run() error {
 	app := mygo.App
@@ -63,6 +74,19 @@ func Run() error {
 		})
 	})
 
+	// IDEA saves every document on exit; GitJet asks the page to do that
+	// before the window or the app goes away. A quit whose save fails stays
+	// canceled, so a failed write cannot lose the edits.
+	app.OnBeforeQuit(func(e *mygo.QuitEvent) {
+		saveGate.mu.Lock()
+		unsaved, allow := saveGate.unsaved, saveGate.allowQuit
+		saveGate.mu.Unlock()
+		if allow || unsaved == 0 {
+			return
+		}
+		e.PreventDefault()
+		Command.Broadcast("save-and-quit")
+	})
 	app.WhenReady(func() {
 		applyMenu(c.languageSetting())
 		openWindow()
@@ -144,6 +168,19 @@ func openWindow() {
 		URL:                  "/",
 	})
 	setWindow(w)
+	// Closing the window is IDEA's other exit: write the edited tabs first,
+	// then close for real. A failed write leaves the window open with the
+	// error the page showed.
+	w.OnClose(func(e *mygo.CloseEvent) {
+		saveGate.mu.Lock()
+		unsaved, allow := saveGate.unsaved, saveGate.allowClose
+		saveGate.mu.Unlock()
+		if allow || unsaved == 0 {
+			return
+		}
+		e.PreventDefault()
+		Command.Broadcast("save-and-close")
+	})
 	w.OnClosed(func() { setWindow(nil) })
 	installPageContextMenu(w)
 }

@@ -151,12 +151,41 @@ func (w *Workspace) OpenMergeWindow(path string) error {
 	return nil
 }
 
+// SetUnsaved is the page's unsaved-document count. A close or a quit with
+// edits is deferred until the page has written them, as IDEA defers its own
+// exit; the count is the same dirty set Save All writes.
+func (w *Workspace) SetUnsaved(n int) {
+	if n < 0 {
+		n = 0
+	}
+	saveGate.mu.Lock()
+	saveGate.unsaved = n
+	saveGate.mu.Unlock()
+}
+
+// QuitApp retries a quit the save gate deferred, once the page has written
+// its documents.
+func (w *Workspace) QuitApp() {
+	saveGate.mu.Lock()
+	saveGate.allowQuit = true
+	saveGate.allowClose = true
+	saveGate.mu.Unlock()
+	mygo.App.Quit()
+}
+
 // CloseWindow closes the window the call came from. The merge editor calls it
-// when its file is applied, saved or handed to the next conflict.
+// when its file is applied, saved or handed to the next conflict. On the
+// repository window it also opens the save gate, so the close it retries is
+// the one the page already saved for.
 func (w *Workspace) CloseWindow(ctx context.Context) error {
 	win := mygo.CallerWindow(ctx)
 	if win == nil || win.IsDestroyed() {
 		return nil
+	}
+	if win == window() {
+		saveGate.mu.Lock()
+		saveGate.allowClose = true
+		saveGate.mu.Unlock()
 	}
 	win.Close()
 	return nil
