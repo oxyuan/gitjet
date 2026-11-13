@@ -342,6 +342,13 @@ function pluginFor(view: EditorView): LSPPlugin | null {
   return LSPPlugin.get(view);
 }
 
+/** Whether the server behind this editor advertises one LSP capability. A
+ *  pane without a plugin (no server, or a read-only revision) answers false. */
+export function lspSupports(view: EditorView, capability: string): boolean {
+  const plugin = pluginFor(view);
+  return !!plugin && supports(plugin, capability);
+}
+
 /** A server's file URI as the page names it: a git path inside the
  *  repository, an absolute path for a library outside it. */
 function displayPath(uri: string): string {

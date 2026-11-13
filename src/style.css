@@ -7190,6 +7190,22 @@ body.resizing-row .log-detail-split::after {
   background: color-mix(in srgb, var(--accent) 14%, transparent);
 }
 
+/* The other occurrences of the identifier under the caret, as the IDE
+   highlights them; the one the caret sits in gets the stronger tone. */
+.source-editor .cm-occurrence {
+  background: color-mix(in srgb, var(--accent) 11%, transparent);
+  border-radius: 2px;
+}
+
+.source-editor .cm-occurrence-current {
+  background: color-mix(in srgb, var(--accent) 20%, transparent);
+}
+
+.source-position {
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
 /* ---------- Symbol usages ---------- */
 
 .symbol-list {

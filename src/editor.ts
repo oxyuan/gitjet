@@ -1,5 +1,6 @@
 import {
   Compartment,
+  EditorSelection,
   EditorState,
   Prec,
   RangeSet,
@@ -21,18 +22,43 @@ import {
   keymap,
   lineNumbers,
   type BlockInfo,
+  type Command,
   type DecorationSet,
   type Panel,
   type ViewUpdate,
 } from "@codemirror/view";
-import { defaultKeymap, history, historyKeymap } from "@codemirror/commands";
-import { bracketMatching, indentOnInput, syntaxHighlighting, type LanguageSupport } from "@codemirror/language";
+import {
+  copyLineDown,
+  defaultKeymap,
+  deleteLine,
+  history,
+  historyKeymap,
+  indentWithTab,
+  moveLineDown,
+  moveLineUp,
+  toggleBlockComment,
+} from "@codemirror/commands";
+import {
+  bracketMatching,
+  codeFolding,
+  foldAll,
+  foldCode,
+  foldGutter,
+  foldKeymap,
+  indentOnInput,
+  syntaxHighlighting,
+  toggleFold,
+  unfoldAll,
+  unfoldCode,
+  type LanguageSupport,
+} from "@codemirror/language";
 import {
   SearchQuery,
   closeSearchPanel,
   findNext,
   findPrevious,
   getSearchQuery,
+  gotoLine,
   highlightSelectionMatches,
   replaceAll,
   replaceNext,
@@ -41,9 +67,10 @@ import {
   selectMatches,
   setSearchQuery,
 } from "@codemirror/search";
-import { closeBrackets } from "@codemirror/autocomplete";
+import { autocompletion, closeBrackets, completeAnyWord } from "@codemirror/autocomplete";
+import { formatDocument, renameSymbol } from "@codemirror/lsp-client";
 import { languages } from "@codemirror/language-data";
-import { lookupTargets, lookupUsages, openNavigationTarget } from "./lsp";
+import { lspSupports, lookupTargets, lookupUsages, openNavigationTarget } from "./lsp";
 import {
   declarationUnderCaret,
   targetPoint,
@@ -55,6 +82,8 @@ import { editorHighlightStyle } from "./highlight";
 import type { BlameLine } from "./mygo";
 import { blameDepth, type ChangeRange } from "./annotate";
 import { normalizeText } from "./editorText";
+import { expandSelection } from "./selection";
+import { occurrencesIn } from "./occurrences";
 
 /** The editor paints with the app's tokens, so there is one palette, not two. */
 export const editorTheme = EditorView.theme({
@@ -90,6 +119,99 @@ export const editorTheme = EditorView.theme({
   ".cm-panels": { backgroundColor: "var(--panel)", color: "var(--fg)" },
   ".cm-searchMatch": { backgroundColor: "color-mix(in srgb, var(--warning) 30%, transparent)" },
   ".cm-searchMatch-selected": { backgroundColor: "color-mix(in srgb, var(--warning) 55%, transparent)" },
+  // Completion popup, hover docs and the go-to-line/rename dialogs use the
+  // app's palette; CodeMirror's own base theme is light-only.
+  ".cm-tooltip": {
+    border: "1px solid var(--border-strong)",
+    borderRadius: "var(--radius-sm)",
+    backgroundColor: "var(--panel-raised)",
+    color: "var(--fg)",
+    boxShadow: "var(--shadow-md)",
+  },
+  ".cm-tooltip-autocomplete > ul": { fontFamily: "var(--font-mono)", maxHeight: "260px" },
+  ".cm-tooltip-autocomplete > ul > li": { padding: "3px 8px" },
+  ".cm-tooltip-autocomplete > ul > li[aria-selected]": {
+    backgroundColor: "var(--selection-strong)",
+    color: "var(--fg)",
+  },
+  ".cm-completionIcon": { color: "var(--muted)" },
+  ".cm-completionDetail": { color: "var(--muted)", fontStyle: "normal" },
+  ".cm-completionMatchedText": {
+    color: "var(--accent)",
+    textDecoration: "none",
+    fontWeight: "600",
+  },
+  ".cm-panels-bottom:has(.cm-dialog)": {
+    position: "absolute",
+    right: "0",
+    bottom: "12%",
+    left: "0",
+    zIndex: "30",
+    display: "flex",
+    justifyContent: "center",
+    border: "none",
+    backgroundColor: "transparent",
+  },
+  ".cm-dialog": {
+    display: "flex",
+    alignItems: "center",
+    gap: "8px",
+    padding: "10px 12px",
+    border: "1px solid var(--border-strong)",
+    borderRadius: "var(--radius)",
+    backgroundColor: "var(--panel-raised)",
+    color: "var(--fg)",
+    boxShadow: "var(--shadow-md)",
+    fontSize: "12px",
+  },
+  ".cm-dialog form": { display: "flex", alignItems: "center", gap: "8px" },
+  ".cm-textfield": {
+    height: "26px",
+    padding: "0 8px",
+    border: "1px solid var(--border-strong)",
+    borderRadius: "4px",
+    backgroundColor: "var(--input-bg)",
+    color: "var(--fg)",
+    font: "inherit",
+    outline: "none",
+  },
+  ".cm-textfield:focus": {
+    borderColor: "var(--accent)",
+    boxShadow: "0 0 0 1px var(--accent-soft)",
+  },
+  ".cm-button": {
+    height: "26px",
+    padding: "0 10px",
+    border: "1px solid var(--accent)",
+    borderRadius: "5px",
+    backgroundColor: "var(--accent)",
+    color: "var(--accent-fg)",
+    font: "inherit",
+    cursor: "pointer",
+  },
+  ".cm-dialog-close": {
+    padding: "0 4px",
+    border: "none",
+    backgroundColor: "transparent",
+    color: "var(--muted)",
+    fontSize: "14px",
+    cursor: "pointer",
+  },
+  ".cm-dialog-close:hover": { color: "var(--fg)" },
+  ".cm-foldGutter .cm-gutterElement": {
+    padding: "0 3px",
+    color: "var(--muted-2)",
+    cursor: "pointer",
+  },
+  ".cm-foldGutter .cm-gutterElement:hover": { color: "var(--fg)" },
+  ".cm-fold-marker": { fontSize: "12px", lineHeight: "1" },
+  ".cm-foldPlaceholder": {
+    padding: "0 5px",
+    border: "1px solid var(--border-strong)",
+    borderRadius: "4px",
+    backgroundColor: "var(--panel-2)",
+    color: "var(--muted)",
+  },
 });
 
 /** CodeMirror's base theme paints the selection itself: `&light
@@ -148,6 +270,173 @@ export function loadLanguage(name: string): Promise<LanguageSupport | null> {
   );
   languageCache.set(key, loading);
   return loading;
+}
+
+/** Copy for CodeMirror's own dialogs, completion popup and fold gutter, in
+ *  the reader's language. The find bar and blame column have their own. */
+const PHRASES: Record<"en" | "zh", Record<string, string>> = {
+  en: {
+    "Go to line": "Go to line",
+    go: "Go",
+    "New name": "New name",
+    rename: "Rename",
+    close: "Close",
+    Completions: "Completions",
+    "current match": "current match",
+    "on line": "on line",
+    Find: "Find",
+    Replace: "Replace",
+    all: "All",
+    "by word": "Whole word",
+    "match case": "Match case",
+    next: "Next",
+    previous: "Previous",
+    regexp: "Regexp",
+    "replace all": "Replace all",
+    replace: "Replace",
+    to: "to",
+    "Fold line": "Fold line",
+    "Unfold line": "Unfold line",
+    "folded code": "folded code",
+    unfold: "Unfold",
+    "Folded lines": "Folded lines",
+    "Unfolded lines": "Unfolded lines",
+    "Control character": "Control character",
+  },
+  zh: {
+    "Go to line": "跳转到行",
+    go: "跳转",
+    "New name": "新名称",
+    rename: "重命名",
+    close: "关闭",
+    Completions: "补全",
+    "current match": "当前匹配",
+    "on line": "位于行",
+    Find: "查找",
+    Replace: "替换",
+    all: "全部",
+    "by word": "全词匹配",
+    "match case": "区分大小写",
+    next: "下一个",
+    previous: "上一个",
+    regexp: "正则",
+    "replace all": "全部替换",
+    replace: "替换",
+    to: "到",
+    "Fold line": "折叠此行",
+    "Unfold line": "展开此行",
+    "folded code": "已折叠的代码",
+    unfold: "展开",
+    "Folded lines": "折叠的行",
+    "Unfolded lines": "展开的行",
+    "Control character": "控制字符",
+  },
+};
+
+/** The selections an extend/shrink chain climbed through. Any other move of
+ *  the caret, or an edit, starts a new chain, as a click resets the IDE's
+ *  selection history. */
+const pushSelection = StateEffect.define<EditorSelection>();
+const popSelection = StateEffect.define<null>();
+const selectionChain = StateField.define<EditorSelection[]>({
+  create: () => [],
+  update(chain, tr) {
+    if (tr.docChanged) return [];
+    for (const effect of tr.effects) {
+      if (effect.is(pushSelection)) return [...chain, effect.value];
+      if (effect.is(popSelection)) return chain.slice(0, -1);
+    }
+    return tr.selection ? [] : chain;
+  },
+});
+
+/** IDEA's Extend Selection: ⌥↑ on macOS, and the same chord elsewhere since
+ *  Ctrl+W belongs to the tab strip. */
+const extendSelection: Command = (view) => {
+  const next = expandSelection(view.state);
+  if (!next) return false;
+  view.dispatch({
+    selection: EditorSelection.range(next.from, next.to),
+    effects: pushSelection.of(view.state.selection),
+    scrollIntoView: true,
+  });
+  return true;
+};
+
+/** IDEA's Shrink Selection: ⌥↓, stepping back through the chain. */
+const shrinkSelection: Command = (view) => {
+  const chain = view.state.field(selectionChain);
+  const previous = chain[chain.length - 1];
+  if (!previous) return false;
+  view.dispatch({
+    selection: previous,
+    effects: popSelection.of(null),
+    scrollIntoView: true,
+  });
+  return true;
+};
+
+/** IDEA's Duplicate Line or Selection: ⌘D. A selection is copied right after
+ *  itself and the copy stays selected; a bare caret duplicates its lines. */
+const duplicateLineOrSelection: Command = (view) => {
+  const { state } = view;
+  if (state.readOnly) return false;
+  if (state.selection.ranges.every((range) => range.empty)) return copyLineDown(view);
+  view.dispatch(
+    state.changeByRange((range) => {
+      if (range.empty) return { range };
+      const text = state.sliceDoc(range.from, range.to);
+      return {
+        changes: { from: range.to, insert: text },
+        range: EditorSelection.range(range.to, range.to + text.length),
+      };
+    }),
+  );
+  return true;
+};
+
+/** Paints every other occurrence of the identifier under the caret, as the
+ *  IDE's "Highlight usages of element at caret" does. It follows the caret,
+ *  ignores a selection (the find highlight owns that state) and only scans
+ *  the visible document, so a large file costs no more than the screen. */
+function symbolOccurrences(): Extension {
+  return ViewPlugin.fromClass(
+    class {
+      decorations: DecorationSet = Decoration.none;
+      constructor(view: EditorView) {
+        this.decorations = this.build(view);
+      }
+      update(update: ViewUpdate) {
+        if (update.docChanged || update.selectionSet || update.viewportChanged) {
+          this.decorations = this.build(update.view);
+        }
+      }
+      private build(view: EditorView): DecorationSet {
+        const selection = view.state.selection;
+        if (!selection.main.empty || selection.ranges.length > 1) return Decoration.none;
+        const head = selection.main.head;
+        const word = wordRangeAt(view, head);
+        if (!word) return Decoration.none;
+        const marks: { from: number; to: number }[] = [];
+        for (const visible of view.visibleRanges) {
+          for (const hit of occurrencesIn(view.state.sliceDoc(visible.from, visible.to), word.word)) {
+            marks.push({ from: visible.from + hit.from, to: visible.from + hit.to });
+          }
+        }
+        return Decoration.set(
+          marks.map((mark) =>
+            Decoration.mark({
+              class:
+                mark.from <= head && mark.to > head
+                  ? "cm-occurrence cm-occurrence-current"
+                  : "cm-occurrence",
+            }).range(mark.from, mark.to),
+          ),
+        );
+      }
+    },
+    { decorations: (plugin) => plugin.decorations },
+  );
 }
 
 class ChangeMarker extends GutterMarker {
@@ -676,6 +965,8 @@ export type EditorOptions = {
   onSaveRequest?: () => void;
   /** Copy the editor needs, in the reader's language. */
   labels?: { addedHere?: string; deletedHere?: string; modifiedHere?: string };
+  /** What to say when a language-server command has no server behind it. */
+  notices?: { noFormatter: string; noRename: string };
   /** Formats one blame line; the app owns the wording. */
   blameFormat?: (line: BlameLine, fallback: string) => string;
   changes?: ChangeRange[];
@@ -695,9 +986,9 @@ export type EditorOptions = {
   onNavigated?: (from: NavigationPoint, to: NavigationPoint) => void;
   /** Back (-1) and forward (1), for the IDE's history keys. */
   onHistory?: (delta: -1 | 1) => void;
-  /** Fires with the 1-based line under the caret, for things like copying a
-   *  path with its line number. */
-  onCaret?: (line: number) => void;
+  /** Fires with the 1-based line and column under the caret, for the status
+   *  readout and for copying a path with its line number. */
+  onCaret?: (line: number, column: number) => void;
   /** Right-click on a line number, with the menu's screen position. */
   onGutterContext?: (line: number, x: number, y: number) => void;
   /** Whether the blame annotation column starts visible. */
@@ -927,11 +1218,13 @@ export class SourceEditor {
 
   constructor(parent: HTMLElement, opts: EditorOptions) {
     let lastLine = 1;
+    let lastColumn = 1;
     const editable = !!opts.editable;
+    const lang = opts.lang ?? "en";
     this.savedDoc = normalizeText(opts.baseline ?? opts.doc);
     this.onDirtyChange = opts.onDirtyChange;
     this.annotateExtension = annotateGutter(opts);
-    const labels = NAV_LABELS[opts.lang ?? "en"];
+    const labels = NAV_LABELS[lang];
 
     // IDEA's Go to Declaration or Usages: a reference jumps to its
     // declaration, while a declaration answers with its usages instead of
@@ -1029,6 +1322,30 @@ export class SourceEditor {
       else goTo(this.view, pos, command);
     };
 
+    // IDEA's Reformat Code and Rename are language-server commands; without a
+    // server (or outside the working tree) the pane says why instead of
+    // silently formatting nothing.
+    const format = (view: EditorView) => {
+      if (!editable || !lspSupports(view, "documentFormattingProvider")) {
+        opts.onNavigate?.({
+          kind: "notice",
+          message: opts.notices?.noFormatter ?? "No formatter is available for this file",
+        });
+        return true;
+      }
+      return formatDocument(view);
+    };
+    const rename = (view: EditorView) => {
+      if (!editable || !renameSymbol(view)) {
+        opts.onNavigate?.({
+          kind: "notice",
+          message: opts.notices?.noRename ?? "A language server is needed to rename this symbol",
+        });
+      }
+      return true;
+    };
+    const clickAddsSelectionRange = EditorView.clickAddsSelectionRange.of((event) => event.altKey);
+
     this.view = new EditorView({
       parent,
       state: EditorState.create({
@@ -1046,110 +1363,166 @@ export class SourceEditor {
                 openGutterMenu(view, block, event as MouseEvent, opts, true),
             },
           }),
+          // IDEA's folding: a chevron on every foldable line, the same state
+          // the fold commands act on.
+          codeFolding(),
+          foldGutter({
+            markerDOM: (open) => {
+              const marker = document.createElement("span");
+              marker.className = open ? "cm-fold-marker" : "cm-fold-marker closed";
+              marker.textContent = open ? "⌄" : "›";
+              return marker;
+            },
+          }),
           highlightActiveLineGutter(),
           highlightActiveLine(),
           drawSelection(),
           bracketMatching(),
           closeBrackets(),
           indentOnInput(),
-          search({ top: true, createPanel: (view) => new FindBar(view, findLabels[opts.lang ?? "en"]) }),
+          search({ top: true, createPanel: (view) => new FindBar(view, findLabels[lang]) }),
           highlightSelectionMatches(),
           history(),
+          // Completion edits the document, so it belongs to the working tree
+          // only. IDEA's basic completion also offers words already in the
+          // file; grammars and the language server add their own sources.
+          ...(editable ? [autocompletion()] : []),
+          ...(editable ? [EditorState.languageData.of(() => [{ autocomplete: completeAnyWord }])] : []),
+          EditorState.phrases.of(PHRASES[lang]),
+          selectionChain,
+          // IDEA's multiple carets: ⌥-click adds one, and the add-caret
+          // commands need this facet before they will do anything.
+          EditorState.allowMultipleSelections.of(true),
+          clickAddsSelectionRange,
+          symbolOccurrences(),
+          Prec.high(
+            keymap.of([
+              {
+                // IDEA's editing keys. The chords are the IDE's own: ⌘D
+                // duplicates, ⌘⌫ deletes a line, ⇧⌘↑/↓ moves a statement,
+                // ⌥↑/↓ extend and shrink the selection, ⌘L goes to a line,
+                // ⌘. toggles a fold and ⌘⌥L reformats.
+                key: "Mod-d",
+                run: duplicateLineOrSelection,
+                preventDefault: true,
+              },
+              { key: "Ctrl-y", mac: "Mod-Backspace", run: deleteLine, preventDefault: true },
+              { key: "Mod-Shift-ArrowUp", run: moveLineUp, preventDefault: true },
+              { key: "Mod-Shift-ArrowDown", run: moveLineDown, preventDefault: true },
+              { key: "Alt-ArrowUp", run: extendSelection, preventDefault: true },
+              { key: "Alt-ArrowDown", run: shrinkSelection, preventDefault: true },
+              { key: "Ctrl-g", mac: "Mod-l", run: gotoLine, preventDefault: true },
+              { key: "Mod--", run: foldCode, preventDefault: true },
+              { key: "Mod-=", run: unfoldCode, preventDefault: true },
+              { key: "Mod-Shift--", run: foldAll, preventDefault: true },
+              { key: "Mod-Shift-=", run: unfoldAll, preventDefault: true },
+              { key: "Mod-.", run: toggleFold, preventDefault: true },
+              { key: "Mod-/", shift: toggleBlockComment },
+              { key: "Mod-Alt-/", run: toggleBlockComment, preventDefault: true },
+              { key: "Mod-Alt-l", run: format, preventDefault: true },
+              { key: "Shift-F6", run: rename, preventDefault: true },
+              {
+                // The IDE's set: declaration, implementation and type
+                // declaration each get their own chord, and the history has the
+                // two pairs of keys IDEA accepts. F12/Shift+F12 stay for the
+                // editors that use them.
+                key: "Mod-b",
+                run: (view) => {
+                  goTo(view, view.state.selection.main.head, "definition");
+                  return true;
+                },
+              },
+              {
+                key: "Mod-Alt-b",
+                run: (view) => {
+                  goTo(view, view.state.selection.main.head, "implementation");
+                  return true;
+                },
+              },
+              {
+                // IDEA's macOS map binds the type declaration to Ctrl+Shift+B
+                // (Meta+Shift+Click); on Windows and Linux the same chord is
+                // Ctrl+Shift+B, so one binding serves every platform.
+                key: "Ctrl-Shift-b",
+                run: (view) => {
+                  goTo(view, view.state.selection.main.head, "typeDefinition");
+                  return true;
+                },
+              },
+              {
+                key: "F12",
+                run: (view) => {
+                  goTo(view, view.state.selection.main.head, "definition");
+                  return true;
+                },
+              },
+              {
+                key: "Alt-F7",
+                run: (view) => {
+                  findUsages(view, view.state.selection.main.head);
+                  return true;
+                },
+              },
+              {
+                key: "Mod-Alt-F7",
+                run: (view) => {
+                  findUsages(view, view.state.selection.main.head);
+                  return true;
+                },
+              },
+              {
+                key: "Shift-F12",
+                run: (view) => {
+                  findUsages(view, view.state.selection.main.head);
+                  return true;
+                },
+              },
+              {
+                key: "Mod-Alt-ArrowLeft",
+                run: () => {
+                  opts.onHistory?.(-1);
+                  return true;
+                },
+              },
+              {
+                key: "Mod-Alt-ArrowRight",
+                run: () => {
+                  opts.onHistory?.(1);
+                  return true;
+                },
+              },
+              {
+                key: "Mod-[",
+                run: () => {
+                  opts.onHistory?.(-1);
+                  return true;
+                },
+              },
+              {
+                key: "Mod-]",
+                run: () => {
+                  opts.onHistory?.(1);
+                  return true;
+                },
+              },
+              {
+                key: "Mod-s",
+                run: () => {
+                  if (opts.onSaveRequest && this.dirty) opts.onSaveRequest();
+                  return true;
+                },
+              },
+            ]),
+          ),
+          // CodeMirror's own map keeps the text primitives (arrows, words,
+          // undo, comment toggle); foldKeymap adds the editor's fold chords
+          // and indentWithTab makes Tab indent instead of leaving the pane.
           keymap.of([
             ...defaultKeymap,
             ...historyKeymap,
             ...searchKeymap,
-            {
-              // The IDE's set: declaration, implementation and type
-              // declaration each get their own chord, and the history has the
-              // two pairs of keys IDEA accepts. F12/Shift+F12 stay for the
-              // editors that use them.
-              key: "Mod-b",
-              run: (view) => {
-                goTo(view, view.state.selection.main.head, "definition");
-                return true;
-              },
-            },
-            {
-              key: "Mod-Alt-b",
-              run: (view) => {
-                goTo(view, view.state.selection.main.head, "implementation");
-                return true;
-              },
-            },
-            {
-              // IDEA's macOS map binds the type declaration to Ctrl+Shift+B
-              // (Meta+Shift+Click); on Windows and Linux the same chord is
-              // Ctrl+Shift+B, so one binding serves every platform.
-              key: "Ctrl-Shift-b",
-              run: (view) => {
-                goTo(view, view.state.selection.main.head, "typeDefinition");
-                return true;
-              },
-            },
-            {
-              key: "F12",
-              run: (view) => {
-                goTo(view, view.state.selection.main.head, "definition");
-                return true;
-              },
-            },
-            {
-              key: "Alt-F7",
-              run: (view) => {
-                findUsages(view, view.state.selection.main.head);
-                return true;
-              },
-            },
-            {
-              key: "Mod-Alt-F7",
-              run: (view) => {
-                findUsages(view, view.state.selection.main.head);
-                return true;
-              },
-            },
-            {
-              key: "Shift-F12",
-              run: (view) => {
-                findUsages(view, view.state.selection.main.head);
-                return true;
-              },
-            },
-            {
-              key: "Mod-Alt-ArrowLeft",
-              run: () => {
-                opts.onHistory?.(-1);
-                return true;
-              },
-            },
-            {
-              key: "Mod-Alt-ArrowRight",
-              run: () => {
-                opts.onHistory?.(1);
-                return true;
-              },
-            },
-            {
-              key: "Mod-[",
-              run: () => {
-                opts.onHistory?.(-1);
-                return true;
-              },
-            },
-            {
-              key: "Mod-]",
-              run: () => {
-                opts.onHistory?.(1);
-                return true;
-              },
-            },
-            {
-              key: "Mod-s",
-              run: () => {
-                if (opts.onSaveRequest && this.dirty) opts.onSaveRequest();
-                return true;
-              },
-            },
+            ...foldKeymap,
+            ...(editable ? [indentWithTab] : []),
           ]),
           EditorView.domEventHandlers({
             mousedown: (event, view) => {
@@ -1192,10 +1565,13 @@ export class SourceEditor {
           EditorView.updateListener.of((u) => {
             if (u.docChanged) this.noteDoc(u.state.doc.toString());
             if (!u.selectionSet && !u.docChanged) return;
-            const n = u.state.doc.lineAt(u.state.selection.main.head).number;
-            if (n === lastLine) return;
-            lastLine = n;
-            opts.onCaret?.(n);
+            const head = u.state.selection.main.head;
+            const line = u.state.doc.lineAt(head);
+            const column = head - line.from + 1;
+            if (line.number === lastLine && column === lastColumn) return;
+            lastLine = line.number;
+            lastColumn = column;
+            opts.onCaret?.(line.number, column);
           }),
         ],
       }),

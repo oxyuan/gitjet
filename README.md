@@ -105,6 +105,19 @@ go test ./... && go vet ./... && bun run typecheck && bun run test:web && bun ru
 | `⌘/Ctrl+Alt+→` / `⌘/Ctrl+]` | 导航前进 |
 | `⌘/Ctrl+S` | 保存源码 / 应用冲突结果 |
 | `⌘/Ctrl+F` | 在差异中查找 |
+| `⌘/Ctrl+Space` | 代码补全（语言服务器或文件内单词） |
+| `⌘/Ctrl+/` | 行注释；`⌘/Ctrl+Shift+/` 块注释 |
+| `⌘/Ctrl+D` | 复制当前行或所选内容 |
+| `⌘⌫` / `Ctrl+Y` | 删除当前行 |
+| `⌘/Ctrl+Shift+↑` / `↓` | 上移 / 下移语句 |
+| `⌥↑` / `⌥↓` | 扩展 / 缩小选区（IDEA 的 Extend / Shrink Selection） |
+| `⌘L` / `Ctrl+G` | 跳转到行（支持 `行:列`、`+n`、`n%`） |
+| `⌘/Ctrl+-` / `=` | 折叠 / 展开当前代码块 |
+| `⌘/Ctrl+Shift+-` / `=` | 全部折叠 / 展开 |
+| `⌘/Ctrl+.` | 切换当前代码块的折叠 |
+| `⌘/Ctrl+Alt+L` | 重新格式化（需要语言服务器） |
+| `Shift+F6` | 重命名符号（需要语言服务器） |
+| `⌥Click` | 添加多光标 |
 | `F7` / `Shift+F7` | 下一处 / 上一处变更（差异与冲突视图） |
 
 ## 📌 说明

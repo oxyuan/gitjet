@@ -30,6 +30,7 @@ const T = {
     forward: "Forward (⌘/Ctrl+Alt+→)",
     revealInManager: "Reveal in file manager",
     wrap: "Wrap",
+    position: "Ln {line}, Col {col}",
     truncated: "File truncated at 8 MB",
     binaryFile: "Binary file — no text to show",
     missingFile: "File does not exist in this revision",
@@ -57,6 +58,7 @@ const T = {
     forward: "前进（⌘/Ctrl+Alt+→）",
     revealInManager: "在文件管理器中显示",
     wrap: "折行",
+    position: "行 {line}, 列 {col}",
     truncated: "文件已截断至 8 MB",
     binaryFile: "二进制文件 — 无文本可显示",
     missingFile: "此版本中不存在该文件",
@@ -154,7 +156,8 @@ export function SourceView({
   const [wrap, setWrap] = useState(false);
   const navRef = useRef<((delta: number) => void) | null>(null);
   // The line the menu offers alongside the path: where the caret is.
-  const [caret, setCaret] = useState<number | undefined>(undefined);
+  const [caret, setCaret] = useState(1);
+  const [caretColumn, setCaretColumn] = useState(1);
   const lines = useMemo(() => {
     if (file.text === "") return [];
     const normalized = file.text.replace(/\r\n/g, "\n");
@@ -235,6 +238,9 @@ export function SourceView({
           <span className="toolbar-sep" />
           <span className="muted">UTF-8</span>
           <span className="spacer" />
+          <span className="muted source-position">
+            {t("position", { line: caret, col: caretColumn })}
+          </span>
           {file.truncated && <span className="source-warning">{t("truncated")}</span>}
         </div>
       </div>
@@ -276,7 +282,10 @@ export function SourceView({
           onNavigate={onNavigate}
           onNavigated={onNavigated}
           onHistory={onHistory}
-          onCaret={setCaret}
+          onCaret={(line, column) => {
+            setCaret(line);
+            setCaretColumn(column);
+          }}
           onLineHistory={file.revision === "INDEX" || file.external ? undefined : onLineHistory}
           onCommitDiff={file.external ? undefined : onCommitDiff}
           onCopy={onCopyPath}

@@ -26,6 +26,8 @@ const T = {
     goToImplementation: "Go to Implementation(s)",
     goToTypeDeclaration: "Go to Type Declaration",
     findUsages: "Find Usages",
+    noFormatter: "No formatter is available for this file",
+    noRename: "A language server is needed to rename this symbol",
     showDiff: "Show Diff",
     rollbackBlock: "Roll back This Block",
     rollbackLine: "Roll back This Line",
@@ -44,6 +46,8 @@ const T = {
     goToImplementation: "跳到实现",
     goToTypeDeclaration: "跳到类型声明",
     findUsages: "查找引用",
+    noFormatter: "此文件没有可用的格式化工具",
+    noRename: "重命名需要语言服务器支持",
     showDiff: "显示差异",
     rollbackBlock: "回滚此代码块",
     rollbackLine: "回滚此行",
@@ -106,7 +110,7 @@ export function SourceEditor({
   onNavigate?: (request: EditorNavigationRequest) => void;
   onNavigated?: (from: NavigationPoint, to: NavigationPoint) => void;
   onHistory?: (delta: -1 | 1) => void;
-  onCaret?: (line: number) => void;
+  onCaret?: (line: number, column: number) => void;
   /** Show the history of one line of this file. */
   onLineHistory?: (line: number) => void;
   /** Show the diff the blame commit made to this file. */
@@ -261,6 +265,7 @@ export function SourceEditor({
       editable,
       lang,
       labels,
+      notices: { noFormatter: t("noFormatter"), noRename: t("noRename") },
       blameFormat,
       onDirtyChange: (dirty) => {
         actions.current.onDirtyChange?.(dirty);
@@ -279,9 +284,9 @@ export function SourceEditor({
       onNavigate: (request) => actions.current.onNavigate?.(request),
       onNavigated: (from, to) => actions.current.onNavigated?.(from, to),
       onHistory: (delta) => actions.current.onHistory?.(delta),
-      onCaret: (n) => {
+      onCaret: (n, column) => {
         caretLine.current = n;
-        actions.current.onCaret?.(n);
+        actions.current.onCaret?.(n, column);
       },
       onGutterContext: (n, x, y) => setMenu({ x, y, line: n }),
       annotate,
