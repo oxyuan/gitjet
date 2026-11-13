@@ -111,6 +111,13 @@ go test ./... && go vet ./... && bun run typecheck && bun run test:web && bun ru
 | `⌘⌫` / `Ctrl+Y` | 删除当前行 |
 | `⌘/Ctrl+Shift+↑` / `↓` | 上移 / 下移语句 |
 | `⌥↑` / `⌥↓` | 扩展 / 缩小选区（IDEA 的 Extend / Shrink Selection） |
+| `Tab` / `Shift+Tab` | 有选区时缩进 / 减少缩进；光标在行中时在光标处补空格到下一缩进位 |
+| `Enter` | 在 `{}` 之间回车拆成三行；在 `//`、`#` 或 `*` 注释中续写注释前缀 |
+| `Home` / `End` | 行首与首个非空白字符之间切换；`End` 在行尾与最后一个非空白字符之间切换 |
+| `⌫` | 在行首缩进内按缩进位删除（IDEA 的智能退格） |
+| `⌃⇧J` | 合并当前行与下一行（有选区时合并选区内的行） |
+| `⌘/Ctrl+Shift+U` | 切换所选内容或光标处单词的大小写 |
+| `⌘⌃G` / `Ctrl+Alt+Shift+J` | 选中全部出现处（IDEA 的 Select All Occurrences） |
 | `⌘L` / `Ctrl+G` | 跳转到行（支持 `行:列`、`+n`、`n%`） |
 | `⌘/Ctrl+-` / `=` | 折叠 / 展开当前代码块 |
 | `⌘/Ctrl+Shift+-` / `=` | 全部折叠 / 展开 |

@@ -49,6 +49,7 @@ import {
   getIndentUnit,
   indentOnInput,
   syntaxHighlighting,
+  syntaxTree,
   toggleFold,
   unfoldAll,
   unfoldCode,
@@ -378,24 +379,274 @@ const shrinkSelection: Command = (view) => {
   return true;
 };
 
-/** IDEA's Tab: a selection (or a caret inside the line's leading whitespace)
- *  indents the line, while a caret inside the text inserts one indent step
- *  there. CodeMirror's `indentWithTab` always indented the line, so pressing
- *  Tab mid-line pushed the text before the caret to the right. */
+/** IDEA's Tab: a text selection is indented line-wise, while a bare caret (or
+ *  a whitespace-only selection) gets spaces up to the next tab stop at the
+ *  caret. CodeMirror's `indentWithTab` always indented the line, so Tab in the
+ *  middle of a line pushed the text before the caret to the right. */
 const insertTab: Command = (view) => {
   const { state } = view;
   if (state.readOnly) return false;
+  if (state.selection.ranges.length > 1) return indentMore(view);
   const main = state.selection.main;
-  if (!main.empty || state.selection.ranges.length > 1) return indentMore(view);
-  const line = state.doc.lineAt(main.head);
-  const lead = /^[ \t]*/.exec(line.text)?.[0].length ?? 0;
-  // At the indent, Tab extends the line's indentation; after the first
-  // non-blank character it belongs at the caret, to the next tab stop.
-  if (main.head - line.from <= lead) return indentMore(view);
+  if (!main.empty && /\S/.test(state.sliceDoc(main.from, main.to))) return indentMore(view);
+  const line = state.doc.lineAt(main.from);
   const unit = Math.max(1, getIndentUnit(state));
-  const column = main.head - line.from;
-  const width = unit - (column % unit);
+  const width = unit - ((main.from - line.from) % unit);
   view.dispatch(state.replaceSelection(" ".repeat(width)), { scrollIntoView: true });
+  return true;
+};
+
+/** IDEA's smart Backspace: inside a line's indentation it deletes back to the
+ *  previous indent stop instead of one space at a time. Every other position
+ *  falls through to CodeMirror's own deletion. */
+const smartBackspace: Command = (view) => {
+  const { state } = view;
+  if (state.readOnly) return false;
+  if (state.selection.ranges.length > 1 || !state.selection.main.empty) return false;
+  const head = state.selection.main.head;
+  const line = state.doc.lineAt(head);
+  const before = state.sliceDoc(line.from, head);
+  if (!before || /[^ \t]/.test(before)) return false;
+  const tabSize = state.tabSize;
+  let column = 0;
+  for (let i = 0; i < before.length; i++) {
+    column += before[i] === "\t" ? tabSize - (column % tabSize) : 1;
+  }
+  const unit = Math.max(1, getIndentUnit(state));
+  const target = Math.floor((column - 1) / unit) * unit;
+  if (target >= column) return false;
+  let index = 0;
+  let width = 0;
+  while (index < before.length) {
+    const step = before[index] === "\t" ? tabSize - (width % tabSize) : 1;
+    if (width + step > target) break;
+    width += step;
+    index++;
+  }
+  const from = line.from + index;
+  if (from === head) return false;
+  view.dispatch({ changes: { from, to: head }, selection: { anchor: from }, userEvent: "delete.backward" });
+  return true;
+};
+
+/** Whether a syntax node at `pos` (looking left) matches `pattern`: a
+ *  string that begins like a comment must not be continued, and a `{}` inside
+ *  a string must not be split. */
+function insideNode(state: EditorState, pos: number, pattern: RegExp): boolean {
+  type NodeLike = { name: string; parent: NodeLike | null };
+  let node: NodeLike | null = syntaxTree(state).resolveInner(pos, -1);
+  while (node) {
+    if (pattern.test(node.name)) return true;
+    node = node.parent;
+  }
+  return false;
+}
+
+/** IDEA's smart Enter: between a pair of `{}` it opens the block on its own
+ *  lines, inside a line comment it continues the comment prefix, and inside a
+ *  block comment it keeps the aligned star. Everything else falls through to
+ *  CodeMirror's indent-aware newline. */
+const smartEnter: Command = (view) => {
+  const { state } = view;
+  if (state.readOnly) return false;
+  const selection = state.selection;
+  if (selection.ranges.length > 1 || !selection.main.empty) return false;
+  const pos = selection.main.head;
+  const line = state.doc.lineAt(pos);
+  if (pos > line.from && pos < line.to) {
+    const left = state.sliceDoc(pos - 1, pos);
+    const right = state.sliceDoc(pos, pos + 1);
+    if (left === "{" && right === "}" && !insideNode(state, pos - 1, /string|comment/i)) {
+      const base = /^[ \t]*/.exec(line.text)?.[0] ?? "";
+      const inner = base + " ".repeat(Math.max(1, getIndentUnit(state)));
+      view.dispatch({
+        changes: { from: pos, insert: `\n${inner}\n${base}` },
+        selection: { anchor: pos + 1 + inner.length },
+        userEvent: "input",
+      });
+      return true;
+    }
+  }
+  if (!insideNode(state, pos - 1, /comment/i)) return false;
+  const prefix = state
+    .languageDataAt<{ line?: string }>("commentTokens", pos)
+    .find((data) => typeof data.line === "string")?.line;
+  const before = state.sliceDoc(line.from, pos);
+  const lead = /^[ \t]*/.exec(before)?.[0] ?? "";
+  const rest = before.slice(lead.length);
+  let insert: string | null = null;
+  if (prefix && rest.startsWith(prefix)) {
+    const gap = rest[prefix.length] === " " ? " " : "";
+    insert = `\n${lead}${prefix}${gap}`;
+  } else if (rest.startsWith("*")) {
+    // A block comment keeps its aligned star, as JSDoc is written.
+    const gap = rest[1] === " " || rest[1] === undefined ? " " : "";
+    insert = `\n${lead}*${gap}`;
+  }
+  if (!insert) return false;
+  view.dispatch({
+    changes: { from: pos, insert },
+    selection: { anchor: pos + insert.length },
+    userEvent: "input",
+  });
+  return true;
+};
+
+/** IDEA's smart Home/End: Home toggles between the line start and the first
+ *  non-blank character; End toggles between the last non-blank character and
+ *  the true line end. Soft-wrapped lines keep CodeMirror's visual-line
+ *  movement, where these offsets do not name a visual boundary. */
+function moveToSmartLineStart(view: EditorView, extend: boolean): boolean {
+  if (view.lineWrapping) return false;
+  view.dispatch({
+    ...view.state.changeByRange((range) => {
+      const line = view.state.doc.lineAt(range.head);
+      const lead = /^[ \t]*/.exec(line.text)?.[0].length ?? 0;
+      const first = line.from + lead;
+      // From column 0 the first non-blank is the next stop; from the indent
+      // itself (or the first non-blank) Home goes to column 0.
+      const target = range.head === line.from ? first : lead >= range.head - line.from ? line.from : first;
+      return { range: extend ? EditorSelection.range(range.anchor, target) : EditorSelection.cursor(target) };
+    }),
+    scrollIntoView: true,
+  });
+  return true;
+}
+
+function moveToSmartLineEnd(view: EditorView, extend: boolean): boolean {
+  if (view.lineWrapping) return false;
+  view.dispatch({
+    ...view.state.changeByRange((range) => {
+      const line = view.state.doc.lineAt(range.head);
+      let last = line.to;
+      while (last > line.from && /[ \t]/.test(view.state.sliceDoc(last - 1, last))) last--;
+      // No trailing blanks: the end. A blank line toggles between its two
+      // ends; otherwise the first End stops after the text and the next one
+      // goes to the true end.
+      const target =
+        last === line.to
+          ? line.to
+          : last === line.from
+            ? range.head === line.from
+              ? line.to
+              : line.from
+            : range.head === last
+              ? line.to
+              : last;
+      return { range: extend ? EditorSelection.range(range.anchor, target) : EditorSelection.cursor(target) };
+    }),
+    scrollIntoView: true,
+  });
+  return true;
+}
+
+/** IDEA's Join Lines: the line break plus the indentation around it become a
+ *  single space. A selection joins every line it touches. */
+const joinLines: Command = (view) => {
+  const { state } = view;
+  if (state.readOnly) return false;
+  const selection = state.selection;
+  if (selection.ranges.length > 1) return false;
+  const main = selection.main;
+  let start = state.doc.lineAt(main.from).number;
+  let end = state.doc.lineAt(main.to).number;
+  if (!main.empty && main.to === state.doc.line(end).from) end--;
+  if (end <= start) {
+    if (!main.empty) return false;
+    end = start + 1;
+  }
+  if (end > state.doc.lines) return false;
+  const changes: { from: number; to: number; insert: string }[] = [];
+  let caret = -1;
+  for (let number = start; number < end; number++) {
+    const line = state.doc.line(number);
+    const next = state.doc.line(number + 1);
+    let from = line.to;
+    while (from > line.from && /[ \t]/.test(state.sliceDoc(from - 1, from))) from--;
+    let to = next.from;
+    while (to < next.to && /[ \t]/.test(state.sliceDoc(to, to + 1))) to++;
+    changes.push({ from, to, insert: " " });
+    if (caret < 0) caret = from + 1;
+  }
+  if (changes.length === 0) return false;
+  view.dispatch(
+    main.empty
+      ? { changes, selection: { anchor: caret }, userEvent: "input" }
+      : { changes, userEvent: "input" },
+  );
+  return true;
+};
+
+/** IDEA's Toggle Case. A bare caret selects the word under it and the
+ *  selection stays. Text with an uppercase letter goes lowercase; otherwise
+ *  it goes uppercase, as the IDE decides per selection. */
+const toggleCase: Command = (view) => {
+  const { state } = view;
+  if (state.readOnly) return false;
+  view.dispatch({
+    ...state.changeByRange((range) => {
+      let from = range.from;
+      let to = range.to;
+      if (range.empty) {
+        const word = wordRangeAt(view, range.head);
+        if (!word) return { range };
+        from = word.from;
+        to = word.to;
+      }
+      const text = state.sliceDoc(from, to);
+      if (!text) return { range };
+      const result = text !== text.toLowerCase() ? text.toLowerCase() : text.toUpperCase();
+      return {
+        changes: { from, to, insert: result },
+        range: EditorSelection.range(from, from + result.length),
+      };
+    }),
+    scrollIntoView: true,
+  });
+  return true;
+};
+
+/** IDEA's Select All Occurrences: every whole-word match of the word under the
+ *  caret (or every exact match of the selection) becomes its own selection. */
+const selectAllOccurrences: Command = (view) => {
+  const { state } = view;
+  if (state.selection.ranges.length > 1) return false;
+  const main = state.selection.main;
+  let from = main.from;
+  let to = main.to;
+  let wholeWord = false;
+  if (main.empty) {
+    const word = wordRangeAt(view, main.head);
+    if (!word) return false;
+    from = word.from;
+    to = word.to;
+    wholeWord = true;
+  }
+  const needle = state.sliceDoc(from, to);
+  if (!needle || needle.includes("\n")) return false;
+  const doc = state.doc.toString();
+  const hits: { from: number; to: number }[] = [];
+  if (wholeWord) {
+    for (const hit of occurrencesIn(doc, needle, 1000)) hits.push({ from: hit.from, to: hit.to });
+  } else {
+    let at = 0;
+    while (hits.length < 1000) {
+      const found = doc.indexOf(needle, at);
+      if (found < 0) break;
+      hits.push({ from: found, to: found + needle.length });
+      at = found + needle.length;
+    }
+  }
+  if (hits.length < 2) return false;
+  const shift = main.empty ? needle.length : Math.min(Math.max(main.head - from, 0), needle.length);
+  let primary = hits.findIndex((hit) => hit.from === from && hit.to === to);
+  if (primary < 0) primary = 0;
+  const ranges = hits.map((hit, index) =>
+    index === primary
+      ? EditorSelection.range(hit.from, hit.from + shift)
+      : EditorSelection.range(hit.from, hit.to),
+  );
+  view.dispatch({ selection: EditorSelection.create(ranges, primary), scrollIntoView: true });
   return true;
 };
 
@@ -1444,6 +1695,36 @@ export class SourceEditor {
               { key: "Mod-Alt-/", run: toggleBlockComment, preventDefault: true },
               { key: "Mod-Alt-l", run: format, preventDefault: true },
               { key: "Shift-F6", run: rename, preventDefault: true },
+              { key: "Enter", run: smartEnter },
+              { key: "Backspace", run: smartBackspace, shift: smartBackspace },
+              {
+                key: "Home",
+                run: (view) => moveToSmartLineStart(view, false),
+                shift: (view) => moveToSmartLineStart(view, true),
+              },
+              {
+                key: "End",
+                run: (view) => moveToSmartLineEnd(view, false),
+                shift: (view) => moveToSmartLineEnd(view, true),
+              },
+              {
+                mac: "Mod-ArrowLeft",
+                run: (view) => moveToSmartLineStart(view, false),
+                shift: (view) => moveToSmartLineStart(view, true),
+              },
+              {
+                mac: "Mod-ArrowRight",
+                run: (view) => moveToSmartLineEnd(view, false),
+                shift: (view) => moveToSmartLineEnd(view, true),
+              },
+              { key: "Ctrl-Shift-j", run: joinLines, preventDefault: true },
+              { key: "Mod-Shift-u", run: toggleCase, preventDefault: true },
+              {
+                key: "Ctrl-Alt-Shift-j",
+                mac: "Mod-Ctrl-g",
+                run: selectAllOccurrences,
+                preventDefault: true,
+              },
               {
                 // The IDE's set: declaration, implementation and type
                 // declaration each get their own chord, and the history has the
