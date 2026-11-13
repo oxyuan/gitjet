@@ -33,7 +33,8 @@ import {
   deleteLine,
   history,
   historyKeymap,
-  indentWithTab,
+  indentLess,
+  indentMore,
   moveLineDown,
   moveLineUp,
   toggleBlockComment,
@@ -45,6 +46,7 @@ import {
   foldCode,
   foldGutter,
   foldKeymap,
+  getIndentUnit,
   indentOnInput,
   syntaxHighlighting,
   toggleFold,
@@ -373,6 +375,27 @@ const shrinkSelection: Command = (view) => {
     effects: popSelection.of(null),
     scrollIntoView: true,
   });
+  return true;
+};
+
+/** IDEA's Tab: a selection (or a caret inside the line's leading whitespace)
+ *  indents the line, while a caret inside the text inserts one indent step
+ *  there. CodeMirror's `indentWithTab` always indented the line, so pressing
+ *  Tab mid-line pushed the text before the caret to the right. */
+const insertTab: Command = (view) => {
+  const { state } = view;
+  if (state.readOnly) return false;
+  const main = state.selection.main;
+  if (!main.empty || state.selection.ranges.length > 1) return indentMore(view);
+  const line = state.doc.lineAt(main.head);
+  const lead = /^[ \t]*/.exec(line.text)?.[0].length ?? 0;
+  // At the indent, Tab extends the line's indentation; after the first
+  // non-blank character it belongs at the caret, to the next tab stop.
+  if (main.head - line.from <= lead) return indentMore(view);
+  const unit = Math.max(1, getIndentUnit(state));
+  const column = main.head - line.from;
+  const width = unit - (column % unit);
+  view.dispatch(state.replaceSelection(" ".repeat(width)), { scrollIntoView: true });
   return true;
 };
 
@@ -1515,14 +1538,14 @@ export class SourceEditor {
             ]),
           ),
           // CodeMirror's own map keeps the text primitives (arrows, words,
-          // undo, comment toggle); foldKeymap adds the editor's fold chords
-          // and indentWithTab makes Tab indent instead of leaving the pane.
+          // undo, comment toggle); foldKeymap adds the editor's fold chords.
+          // Tab is the IDE's: indent the line at its start, insert inside it.
           keymap.of([
             ...defaultKeymap,
             ...historyKeymap,
             ...searchKeymap,
             ...foldKeymap,
-            ...(editable ? [indentWithTab] : []),
+            ...(editable ? [{ key: "Tab", run: insertTab, shift: indentLess, preventDefault: true }] : []),
           ]),
           EditorView.domEventHandlers({
             mousedown: (event, view) => {
