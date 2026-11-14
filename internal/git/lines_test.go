@@ -225,3 +225,19 @@ func TestApplyDiffLinesStagesAWholeDeletion(t *testing.T) {
 		t.Fatalf("staged change = %q, want the deletion", staged)
 	}
 }
+
+func TestApplyDiffLinesUnstagesOneLineOfARenamedFile(t *testing.T) {
+	repo, dir := newTestRepo(t)
+	runGit(t, dir, "mv", "a.txt", "b.txt")
+	writeFile(t, dir, "b.txt", "ONE\ntwo\n")
+	runGit(t, dir, "add", "b.txt")
+	if err := repo.ApplyDiffLines(context.Background(), DiffOptions{Path: "b.txt", OldPath: "a.txt", Target: DiffStaged}, []int{1}, "unstage"); err != nil {
+		t.Fatalf("ApplyDiffLines: %v", err)
+	}
+	if content := runGit(t, dir, "show", ":b.txt"); content != "one\ntwo" {
+		t.Fatalf("index content = %q, want the selected line reverted", content)
+	}
+	if staged := runGit(t, dir, "diff", "--cached", "--name-status"); staged != "R100\ta.txt\tb.txt" {
+		t.Fatalf("staged change = %q, want the rename still staged", staged)
+	}
+}

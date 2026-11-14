@@ -327,7 +327,17 @@ func (r *Repo) patchFor(ctx context.Context, opts DiffOptions, path string) (str
 			args = append(args, opts.Revision)
 		}
 	}
-	args = append(args, "--", literalPath(path))
+	// A rename is one change with two paths. Limiting the diff to the new
+	// side alone hides the old one, so git pairs nothing, prints the new
+	// file as added and the viewer cannot say the content merely moved.
+	paths := []string{literalPath(path)}
+	if old := strings.TrimSpace(opts.OldPath); old != "" && old != path {
+		if cleanOld, oerr := cleanPath(old); oerr == nil && cleanOld != path {
+			paths = append([]string{literalPath(cleanOld)}, paths...)
+		}
+	}
+	args = append(args, "--")
+	args = append(args, paths...)
 	out, err := r.run(ctx, args...)
 	if err != nil {
 		return "", err
@@ -636,6 +646,12 @@ func (r *Repo) ApplyDiffHunk(ctx context.Context, opts DiffOptions, hunkIndex in
 	if hunkPatch == "" {
 		return errors.New("the hunk has no patch")
 	}
+	if action == "unstage" && d.Status == "renamed" {
+		// The hunk's preamble renames the file. Reverse-applying it would
+		// unstage the rename along with the hunk, so point the patch at the
+		// new path: unstaging a hunk keeps the rename staged.
+		hunkPatch = retargetHunkToNewPath(hunkPatch)
+	}
 	args := []string{"apply", "--whitespace=nowarn", "--recount"}
 	reverse := false
 	switch action {
@@ -666,6 +682,46 @@ func (r *Repo) ApplyDiffHunk(ctx context.Context, opts DiffOptions, hunkIndex in
 	defer r.write.Unlock()
 	_, err = r.runInput(ctx, hunkPatch, args...)
 	return err
+}
+
+// retargetHunkToNewPath rewrites a hunk's file headers so the patch applies
+// to the path the index already holds, dropping the rename and mode lines
+// that describe the file rather than the hunk.
+func retargetHunkToNewPath(raw string) string {
+	lines := strings.Split(strings.TrimRight(raw, "\n"), "\n")
+	plus := ""
+	start := -1
+	for i, line := range lines {
+		if strings.HasPrefix(line, "@@") {
+			start = i
+			break
+		}
+		if strings.HasPrefix(line, "+++ ") {
+			plus = strings.TrimPrefix(line, "+++ ")
+		}
+	}
+	if start < 0 || plus == "" {
+		return raw
+	}
+	aSide := plus
+	switch {
+	case strings.HasPrefix(plus, `"b/`):
+		aSide = `"a/` + plus[3:]
+	case strings.HasPrefix(plus, "b/"):
+		aSide = "a/" + plus[2:]
+	case strings.HasPrefix(plus, `"`):
+		aSide = `"a/` + plus[1:]
+	default:
+		aSide = "a/" + plus
+	}
+	var b strings.Builder
+	b.WriteString("diff --git " + aSide + " " + plus + "\n")
+	b.WriteString("--- " + aSide + "\n")
+	b.WriteString("+++ " + plus + "\n")
+	for _, line := range lines[start:] {
+		b.WriteString(line + "\n")
+	}
+	return b.String()
 }
 
 // ApplyDiffHunkFile stages or unstages the whole file the diff describes,

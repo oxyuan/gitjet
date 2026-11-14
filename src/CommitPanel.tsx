@@ -214,6 +214,8 @@ const T = {
 
 export interface FileEntry {
   path: string;
+  /** The path HEAD still has, for a rename. */
+  oldPath?: string;
   kind: string;
   staged: boolean;
   additions: number;
@@ -289,6 +291,7 @@ export function entriesFor(snapshot: ChangesSnapshot): FileEntry[] {
     seen.add(key);
     out.push({
       path: c.path,
+      oldPath: c.oldPath,
       kind: c.kind,
       staged: c.staged,
       additions: c.additions,

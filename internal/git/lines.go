@@ -81,7 +81,13 @@ func (r *Repo) ApplyDiffLines(ctx context.Context, opts DiffOptions, lines []int
 		}
 		return r.writeIndexText(ctx, path, target)
 	case "unstage":
-		oldText, exists, err := r.revisionText(ctx, "HEAD:"+path)
+		// A staged rename compares HEAD's old path with the index's new
+		// one, so the side the selection reverts to is the old file.
+		oldSide := "HEAD:" + path
+		if diff.Status == "renamed" && diff.OldPath != "" && diff.OldPath != path {
+			oldSide = "HEAD:" + diff.OldPath
+		}
+		oldText, exists, err := r.revisionText(ctx, oldSide)
 		if err != nil {
 			return err
 		}

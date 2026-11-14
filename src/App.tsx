@@ -1603,6 +1603,9 @@ function AppShell({ onLangChange }: { onLangChange: (lang: Lang) => void }) {
 
   const diffOptionsForEntry = (entry: FileEntry): DiffOptions => ({
     path: entry.path,
+    // A rename is one change with two paths; the backend pairs them, so the
+    // diff reads "renamed from" instead of a new file.
+    oldPath: entry.oldPath ?? "",
     target: entry.staged ? "staged" : "worktree",
     revision: "",
     from: "",

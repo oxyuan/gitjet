@@ -134,3 +134,77 @@ func TestFileDiffHeadOnABranchWithoutCommits(t *testing.T) {
 		t.Fatalf("old=%q new=%q, want the file as new content", d.OldText, d.NewText)
 	}
 }
+
+func TestFileDiffOfAStagedRenameKeepsBothSides(t *testing.T) {
+	repo, dir := newTestRepo(t)
+	runGit(t, dir, "mv", "a.txt", "b.txt")
+	d, err := repo.FileDiff(context.Background(), DiffOptions{Path: "b.txt", OldPath: "a.txt", Target: DiffStaged})
+	if err != nil {
+		t.Fatalf("FileDiff: %v", err)
+	}
+	if d.Status != "renamed" || d.OldPath != "a.txt" {
+		t.Fatalf("status=%q old=%q, want a rename from a.txt", d.Status, d.OldPath)
+	}
+	if len(d.Hunks) != 0 {
+		t.Fatalf("hunks=%d, want contents that only moved", len(d.Hunks))
+	}
+	if d.OldText != "one\ntwo\n" || d.NewText != "one\ntwo\n" {
+		t.Fatalf("old=%q new=%q, want the same content on both sides", d.OldText, d.NewText)
+	}
+}
+
+func TestFileDiffOfARenameWithEditsShowsBothSides(t *testing.T) {
+	repo, dir := newTestRepo(t)
+	runGit(t, dir, "mv", "a.txt", "b.txt")
+	writeFile(t, dir, "b.txt", "one\nTWO\n")
+	runGit(t, dir, "add", "b.txt")
+	d, err := repo.FileDiff(context.Background(), DiffOptions{Path: "b.txt", OldPath: "a.txt", Target: DiffStaged})
+	if err != nil {
+		t.Fatalf("FileDiff: %v", err)
+	}
+	if d.Status != "renamed" || len(d.Hunks) != 1 {
+		t.Fatalf("status=%q hunks=%d, want one hunk in a rename", d.Status, len(d.Hunks))
+	}
+	if d.OldText != "one\ntwo\n" || d.NewText != "one\nTWO\n" {
+		t.Fatalf("old=%q new=%q, want the old and new file content", d.OldText, d.NewText)
+	}
+}
+
+func TestApplyDiffHunkUnstagesARenameHunkWithoutRevertingTheRename(t *testing.T) {
+	repo, dir := newTestRepo(t)
+	runGit(t, dir, "mv", "a.txt", "b.txt")
+	writeFile(t, dir, "b.txt", "one\nTWO\n")
+	runGit(t, dir, "add", "b.txt")
+	opts := DiffOptions{Path: "b.txt", OldPath: "a.txt", Target: DiffStaged}
+	d, err := repo.FileDiff(context.Background(), opts)
+	if err != nil {
+		t.Fatalf("FileDiff: %v", err)
+	}
+	if d.Status != "renamed" || len(d.Hunks) != 1 {
+		t.Fatalf("status=%q hunks=%d, want one hunk in a rename", d.Status, len(d.Hunks))
+	}
+	if err := repo.ApplyDiffHunk(context.Background(), opts, 0, "unstage"); err != nil {
+		t.Fatalf("ApplyDiffHunk: %v", err)
+	}
+	if content := runGit(t, dir, "show", ":b.txt"); content != "one\ntwo" {
+		t.Fatalf("index content = %q, want the hunk reverted", content)
+	}
+	if staged := runGit(t, dir, "diff", "--cached", "--name-status"); staged != "R100\ta.txt\tb.txt" {
+		t.Fatalf("staged change = %q, want the rename still staged", staged)
+	}
+}
+
+func TestThreeWayOfAStagedRenameReadsBothPaths(t *testing.T) {
+	repo, dir := newTestRepo(t)
+	runGit(t, dir, "mv", "a.txt", "b.txt")
+	tw, err := repo.ThreeWay(context.Background(), DiffOptions{Path: "b.txt", OldPath: "a.txt"})
+	if err != nil {
+		t.Fatalf("ThreeWay: %v", err)
+	}
+	if tw.Staged.Status != "renamed" || tw.OldPath != "a.txt" {
+		t.Fatalf("staged status=%q old=%q, want the rename", tw.Staged.Status, tw.OldPath)
+	}
+	if tw.Head != "one\ntwo\n" || tw.Index != "one\ntwo\n" || tw.Worktree != "one\ntwo\n" {
+		t.Fatalf("head=%q index=%q worktree=%q, want the same content", tw.Head, tw.Index, tw.Worktree)
+	}
+}
