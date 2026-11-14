@@ -119,3 +119,18 @@ func TestFileDiffHeadWithARevisionComparesItWithTheWorkingTree(t *testing.T) {
 		t.Fatalf("additions/deletions = %d/%d, want 1/1", diff.Additions, diff.Deletions)
 	}
 }
+
+func TestFileDiffHeadOnABranchWithoutCommits(t *testing.T) {
+	repo, dir := newEmptyRepo(t)
+	writeFile(t, dir, "a.txt", "one\ntwo\n")
+	d, err := repo.FileDiff(context.Background(), DiffOptions{Path: "a.txt", Target: DiffHead})
+	if err != nil {
+		t.Fatalf("FileDiff: %v", err)
+	}
+	if d.Status != "added" || len(d.Hunks) != 1 {
+		t.Fatalf("status=%q hunks=%d, want an added file with one hunk", d.Status, len(d.Hunks))
+	}
+	if d.OldText != "" || d.NewText != "one\ntwo\n" {
+		t.Fatalf("old=%q new=%q, want the file as new content", d.OldText, d.NewText)
+	}
+}

@@ -280,13 +280,22 @@ func (r *Repo) patchFor(ctx context.Context, opts DiffOptions, path string) (str
 	switch opts.Target {
 	case DiffHead:
 		rev := strings.TrimSpace(opts.Revision)
-		if rev == "" {
-			rev = "HEAD"
+		if rev != "" {
+			if strings.ContainsAny(rev, " \t\n") || strings.HasPrefix(rev, "-") {
+				return "", errors.New("invalid revision")
+			}
+			args = append(args, rev)
+		} else if r.headCommit(ctx) == "" {
+			// No commit on this branch yet: the empty tree is the "before"
+			// side, so every file reads as added instead of failing on HEAD.
+			empty, eerr := r.emptyTreeObject(ctx)
+			if eerr != nil {
+				return "", eerr
+			}
+			args = append(args, empty)
+		} else {
+			args = append(args, "HEAD")
 		}
-		if strings.ContainsAny(rev, " \t\n") || strings.HasPrefix(rev, "-") {
-			return "", errors.New("invalid revision")
-		}
-		args = append(args, rev)
 	case DiffStaged:
 		args = append(args, "--cached")
 	case DiffCommit:
@@ -323,10 +332,11 @@ func (r *Repo) patchFor(ctx context.Context, opts DiffOptions, path string) (str
 	if err != nil {
 		return "", err
 	}
-	if strings.TrimSpace(out) == "" && opts.Target == DiffWorkingTree && opts.Revision == "" {
-		// An untracked file is not in a diff; show it as a new file. A file
-		// git knows about simply has no changes, and an empty patch is the
-		// right answer for it.
+	if strings.TrimSpace(out) == "" && (opts.Target == DiffWorkingTree || opts.Target == DiffHead) {
+		// An untracked file is not in a diff; show it as a new file, whether
+		// the other side is the index, a revision or the empty tree of an
+		// unborn branch. A file git knows about simply has no changes, and
+		// an empty patch is the right answer for it.
 		if !r.isTracked(ctx, path) {
 			if content, rerr := os.ReadFile(r.AbsPath(path)); rerr == nil {
 				return syntheticNewFile(path, content), nil

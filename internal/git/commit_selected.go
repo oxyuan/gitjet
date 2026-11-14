@@ -109,8 +109,18 @@ func (r *Repo) commitLocked(ctx context.Context, opts CommitOptions, clean []str
 	defer cleanup()
 	if len(staged) > 0 {
 		// The index already holds these changes; copy them into the
-		// temporary tree exactly as they are.
-		args := append([]string{"diff", "--cached", "--binary", "--no-color", "-M", "HEAD", "--"}, literalPaths(staged)...)
+		// temporary tree exactly as they are. A repository whose branch has
+		// no commit yet has no HEAD to diff against, so the empty tree is
+		// the base: every staged path is an addition there.
+		base := "HEAD"
+		if r.headCommit(ctx) == "" {
+			empty, eerr := r.emptyTreeObject(ctx)
+			if eerr != nil {
+				return CommitResult{}, eerr
+			}
+			base = empty
+		}
+		args := append([]string{"diff", "--cached", "--binary", "--no-color", "-M", base, "--"}, literalPaths(staged)...)
 		patch, perr := r.run(ctx, args...)
 		if perr != nil {
 			return CommitResult{}, perr

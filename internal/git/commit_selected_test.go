@@ -226,3 +226,57 @@ func TestCommitCompletesARename(t *testing.T) {
 		t.Fatalf("tree = %q, want only b.txt", tree)
 	}
 }
+
+func TestCommitSelectedOfAFirstCommit(t *testing.T) {
+	repo, dir := newEmptyRepo(t)
+	writeFile(t, dir, "a.txt", "one\n")
+	if err := repo.Stage(context.Background(), []string{"a.txt"}); err != nil {
+		t.Fatalf("Stage: %v", err)
+	}
+	res, err := repo.CommitSelected(context.Background(), CommitOptions{Message: "first", Paths: []string{"a.txt"}})
+	if err != nil {
+		t.Fatalf("CommitSelected: %v", err)
+	}
+	if res.Subject != "first" {
+		t.Fatalf("subject = %q", res.Subject)
+	}
+	if shown := runGit(t, dir, "show", "--format=", "--name-only", "HEAD"); shown != "a.txt" {
+		t.Fatalf("commit touched %q", shown)
+	}
+	if status := runGit(t, dir, "status", "--porcelain=v2"); status != "" {
+		t.Fatalf("worktree is not clean after the first commit:\n%s", status)
+	}
+}
+
+func TestCommitSelectedOnAFirstCommitUsesTheStagedVersion(t *testing.T) {
+	repo, dir := newEmptyRepo(t)
+	writeFile(t, dir, "a.txt", "staged\n")
+	if err := repo.Stage(context.Background(), []string{"a.txt"}); err != nil {
+		t.Fatalf("Stage: %v", err)
+	}
+	writeFile(t, dir, "a.txt", "staged\nworktree\n")
+	if _, err := repo.CommitSelected(context.Background(), CommitOptions{Message: "first", Paths: []string{"a.txt"}}); err != nil {
+		t.Fatalf("CommitSelected: %v", err)
+	}
+	if committed := runGit(t, dir, "show", "HEAD:a.txt"); committed != "staged" {
+		t.Fatalf("committed content = %q, want the staged version", committed)
+	}
+	if status := runGit(t, dir, "status", "--porcelain=v2"); !strings.Contains(status, "worktree") && status == "" {
+		t.Fatalf("the unstaged line disappeared:\n%s", status)
+	}
+}
+
+func TestCommitAllOfAFirstCommit(t *testing.T) {
+	repo, dir := newEmptyRepo(t)
+	writeFile(t, dir, "a.txt", "one\n")
+	writeFile(t, dir, "b.txt", "two\n")
+	if err := repo.Stage(context.Background(), []string{"a.txt"}); err != nil {
+		t.Fatalf("Stage: %v", err)
+	}
+	if _, err := repo.CommitAllChanges(context.Background(), CommitOptions{Message: "first"}); err != nil {
+		t.Fatalf("CommitAllChanges: %v", err)
+	}
+	if files := runGit(t, dir, "show", "--format=", "--name-only", "HEAD"); files != "a.txt\nb.txt" {
+		t.Fatalf("commit touched %q", files)
+	}
+}

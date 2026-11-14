@@ -9,9 +9,9 @@ import (
 	"testing"
 )
 
-// newTestRepo creates a repository with one committed file and a local
-// identity, isolated from the developer's git configuration.
-func newTestRepo(t *testing.T) (*Repo, string) {
+// newEmptyRepo creates a repository with a local identity, isolated from
+// the developer's git configuration, but before its first commit.
+func newEmptyRepo(t *testing.T) (*Repo, string) {
 	t.Helper()
 	home := t.TempDir()
 	t.Setenv("GIT_CONFIG_GLOBAL", filepath.Join(home, "gitconfig"))
@@ -22,13 +22,20 @@ func newTestRepo(t *testing.T) (*Repo, string) {
 	t.Setenv("GIT_COMMITTER_EMAIL", "test@example.com")
 	dir := t.TempDir()
 	runGit(t, dir, "init", "-q", "-b", "main")
-	writeFile(t, dir, "a.txt", "one\ntwo\n")
-	runGit(t, dir, "add", "a.txt")
-	runGit(t, dir, "commit", "-q", "-m", "initial")
 	repo, err := Open(context.Background(), dir, "")
 	if err != nil {
 		t.Fatalf("Open: %v", err)
 	}
+	return repo, dir
+}
+
+// newTestRepo creates a repository with one committed file.
+func newTestRepo(t *testing.T) (*Repo, string) {
+	t.Helper()
+	repo, dir := newEmptyRepo(t)
+	writeFile(t, dir, "a.txt", "one\ntwo\n")
+	runGit(t, dir, "add", "a.txt")
+	runGit(t, dir, "commit", "-q", "-m", "initial")
 	return repo, dir
 }
 

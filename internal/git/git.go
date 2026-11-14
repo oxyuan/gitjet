@@ -123,6 +123,17 @@ func (r *Repo) SetSSHCommand(command string) {
 	r.sshCommand = command
 }
 
+// headCommit returns HEAD's object name, or "" when the branch has no
+// commit yet. An unborn HEAD is not an error: a repository's first commit
+// is compared against the empty tree.
+func (r *Repo) headCommit(ctx context.Context) string {
+	out, err := r.run(ctx, "rev-parse", "--verify", "--quiet", "HEAD")
+	if err != nil {
+		return ""
+	}
+	return strings.TrimSpace(out)
+}
+
 // Dir returns the absolute path of the working tree's top.
 func (r *Repo) Dir() string { return r.dir }
 
