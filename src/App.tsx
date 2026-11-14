@@ -163,6 +163,7 @@ const T = {
     fileSaved: "File saved",
     filesSaved: "{n} files saved",
     saveFileFailed: "Could not save the file",
+    grammarFailed: "Syntax highlighting for {language} could not load. Use View → Reload.",
     symbolLookupFailed: "Could not search for that name",
     noUsages: "No usages of {name} were found.",
     onlyUsage: "Only one usage found — opened it.",
@@ -399,6 +400,7 @@ const T = {
     fileSaved: "文件已保存",
     filesSaved: "已保存 {n} 个文件",
     saveFileFailed: "无法保存文件",
+    grammarFailed: "{language} 的语法高亮未能加载。请使用“视图 → 重新加载”。",
     symbolLookupFailed: "无法搜索该名称",
     noUsages: "没有找到 {name} 的引用。",
     onlyUsage: "只有一处引用，已打开。",
@@ -853,6 +855,15 @@ function AppShell({ onLangChange }: { onLangChange: (lang: Lang) => void }) {
     setNotices((prev) => [notice, ...prev].slice(0, 200));
     setToast({ kind, title, message });
   }, []);
+
+  useEffect(() => {
+    const onGrammarFailed = (event: Event) => {
+      const detail = (event as CustomEvent<{ language?: string }>).detail;
+      notify("error", t("grammarFailed", { language: detail?.language ?? "" }));
+    };
+    window.addEventListener("gitjet:grammar-failed", onGrammarFailed);
+    return () => window.removeEventListener("gitjet:grammar-failed", onGrammarFailed);
+  }, [notify, t]);
 
   const fail = useCallback(
     (title: string, err: unknown) => {
@@ -3000,6 +3011,15 @@ function AppShell({ onLangChange }: { onLangChange: (lang: Lang) => void }) {
           void reload(true);
           void loadLog(true);
           break;
+        case "reload":
+          void saveAllRef.current(true).then((still) => {
+            if (still.length > 0) {
+              notify("error", t("saveFileFailed"), still.join(", "));
+              return;
+            }
+            window.location.reload();
+          });
+          break;
         case "settings":
           setDialog({ kind: "settings" });
           break;
@@ -3198,6 +3218,10 @@ function AppShell({ onLangChange }: { onLangChange: (lang: Lang) => void }) {
   };
 
   const saveSettings = async (next: Settings) => {
+    // The dialog this save started from. A new one may be opened while the
+    // write is in flight — closing it as well is what made Settings look like
+    // it never opened after a slow save.
+    const origin = dialog;
     try {
       const before = settingsRef.current;
       const saved = await Workspace.saveSettings(next);
@@ -3219,9 +3243,7 @@ function AppShell({ onLangChange }: { onLangChange: (lang: Lang) => void }) {
             entry.packId !== saved.languageServers[i]?.packId || entry.path !== saved.languageServers[i]?.path,
         );
       if (packsChanged || serversChanged) void disconnectLSP();
-      // Only the dialog this save came from: a slow write must not close one
-      // the user opened while it was in flight.
-      setDialog((d) => (d?.kind === "settings" ? null : d));
+      setDialog((d) => (d === origin ? null : d));
       notify("success", t("settingsSaved"));
       await reload(false);
     } catch (err) {

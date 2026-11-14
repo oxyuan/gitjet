@@ -268,6 +268,12 @@ export function loadLanguage(name: string): Promise<LanguageSupport | null> {
     (err: unknown) => {
       languageCache.delete(key);
       console.warn(`gitjet: the ${key} grammar did not load; reload the window to try again`, err);
+      // A failed module URL stays failed for the page's life. Say so in the
+      // app, where the reader can act on it, instead of only in a console
+      // nobody has open in the packaged window.
+      if (typeof window !== "undefined") {
+        window.dispatchEvent(new CustomEvent("gitjet:grammar-failed", { detail: { language: key } }));
+      }
       return null;
     },
   );

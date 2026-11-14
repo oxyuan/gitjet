@@ -205,6 +205,23 @@ func buildMenu(l lang) *mygo.Menu {
 	send := func(cmd string) func(*mygo.MenuItem, *mygo.Window) {
 		return func(*mygo.MenuItem, *mygo.Window) { Command.Broadcast(cmd) }
 	}
+	view := []*mygo.MenuItem{
+		{Label: l.tr("menu.commitTab"), Accelerator: "CmdOrCtrl+9", Click: send("tab:commit")},
+		{Label: l.tr("menu.logTab"), Accelerator: "CmdOrCtrl+0", Click: send("tab:branch")},
+		{Label: l.tr("menu.filesTab"), Accelerator: "CmdOrCtrl+Shift+E", Click: send("tab:files")},
+		{Label: l.tr("menu.consoleTab"), Accelerator: "CmdOrCtrl+Shift+9", Click: send("tab:console")},
+		mygo.Separator(),
+		{Label: l.tr("menu.refresh"), Accelerator: "CmdOrCtrl+R", Click: send("refresh")},
+	}
+	if mygo.IsDev() {
+		// A dev page outlives Go rebuilds; these recover a stale page or a
+		// chunk the dev server replaced without asking the page to reload.
+		view = append(view, mygo.Separator(),
+			&mygo.MenuItem{Label: "Developer Tools", Accelerator: "Alt+CmdOrCtrl+I", Role: mygo.RoleToggleDevTools},
+			&mygo.MenuItem{Label: "Reload", Accelerator: "CmdOrCtrl+Shift+R", Click: send("reload")},
+		)
+	}
+	view = append(view, mygo.Separator(), &mygo.MenuItem{Role: mygo.RoleToggleFullScreen})
 	return mygo.NewMenu([]*mygo.MenuItem{
 		{Role: mygo.RoleAppMenu},
 		{Label: l.tr("menu.file"), Submenu: []*mygo.MenuItem{
@@ -230,16 +247,7 @@ func buildMenu(l lang) *mygo.Menu {
 			{Role: mygo.RoleCut}, {Role: mygo.RoleCopy}, {Role: mygo.RolePaste},
 			{Role: mygo.RoleSelectAll},
 		}},
-		{Label: l.tr("menu.view"), Submenu: []*mygo.MenuItem{
-			{Label: l.tr("menu.commitTab"), Accelerator: "CmdOrCtrl+9", Click: send("tab:commit")},
-			{Label: l.tr("menu.logTab"), Accelerator: "CmdOrCtrl+0", Click: send("tab:branch")},
-			{Label: l.tr("menu.filesTab"), Accelerator: "CmdOrCtrl+Shift+E", Click: send("tab:files")},
-			{Label: l.tr("menu.consoleTab"), Accelerator: "CmdOrCtrl+Shift+9", Click: send("tab:console")},
-			mygo.Separator(),
-			{Label: l.tr("menu.refresh"), Accelerator: "CmdOrCtrl+R", Click: send("refresh")},
-			mygo.Separator(),
-			{Role: mygo.RoleToggleFullScreen},
-		}},
+		{Label: l.tr("menu.view"), Submenu: view},
 		{Label: l.tr("menu.git"), Submenu: []*mygo.MenuItem{
 			{Label: l.tr("menu.commit"), Accelerator: "CmdOrCtrl+K", Click: send("commit")},
 			{Label: l.tr("menu.push"), Accelerator: "CmdOrCtrl+Shift+K", Click: send("push")},
