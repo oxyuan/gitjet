@@ -130,7 +130,10 @@ use it only for layout work. Vite's port is pinned to 5173 in **both**
   and `--amend`'s author preservation are the user's own. A merge,
   cherry-pick or revert commits the real index (git refuses a partial commit
   during one). `Commit` and `CommitSelected` share this machinery in
-  `commit_selected.go`.
+  `commit_selected.go`. A branch with no commit yet has no `HEAD`, so the
+  staged copy diffs against the empty tree (`headCommit`); `HEAD` there is a
+  fatal revision, which made a first commit fail as soon as anything was
+  staged.
 - Mutating service methods (`Checkout`, `Merge`, `Rebase`, `CherryPick`,
   `Revert`, `Pull` without `--autostash`, `Rewrite`) run through
   `preserveLocalChanges` (`internal/app/service.go`): a dirty tree is stashed
@@ -183,10 +186,17 @@ use it only for layout work. Vite's port is pinned to 5173 in **both**
   side, negative the old side, so an added line 5 cannot select the deleted
   line 5. `ApplyDiffLines` rebuilds the target file from the selection
   instead of applying zero-context patches, which is what makes scattered
-  lines and unequal blocks exact.
+  lines and unequal blocks exact. A replaced line consumes its old line
+  before the new one is appended; forgetting that re-emitted the old line
+  through the next context line and duplicated it. Any selection on a
+  deleted file stages the deletion (writing an empty blob left an emptied
+  path in the index), and a gitlink has no text to split: its hunk action
+  takes the whole-file path.
 - A path handed to git as a pathspec goes through `literalPath`: git reads
   `web/[slug]/page.tsx` as a glob and would touch `web/s/page.tsx` too.
-  Escaping, not `:(literal)` magic, because `blame` rejects the magic.
+  Escaping, not `:(literal)` magic, because `blame` rejects the magic. A
+  leading `:` starts pathspec magic, so it is prefixed with `./`; `blame`
+  passes its path through the same helper.
 - Revisions and branch names reject empty values and a leading `-`; branch
   creation/rename also round-trip `git check-ref-format --branch`.
 - `internal/app` only adds its own check for `Reveal` (`filepath.Rel`).
@@ -212,6 +222,12 @@ use it only for layout work. Vite's port is pinned to 5173 in **both**
   `editor.ts` builds its `HighlightStyle` from them and `syntax.ts` builds the
   diff's class highlighter. Adding a token means one entry there plus a
   `.tok-*` class in `style.css` — never a second tag list.
+- A file diff names both paths of a rename (`DiffOptions.OldPath` joins the
+  pathspec); limited to the new path git pairs nothing and reports the file
+  as added, and the three-sided view loses HEAD. A symlink is read,
+  synthesized and written as its target text with mode 120000, never through
+  the link. A chmod has no hunk at all, so `oldMode`/`newMode` let the viewer
+  name the change instead of answering "No differences".
 - The diff paints itself with `paintLine` (tokens × word-diff), so a keyword
   that is also part of a changed word keeps its colour under the change mark.
   `FileDiff.language` is what selects the grammar; it is derived from the path.
