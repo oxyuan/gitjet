@@ -270,3 +270,23 @@ func TestFileDiffOfAnUntrackedExecutableKeepsItsMode(t *testing.T) {
 		t.Fatalf("patch = %q, want the executable mode", d.Patch)
 	}
 }
+
+func TestFileDiffReportsAModeChange(t *testing.T) {
+	repo, dir := newTestRepo(t)
+	if err := os.Chmod(filepath.Join(dir, "a.txt"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	d, err := repo.FileDiff(context.Background(), DiffOptions{Path: "a.txt", Target: DiffWorkingTree})
+	if err != nil {
+		t.Fatalf("FileDiff: %v", err)
+	}
+	if d.OldMode != "100644" || d.NewMode != "100755" {
+		t.Fatalf("modes = %q -> %q, want the chmod", d.OldMode, d.NewMode)
+	}
+	if !d.HasChanges {
+		t.Fatal("a mode-only change reports no change")
+	}
+	if d.OldText != d.NewText {
+		t.Fatalf("content changed: %q vs %q", d.OldText, d.NewText)
+	}
+}

@@ -268,6 +268,8 @@ export interface FileDiff {
   truncated: boolean;
   patch: string;
   hasChanges: boolean;
+  oldMode: string;
+  newMode: string;
   wholeFile: boolean;
   language: string;
 }

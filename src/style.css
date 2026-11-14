@@ -1874,6 +1874,13 @@ body.col-resizing {
   color: var(--muted);
 }
 
+.diff-mode {
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+  color: var(--muted-2);
+  white-space: nowrap;
+}
+
 .diff-toolbar {
   display: flex;
   align-items: center;

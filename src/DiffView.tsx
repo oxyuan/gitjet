@@ -46,6 +46,7 @@ const T = {
     noResults: "No results",
     openAtLine: "Open in the editor at this line (⌘/Ctrl+click)",
     noChanges: "No changes",
+    modeChanged: "File mode changed from {old} to {new}",
     position: "{current} of {total}",
     stageWholeFile: "Stage the whole file",
     unstageWholeFile: "Unstage the whole file",
@@ -114,6 +115,7 @@ const T = {
     noResults: "无结果",
     openAtLine: "在编辑器中打开此行（⌘/Ctrl+点击）",
     noChanges: "无更改",
+    modeChanged: "文件模式从 {old} 变为 {new}",
     position: "{current} / {total}",
     stageWholeFile: "Stage 整个文件",
     unstageWholeFile: "Unstage 整个文件",
@@ -620,6 +622,9 @@ export function DiffView({
           ? t("hlNone")
           : t("hlWords");
   const stats = `${diff.additions > 0 ? "+" + diff.additions : ""}${diff.additions > 0 && diff.deletions > 0 ? " " : ""}${diff.deletions > 0 ? "−" + diff.deletions : ""}`;
+  // A chmod produces no hunk at all, so the header has to say what changed.
+  const modeChanged = diff.oldMode !== "" && diff.newMode !== "" && diff.oldMode !== diff.newMode;
+  const modeText = t("modeChanged", { old: diff.oldMode, new: diff.newMode });
   // IDEA's "Open in editor" follows the caret; without one, the change the
   // reader is on is the position that means something.
   const currentRow = current >= 0 ? rows[changeRows[current]!] : undefined;
@@ -640,6 +645,11 @@ export function DiffView({
             <span className="diff-oldpath">{t("from", { path: diff.oldPath })}</span>
           )}
           {stats && <span className="diff-stats">{stats}</span>}
+          {modeChanged && (
+            <span className="diff-mode" title={modeText}>
+              {diff.oldMode} → {diff.newMode}
+            </span>
+          )}
           {busy && <Spinner />}
           <span className="spacer" />
           <button
@@ -871,8 +881,8 @@ export function DiffView({
         )
       ) : rows.length === 0 ? (
         <div className="diff-empty">
-          <Icon name="check" size={24} />
-          <div>{t("noDifferences")}</div>
+          <Icon name={modeChanged ? "file" : "check"} size={24} />
+          <div>{modeChanged ? modeText : t("noDifferences")}</div>
         </div>
       ) : (
         <div

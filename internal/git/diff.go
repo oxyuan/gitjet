@@ -106,6 +106,11 @@ type FileDiff struct {
 	Truncated  bool       `json:"truncated"`
 	Patch      string     `json:"patch"`
 	HasChanges bool       `json:"hasChanges"`
+	// OldMode and NewMode are the file modes git recorded when they differ,
+	// such as a chmod. Git prints no hunk for that, so the viewer names the
+	// change instead of claiming there is none.
+	OldMode string `json:"oldMode"`
+	NewMode string `json:"newMode"`
 	// WholeFile reports that the diff covers every line of the file, so a
 	// viewer can show it in full instead of folding the unchanged parts.
 	WholeFile bool `json:"wholeFile"`
@@ -234,7 +239,7 @@ func (r *Repo) FileDiff(ctx context.Context, opts DiffOptions) (FileDiff, error)
 		d.OldPath = path
 	}
 	d.Patch = patch
-	d.HasChanges = len(d.Hunks) > 0 || d.Binary || d.Status != "modified"
+	d.HasChanges = len(d.Hunks) > 0 || d.Binary || d.Status != "modified" || d.OldMode != d.NewMode
 	if d.Binary || opts.NoText {
 		d.OldLabel, d.NewLabel = labelsFor(opts)
 		return d, nil
@@ -487,10 +492,10 @@ func parsePatch(patch, path string) FileDiff {
 			case strings.HasPrefix(line, "copy from "):
 				d.Status = "copied"
 				d.OldPath = unquoteGitPath(strings.TrimPrefix(line, "copy from "))
-			case strings.HasPrefix(line, "old mode"), strings.HasPrefix(line, "new mode"):
-				if d.Status == "modified" && !seenHunk {
-					// A mode change alone is still a modification; leave it.
-				}
+			case strings.HasPrefix(line, "old mode "):
+				d.OldMode = strings.TrimSpace(strings.TrimPrefix(line, "old mode "))
+			case strings.HasPrefix(line, "new mode "):
+				d.NewMode = strings.TrimSpace(strings.TrimPrefix(line, "new mode "))
 			case strings.HasPrefix(line, "Binary files "):
 				d.Binary = true
 			case strings.HasPrefix(line, "GIT binary patch"):
