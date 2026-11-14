@@ -209,3 +209,19 @@ func TestApplyDiffLinesKeepsCRLFWhenReplacingALine(t *testing.T) {
 		t.Fatalf("index = %q, want the line replaced with CRLF endings intact", index)
 	}
 }
+
+func TestApplyDiffLinesStagesAWholeDeletion(t *testing.T) {
+	repo, dir := newTestRepo(t)
+	if err := os.Remove(filepath.Join(dir, "a.txt")); err != nil {
+		t.Fatal(err)
+	}
+	if err := repo.ApplyDiffLines(context.Background(), DiffOptions{Path: "a.txt", Target: DiffWorkingTree}, []int{-1}, "stage"); err != nil {
+		t.Fatalf("ApplyDiffLines: %v", err)
+	}
+	if tracked := runGit(t, dir, "ls-files", "--", "a.txt"); tracked != "" {
+		t.Fatalf("a.txt is still in the index: %q", tracked)
+	}
+	if staged := runGit(t, dir, "diff", "--cached", "--name-status"); staged != "D\ta.txt" {
+		t.Fatalf("staged change = %q, want the deletion", staged)
+	}
+}

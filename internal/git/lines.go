@@ -68,6 +68,13 @@ func (r *Repo) ApplyDiffLines(ctx context.Context, opts DiffOptions, lines []int
 		if err != nil {
 			return err
 		}
+		if diff.Status == "deleted" {
+			// A file cannot lose only some of its lines: staging any part
+			// of a deletion means staging the deletion, exactly as the hunk
+			// and whole-file actions do. Writing an empty blob would leave
+			// the path in the index as an emptied file instead.
+			return r.removeIndexEntry(ctx, path)
+		}
 		target := rebuildFromOld(diff, oldText, oldSel, newSel, true)
 		if target == oldText {
 			return errors.New("none of the selected lines is a change")
