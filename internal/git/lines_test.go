@@ -157,3 +157,55 @@ func TestApplyDiffLinesUnstagesAllOfANewFile(t *testing.T) {
 		t.Fatalf("status = %q, want the file back as untracked", status)
 	}
 }
+
+func TestApplyDiffLinesStagesOneReplacedLineExactly(t *testing.T) {
+	repo, dir := newTestRepo(t)
+	writeFile(t, dir, "a.txt", "one\ntwo\nthree\nfour\nfive\n")
+	runGit(t, dir, "add", "a.txt")
+	runGit(t, dir, "commit", "-qm", "five lines")
+	writeFile(t, dir, "a.txt", "one\nTWO\nthree\nFOUR\nfive\n")
+
+	if err := repo.ApplyDiffLines(context.Background(), DiffOptions{Path: "a.txt", Target: DiffWorkingTree}, []int{2}, "stage"); err != nil {
+		t.Fatalf("ApplyDiffLines: %v", err)
+	}
+	index := runGit(t, dir, "show", ":a.txt")
+	if index != "one\nTWO\nthree\nfour\nfive" {
+		t.Fatalf("index = %q, want only the selected replacement", index)
+	}
+	if worktree := runGit(t, dir, "diff", "--unified=0"); !strings.Contains(worktree, "+FOUR") || strings.Contains(worktree, "+TWO") {
+		t.Fatalf("working tree diff no longer holds just FOUR:\n%s", worktree)
+	}
+}
+
+func TestApplyDiffLinesUnstagesOneReplacedLineExactly(t *testing.T) {
+	repo, dir := newTestRepo(t)
+	writeFile(t, dir, "a.txt", "one\ntwo\nthree\nfour\n")
+	runGit(t, dir, "add", "a.txt")
+	runGit(t, dir, "commit", "-qm", "four lines")
+	writeFile(t, dir, "a.txt", "ONE\nTWO\nthree\nfour\n")
+	runGit(t, dir, "add", "a.txt")
+
+	if err := repo.ApplyDiffLines(context.Background(), DiffOptions{Path: "a.txt", Target: DiffStaged}, []int{1}, "unstage"); err != nil {
+		t.Fatalf("ApplyDiffLines: %v", err)
+	}
+	index := runGit(t, dir, "show", ":a.txt")
+	if index != "one\nTWO\nthree\nfour" {
+		t.Fatalf("index = %q, want the first line back and the second kept", index)
+	}
+}
+
+func TestApplyDiffLinesKeepsCRLFWhenReplacingALine(t *testing.T) {
+	repo, dir := newTestRepo(t)
+	writeFile(t, dir, "a.txt", "one\r\ntwo\r\nthree\r\n")
+	runGit(t, dir, "add", "a.txt")
+	runGit(t, dir, "commit", "-qm", "crlf")
+	writeFile(t, dir, "a.txt", "one\r\nTWO\r\nthree\r\n")
+
+	if err := repo.ApplyDiffLines(context.Background(), DiffOptions{Path: "a.txt", Target: DiffWorkingTree}, []int{2}, "stage"); err != nil {
+		t.Fatalf("ApplyDiffLines: %v", err)
+	}
+	index := runGit(t, dir, "show", ":a.txt")
+	if index != "one\r\nTWO\r\nthree" {
+		t.Fatalf("index = %q, want the line replaced with CRLF endings intact", index)
+	}
+}

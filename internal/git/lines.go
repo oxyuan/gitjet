@@ -208,6 +208,10 @@ func rebuildFromOld(diff FileDiff, text string, oldSel, newSel map[int]bool, kee
 				for k := range dels {
 					d, a := dels[k], adds[k]
 					if applies(oldSel[d.OldNo] || newSel[a.NewNo]) {
+						// The new line replaces the old one: consume it, or
+						// the next context line re-emits it and the file
+						// keeps both versions.
+						idx++
 						appendNew(a)
 					} else {
 						appendOld()
