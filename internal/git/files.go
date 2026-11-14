@@ -7,6 +7,8 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
+
+	"gitjet/internal/lang"
 )
 
 // SourceFile is a file's contents at a revision, for the source viewer.
@@ -349,67 +351,10 @@ func matchScore(path, query string) (int, bool) {
 	return 0, false
 }
 
+// languageOf names the grammar for a path. The catalog lives in internal/lang
+// so the packs, the diff viewer and the explorer cannot drift apart.
 func languageOf(path string) string {
-	ext := strings.ToLower(filepath.Ext(path))
-	switch ext {
-	case ".go":
-		return "go"
-	case ".ts", ".mts", ".cts":
-		return "typescript"
-	case ".tsx":
-		return "tsx"
-	case ".js", ".mjs", ".cjs":
-		return "javascript"
-	case ".jsx":
-		return "jsx"
-	case ".json", ".jsonc":
-		return "json"
-	case ".css":
-		return "css"
-	case ".scss":
-		return "scss"
-	case ".html", ".htm":
-		return "markup"
-	case ".xml", ".svg":
-		return "markup"
-	case ".md", ".markdown":
-		return "markdown"
-	case ".py":
-		return "python"
-	case ".sh", ".bash", ".zsh":
-		return "bash"
-	case ".yml", ".yaml":
-		return "yaml"
-	case ".java":
-		return "java"
-	case ".kt", ".kts":
-		return "kotlin"
-	case ".rs":
-		return "rust"
-	case ".c", ".h":
-		return "c"
-	case ".cc", ".cpp", ".hpp", ".cxx":
-		return "cpp"
-	case ".sql":
-		return "sql"
-	case ".toml":
-		return "toml"
-	case ".rb":
-		return "ruby"
-	case ".php":
-		return "php"
-	case ".swift":
-		return "swift"
-	case ".dockerfile":
-		return "docker"
-	}
-	if filepath.Base(path) == "Dockerfile" {
-		return "docker"
-	}
-	if filepath.Base(path) == "Makefile" {
-		return "makefile"
-	}
-	return "plain"
+	return lang.GrammarForPath(path)
 }
 
 // Tree lists every file in the working tree, tracked and untracked, for the

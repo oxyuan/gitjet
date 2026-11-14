@@ -1207,7 +1207,7 @@ function AppShell({ onLangChange }: { onLangChange: (lang: Lang) => void }) {
         if (b.error) notify("error", tRef.current("reopenRepo"), b.error);
       })
       .catch((err) => {
-        setBoot({ settings: { version: 2, gitPath: "", sshCommand: "", fetchTagsMode: "auto", language: "system", theme: "system", diffContext: -1, saveOnDeactivation: true, autoSaveIdle: false, autoSaveIdleSeconds: 15, ignoreWhitespace: false, showIgnored: false, autoFetch: false, autoFetchMinutes: 15, updateMethod: "merge", confirmForcePush: true, confirmRollback: true, rollbackDeleteAdded: false, commitCheckCrlf: true, commitCheckLargeMB: 10, commitCheckNames: true, commitCheckHead: true, commitTemplate: "", protectedBranches: [], autoUpdateOnReject: true, openInNewWindow: false, uiScale: 100, recent: [] }, repo: null, error: String(err), version: "", platform: "" });
+        setBoot({ settings: { version: 2, gitPath: "", sshCommand: "", fetchTagsMode: "auto", language: "system", theme: "system", diffContext: -1, saveOnDeactivation: true, autoSaveIdle: false, autoSaveIdleSeconds: 15, ignoreWhitespace: false, showIgnored: false, autoFetch: false, autoFetchMinutes: 15, updateMethod: "merge", confirmForcePush: true, confirmRollback: true, rollbackDeleteAdded: false, commitCheckCrlf: true, commitCheckLargeMB: 10, commitCheckNames: true, commitCheckHead: true, commitTemplate: "", protectedBranches: [], autoUpdateOnReject: true, openInNewWindow: false, uiScale: 100, recent: [], languagePacks: ["go", "java", "kotlin", "rust", "cpp", "typescript", "python"], languageServers: [] }, repo: null, error: String(err), version: "", platform: "" });
         notify("error", tRef.current("startFailed"), err instanceof Error ? err.message : String(err));
       });
   }, [applyCheckedDefaults, notify, reload]);
@@ -3199,10 +3199,26 @@ function AppShell({ onLangChange }: { onLangChange: (lang: Lang) => void }) {
 
   const saveSettings = async (next: Settings) => {
     try {
+      const before = settingsRef.current;
       const saved = await Workspace.saveSettings(next);
       settingsRef.current = saved;
       setSettings(saved);
       applyTheme(saved);
+      // A changed pack list or server path must not keep the old sessions:
+      // the next file opened starts the server the new settings choose. The
+      // JSON round trip makes fresh arrays every save, so compare contents.
+      const packsChanged =
+        !before ||
+        before.languagePacks.length !== saved.languagePacks.length ||
+        before.languagePacks.some((id, i) => id !== saved.languagePacks[i]);
+      const serversChanged =
+        !before ||
+        before.languageServers.length !== saved.languageServers.length ||
+        before.languageServers.some(
+          (entry, i) =>
+            entry.packId !== saved.languageServers[i]?.packId || entry.path !== saved.languageServers[i]?.path,
+        );
+      if (packsChanged || serversChanged) void disconnectLSP();
       // Only the dialog this save came from: a slow write must not close one
       // the user opened while it was in flight.
       setDialog((d) => (d?.kind === "settings" ? null : d));

@@ -490,10 +490,19 @@ use it only for layout work. Vite's port is pinned to 5173 in **both**
   compares the index with the file, HEAD compares the commit with the working
   tree, the index compares HEAD with the index, and a commit compares it with
   its parent. The worktree target stays the one with hunk/staging actions.
-- Language servers are optional. `internal/lsp.Detect` maps repo markers to a
-  server; `Git.lspStart/lspWrite/lspStop` move bytes between the page and the
-  process over `events.gitLsp` (no sockets, no workers). Without a server,
-  `Git.searchSymbol` (git grep) backs the same jumps: `planTextJump`
+- Language servers are optional and come from a pack catalog, not a switch:
+  `internal/lang` owns the built-in packs (Go, Java, Kotlin, Rust, C/C++,
+  TypeScript/JavaScript, Python), the extension-to-grammar table used by
+  `languageOf`, server detection (custom path, managed install, then PATH)
+  and the install strategy (`go install` for gopls, a pinned SHA-256 archive
+  for jdtls). Settings store `languagePacks` and `languageServers`; the
+  managed root is `$XDG_DATA_HOME/gitjet/language-packs` when set, else
+  `<config dir>/GitJet/language-packs`. Packs are declarative: they never run
+  page JS. `Git.lspProbe` lists every enabled pack with its status;
+  `Git.lspStart(packID)/lspWrite/lspStop` move bytes between the page and the
+  processes over `events.gitLsp` (no sockets, no workers), and the host keeps
+  one session per pack so a mixed Go/Java repository can have both. Without a
+  server, `Git.searchSymbol` (git grep) backs the same jumps: `planTextJump`
   (`src/navigation.ts`) reads the hits through `classifyHits`, so a click on
   a usage jumps to the one declaration it finds and a click on a declaration
   lists its uses; several declarations open the same chooser.
@@ -541,11 +550,16 @@ use it only for layout work. Vite's port is pinned to 5173 in **both**
   advance each file's version; returning `[]` (as an earlier version did)
   left the server answering about the text it saw on open, so jumps drifted
   after any edit.
-- Attach the LSP plugin only when the server speaks the file's language
-  (`lspServes`) **and** the view is the working tree: a Go module with a
-  `package.json` gets gopls, which must not receive TypeScript documents, and
-  a HEAD or index snapshot must not register its text under the working-tree
-  URI. Revision views fall back to the text search.
+- Attach the LSP plugin only to the client whose pack serves the file's
+  grammar **and** only for the working tree (or an external file): a Go module
+  with a `package.json` starts gopls for `.go` and
+  `typescript-language-server` for `.ts`, and a HEAD or index snapshot must
+  not register its text under the working-tree URI. `src/lsp.ts` therefore
+  keeps a client per pack, probes once per settings generation, and starts a
+  pack lazily when its first file opens. Revision views fall back to the text
+  search. Settings → Languages is where a pack is enabled, a server located,
+  installed or removed; saving settings disconnects every session so the next
+  file starts the server the new settings choose.
 
 ### TypeScript
 

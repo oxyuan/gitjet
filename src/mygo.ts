@@ -322,8 +322,15 @@ export interface LFSStatus {
 /** LSPInfo identifies a running bridge. */
 export interface LSPInfo {
   id: string;
+  packId: string;
   root: string;
   name: string;
+}
+
+/** LanguageServerPath is one pack's custom server executable. */
+export interface LanguageServerPath {
+  packId: string;
+  path: string;
 }
 
 export interface LineRef {
@@ -410,6 +417,24 @@ export interface MergeSide {
   subject: string;
   author: string;
   time: number;
+}
+
+export interface PackStatus {
+  id: string;
+  name: string;
+  description: string;
+  languages: string[];
+  extensions: string[];
+  serverName?: string;
+  languageId?: string;
+  command?: string;
+  args?: string[];
+  installed: boolean;
+  managed: boolean;
+  version?: string;
+  enabled: boolean;
+  installable: boolean;
+  hint?: string;
 }
 
 export interface PatchOptions {
@@ -566,14 +591,6 @@ export interface RepoState {
   shallow: boolean;
 }
 
-export interface Server {
-  name: string;
-  language: string;
-  command: string;
-  args: string[];
-  installed: boolean;
-}
-
 /**
  * Settings is the app's configuration, persisted in the user's config
  * directory. Repository-specific grouping and message history live in
@@ -638,6 +655,18 @@ export interface Settings {
   /** percent, 100 is the design size */
   uiScale: number;
   recent: RecentRepo[];
+  /**
+   * LanguagePacks are the enabled language support packs. A nil list (an
+   * older settings file) means every built-in pack; an empty list means
+   * the user switched them all off.
+   */
+  languagePacks: string[];
+  /**
+   * LanguageServers overrides the executable of one pack, e.g. a jdtls
+   * launcher outside PATH. An absent entry uses the managed install, then
+   * PATH.
+   */
+  languageServers: LanguageServerPath[];
 }
 
 export interface Shelf {
@@ -774,6 +803,10 @@ export const Workspace = {
   chooseFolder(): Promise<string> {
     return call("Workspace.ChooseFolder");
   },
+  /** ChooseLanguageServer shows the native file picker for a server executable. */
+  chooseLanguageServer(): Promise<string> {
+    return call("Workspace.ChooseLanguageServer");
+  },
   /**
    * Clone clones url into dir, streaming git's progress. The page opens the
    * new repository when the call succeeds.
@@ -809,6 +842,20 @@ export const Workspace = {
   init(dir: string, branch: string): Promise<string> {
     return call("Workspace.Init", dir, branch);
   },
+  /**
+   * InstallLanguagePack installs a pack's server into the managed directory,
+   * streaming the installer's progress, and returns the refreshed catalog.
+   */
+  installLanguagePack(id: string, out: Channel<string>): Promise<PackStatus[]> {
+    return call("Workspace.InstallLanguagePack", id, out);
+  },
+  /**
+   * LanguagePacks describes every built-in pack and whether its server is
+   * available. Nothing is started.
+   */
+  languagePacks(): Promise<PackStatus[]> {
+    return call("Workspace.LanguagePacks");
+  },
   /** Open opens a repository and returns its local changes. */
   open(path: string): Promise<ChangesSnapshot> {
     return call("Workspace.Open", path);
@@ -843,6 +890,13 @@ export const Workspace = {
   /** Recent returns the recent repositories, newest first. */
   recent(): Promise<RecentRepo[]> {
     return call("Workspace.Recent");
+  },
+  /**
+   * RemoveLanguagePack deletes a managed install. A PATH or custom server is
+   * untouched.
+   */
+  removeLanguagePack(id: string): Promise<PackStatus[]> {
+    return call("Workspace.RemoveLanguagePack", id);
   },
   /** RemoveRecent forgets a recent repository. */
   removeRecent(path: string): Promise<void> {
@@ -1152,20 +1206,21 @@ export const Git = {
     return call("Git.LFSUntrack", patterns);
   },
   /**
-   * LSPProbe reports which language server this repository wants, and whether
-   * it is installed. Nothing is started.
+   * LSPProbe reports every enabled language pack and whether its server is
+   * installed. Nothing is started.
    */
-  lspProbe(): Promise<Server> {
+  lspProbe(): Promise<PackStatus[]> {
     return call("Git.LSPProbe");
   },
   /**
-   * LSPStart starts the language server for the open repository, or returns the
-   * running one. The page speaks the protocol; this only moves bytes.
+   * LSPStart starts one pack's language server for the open repository, or
+   * returns the running one. The page speaks the protocol; this only moves
+   * bytes.
    */
-  lspStart(): Promise<LSPInfo> {
-    return call("Git.LSPStart");
+  lspStart(packID: string): Promise<LSPInfo> {
+    return call("Git.LSPStart", packID);
   },
-  /** LSPStop stops the language server, if one is running. */
+  /** LSPStop stops every language server for the open repository. */
   lspStop(): Promise<void> {
     return call("Git.LSPStop");
   },
@@ -1532,7 +1587,7 @@ export const Git = {
 /** Events sent by the Go side. Subscribe with `events.name.on(listener)`. */
 export const events = {
   /**
-   * LSPMessage carries one message from the language server to the page. The
+   * LSPMessage carries one message from a language server to the page. The
    * page reads the envelope, and never the protocol, so the Go side stays a
    * pipe: it frames messages and nothing else.
    */

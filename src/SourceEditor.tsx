@@ -3,7 +3,7 @@ import { Git, type BlameLine, type DiffOptions, type SourceFile } from "./mygo";
 import { SourceEditor as Editor } from "./editor";
 import { annotateDate, changeRanges, type ChangeRange } from "./annotate";
 import { gutterDiffOptions } from "./gutter";
-import { connectLSP, lspServes, registerView, unregisterView, toUri } from "./lsp";
+import { connectLSP, registerView, unregisterView, toUri } from "./lsp";
 import type { EditorNavigationRequest, NavigationPoint } from "./navigation";
 import { isAbsolutePath, joinRoot } from "./paths";
 import { blameMenuItems } from "./blameMenu";
@@ -358,23 +358,23 @@ export function SourceEditor({
     editor.current?.setAnnotate(annotate);
   }, [annotate]);
 
-  // A language server, when the repository has one installed.
+  // The language server that serves this file's grammar, when one is
+  // installed. A historical revision must not register its text under the
+  // working-tree URI: the server would then answer about a document that is
+  // not on disk.
   useEffect(() => {
+    if (!file.external && file.revision !== "") return;
     let cancelled = false;
-    void connectLSP().then((client) => {
-      // The probe decides which language the server speaks, so the file is
-      // checked only once a session exists. A historical revision must not
-      // register its text under the working-tree URI: the server would then
-      // answer about a document that is not on disk.
-      if (cancelled || !client || !editor.current || (!file.external && file.revision !== "") || !lspServes(file.language)) return;
+    void connectLSP(file.language).then((client) => {
+      if (cancelled || !client || !editor.current) return;
       const languageId = file.language === "tsx" ? "typescriptreact" : file.language === "jsx" ? "javascriptreact" : file.language;
       editor.current.withExtension(client.plugin(toUri(absolutePath), languageId));
     });
     return () => {
       cancelled = true;
     };
-    // The plugin is attached once per mount; a different file in the same
-    // pane is a different document, and the old plugin is harmless.
+    // The view is keyed by document and revision, so this runs once per
+    // document; the plugin belongs to that document.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 

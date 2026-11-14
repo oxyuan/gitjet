@@ -8,7 +8,7 @@ import {
   type Transport,
   type WorkspaceFile,
 } from "@codemirror/lsp-client";
-import { Git, events } from "./mygo";
+import { Git, events, type PackStatus } from "./mygo";
 import { normalizeTargets, type NavigationTarget, type TargetKind } from "./navigation";
 import { repoRelative } from "./paths";
 
@@ -225,91 +225,113 @@ function createTransport(session: string): Transport {
   };
 }
 
-let client: LSPClient | null = null;
-let starting: Promise<LSPClient | null> | null = null;
-let serverName = "";
-let serverLanguage = "";
+/** One running language server and the client that speaks to it. */
+type ActiveClient = {
+  server: PackStatus;
+  client: LSPClient;
+};
+
+const active = new Map<string, ActiveClient>();
+const starting = new Map<string, Promise<ActiveClient | null>>();
+let probed: PackStatus[] | null = null;
+let probing: Promise<PackStatus[]> | null = null;
 let repositoryRoot = "";
+
+/** The probe is one call per settings generation: every editor asks for its
+ *  own language, and they must not each spawn a probe. */
+async function probeServers(force = false): Promise<PackStatus[]> {
+  if (force && !probing) probed = null;
+  if (probed) return probed;
+  if (probing) return probing;
+  probing = Git.lspProbe()
+    .then((servers) => {
+      probed = servers.filter((server) => server.enabled);
+      return probed;
+    })
+    .catch(() => [])
+    .finally(() => {
+      probing = null;
+    });
+  return probing;
+}
+
+/** The pack that answers for a grammar, preferring an installed server. */
+function serverForLanguage(servers: readonly PackStatus[], language: string): PackStatus | null {
+  let fallback: PackStatus | null = null;
+  for (const server of servers) {
+    if (!server.languages.includes(language)) continue;
+    if (server.installed) return server;
+    fallback ??= server;
+  }
+  return fallback;
+}
 
 /** What the probe found, for the UI to explain itself. */
 export function lspServerName(): string {
-  return serverName;
+  const names = [...active.values()].map((entry) => entry.server.serverName ?? entry.server.name);
+  return [...new Set(names)].join(" / ");
 }
 
-/** A repository is one language to the server: a Go module with a package.json
- *  still gets gopls, and gopls has nothing to say about a .tsx file. */
-export function lspServes(language: string): boolean {
-  if (serverLanguage === "") return false;
-  const family: Record<string, string> = {
-    typescript: "typescript",
-    tsx: "typescript",
-    javascript: "typescript",
-    jsx: "typescript",
-    go: "go",
-    rust: "rust",
-    c: "c",
-    cpp: "c",
-    java: "java",
-    kotlin: "java",
-    python: "python",
-  };
-  return family[language] === serverLanguage;
+/** Starts (or reuses) the pack that serves a grammar. Resolves null when no
+ *  enabled pack serves it, or its server is not installed. Never throws. */
+export function connectLSP(language: string): Promise<LSPClient | null> {
+  return connectPackFor(language).then((entry) => entry?.client ?? null);
 }
 
-export function isConnected(): boolean {
-  return client?.connected ?? false;
-}
-
-/** Connects to the repository's language server, once. Resolves null when
- *  there is no server, or it is not installed, and never throws. */
-export function connectLSP(): Promise<LSPClient | null> {
-  if (client) return Promise.resolve(client);
-  if (starting) return starting;
-  starting = (async () => {
-    const server = await Git.lspProbe();
-    if (!server || !server.name) return null;
-    serverName = server.name;
-    serverLanguage = server.language;
-    if (!server.installed) return null;
-    const info = await Git.lspStart();
-    repositoryRoot = info.root;
-    const next = new LSPClient({
-      rootUri: toUri(info.root),
-      extensions: languageServerExtensions(),
-      workspace: (c) => new DockWorkspace(c),
-      timeout: 10000,
-      sanitizeHTML,
-    });
-    next.connect(createTransport(info.id));
-    await next.initializing.catch(() => null);
-    if (!next.serverCapabilities) {
-      next.disconnect();
-      return null;
-    }
-    client = next;
-    return next;
-  })()
+async function connectPackFor(language: string): Promise<ActiveClient | null> {
+  let server = serverForLanguage(await probeServers(), language);
+  if (!server?.installed) {
+    // A pack installed from Settings after this page probed must be seen:
+    // the positive cache would otherwise keep a working server unused until
+    // the next reload.
+    server = serverForLanguage(await probeServers(true), language);
+  }
+  if (!server || !server.installed) return null;
+  const running = active.get(server.id);
+  if (running) return running;
+  const pending = starting.get(server.id);
+  if (pending) return pending;
+  const started = startServer(server)
     .catch(() => null)
-    .finally(() => {
-      starting = null;
-    });
-  return starting;
+    .finally(() => starting.delete(server.id));
+  starting.set(server.id, started);
+  return started;
 }
 
-/** Ends the session, for a repository switch or a close. */
+async function startServer(server: PackStatus): Promise<ActiveClient | null> {
+  const info = await Git.lspStart(server.id);
+  repositoryRoot = info.root;
+  const next = new LSPClient({
+    rootUri: toUri(info.root),
+    extensions: languageServerExtensions(),
+    workspace: (c) => new DockWorkspace(c),
+    // jdtls acknowledges initialize before it has imported a Gradle or
+    // Maven project; the handshake itself must still fit in this window.
+    timeout: 30000,
+    sanitizeHTML,
+  });
+  next.connect(createTransport(info.id));
+  await next.initializing.catch(() => null);
+  if (!next.serverCapabilities) {
+    next.disconnect();
+    return null;
+  }
+  const entry: ActiveClient = { server, client: next };
+  active.set(server.id, entry);
+  return entry;
+}
+
+/** Ends every session, for a repository switch, a close or a settings change. */
 export async function disconnectLSP() {
-  const current = client;
-  client = null;
-  starting = null;
+  const running = [...active.values()];
+  active.clear();
+  starting.clear();
+  probed = null;
+  probing = null;
   repositoryRoot = "";
   openViews.clear();
-  if (current) current.disconnect();
+  for (const entry of running) entry.client.disconnect();
   await Git.lspStop().catch(() => {});
-}
-
-/** The extension a source editor adds once a session exists. */
-export function lspPlugin(uri: string, languageId: string) {
-  return client ? client.plugin(uri, languageId) : [];
 }
 
 /** What a jump request could get out of the server. `supported` separates

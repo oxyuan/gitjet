@@ -10755,3 +10755,115 @@ button.diff-nav-count:disabled {
   max-height: calc(100vh - 16px);
   overflow-y: auto;
 }
+
+/* Language packs: each pack is a card so its enable switch, server path and
+   installer stay together; the header carries the one status that decides
+   whether the pack can do anything. */
+.language-packs {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin-top: 12px;
+}
+
+.language-pack {
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+  padding: 11px 12px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--panel-raised);
+}
+
+.language-pack.active {
+  border-color: var(--border-strong);
+}
+
+.language-pack-head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.language-pack-head .checkbox {
+  flex: 1;
+}
+
+.language-pack-state {
+  border-radius: 999px;
+  padding: 1px 7px;
+  font-size: 10.5px;
+  white-space: nowrap;
+}
+
+.language-pack-state.ok {
+  color: var(--success);
+  background: color-mix(in srgb, var(--success) 12%, transparent);
+}
+
+.language-pack-state.missing {
+  color: var(--muted);
+  background: var(--hover);
+}
+
+.language-pack-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 10px;
+  color: var(--muted);
+  font-size: 11px;
+}
+
+.language-pack-server {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.language-pack-server .text-input {
+  flex: 1;
+  min-width: 0;
+}
+
+.language-pack-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 22px;
+}
+
+.language-pack-hint {
+  overflow: hidden;
+  color: var(--muted-2);
+  font-size: 10.5px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.language-pack-log {
+  margin-top: 12px;
+}
+
+.language-pack-log pre {
+  max-height: 180px;
+  overflow: auto;
+  margin: 5px 0 0;
+  padding: 8px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--code-bg);
+  color: var(--muted);
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+  white-space: pre-wrap;
+}
+
+.language-pack-path {
+  max-width: 100%;
+  overflow: hidden;
+  color: var(--muted-2);
+  font-family: var(--font-mono);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}

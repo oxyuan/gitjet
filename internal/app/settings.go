@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"gitjet/internal/git"
+	langpack "gitjet/internal/lang"
 )
 
 // Settings is the app's configuration, persisted in the user's config
@@ -65,6 +66,20 @@ type Settings struct {
 	OpenInNewWindow    bool         `json:"openInNewWindow"`
 	UIScale            int          `json:"uiScale"` // percent, 100 is the design size
 	Recent             []RecentRepo `json:"recent"`
+	// LanguagePacks are the enabled language support packs. A nil list (an
+	// older settings file) means every built-in pack; an empty list means
+	// the user switched them all off.
+	LanguagePacks []string `json:"languagePacks"`
+	// LanguageServers overrides the executable of one pack, e.g. a jdtls
+	// launcher outside PATH. An absent entry uses the managed install, then
+	// PATH.
+	LanguageServers []LanguageServerPath `json:"languageServers"`
+}
+
+// LanguageServerPath is one pack's custom server executable.
+type LanguageServerPath struct {
+	PackID string `json:"packId"`
+	Path   string `json:"path"`
 }
 
 // RecentRepo is a repository the user opened before.
@@ -119,6 +134,7 @@ func defaultSettings() Settings {
 		CommitCheckHead:     true,
 		AutoFetchMinutes:    15,
 		UIScale:             100,
+		LanguagePacks:       langpack.AllIDs(),
 	}
 }
 
@@ -192,6 +208,25 @@ func (s *Settings) clamp() {
 		}
 	}
 	s.ProtectedBranches = patterns
+	if s.LanguagePacks == nil {
+		s.LanguagePacks = langpack.AllIDs()
+	}
+	s.LanguagePacks = langpack.NormalizeEnabled(s.LanguagePacks)
+	servers := make([]LanguageServerPath, 0, len(s.LanguageServers))
+	seen := make(map[string]bool)
+	for _, entry := range s.LanguageServers {
+		entry.PackID = strings.TrimSpace(entry.PackID)
+		entry.Path = strings.TrimSpace(entry.Path)
+		if entry.PackID == "" || entry.Path == "" || seen[entry.PackID] || len(servers) >= 50 {
+			continue
+		}
+		if _, ok := langpack.PackByID(entry.PackID); !ok {
+			continue
+		}
+		seen[entry.PackID] = true
+		servers = append(servers, entry)
+	}
+	s.LanguageServers = servers
 }
 
 func saveSettings(s Settings) error {
@@ -313,8 +348,8 @@ type core struct {
 	settings Settings
 	lastSig  string
 	pollStop chan struct{}
-	// lsp is the language server bridge for the open repository.
-	lsp   *lspSession
+	// lsp holds one bridge per enabled language pack, keyed by pack id.
+	lsp   map[string]*lspSession
 	lspMu sync.Mutex
 	// consoleCancel stops the console command that is running: a program
 	// that waits for input would otherwise hold the repository's write

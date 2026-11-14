@@ -5,6 +5,8 @@ import { DiffView } from "./DiffView";
 import type { WhitespaceMode } from "./diff";
 import { FileTree } from "./FileTree";
 import { SourceEditor } from "./SourceEditor";
+import { Channel } from "mygo-runtime";
+import { disconnectLSP } from "./lsp";
 import { Git, Workspace } from "./mygo";
 import type {
   BranchCleanup,
@@ -18,6 +20,7 @@ import type {
   PullOptions,
   PushOptions,
   PushPreview,
+  PackStatus,
   RebaseOptions,
   Conflict,
   Remote,
@@ -67,6 +70,7 @@ const T = {
     "settings.title": "Settings",
     "settings.tabGeneral": "General",
     "settings.tabGit": "Git",
+    "settings.tabLanguages": "Languages",
     "settings.tabKeys": "Shortcuts",
     "settings.panelGeneral": "General settings",
     "settings.panelTabs": "Dock tabs",
@@ -91,6 +95,19 @@ const T = {
     "settings.panelDanger": "Confirmations",
     "settings.language": "Language",
     "settings.languageSystem": "Use system language",
+    "settings.languagesHint": "Enable the language packs you use. Grammar highlighting is built in; a pack also starts its language server for navigation, completion and diagnostics. Server paths take effect when you save.",
+    "settings.languageBuiltIn": "Syntax: built in",
+    "settings.serverReady": "Server ready",
+    "settings.serverMissing": "Server not found",
+    "settings.serverAuto": "Automatic: managed install, then PATH",
+    "settings.locateServer": "Locate…",
+    "settings.usePath": "Use PATH",
+    "settings.installServer": "Install",
+    "settings.reinstallServer": "Reinstall managed copy",
+    "settings.uninstallServer": "Uninstall",
+    "settings.managedVersion": "Managed {version}",
+    "settings.installLog": "Installation log",
+    "settings.languageServerName": "Server: {name}",
     "settings.theme": "Theme",
     "settings.themeSystem": "Use system setting",
     "settings.themeLight": "Light",
@@ -369,6 +386,7 @@ const T = {
     "settings.title": "设置",
     "settings.tabGeneral": "通用",
     "settings.tabGit": "Git",
+    "settings.tabLanguages": "语言",
     "settings.tabKeys": "快捷键",
     "settings.panelGeneral": "通用设置",
     "settings.panelTabs": "工具窗口顺序",
@@ -386,6 +404,19 @@ const T = {
     "settings.panelDanger": "危险操作确认",
     "settings.language": "界面语言",
     "settings.languageSystem": "跟随系统",
+    "settings.languagesHint": "启用需要的语言包。语法高亮已内置；语言包还会启动对应语言服务器，提供跳转、补全和诊断。服务器路径在保存后生效。",
+    "settings.languageBuiltIn": "语法：已内置",
+    "settings.serverReady": "服务器就绪",
+    "settings.serverMissing": "未找到服务器",
+    "settings.serverAuto": "自动：优先使用应用安装，其次 PATH",
+    "settings.locateServer": "选择…",
+    "settings.usePath": "使用 PATH",
+    "settings.installServer": "安装",
+    "settings.reinstallServer": "重新安装应用副本",
+    "settings.uninstallServer": "卸载",
+    "settings.managedVersion": "应用安装 {version}",
+    "settings.installLog": "安装日志",
+    "settings.languageServerName": "服务器：{name}",
     "settings.theme": "主题",
     "settings.themeSystem": "跟随系统",
     "settings.themeLight": "浅色",
@@ -683,7 +714,7 @@ const PANELS: { id: string; title: TKey; open: boolean; tone?: "warning" }[] = [
   { id: "danger", title: "settings.panelDanger", open: true, tone: "warning" },
 ];
 
-type SettingsTab = "general" | "git" | "keys";
+type SettingsTab = "general" | "git" | "languages" | "keys";
 
 /** Which fields each tab owns: the save button, the reset button and the
  *  unsaved-changes prompt all work on this mapping, so a tab can never
@@ -710,6 +741,7 @@ const TAB_FIELDS: Record<SettingsTab, (keyof Settings)[]> = {
     "protectedBranches",
     "autoUpdateOnReject",
   ],
+  languages: ["languagePacks", "languageServers"],
   keys: [],
 };
 
@@ -767,6 +799,10 @@ export function SettingsDialog({
   const [gitVersion, setGitVersion] = useState("");
   const [checking, setChecking] = useState(false);
   const [error, setError] = useState("");
+  const [packs, setPacks] = useState<PackStatus[]>([]);
+  const [packsError, setPacksError] = useState("");
+  const [installing, setInstalling] = useState("");
+  const [installLog, setInstallLog] = useState<string[]>([]);
 
   // The defaults power the reset button; the detected version tells the user
   // which git the field is about before anything is typed. Both are fetched
@@ -791,6 +827,21 @@ export function SettingsDialog({
     }
   }, [onValidate]);
 
+  // The language tab asks the host for the catalog when it opens; the answer
+  // carries both the server paths and whether each one exists. The list is
+  // kept after the first read so switching tabs does not flash empty.
+  useEffect(() => {
+    if (tab !== "languages" || packs.length > 0) return;
+    void Workspace.languagePacks()
+      .then((next) => {
+        setPacks(next);
+        setPacksError("");
+      })
+      .catch((err) => setPacksError(err instanceof Error ? err.message : String(err)));
+    // `packs` is deliberately not a dependency: only the first open fetches.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [tab]);
+
   // A tab opens at its first panel, not wherever the previous one was scrolled.
   useEffect(() => {
     const body = panelsRef.current?.closest(".modal-body");
@@ -798,6 +849,63 @@ export function SettingsDialog({
   }, [tab]);
 
   const set = <K extends keyof Settings>(key: K, value: Settings[K]) => setDraft({ ...draft, [key]: value });
+
+  const togglePack = (id: string, enabled: boolean) => {
+    const current = draft.languagePacks;
+    set("languagePacks", enabled ? [...new Set([...current, id])] : current.filter((item) => item !== id));
+  };
+
+  const setServerPath = (id: string, path: string) => {
+    const rest = draft.languageServers.filter((entry) => entry.packId !== id);
+    const trimmed = path.trim();
+    set("languageServers", trimmed ? [...rest, { packId: id, path: trimmed }] : rest);
+  };
+
+  const chooseServer = async (id: string) => {
+    try {
+      const path = await Workspace.chooseLanguageServer();
+      if (path) setServerPath(id, path);
+    } catch (err) {
+      setPacksError(err instanceof Error ? err.message : String(err));
+    }
+  };
+
+  const installPack = async (id: string) => {
+    setInstalling(id);
+    setInstallLog([]);
+    setPacksError("");
+    try {
+      const channel = new Channel<string>();
+      const request = Workspace.installLanguagePack(id, channel);
+      // The page must consume the stream before awaiting the promise, or the
+      // installer blocks on its first progress line.
+      for await (const line of channel) {
+        setInstallLog((lines) => [...lines.slice(-199), line]);
+      }
+      setPacks(await request);
+      // The probe cached the old install state; the next editor must see the
+      // server that was just installed, and old sessions must not survive.
+      void disconnectLSP();
+    } catch (err) {
+      setPacksError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setInstalling("");
+    }
+  };
+
+  const removePack = async (id: string) => {
+    setInstalling(id);
+    setPacksError("");
+    try {
+      setPacks(await Workspace.removeLanguagePack(id));
+      setInstallLog([]);
+      void disconnectLSP();
+    } catch (err) {
+      setPacksError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setInstalling("");
+    }
+  };
 
   const anyDirty = (Object.keys(TAB_FIELDS) as SettingsTab[]).some((name) =>
     TAB_FIELDS[name].some((k) => draft[k] !== settings[k]),
@@ -902,6 +1010,7 @@ export function SettingsDialog({
               [
                 ["general", "settings.tabGeneral"],
                 ["git", "settings.tabGit"],
+                ["languages", "settings.tabLanguages"],
                 ["keys", "settings.tabKeys"],
               ] as [SettingsTab, string][]
             ).map(([id, label]) => (
@@ -1225,6 +1334,96 @@ export function SettingsDialog({
                   </SettingRow>
                 </>,
               )}
+            </>
+          )}
+
+          {tab === "languages" && (
+            <>
+              <p className="settings-keys-note">{t("settings.languagesHint")}</p>
+              {packsError && <div className="setting-note error">{packsError}</div>}
+              {installLog.length > 0 && (
+                <div className="language-pack-log">
+                  <div className="setting-label">{t("settings.installLog")}</div>
+                  <pre>{installLog.join("\n")}</pre>
+                </div>
+              )}
+              <div className="language-packs">
+                {packs.map((pack) => {
+                  const enabled = draft.languagePacks.includes(pack.id);
+                  const custom = draft.languageServers.find((entry) => entry.packId === pack.id)?.path ?? "";
+                  return (
+                    <section className={cx("language-pack", enabled && "active")} key={pack.id}>
+                      <div className="language-pack-head">
+                        <Checkbox
+                          checked={enabled}
+                          onChange={(value) => togglePack(pack.id, value)}
+                          label={pack.name}
+                        />
+                        <span className={cx("language-pack-state", pack.installed ? "ok" : "missing")}>
+                          {pack.installed ? t("settings.serverReady") : t("settings.serverMissing")}
+                        </span>
+                      </div>
+                      <div className="language-pack-meta">
+                        <span>{pack.description}</span>
+                        <span>{t("settings.languageBuiltIn")}</span>
+                        {pack.serverName && (
+                          <span>{t("settings.languageServerName", { name: pack.serverName })}</span>
+                        )}
+                        {pack.managed && pack.version && (
+                          <span>{t("settings.managedVersion", { version: pack.version })}</span>
+                        )}
+                        {pack.installed && pack.command && (
+                          <span className="language-pack-path" title={pack.command}>
+                            {pack.command}
+                          </span>
+                        )}
+                      </div>
+                      {pack.serverName && (
+                        <div className="language-pack-server">
+                          <TextInput
+                            value={custom}
+                            onChange={(value) => setServerPath(pack.id, value)}
+                            placeholder={t("settings.serverAuto")}
+                            monospace
+                          />
+                          <Button onClick={() => void chooseServer(pack.id)}>
+                            {t("settings.locateServer")}
+                          </Button>
+                          {custom && (
+                            <Button onClick={() => setServerPath(pack.id, "")}>
+                              {t("settings.usePath")}
+                            </Button>
+                          )}
+                        </div>
+                      )}
+                      <div className="language-pack-actions">
+                        {pack.installable && !pack.managed && (
+                          <Button
+                            onClick={() => void installPack(pack.id)}
+                            disabled={installing !== ""}
+                          >
+                            {installing === pack.id ? (
+                              <Spinner />
+                            ) : pack.installed ? (
+                              t("settings.reinstallServer")
+                            ) : (
+                              t("settings.installServer")
+                            )}
+                          </Button>
+                        )}
+                        {pack.managed && (
+                          <Button onClick={() => void removePack(pack.id)} disabled={installing !== ""}>
+                            {t("settings.uninstallServer")}
+                          </Button>
+                        )}
+                        {pack.hint && !pack.installed && (
+                          <code className="language-pack-hint">{pack.hint}</code>
+                        )}
+                      </div>
+                    </section>
+                  );
+                })}
+              </div>
             </>
           )}
 

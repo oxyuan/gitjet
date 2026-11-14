@@ -1,8 +1,6 @@
 package lsp
 
 import (
-	"os"
-	"path/filepath"
 	"strconv"
 	"strings"
 	"testing"
@@ -59,44 +57,4 @@ func TestReadFramesRejectsMissingLength(t *testing.T) {
 	if err == nil || !strings.Contains(err.Error(), "no Content-Length") {
 		t.Fatalf("err = %v", err)
 	}
-}
-
-func TestDetectPicksByMarker(t *testing.T) {
-	dir := t.TempDir()
-	if _, ok := Detect(dir); ok {
-		t.Fatal("an empty directory should want no server")
-	}
-	if err := writeFile(dir, "go.mod", "module x\n"); err != nil {
-		t.Fatal(err)
-	}
-	s, ok := Detect(dir)
-	if !ok || s.Name != "gopls" || s.Language != "go" {
-		t.Fatalf("server = %+v, ok = %v", s, ok)
-	}
-	if s.Installed {
-		t.Fatalf("%s should not be treated as installed by this test", s.Command)
-	}
-}
-
-func TestDetectResolvesInstalledCommand(t *testing.T) {
-	dir := t.TempDir()
-	if err := writeFile(dir, "package.json", "{}\n"); err != nil {
-		t.Fatal(err)
-	}
-	bin := t.TempDir()
-	if err := writeFile(bin, "typescript-language-server", "#!/bin/sh\n"); err != nil {
-		t.Fatal(err)
-	}
-	t.Setenv("PATH", bin)
-	s, ok := Detect(dir)
-	if !ok || s.Name != "typescript-language-server" || !s.Installed {
-		t.Fatalf("server = %+v, ok = %v", s, ok)
-	}
-	if s.Command != bin+"/typescript-language-server" {
-		t.Fatalf("command = %q", s.Command)
-	}
-}
-
-func writeFile(dir, name, content string) error {
-	return os.WriteFile(filepath.Join(dir, name), []byte(content), 0o755)
 }
