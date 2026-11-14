@@ -1,12 +1,24 @@
 /**
  * IntelliJ's diff engine, ported from `com.intellij.util.diff.Diff` (Reindexer +
- * MyersLCS + change assembly). The word merge compares words, newlines and
- * punctuation at a granularity where many alignments are equally valid, and
- * only the engine's own tie-breaking reproduces the IDE's merge results.
+ * MyersLCS, with the PatienceIntLCS fallback Diff chooses when Myers cannot
+ * settle a region inside its difference threshold). The word merge compares
+ * words, newlines and punctuation at a granularity where many alignments are
+ * equally valid, and only the engine's own tie-breaking reproduces the IDE's
+ * merge results.
  *
  * Inputs are element ids; equal ids mean equal elements. Outputs are the
  * changed blocks, which is all the diff iterables need.
  */
+
+/** `FilesTooBigForDiffException`: Myers exhausted its difference threshold, so
+ *  the coarse Patience pass decides — and when that cannot shrink the region
+ *  either, the IDE gives up on inner fragments and the caller must fall back. */
+export class DiffTooBigError extends Error {
+  constructor() {
+    super("diff too big");
+    this.name = "DiffTooBigError";
+  }
+}
 
 export interface IdeaBlock {
   aStart: number;
@@ -140,9 +152,20 @@ class MyersLcs {
     this.backward = new Int32Array(count1 + count2 + 1);
   }
 
-  run(): [Uint8Array, Uint8Array] {
-    const threshold = Math.max(20000 + 10 * Math.sqrt(this.count1 + this.count2), 20000);
-    this.execute(0, this.count1, 0, this.count2, Math.min(threshold, this.count1 + this.count2));
+  /** `MyersLCS.executeWithThreshold`. `throwIfTooBig` is false only when the
+   *  patience pass runs it as its last resort: `execute` then leaves the
+   *  region marked changed (`execute` in the IDE throws instead). */
+  run(throwIfTooBig = true): [Uint8Array, Uint8Array] {
+    const threshold = Math.max(20000 + 10 * Math.trunc(Math.sqrt(this.count1 + this.count2)), 20000);
+    const tooBig = this.execute(
+      0,
+      this.count1,
+      0,
+      this.count2,
+      Math.min(threshold, this.count1 + this.count2),
+      throwIfTooBig,
+    );
+    if (tooBig && throwIfTooBig) throw new DiffTooBigError();
     return [this.changes1, this.changes2];
   }
 
@@ -152,8 +175,9 @@ class MyersLcs {
     newStart: number,
     newEnd: number,
     differenceEstimate: number,
-  ): void {
-    if (oldStart >= oldEnd || newStart >= newEnd) return;
+    throwIfTooBig: boolean,
+  ): boolean {
+    if (oldStart >= oldEnd || newStart >= newEnd) return false;
     const oldLength = oldEnd - oldStart;
     const newLength = newEnd - newStart;
     const vf = this.forward;
@@ -214,9 +238,15 @@ class MyersLcs {
     if (td > 1) {
       const split = xx - kk + newLength;
       const oldDiff = (td + 1) >> 1;
-      if (xx > 0 && split > 0) this.execute(oldStart, oldStart + xx, newStart, newStart + split, oldDiff);
+      if (xx > 0 && split > 0) {
+        if (this.execute(oldStart, oldStart + xx, newStart, newStart + split, oldDiff, throwIfTooBig) && throwIfTooBig) {
+          return true;
+        }
+      }
       if (oldStart + xx < oldEnd && newStart + split < newEnd) {
-        this.execute(oldStart + xx, oldEnd, newStart + split, newEnd, td - oldDiff);
+        if (this.execute(oldStart + xx, oldEnd, newStart + split, newEnd, td - oldDiff, throwIfTooBig) && throwIfTooBig) {
+          return true;
+        }
       }
     } else if (td >= 0) {
       // The centre line never crossed: walk the two runs greedily.
@@ -234,10 +264,15 @@ class MyersLcs {
           y++;
         }
       }
+    } else {
+      // No centre line was found inside the difference estimate.
+      return true;
     }
+    return false;
   }
 
   private addUnchanged(start1: number, start2: number, count: number): void {
+    // The change masks cover only this run's slice (`count1`/`count2`).
     this.changes1.fill(0, start1, start1 + count);
     this.changes2.fill(0, start2, start2 + count);
   }
@@ -262,6 +297,197 @@ class MyersLcs {
       y--;
     }
     return oldIndex - x;
+  }
+}
+
+/** `UniqueLCS`: the elements each side has exactly once, reduced to their
+ *  longest increasing match. This is what Patience uses to find anchors that
+ *  Myers' difference threshold cannot reach. */
+function uniqueLcs(
+  first: readonly number[],
+  second: readonly number[],
+  start1: number,
+  count1: number,
+  start2: number,
+  count2: number,
+): [Int32Array, Int32Array] | null {
+  const known = new Map<number, number>();
+  for (let i = 0; i < count1; i++) {
+    const value = first[start1 + i]!;
+    const position = known.get(value);
+    if (position === undefined) known.set(value, i + 1);
+    else if (position !== -1) known.set(value, -1);
+  }
+  const match = new Int32Array(count1);
+  let count = 0;
+  for (let i = 0; i < count2; i++) {
+    const value = second[start2 + i]!;
+    const position = known.get(value);
+    if (position === undefined || position === -1) continue;
+    const index = position - 1;
+    if (match[index] === 0) {
+      match[index] = i + 1;
+      count++;
+    } else {
+      match[index] = 0;
+      known.set(value, -1);
+      count--;
+    }
+  }
+  if (count === 0) return null;
+
+  // Longest increasing subsequence over the matched second indices.
+  const sequence1 = new Int32Array(count);
+  const sequence2 = new Int32Array(count);
+  const predecessors = new Int32Array(count1).fill(-1);
+  let size = 0;
+  for (let i = 0; i < count1; i++) {
+    if (match[i] === 0) continue;
+    let low = 0;
+    let high = size;
+    while (low < high) {
+      const middle = (low + high) >> 1;
+      if (sequence1[middle]! < match[i]!) low = middle + 1;
+      else high = middle;
+    }
+    if (low === size || match[i]! < sequence1[low]!) {
+      sequence1[low] = match[i]!;
+      sequence2[low] = i;
+      predecessors[i] = low > 0 ? sequence2[low - 1]! : -1;
+      if (low === size) size++;
+    }
+  }
+  const out1 = new Int32Array(size);
+  const out2 = new Int32Array(size);
+  let index = size - 1;
+  for (let i = sequence2[size - 1]!; i !== -1; i = predecessors[i]!) {
+    out1[index] = i;
+    out2[index] = match[i]! - 1;
+    index--;
+  }
+  return [out1, out2];
+}
+
+/** `PatienceIntLCS`: split at unique equal elements, and run linear Myers on
+ *  the stretches between anchors. `Diff.doBuildChanges` falls back to this
+ *  when Myers gives up, and only throws when this cannot shrink the region. */
+class PatienceLcs {
+  private readonly changes1: Uint8Array;
+  private readonly changes2: Uint8Array;
+
+  constructor(
+    private readonly first: readonly number[],
+    private readonly second: readonly number[],
+    private readonly length1: number,
+    private readonly length2: number,
+  ) {
+    this.changes1 = new Uint8Array(length1);
+    this.changes2 = new Uint8Array(length2);
+  }
+
+  run(): [Uint8Array, Uint8Array] {
+    this.execute(0, this.length1, 0, this.length2, 2);
+    return [this.changes1, this.changes2];
+  }
+
+  private execute(
+    start1: number,
+    count1: number,
+    start2: number,
+    count2: number,
+    thresholdCheckCounter: number,
+  ): void {
+    if (count1 === 0 && count2 === 0) return;
+    if (count1 === 0 || count2 === 0) {
+      this.addChange(start1, count1, start2, count2);
+      return;
+    }
+    const startOffset = this.matchForward(start1, count1, start2, count2);
+    const newStart1 = start1 + startOffset;
+    const newStart2 = start2 + startOffset;
+    let newCount1 = count1 - startOffset;
+    let newCount2 = count2 - startOffset;
+    const endOffset = this.matchBackward(newStart1, newCount1, newStart2, newCount2);
+    newCount1 -= endOffset;
+    newCount2 -= endOffset;
+    if (newCount1 === 0 || newCount2 === 0) {
+      this.addChange(newStart1, newCount1, newStart2, newCount2);
+      return;
+    }
+    if (thresholdCheckCounter === 0) this.checkReduction(newCount1, newCount2);
+    const nextThreshold = Math.max(-1, thresholdCheckCounter - 1);
+    const matching = uniqueLcs(this.first, this.second, newStart1, newCount1, newStart2, newCount2);
+    if (matching === null) {
+      if (nextThreshold >= 0) this.checkReduction(newCount1, newCount2);
+      const [changes1, changes2] = new MyersLcs(
+        this.first,
+        this.second,
+        newStart1,
+        newCount1,
+        newStart2,
+        newCount2,
+      ).run(false);
+      for (let i = 0; i < changes1.length; i++) if (changes1[i]) this.changes1[newStart1 + i] = 1;
+      for (let i = 0; i < changes2.length; i++) if (changes2[i]) this.changes2[newStart2 + i] = 1;
+      return;
+    }
+
+    const matched = matching[0].length;
+    if (matched <= 0) throw new Error("patience LCS produced no match");
+    this.execute(newStart1, matching[0][0]!, newStart2, matching[1][0]!, nextThreshold);
+    for (let i = 1; i < matched; i++) {
+      const anchorStart1 = matching[0][i - 1]! + 1;
+      const anchorStart2 = matching[1][i - 1]! + 1;
+      const anchorCount1 = matching[0][i]! - anchorStart1;
+      const anchorCount2 = matching[1][i]! - anchorStart2;
+      if (anchorCount1 > 0 || anchorCount2 > 0) {
+        this.execute(
+          newStart1 + anchorStart1,
+          anchorCount1,
+          newStart2 + anchorStart2,
+          anchorCount2,
+          nextThreshold,
+        );
+      }
+    }
+    const last1 = matching[0][matched - 1]!;
+    const last2 = matching[1][matched - 1]!;
+    const ends1 = last1 === newCount1 - 1;
+    const ends2 = last2 === newCount2 - 1;
+    const tailStart1 = ends1 ? newCount1 - 1 : last1 + 1;
+    const tailStart2 = ends2 ? newCount2 - 1 : last2 + 1;
+    const tailCount1 = ends1 ? 0 : newCount1 - tailStart1;
+    const tailCount2 = ends2 ? 0 : newCount2 - tailStart2;
+    this.execute(
+      newStart1 + tailStart1,
+      tailCount1,
+      newStart2 + tailStart2,
+      tailCount2,
+      nextThreshold,
+    );
+  }
+
+  private matchForward(start1: number, count1: number, start2: number, count2: number): number {
+    const size = Math.min(count1, count2);
+    let i = 0;
+    while (i < size && this.first[start1 + i] === this.second[start2 + i]) i++;
+    return i;
+  }
+
+  private matchBackward(start1: number, count1: number, start2: number, count2: number): number {
+    const size = Math.min(count1, count2);
+    let i = 0;
+    while (i < size && this.first[start1 + count1 - i - 1] === this.second[start2 + count2 - i - 1]) i++;
+    return i;
+  }
+
+  private addChange(start1: number, count1: number, start2: number, count2: number): void {
+    this.changes1.fill(1, start1, start1 + count1);
+    this.changes2.fill(1, start2, start2 + count2);
+  }
+
+  private checkReduction(count1: number, count2: number): void {
+    if (count1 * 2 >= this.length1 && count2 * 2 >= this.length2) throw new DiffTooBigError();
   }
 }
 
@@ -300,8 +526,14 @@ export function ideaBlocks(a: readonly number[], b: readonly number[]): IdeaBloc
     builder.addChange(trimmed1.length, trimmed2.length);
     return blocks;
   }
-  const lcs = new MyersLcs(discarded1, discarded2, 0, discarded1.length, 0, discarded2.length);
-  const [raw1, raw2] = lcs.run();
+  let raw1: Uint8Array;
+  let raw2: Uint8Array;
+  try {
+    [raw1, raw2] = new MyersLcs(discarded1, discarded2, 0, discarded1.length, 0, discarded2.length).run();
+  } catch (error) {
+    if (!(error instanceof DiffTooBigError)) throw error;
+    [raw1, raw2] = new PatienceLcs(discarded1, discarded2, discarded1.length, discarded2.length).run();
+  }
   const [changes1, changes2] = reindexer.reindex(raw1, raw2);
 
   let x = 0;

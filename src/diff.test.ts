@@ -40,6 +40,15 @@ describe("charDiff", () => {
     expect(changedRuns(right)).toEqual([[0, 1]]);
   });
 
+  it("keeps inner fragments on a line far above the old element cap", () => {
+    // The IDE limits a char diff by Myers' difference threshold, not by the
+    // line length: a 12k-character line with one changed char keeps its mark.
+    const left = "a".repeat(12000);
+    const right = `${"a".repeat(6000)}b${"a".repeat(5999)}`;
+    expect(changedRuns(charDiff(left, right)[0])).toEqual([[6000, 6001]]);
+    expect(changedRuns(charDiff(left, right)[1])).toEqual([[6000, 6001]]);
+  });
+
   it("keeps surrogate pairs whole", () => {
     const [left, right] = charDiff("😀a", "😁a");
     expect(changedRuns(left)).toEqual([[0, 2]]);

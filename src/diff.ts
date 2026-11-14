@@ -1,5 +1,5 @@
 import type { DiffHunk, DiffLine, FileDiff } from "./mygo";
-import { elementIds, ideaBlocks } from "./ideaDiff";
+import { DiffTooBigError, elementIds, ideaBlocks, type IdeaBlock } from "./ideaDiff";
 import { compareAndSplit, type WordFragment } from "./worddiff";
 
 export interface WordSegment {
@@ -191,21 +191,22 @@ export function wordDiff(a: string, b: string): [WordSegment[], WordSegment[]] {
 export function charDiff(a: string, b: string): [WordSegment[], WordSegment[]] {
   const charsA = Array.from(a);
   const charsB = Array.from(b);
-  // The engine is the IDE's, and the IDE gives up on a huge inner diff too:
-  // a minified line would otherwise spend its time in Myers for no readable
-  // gain. The whole line stays marked as one change. Ten thousand code
-  // points caps a worst-case pair near a hundred milliseconds of UI thread.
-  if (charsA.length + charsB.length > 10_000) {
+  let blocks: IdeaBlock[];
+  try {
+    const ids = new Map<number, number>();
+    blocks = ideaBlocks(
+      elementIds(charsA.map((ch) => ch.codePointAt(0) ?? 0), ids),
+      elementIds(charsB.map((ch) => ch.codePointAt(0) ?? 0), ids),
+    );
+  } catch (error) {
+    // The IDE throws `DiffTooBigException` and the line keeps no inner
+    // fragments; the whole line stays marked as one change.
+    if (!(error instanceof DiffTooBigError)) throw error;
     return [
       [{ text: a, changed: true }],
       [{ text: b, changed: true }],
     ];
   }
-  const ids = new Map<number, number>();
-  const blocks = ideaBlocks(
-    elementIds(charsA.map((ch) => ch.codePointAt(0) ?? 0), ids),
-    elementIds(charsB.map((ch) => ch.codePointAt(0) ?? 0), ids),
-  );
   const runs = (side: "a" | "b"): number[][] => {
     const out: number[][] = [];
     for (const block of blocks) {

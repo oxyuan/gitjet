@@ -51,6 +51,17 @@ describe("compareAndSplit", () => {
     expect(blocks[1]?.fragments).toEqual([{ start1: 19, end1: 19, start2: 19, end2: 23 }]);
   });
 
+  it("keeps inner fragments on a block far above the old element cap", () => {
+    // The IDE's only limit is Myers' difference threshold, not the number of
+    // words: a 12k-word line with one changed word must still mark that word.
+    const words = Array.from({ length: 12000 }, (_, i) => `w${i}`);
+    const left = words.join(" ");
+    const right = words.map((word, i) => (i === 6000 ? "changed" : word)).join(" ");
+    const [block] = compareAndSplit(left, right);
+    const start = left.indexOf("w6000");
+    expect(block?.fragments).toEqual([{ start1: start, end1: start + 5, start2: start, end2: start + 7 }]);
+  });
+
   it("splits continuous scripts into comparable characters", () => {
     const [block] = compareAndSplit("你好世界", "你好朋友");
     expect(block?.fragments).toEqual([{ start1: 2, end1: 4, start2: 2, end2: 4 }]);

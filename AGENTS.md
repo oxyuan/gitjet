@@ -230,7 +230,11 @@ use it only for layout work. Vite's port is pinned to 5173 in **both**
 - The conflict view's wand resolves a range with the IDE's own text merge:
   `wordmerge.ts` ports `MergeResolveUtil.tryResolve` (word/newline chunks,
   whitespace-sensitive pass then a whitespace-ignoring one), and `ideaDiff.ts`
-  ports `com.intellij.util.diff.Diff` so the alignments match the IDE's.
+  ports `com.intellij.util.diff.Diff` so the alignments match the IDE's: Myers
+  with the IDE's difference threshold, then its `PatienceIntLCS` fallback, and
+  only `DiffTooBig` when patience cannot shrink the region — there is no fixed
+  word or character cap, so a large line that differs in one place keeps its
+  inner fragments.
   Modify/delete conflicts are not auto-resolvable there, exactly as in IDEA:
   they need a side choice. `merge.ts`'s `tryResolveRange` is the one entry
   point; `myers.ts` stays the line diff behind the merge view.

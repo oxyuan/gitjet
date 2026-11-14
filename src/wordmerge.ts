@@ -15,7 +15,7 @@
  */
 
 import type { IdeaBlock } from "./ideaDiff";
-import { elementIds, ideaBlocks } from "./ideaDiff";
+import { DiffTooBigError, elementIds, ideaBlocks } from "./ideaDiff";
 
 type Policy = "default" | "ignoreWhitespace";
 
@@ -731,7 +731,14 @@ function trySimple(left: string, base: string, right: string, policy: Policy): s
  * when both sides changed the same words differently.
  */
 export function tryResolveText(left: string, base: string, right: string): string | null {
-  const resolved = trySimple(left, base, right, "default");
-  if (resolved !== null) return resolved;
-  return trySimple(left, base, right, "ignoreWhitespace");
+  try {
+    const resolved = trySimple(left, base, right, "default");
+    if (resolved !== null) return resolved;
+    return trySimple(left, base, right, "ignoreWhitespace");
+  } catch (error) {
+    // `MergeResolveUtil.tryResolve` catches DiffTooBigException and leaves the
+    // conflict to the reader, exactly as an unresolvable one.
+    if (error instanceof DiffTooBigError) return null;
+    throw error;
+  }
 }

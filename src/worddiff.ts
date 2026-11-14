@@ -16,7 +16,7 @@
  * two sides share, which is what keeps spaces inside a changed run marked.
  */
 
-import { elementIds, ideaBlocks, type IdeaBlock } from "./ideaDiff";
+import { DiffTooBigError, elementIds, ideaBlocks, type IdeaBlock } from "./ideaDiff";
 
 export interface WordFragment {
   start1: number;
@@ -840,9 +840,32 @@ function countNewlines(words: readonly Chunk[], start: number, end: number): num
 export function compareAndSplit(text1: string, text2: string): WordLineBlock[] {
   const words1 = getInlineChunks(text1);
   const words2 = getInlineChunks(text2);
-  // IntelliJ gives up on inner fragments when the word diff is too big
-  // (`FilesTooBigForDiffException`); a huge block is then shown line by line.
-  if (words1.length + words2.length > 20_000) {
+  try {
+    const ids = new Map<string, number>();
+    const ids1 = elementIds(
+      words1.map((chunk) => chunk.key),
+      ids,
+    );
+    const ids2 = elementIds(
+      words2.map((chunk) => chunk.key),
+      ids,
+    );
+    const { unchanged } = runsFromBlocks(ideaBlocks(ids1, ids2), words1.length, words2.length);
+    const optimized = optimizeWordChunks(words1, words2, text1, text2, unchanged);
+    const changes = complementRanges(optimized, words1.length, words2.length);
+    return splitIntoLineBlocks(text1, text2, words1, words2, optimized).map((block) => ({
+      fragments: blockFragments(block, changes, words1, words2, text1, text2),
+      start1: block.offsets.start1,
+      end1: block.offsets.end1,
+      start2: block.offsets.start2,
+      end2: block.offsets.end2,
+      newlines1: countNewlines(words1, block.words.start1, block.words.end1),
+      newlines2: countNewlines(words2, block.words.start2, block.words.end2),
+    }));
+  } catch (error) {
+    // IntelliJ gives up on inner fragments when the word diff is too big
+    // (`DiffTooBigException`); the line fragment is shown without them.
+    if (!(error instanceof DiffTooBigError)) throw error;
     return [
       {
         fragments: [],
@@ -855,25 +878,4 @@ export function compareAndSplit(text1: string, text2: string): WordLineBlock[] {
       },
     ];
   }
-  const ids = new Map<string, number>();
-  const ids1 = elementIds(
-    words1.map((chunk) => chunk.key),
-    ids,
-  );
-  const ids2 = elementIds(
-    words2.map((chunk) => chunk.key),
-    ids,
-  );
-  const { unchanged } = runsFromBlocks(ideaBlocks(ids1, ids2), words1.length, words2.length);
-  const optimized = optimizeWordChunks(words1, words2, text1, text2, unchanged);
-  const changes = complementRanges(optimized, words1.length, words2.length);
-  return splitIntoLineBlocks(text1, text2, words1, words2, optimized).map((block) => ({
-    fragments: blockFragments(block, changes, words1, words2, text1, text2),
-    start1: block.offsets.start1,
-    end1: block.offsets.end1,
-    start2: block.offsets.start2,
-    end2: block.offsets.end2,
-    newlines1: countNewlines(words1, block.words.start1, block.words.end1),
-    newlines2: countNewlines(words2, block.words.start2, block.words.end2),
-  }));
 }
