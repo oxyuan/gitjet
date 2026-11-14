@@ -95,3 +95,39 @@ func TestLFSTrackWritesGitattributes(t *testing.T) {
 		t.Fatalf("LFSUntrack: %v", err)
 	}
 }
+
+func TestApplyDiffHunkOfASubmoduleStagesTheNewCommit(t *testing.T) {
+	repo, dir := newTestRepo(t)
+	ctx := context.Background()
+	source := t.TempDir()
+	runGit(t, source, "init", "-q", "-b", "main")
+	writeFile(t, source, "lib.txt", "lib\n")
+	runGit(t, source, "add", ".")
+	runGit(t, source, "commit", "-q", "-m", "lib")
+	runGit(t, dir, "config", "--global", "protocol.file.allow", "always")
+	if _, err := repo.AddSubmodule(ctx, source, "vendor/lib", ""); err != nil {
+		t.Fatalf("AddSubmodule: %v", err)
+	}
+	runGit(t, dir, "commit", "-q", "-m", "add submodule")
+	writeFile(t, source, "lib.txt", "lib changed\n")
+	runGit(t, source, "add", ".")
+	runGit(t, source, "commit", "-q", "-m", "lib two")
+	sub := filepath.Join(dir, "vendor", "lib")
+	runGit(t, sub, "fetch", "-q", source, "main")
+	runGit(t, sub, "checkout", "-q", "FETCH_HEAD")
+
+	opts := DiffOptions{Path: "vendor/lib", Target: DiffWorkingTree}
+	d, err := repo.FileDiff(ctx, opts)
+	if err != nil {
+		t.Fatalf("FileDiff: %v", err)
+	}
+	if !d.Submodule || len(d.Hunks) != 1 {
+		t.Fatalf("submodule=%v hunks=%d, want one commit hunk", d.Submodule, len(d.Hunks))
+	}
+	if err := repo.ApplyDiffHunk(ctx, opts, 0, "stage"); err != nil {
+		t.Fatalf("ApplyDiffHunk: %v", err)
+	}
+	if staged := runGit(t, dir, "diff", "--cached", "--name-only"); staged != "vendor/lib" {
+		t.Fatalf("staged change = %q, want the submodule commit", staged)
+	}
+}

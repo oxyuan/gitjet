@@ -270,6 +270,7 @@ export interface FileDiff {
   hasChanges: boolean;
   oldMode: string;
   newMode: string;
+  submodule: boolean;
   wholeFile: boolean;
   language: string;
 }

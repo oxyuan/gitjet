@@ -111,6 +111,9 @@ type FileDiff struct {
 	// change instead of claiming there is none.
 	OldMode string `json:"oldMode"`
 	NewMode string `json:"newMode"`
+	// Submodule marks a gitlink: the change is a commit id, not text, so it
+	// has no hunks that can be applied on their own.
+	Submodule bool `json:"submodule"`
 	// WholeFile reports that the diff covers every line of the file, so a
 	// viewer can show it in full instead of folding the unchanged parts.
 	WholeFile bool `json:"wholeFile"`
@@ -492,6 +495,10 @@ func parsePatch(patch, path string) FileDiff {
 			case strings.HasPrefix(line, "copy from "):
 				d.Status = "copied"
 				d.OldPath = unquoteGitPath(strings.TrimPrefix(line, "copy from "))
+			case strings.HasPrefix(line, "index "):
+				if fields := strings.Fields(line); len(fields) == 3 && fields[2] == "160000" {
+					d.Submodule = true
+				}
 			case strings.HasPrefix(line, "old mode "):
 				d.OldMode = strings.TrimSpace(strings.TrimPrefix(line, "old mode "))
 			case strings.HasPrefix(line, "new mode "):
@@ -685,6 +692,11 @@ func (r *Repo) ApplyDiffHunk(ctx context.Context, opts DiffOptions, hunkIndex in
 	d := parsePatch(patch, path)
 	if hunkIndex < 0 || hunkIndex >= len(d.Hunks) {
 		return fmt.Errorf("no hunk %d in %s", hunkIndex, path)
+	}
+	if d.Submodule {
+		// A gitlink's hunk only names two commit ids; there is no text to
+		// patch, so the whole-file action is the operation that works.
+		return r.ApplyDiffHunkFile(ctx, opts, action)
 	}
 	hunkPatch := d.Hunks[hunkIndex].raw
 	if hunkPatch == "" {

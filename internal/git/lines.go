@@ -60,6 +60,9 @@ func (r *Repo) ApplyDiffLines(ctx context.Context, opts DiffOptions, lines []int
 	if len(diff.Hunks) == 0 {
 		return errors.New("this file has no changed lines")
 	}
+	if diff.Submodule {
+		return errors.New("a submodule can only be staged or unstaged as a whole")
+	}
 	r.write.Lock()
 	defer r.write.Unlock()
 	switch action {
