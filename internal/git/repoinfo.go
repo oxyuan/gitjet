@@ -347,9 +347,13 @@ func (r *Repo) numstat(ctx context.Context, cached bool) map[string]lineStat {
 // countLines counts the lines of a file for untracked files, which git
 // diff does not describe. It reports a binary file when it finds a NUL.
 func countLines(path string) (int, bool) {
-	st, err := os.Stat(path)
+	st, err := os.Lstat(path)
 	if err != nil || st.IsDir() || st.Size() > 8<<20 {
 		return 0, false
+	}
+	if st.Mode()&os.ModeSymlink != 0 {
+		// git stores a link as one line: its target.
+		return 1, false
 	}
 	b, err := os.ReadFile(path)
 	if err != nil {

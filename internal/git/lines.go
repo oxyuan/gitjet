@@ -107,8 +107,28 @@ func (r *Repo) ApplyDiffLines(ctx context.Context, opts DiffOptions, lines []int
 		if target == "" && !exists {
 			return nil
 		}
-		return os.WriteFile(r.AbsPath(path), []byte(target), 0o644)
+		return r.writeWorktreeText(ctx, path, target)
 	}
+}
+
+// writeWorktreeText writes the working tree side of line staging. A path git
+// keeps as a link is recreated as a link: writing through it would edit the
+// file the link points at, which can be outside the repository.
+func (r *Repo) writeWorktreeText(ctx context.Context, path, text string) error {
+	abs := r.AbsPath(path)
+	link := false
+	if info, err := os.Lstat(abs); err == nil {
+		link = info.Mode()&os.ModeSymlink != 0
+	} else if os.IsNotExist(err) {
+		link = r.indexMode(ctx, path) == "120000"
+	}
+	if !link {
+		return os.WriteFile(abs, []byte(text), 0o644)
+	}
+	if err := os.Remove(abs); err != nil && !os.IsNotExist(err) {
+		return err
+	}
+	return os.Symlink(text, abs)
 }
 
 // StageIntent marks untracked paths as intent-to-add: git records them
@@ -406,7 +426,7 @@ func (r *Repo) revisionText(ctx context.Context, rev string) (string, bool, erro
 // worktreeText reads the file line staging rewrites.
 func (r *Repo) worktreeText(path string) (string, bool, error) {
 	abs := r.AbsPath(path)
-	info, err := os.Stat(abs)
+	info, err := os.Lstat(abs)
 	if os.IsNotExist(err) {
 		return "", false, nil
 	}
@@ -415,6 +435,13 @@ func (r *Repo) worktreeText(path string) (string, bool, error) {
 	}
 	if info.IsDir() {
 		return "", false, errors.New("a directory cannot be staged line by line")
+	}
+	if info.Mode()&os.ModeSymlink != 0 {
+		target, err := os.Readlink(abs)
+		if err != nil {
+			return "", false, err
+		}
+		return target, true, nil
 	}
 	if info.Size() > lineStageLimit {
 		return "", false, errors.New("the file is too large for line-level staging")

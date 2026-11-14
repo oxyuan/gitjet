@@ -348,8 +348,8 @@ func (r *Repo) patchFor(ctx context.Context, opts DiffOptions, path string) (str
 		// unborn branch. A file git knows about simply has no changes, and
 		// an empty patch is the right answer for it.
 		if !r.isTracked(ctx, path) {
-			if content, rerr := os.ReadFile(r.AbsPath(path)); rerr == nil {
-				return syntheticNewFile(path, content), nil
+			if patchText, ok := r.syntheticUntracked(path); ok {
+				return patchText, nil
 			}
 		}
 	}
@@ -362,14 +362,39 @@ func (r *Repo) isTracked(ctx context.Context, path string) bool {
 	return err == nil
 }
 
-// syntheticNewFile writes the patch git would print for an added file.
-func syntheticNewFile(path string, content []byte) string {
-	if len(content) == 0 {
+// syntheticUntracked reads an untracked path as git would store it: the
+// target text of a symbolic link, the bytes of a regular file and its mode.
+func (r *Repo) syntheticUntracked(path string) (string, bool) {
+	abs := r.AbsPath(path)
+	info, err := os.Lstat(abs)
+	if err != nil || info.IsDir() {
+		return "", false
+	}
+	if info.Mode()&os.ModeSymlink != 0 {
+		target, err := os.Readlink(abs)
+		if err != nil {
+			return "", false
+		}
+		return syntheticNewFile(path, target, "120000"), true
+	}
+	content, err := os.ReadFile(abs)
+	if err != nil {
+		return "", false
+	}
+	mode := "100644"
+	if info.Mode()&0o111 != 0 {
+		mode = "100755"
+	}
+	return syntheticNewFile(path, string(content), mode), true
+}
+
+// syntheticNewFile writes the patch git would print for an added path.
+func syntheticNewFile(path, text, mode string) string {
+	if text == "" {
 		return ""
 	}
-	text := string(content)
 	if strings.IndexByte(text, 0) >= 0 {
-		return fmt.Sprintf("diff --git a/%s b/%s\nnew file mode 100644\nBinary files /dev/null and b/%s differ\n", path, path, path)
+		return fmt.Sprintf("diff --git a/%s b/%s\nnew file mode %s\nBinary files /dev/null and b/%s differ\n", path, path, mode, path)
 	}
 	missingFinalNewline := !strings.HasSuffix(text, "\n")
 	lines := strings.SplitAfter(text, "\n")
@@ -377,7 +402,7 @@ func syntheticNewFile(path string, content []byte) string {
 		lines = lines[:len(lines)-1]
 	}
 	var b strings.Builder
-	fmt.Fprintf(&b, "diff --git a/%s b/%s\nnew file mode 100644\n--- /dev/null\n+++ b/%s\n", path, path, path)
+	fmt.Fprintf(&b, "diff --git a/%s b/%s\nnew file mode %s\n--- /dev/null\n+++ b/%s\n", path, path, mode, path)
 	fmt.Fprintf(&b, "@@ -0,0 +1,%d @@\n", len(lines))
 	for i, line := range lines {
 		line = strings.TrimSuffix(line, "\n")
@@ -549,13 +574,27 @@ func (r *Repo) fillText(ctx context.Context, d *FileDiff, opts DiffOptions, path
 		return out, true
 	}
 	readFile := func(p string) (string, bool) {
-		if info, err := os.Stat(r.AbsPath(p)); err == nil && info.Size() > limit {
+		abs := r.AbsPath(p)
+		info, err := os.Lstat(abs)
+		if err != nil {
+			return "", false
+		}
+		if info.Mode()&os.ModeSymlink != 0 {
+			// git stores a link as its target text; reading the link would
+			// show the content of whatever it points at.
+			target, err := os.Readlink(abs)
+			if err != nil {
+				return "", false
+			}
+			return target, true
+		}
+		if info.Size() > limit {
 			// Read nothing rather than the whole file: the viewer only
 			// shows the first 8 MiB anyway.
 			d.Truncated = true
 			return "", true
 		}
-		b, err := os.ReadFile(r.AbsPath(p))
+		b, err := os.ReadFile(abs)
 		if err != nil {
 			return "", false
 		}

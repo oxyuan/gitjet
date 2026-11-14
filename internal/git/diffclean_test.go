@@ -3,6 +3,8 @@ package git
 import (
 	"context"
 	"fmt"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 )
@@ -206,5 +208,65 @@ func TestThreeWayOfAStagedRenameReadsBothPaths(t *testing.T) {
 	}
 	if tw.Head != "one\ntwo\n" || tw.Index != "one\ntwo\n" || tw.Worktree != "one\ntwo\n" {
 		t.Fatalf("head=%q index=%q worktree=%q, want the same content", tw.Head, tw.Index, tw.Worktree)
+	}
+}
+
+func TestFileDiffOfAnUntrackedSymlinkShowsTheLinkTarget(t *testing.T) {
+	repo, dir := newTestRepo(t)
+	if err := os.Symlink("a.txt", filepath.Join(dir, "link")); err != nil {
+		t.Fatal(err)
+	}
+	d, err := repo.FileDiff(context.Background(), DiffOptions{Path: "link", Target: DiffWorkingTree})
+	if err != nil {
+		t.Fatalf("FileDiff: %v", err)
+	}
+	if d.Status != "added" || !strings.Contains(d.Patch, "new file mode 120000") {
+		t.Fatalf("status=%q patch=%q, want a new link", d.Status, d.Patch)
+	}
+	if d.NewText != "a.txt" {
+		t.Fatalf("new text = %q, want the link target", d.NewText)
+	}
+	if len(d.Hunks) != 1 || len(d.Hunks[0].Lines) != 1 || d.Hunks[0].Lines[0].Text != "a.txt" || !d.Hunks[0].Lines[0].NoNewline {
+		t.Fatalf("hunks = %+v, want one target line without a final newline", d.Hunks)
+	}
+}
+
+func TestFileDiffOfAChangedSymlinkShowsBothTargets(t *testing.T) {
+	repo, dir := newTestRepo(t)
+	if err := os.Symlink("a.txt", filepath.Join(dir, "link")); err != nil {
+		t.Fatal(err)
+	}
+	runGit(t, dir, "add", "link")
+	runGit(t, dir, "commit", "-qm", "link")
+	if err := os.Remove(filepath.Join(dir, "link")); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink("b.txt", filepath.Join(dir, "link")); err != nil {
+		t.Fatal(err)
+	}
+	d, err := repo.FileDiff(context.Background(), DiffOptions{Path: "link", Target: DiffWorkingTree})
+	if err != nil {
+		t.Fatalf("FileDiff: %v", err)
+	}
+	if d.OldText != "a.txt" || d.NewText != "b.txt" {
+		t.Fatalf("old=%q new=%q, want the two link targets", d.OldText, d.NewText)
+	}
+	if len(d.Hunks) != 1 {
+		t.Fatalf("hunks = %d, want the retargeted link", len(d.Hunks))
+	}
+}
+
+func TestFileDiffOfAnUntrackedExecutableKeepsItsMode(t *testing.T) {
+	repo, dir := newTestRepo(t)
+	writeFile(t, dir, "run.sh", "#!/bin/sh\necho hi\n")
+	if err := os.Chmod(filepath.Join(dir, "run.sh"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	d, err := repo.FileDiff(context.Background(), DiffOptions{Path: "run.sh", Target: DiffWorkingTree})
+	if err != nil {
+		t.Fatalf("FileDiff: %v", err)
+	}
+	if !strings.Contains(d.Patch, "new file mode 100755") {
+		t.Fatalf("patch = %q, want the executable mode", d.Patch)
 	}
 }

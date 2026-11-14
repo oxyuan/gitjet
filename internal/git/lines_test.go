@@ -241,3 +241,42 @@ func TestApplyDiffLinesUnstagesOneLineOfARenamedFile(t *testing.T) {
 		t.Fatalf("staged change = %q, want the rename still staged", staged)
 	}
 }
+
+func TestApplyDiffLinesRollsBackASymlinkAsALink(t *testing.T) {
+	repo, dir := newTestRepo(t)
+	if err := os.Symlink("a.txt", filepath.Join(dir, "link")); err != nil {
+		t.Fatal(err)
+	}
+	runGit(t, dir, "add", "link")
+	runGit(t, dir, "commit", "-qm", "link")
+	if err := os.Remove(filepath.Join(dir, "link")); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink("b.txt", filepath.Join(dir, "link")); err != nil {
+		t.Fatal(err)
+	}
+	if err := repo.ApplyDiffLines(context.Background(), DiffOptions{Path: "link", Target: DiffWorkingTree}, []int{1}, "rollback"); err != nil {
+		t.Fatalf("ApplyDiffLines: %v", err)
+	}
+	info, err := os.Lstat(filepath.Join(dir, "link"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if info.Mode()&os.ModeSymlink == 0 {
+		t.Fatal("link is no longer a symbolic link")
+	}
+	target, err := os.Readlink(filepath.Join(dir, "link"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if target != "a.txt" {
+		t.Fatalf("link points at %q, want the committed target", target)
+	}
+	content, err := os.ReadFile(filepath.Join(dir, "a.txt"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(content) != "one\ntwo\n" {
+		t.Fatalf("a.txt = %q, the rollback wrote through the link", content)
+	}
+}
