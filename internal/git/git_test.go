@@ -574,3 +574,32 @@ func runGitNoOut(dir string, args ...string) error {
 	_, err := cmd.CombinedOutput()
 	return err
 }
+
+func TestStageAcceptsAPathThatStartsWithAColon(t *testing.T) {
+	repo, dir := newTestRepo(t)
+	writeFile(t, dir, ":colon.txt", "one\n")
+	ctx := context.Background()
+	if err := repo.Stage(ctx, []string{":colon.txt"}); err != nil {
+		t.Fatalf("Stage: %v", err)
+	}
+	st, err := repo.Status(ctx, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if st.State.Staged != 1 {
+		t.Fatalf("staged = %d, want the colon path", st.State.Staged)
+	}
+	d, err := repo.FileDiff(ctx, DiffOptions{Path: ":colon.txt", Target: DiffStaged})
+	if err != nil {
+		t.Fatalf("FileDiff: %v", err)
+	}
+	if len(d.Hunks) != 1 {
+		t.Fatalf("hunks = %d, want the staged content", len(d.Hunks))
+	}
+	if err := repo.Unstage(ctx, []string{":colon.txt"}); err != nil {
+		t.Fatalf("Unstage: %v", err)
+	}
+	if tracked := runGit(t, dir, "ls-files", "--", "./:colon.txt"); tracked != "" {
+		t.Fatalf(":colon.txt is still tracked: %q", tracked)
+	}
+}

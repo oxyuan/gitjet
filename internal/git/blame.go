@@ -84,7 +84,7 @@ func (r *Repo) Blame(ctx context.Context, path, revision string, opts BlameOptio
 	var out string
 	switch rev {
 	case "", "WORKTREE":
-		out, err = r.run(ctx, append(args, "--", clean)...)
+		out, err = r.run(ctx, append(args, "--", literalPath(clean))...)
 	case "INDEX":
 		// Blame has no --cached: feed the index blob as the contents to
 		// annotate, so staged lines still come back uncommitted.
@@ -92,9 +92,9 @@ func (r *Repo) Blame(ctx context.Context, path, revision string, opts BlameOptio
 		if serr != nil {
 			return BlameResult{}, serr
 		}
-		out, err = r.runInput(ctx, staged, append(args, "--contents", "-", "--", clean)...)
+		out, err = r.runInput(ctx, staged, append(args, "--contents", "-", "--", literalPath(clean))...)
 	default:
-		out, err = r.run(ctx, append(args, rev, "--", clean)...)
+		out, err = r.run(ctx, append(args, rev, "--", literalPath(clean))...)
 	}
 	if err != nil {
 		return BlameResult{}, err

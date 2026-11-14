@@ -486,12 +486,18 @@ func unquoteGitPath(p string) string {
 
 // literalPath turns a repository path into a pathspec that names exactly
 // that file. Git reads an ordinary path as a glob, so "web/[slug]/page.tsx"
-// would also match "web/s/page.tsx" and stage the wrong file. Escaping is
-// what every path-taking command understands; the ":(literal)" magic is
-// rejected by blame.
+// would also match "web/s/page.tsx" and stage the wrong file, and a leading
+// colon starts pathspec magic (":weird.txt" matches nothing). Escaping
+// handles the glob characters; the ":(literal)" magic is rejected by blame,
+// so a leading colon is neutralised by the "./" every path-taking command
+// accepts.
 func literalPath(p string) string {
+	prefix := ""
+	if strings.HasPrefix(p, ":") {
+		prefix = "./"
+	}
 	if !strings.ContainsAny(p, "*?[\\") {
-		return p
+		return prefix + p
 	}
 	var b strings.Builder
 	b.Grow(len(p) + 4)
@@ -501,7 +507,7 @@ func literalPath(p string) string {
 		}
 		b.WriteRune(r)
 	}
-	return b.String()
+	return prefix + b.String()
 }
 
 // literalPaths is literalPath over a list.
