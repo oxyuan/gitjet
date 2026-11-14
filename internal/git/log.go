@@ -182,13 +182,20 @@ func (r *Repo) Log(ctx context.Context, opts LogOptions) (LogResult, error) {
 		}
 	}
 	out, err := r.run(ctx, args...)
+	result := LogResult{Commits: []Commit{}, Command: renderCommand(args)}
 	if err != nil {
-		return LogResult{}, err
-	}
-	result := LogResult{Commits: parseLogCommits(out), Command: renderCommand(args)}
-	if len(result.Commits) > opts.Limit {
-		result.HasMore = true
-		result.Commits = result.Commits[:opts.Limit]
+		// A repository with no commits yet has no history to show; git's
+		// "your current branch does not have any commits yet" is the empty
+		// page, not a failure the reader has to dismiss.
+		if !r.hasNoCommits(ctx) {
+			return LogResult{}, err
+		}
+	} else {
+		result.Commits = parseLogCommits(out)
+		if len(result.Commits) > opts.Limit {
+			result.HasMore = true
+			result.Commits = result.Commits[:opts.Limit]
+		}
 	}
 	refs, err := r.Refs(ctx)
 	if err == nil {
@@ -309,6 +316,12 @@ func shortRefName(full string) string {
 		}
 	}
 	return full
+}
+
+// hasNoCommits reports a repository whose history is still empty.
+func (r *Repo) hasNoCommits(ctx context.Context) bool {
+	out, err := r.run(ctx, "rev-list", "--all", "--count")
+	return err == nil && strings.TrimSpace(out) == "0"
 }
 
 // Refs lists local branches, remote branches and tags.

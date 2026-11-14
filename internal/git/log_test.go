@@ -167,3 +167,25 @@ func TestLogAllIncludesTheDetachedHeadCommit(t *testing.T) {
 	}
 	t.Fatalf("the log does not contain the detached commit %s (%d commits)", want[:8], len(res.Commits))
 }
+
+func TestLogOfARepositoryWithoutCommitsIsEmpty(t *testing.T) {
+	repo, dir := newEmptyRepo(t)
+	writeFile(t, dir, "a.txt", "one\n")
+	result, err := repo.Log(context.Background(), LogOptions{})
+	if err != nil {
+		t.Fatalf("Log: %v", err)
+	}
+	if len(result.Commits) != 0 || result.HasMore {
+		t.Fatalf("commits=%d hasMore=%v, want an empty page", len(result.Commits), result.HasMore)
+	}
+	if result.Command == "" {
+		t.Fatal("the page carries no command")
+	}
+	filtered, err := repo.Log(context.Background(), LogOptions{Path: "a.txt", Follow: true})
+	if err != nil {
+		t.Fatalf("Log with a path: %v", err)
+	}
+	if len(filtered.Commits) != 0 {
+		t.Fatalf("path log returned %d commits", len(filtered.Commits))
+	}
+}
