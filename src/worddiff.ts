@@ -62,9 +62,11 @@ const thai = /\p{Script=Thai}/u;
 const javanese = /\p{Script=Javanese}/u;
 
 /** `TrimUtil.isSpaceEnterOrTab`: the whitespace the tokenizer and the
- *  correctors agree on. */
+ *  correctors agree on. A carriage return is deliberately NOT here — IDEA
+ *  treats `\r` as a word character, and a CRLF file's `\r` therefore takes
+ *  part in the word diff instead of vanishing as whitespace. */
 function isSpaceEnterOrTab(code: number): boolean {
-  return code === 32 || code === 9 || code === 10 || code === 13;
+  return code === 32 || code === 9 || code === 10;
 }
 
 /** `TrimUtil.isPunctuation`: ASCII punctuation, with `_` treated as a letter
@@ -480,7 +482,12 @@ function splitIntoLineBlocks(
 }
 
 function equalIgnoringWhitespace(text1: string, text2: string): boolean {
-  return text1.replace(/\s/gu, "") === text2.replace(/\s/gu, "");
+  // ComparisonPolicy.IGNORE_WHITESPACES drops exactly the whitespace the
+  // tokenizer knows (`TrimUtil.isSpaceEnterOrTab`). `\s` would also drop `\r`,
+  // which IDEA treats as text — that merged blocks whose only difference was
+  // where the carriage return sat.
+  const strip = (text: string): string => text.replace(/[ \t\n]/g, "");
+  return strip(text1) === strip(text2);
 }
 
 function expandWhitespacesForward(

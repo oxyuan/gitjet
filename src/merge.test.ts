@@ -12,6 +12,7 @@ import {
   splitLines,
   resolveSimpleConflicts,
   tryResolveRange,
+  whitespaceEq,
   type MergeRange,
 } from "./merge";
 
@@ -64,6 +65,23 @@ describe("diffHunks", () => {
     expect(diffHunks(["a", "b", "c"], ["a", "B", "c"])).toEqual([
       { baseStart: 1, baseEnd: 2, sideStart: 1, sideEnd: 2 },
     ]);
+  });
+
+  it("aligns repeated lines the way the IDE's engine does", () => {
+    // base "a" occurs five times on the side. A plain Myers pass pairs the
+    // first one; IntelliJ's engine pairs the one before the final "b", which
+    // is what puts the merge range boundaries at 7/8 instead of 1/2.
+    expect(diffHunks(["a"], ["b", "a", "d", "b", "d", "a", "a", "a", "a", "b"])).toEqual([
+      { baseStart: 0, baseEnd: 0, sideStart: 0, sideEnd: 7 },
+      { baseStart: 1, baseEnd: 1, sideStart: 8, sideEnd: 10 },
+    ]);
+  });
+
+  it("ignores spaces and tabs but never a carriage return", () => {
+    expect(whitespaceEq("spaces")("a ", "a")).toBe(true);
+    expect(whitespaceEq("spaces")("a\r", "a")).toBe(false);
+    expect(whitespaceEq("trim")("  a\t", "a")).toBe(true);
+    expect(whitespaceEq("trim")("a\r", "a")).toBe(false);
   });
 
   it("keeps insertions and deletions at their base position", () => {

@@ -16,6 +16,18 @@ describe("getInlineChunks", () => {
     const chunks = getInlineChunks("a\nb\n");
     expect(chunks.map((chunk) => chunk.kind)).toEqual(["word", "newline", "word", "newline"]);
   });
+
+  it("treats a carriage return as text, not as whitespace", () => {
+    // TrimUtil.isSpaceEnterOrTab is space, tab and line feed only. In a CRLF
+    // file the `\r` is a word chunk, so it takes part in the alignment instead
+    // of disappearing and letting unrelated lines merge.
+    const chunks = getInlineChunks("a\r\nb");
+    expect(chunks.map((chunk) => [chunk.kind, chunk.key])).toEqual([
+      ["word", "a\r"],
+      ["newline", "\n"],
+      ["word", "b"],
+    ]);
+  });
 });
 
 describe("compareAndSplit", () => {
@@ -60,6 +72,23 @@ describe("compareAndSplit", () => {
     const [block] = compareAndSplit(left, right);
     const start = left.indexOf("w6000");
     expect(block?.fragments).toEqual([{ start1: start, end1: start + 5, start2: start, end2: start + 7 }]);
+  });
+
+  it("splits CRLF blocks where IDEA splits them", () => {
+    // The two texts differ only in whether the carriage return sits before or
+    // after the colon. IDEA keeps the carriage return as a word, so the
+    // unmatched newline closes the first block instead of merging it with the
+    // rest of the file.
+    const blocks = compareAndSplit(",\r:\n\n\n[]a\t\t,\t", ",:\r\n\n\n[]a\t\t,\t");
+    expect(blocks.map((block) => [block.start1, block.end1, block.start2, block.end2])).toEqual([
+      [0, 6, 0, 6],
+      [6, 13, 6, 13],
+    ]);
+    expect(blocks[0]?.fragments).toEqual([
+      { start1: 1, end1: 1, start2: 1, end2: 2 },
+      { start1: 2, end1: 3, start2: 3, end2: 3 },
+    ]);
+    expect(blocks[1]?.fragments).toEqual([]);
   });
 
   it("splits continuous scripts into comparable characters", () => {

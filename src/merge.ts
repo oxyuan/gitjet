@@ -5,7 +5,7 @@
  */
 
 import type { ConflictContent } from "./mygo";
-import { myersOps, type DiffOp } from "./myers";
+import { lineDiffOps, type DiffOp, type LineKey } from "./myers";
 import { tryResolveText } from "./wordmerge";
 
 export interface DiffHunk {
@@ -109,13 +109,25 @@ export function splitLines(text: string): { lines: string[]; trailingNewline: bo
   return { lines, trailingNewline };
 }
 
-const diffOps = myersOps;
+const identical: LineKey = (line) => line;
+// IDEA's whitespace is space, tab and line feed (`TrimUtil.isSpaceEnterOrTab`),
+// never a carriage return: a CRLF file's `\r` is content, so an ignored
+// difference here must not swallow it.
+const ignoreSpaces: LineKey = (line) => line.replace(/[ \t]+/g, "");
+const trimSpaces: LineKey = (line) => line.replace(/^[ \t]+|[ \t]+$/g, "");
+
+/** The key matching the ignore-differences mode, so the diff engine sees the
+ *  same line equality the view does. */
+function lineKey(mode: WhitespaceMode): LineKey {
+  if (mode === "spaces") return ignoreSpaces;
+  if (mode === "trim") return trimSpaces;
+  return identical;
+}
 
 /** diffHunks collapses adjacent insert/delete operations into one changed
  *  region, which is the unit the merge view navigates. */
 export function diffHunks(a: string[], b: string[], ignoreWhitespace = false): DiffHunk[] {
-  const eq = ignoreWhitespace ? whitespaceInsensitive : exact;
-  const ops = diffOps(a, b, eq);
+  const ops = lineDiffOps(a, b, ignoreWhitespace ? ignoreSpaces : identical);
   const hunks: DiffHunk[] = [];
   let current: DiffHunk | null = null;
   const flush = () => {
@@ -205,13 +217,13 @@ function sideBoundaries(baseLength: number, ops: DiffOp[]): Boundaries {
 }
 
 function whitespaceInsensitive(a: string, b: string): boolean {
-  return a.replace(/\s+/g, "") === b.replace(/\s+/g, "");
+  return ignoreSpaces(a) === ignoreSpaces(b);
 }
 
 /** whitespaceEq is the line comparison the "Ignore differences" menu picks. */
 export function whitespaceEq(mode: WhitespaceMode): LineEq {
   if (mode === "spaces") return whitespaceInsensitive;
-  if (mode === "trim") return (a, b) => a.trim() === b.trim();
+  if (mode === "trim") return (a, b) => trimSpaces(a) === trimSpaces(b);
   return exact;
 }
 
@@ -221,8 +233,8 @@ function textEqual(a: string[], b: string[], eq: LineEq): boolean {
   return true;
 }
 
-function hunksWithEq(base: string[], side: string[], eq: LineEq): DiffHunk[] {
-  const ops = diffOps(base, side, eq);
+function hunksWithEq(base: string[], side: string[], key: LineKey): DiffHunk[] {
+  const ops = lineDiffOps(base, side, key);
   const hunks: DiffHunk[] = [];
   let current: DiffHunk | null = null;
   const flush = () => {
@@ -509,10 +521,11 @@ export function computeMerge(
   const mode: WhitespaceMode =
     options.whitespaceMode ?? (options.ignoreWhitespace ? "spaces" : "none");
   const eq = whitespaceEq(mode);
-  const oursOps = diffOps(base.lines, ours.lines, eq);
-  const theirsOps = diffOps(base.lines, theirs.lines, eq);
-  const oursHunks = hunksWithEq(base.lines, ours.lines, eq);
-  const theirsHunks = hunksWithEq(base.lines, theirs.lines, eq);
+  const key = lineKey(mode);
+  const oursOps = lineDiffOps(base.lines, ours.lines, key);
+  const theirsOps = lineDiffOps(base.lines, theirs.lines, key);
+  const oursHunks = hunksWithEq(base.lines, ours.lines, key);
+  const theirsHunks = hunksWithEq(base.lines, theirs.lines, key);
   const ranges = buildRanges(
     base.lines,
     ours.lines,
