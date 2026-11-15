@@ -10874,3 +10874,20 @@ button.diff-nav-count:disabled {
   text-overflow: ellipsis;
   white-space: nowrap;
 }
+
+/* The history row that holds the keyboard, for the arrow keys. */
+.log-row:focus-visible {
+  outline: none;
+  box-shadow: inset 0 0 0 1px var(--accent);
+}
+
+/* The branch row the keyboard cursor is on, for arrows and Enter. */
+.bp-leaf.cursor,
+.bp-tag.cursor {
+  background: var(--hover);
+  box-shadow: inset 0 0 0 1px var(--accent);
+}
+
+.branch-scroll:focus {
+  outline: none;
+}

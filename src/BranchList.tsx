@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import {
   buildBranchSections,
   buildTagLeaves,
@@ -163,6 +163,12 @@ export function BranchList({
   // scope, so it never repaints the log on its own.
   const [pickedTag, setPickedTag] = useState("");
   const [menu, setMenu] = useState<{ x: number; y: number; items: ContextItem[] } | null>(null);
+  // The keyboard cursor over the rows the tree is showing (favourites,
+  // expanded groups and tags alike); -1 means the list has no focus.
+  const [active, setActive] = useState(-1);
+  const searchRef = useRef<HTMLInputElement>(null);
+  const listRef = useRef<HTMLDivElement>(null);
+  const rowRefs = useRef(new Map<string, HTMLElement>());
 
   const sections = useMemo(() => buildBranchSections(refs, current), [refs, current]);
   const visible = useMemo(() => searchSections(sections, query), [sections, query]);
@@ -176,6 +182,137 @@ export function BranchList({
     searching ? false : (collapsed[groupKey(sectionKey, group)] ?? groupStartsCollapsed(group.branches.length));
   const tagCollapsed = searching ? false : (collapsed[TAG_SECTION_KEY] ?? tags.length > COLLAPSE_THRESHOLD);
 
+  // One description of what the tree shows, used both to paint it and to walk
+  // it with the keyboard, so the two orders cannot drift apart.
+  const layout = useMemo(
+    () =>
+      visible.map((section) => {
+        const all = section.groups.flatMap((group) => group.branches);
+        const closed = section.groups.length > 0 && section.groups.every((group) => isCollapsed(section.key, group));
+        const pinned = all.filter((leaf) => favorites.includes(leaf.key));
+        const pinnedKeys = new Set(pinned.map((leaf) => leaf.key));
+        const groups = section.groups
+          .map((group) => ({
+            ...group,
+            branches: group.branches.filter((leaf) => !pinnedKeys.has(leaf.key)),
+          }))
+          .filter((group) => group.branches.length > 0)
+          .map((group) => ({ ...group, closed: isCollapsed(section.key, group) }));
+        return { section, closed, pinned, groups, total: all.length };
+      }),
+    // isCollapsed reads `collapsed` and `searching` through the closure.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [visible, favorites, collapsed, searching],
+  );
+
+  type Row = { kind: "leaf"; leaf: BranchLeaf } | { kind: "tag"; tag: TagLeaf };
+  const rowId = (row: Row) => (row.kind === "leaf" ? `bp-branch-${row.leaf.key}` : `bp-tag-${row.tag.key}`);
+  const rows = useMemo(() => {
+    const out: Row[] = [];
+    for (const view of layout) {
+      if (view.closed) continue;
+      for (const leaf of view.pinned) out.push({ kind: "leaf", leaf });
+      for (const group of view.groups) {
+        if (group.closed) continue;
+        for (const leaf of group.branches) out.push({ kind: "leaf", leaf });
+      }
+    }
+    if (!tagCollapsed) for (const tag of visibleTags) out.push({ kind: "tag", tag });
+    return out;
+  }, [layout, visibleTags, tagCollapsed]);
+  const rowIndex = useMemo(() => {
+    const map = new Map<string, number>();
+    rows.forEach((row, index) => map.set(rowId(row), index));
+    return map;
+  }, [rows]);
+  const activeRow = active >= 0 ? rows[active] : undefined;
+  // Collapsing a group can leave the cursor past the end of the visible rows.
+  useEffect(() => {
+    setActive((index) => (index >= rows.length ? rows.length - 1 : index));
+  }, [rows.length]);
+
+  /** Moves the keyboard cursor and keeps its row in sight. */
+  const moveTo = (index: number) => {
+    if (rows.length === 0) return;
+    const next = Math.max(0, Math.min(rows.length - 1, index));
+    setActive(next);
+    listRef.current?.focus({ preventScroll: true });
+    const row = rows[next]!;
+    requestAnimationFrame(() => rowRefs.current.get(rowId(row))?.scrollIntoView({ block: "nearest" }));
+  };
+
+  // IDEA's branch popup runs on Enter: the branch is checked out, a tag opens
+  // its history, exactly as the row's primary action does.
+  const activateRow = (row: Row | undefined) => {
+    if (!row) return;
+    if (row.kind === "tag") onSelect(row.tag.name);
+    else onCheckout(row.leaf.name);
+  };
+
+  const onRowKey = (e: React.KeyboardEvent) => {
+    const current = active;
+    switch (e.key) {
+      case "ArrowDown":
+        e.preventDefault();
+        moveTo(current < 0 ? 0 : current + 1);
+        break;
+      case "ArrowUp":
+        e.preventDefault();
+        moveTo(current < 0 ? rows.length - 1 : current - 1);
+        break;
+      case "PageDown":
+        e.preventDefault();
+        moveTo(current < 0 ? 0 : current + 10);
+        break;
+      case "PageUp":
+        e.preventDefault();
+        moveTo(current < 0 ? rows.length - 1 : current - 10);
+        break;
+      case "Home":
+        e.preventDefault();
+        moveTo(0);
+        break;
+      case "End":
+        e.preventDefault();
+        moveTo(rows.length - 1);
+        break;
+      case "Enter":
+        e.preventDefault();
+        activateRow(activeRow);
+        break;
+      case "Escape":
+        e.preventDefault();
+        setActive(-1);
+        searchRef.current?.focus();
+        break;
+      default:
+        break;
+    }
+  };
+
+  const onSearchKey = (e: React.KeyboardEvent<HTMLInputElement>) => {
+    // An IME uses Enter and the arrows to commit or pick a candidate.
+    if (e.nativeEvent.isComposing) return;
+    if (e.key === "ArrowDown" || e.key === "ArrowUp") {
+      e.preventDefault();
+      moveTo(e.key === "ArrowDown" ? 0 : rows.length - 1);
+      return;
+    }
+    if (e.key === "Enter") {
+      const row = activeRow ?? rows[0];
+      if (row) {
+        e.preventDefault();
+        activateRow(row);
+      }
+      return;
+    }
+    if (e.key === "Escape" && query !== "") {
+      e.preventDefault();
+      setQuery("");
+      setActive(-1);
+    }
+  };
+
   const groupLabel = (group: BranchGroup) =>
     group.name === "others" ? t("others") : group.name === "protected" ? t("protected") : group.name;
 
@@ -186,9 +323,6 @@ export function BranchList({
     for (const group of section.groups) next[groupKey(section.key, group)] = close;
     setCollapsed(next);
   };
-
-  const sectionClosed = (section: BranchSection) =>
-    section.groups.length > 0 && section.groups.every((group) => isCollapsed(section.key, group));
 
   /** The toolbar's expand/collapse acts on every section, tags included. */
   const setAllCollapsed = (close: boolean) => {
@@ -269,11 +403,29 @@ export function BranchList({
 
   const leafRow = (leaf: BranchLeaf, full = false) => {
     const starredNow = favorites.includes(leaf.key);
+    const id = `bp-branch-${leaf.key}`;
+    const cursor = active >= 0 && rowIndex.get(id) === active;
     return (
       <div
         key={(full ? "fav:" : "") + leaf.key}
-        className={cx("bp-leaf", !full && "nested", leaf.current && "current", selected === leaf.name && "selected")}
+        id={id}
+        ref={(el) => {
+          if (el) rowRefs.current.set(id, el);
+          else rowRefs.current.delete(id);
+        }}
+        className={cx(
+          "bp-leaf",
+          !full && "nested",
+          leaf.current && "current",
+          selected === leaf.name && "selected",
+          cursor && "cursor",
+        )}
         title={leaf.upstream ? `${leaf.name} → ${leaf.upstream}` : t("filterTip")}
+        onClick={() => {
+          setActive(rowIndex.get(id) ?? -1);
+          // Put the keyboard in the tree, where the arrows work.
+          listRef.current?.focus({ preventScroll: true });
+        }}
         onDoubleClick={() => onSelect(leaf.name)}
         onContextMenu={(e) => {
           e.preventDefault();
@@ -315,15 +467,26 @@ export function BranchList({
   };
 
   const tagRow = (tag: TagLeaf) => {
-    const active = selected === tag.name || pickedTag === tag.name;
+    const picked = selected === tag.name || pickedTag === tag.name;
+    const id = `bp-tag-${tag.key}`;
+    const cursor = active >= 0 && rowIndex.get(id) === active;
     return (
       <div
         key={"tag:" + tag.key}
-        className={cx("bp-tag", active && "selected")}
+        id={id}
+        ref={(el) => {
+          if (el) rowRefs.current.set(id, el);
+          else rowRefs.current.delete(id);
+        }}
+        className={cx("bp-tag", picked && "selected", cursor && "cursor")}
         role="treeitem"
-        aria-selected={active}
+        aria-selected={picked}
         title={`${tag.name} · ${tag.short}\n${tag.subject}\n${formatWhen(tag.time)}`}
-        onClick={() => setPickedTag(tag.name)}
+        onClick={() => {
+          setPickedTag(tag.name);
+          setActive(rowIndex.get(id) ?? -1);
+          listRef.current?.focus({ preventScroll: true });
+        }}
         onDoubleClick={() => onSelect(tag.name)}
         onContextMenu={(e) => {
           e.preventDefault();
@@ -348,8 +511,13 @@ export function BranchList({
       <div className="picker-search branch-list-search">
         <Icon name="search" size={13} />
         <input
+          ref={searchRef}
           value={query}
-          onChange={(e) => setQuery(e.target.value)}
+          onChange={(e) => {
+            setQuery(e.target.value);
+            setActive(-1);
+          }}
+          onKeyDown={onSearchKey}
           placeholder={t("searchBranches")}
           aria-label={t("searchBranches")}
         />
@@ -379,17 +547,15 @@ export function BranchList({
           ))}
         </div>
       )}
-      <div className="picker-scroll branch-scroll" role="tree">
-        {visible.map((section) => {
-          const all = section.groups.flatMap((group) => group.branches);
-          const closed = sectionClosed(section);
-          // Favourites float to the top of their own section and leave the
-          // groups behind, so a branch appears exactly once.
-          const pinned = all.filter((leaf) => favorites.includes(leaf.key));
-          const pinnedKeys = new Set(pinned.map((leaf) => leaf.key));
-          const groups = section.groups
-            .map((group) => ({ ...group, branches: group.branches.filter((leaf) => !pinnedKeys.has(leaf.key)) }))
-            .filter((group) => group.branches.length > 0);
+      <div
+        className="picker-scroll branch-scroll"
+        role="tree"
+        ref={listRef}
+        tabIndex={0}
+        aria-activedescendant={activeRow ? rowId(activeRow) : undefined}
+        onKeyDown={onRowKey}
+      >
+        {layout.map(({ section, closed, pinned, groups, total: all }) => {
           return (
             <div className={cx("bp-section", section.remote && "remote")} key={section.key}>
               <div className="bp-section-title">
@@ -404,12 +570,12 @@ export function BranchList({
                   <span>
                     {section.remote ? t("remoteBranches", { remote: section.remote }) : t("localBranches")}
                   </span>
-                  <span className="bp-count">{all.length}</span>
+                  <span className="bp-count">{all}</span>
                 </button>
               </div>
               {!closed && pinned.map((leaf) => leafRow(leaf, true))}
               {groups.map((group) => {
-                const groupClosed = isCollapsed(section.key, group);
+                const groupClosed = group.closed;
                 return (
                   <div className="bp-group-block" key={section.key + group.name}>
                     <button

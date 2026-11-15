@@ -361,6 +361,9 @@ export function LogDock({
   const bodyRef = useRef<HTMLDivElement>(null);
   const detailRef = useRef<HTMLDivElement>(null);
   const fileRowRef = useRef<HTMLDivElement>(null);
+  // Rows are focused one at a time while the arrows walk the history, so the
+  // table keeps the keyboard and the details pane is read-only.
+  const rowRefs = useRef(new Map<string, HTMLDivElement>());
   const [fileDirs, setFileDirs] = useState<Set<string>>(new Set());
   const [storedCols, setStoredCols] = useStoredState<LogColumns>("gitjet.logColumns", DEFAULT_COLUMNS);
   // Widths saved by an older build may sit outside today's limits.
@@ -371,11 +374,6 @@ export function LogDock({
     time: clampColumn("time", merged.time),
   };
 
-  // Arrow keys switch files, so the details pane takes focus with the commit.
-  useEffect(() => {
-    if (!detail) return;
-    detailRef.current?.focus({ preventScroll: true });
-  }, [detail?.hash]);
 
   // Directories of the changed files start collapsed for every commit.
   useEffect(() => {
@@ -403,7 +401,7 @@ export function LogDock({
     return max - min + 1 === idx.length;
   }, [chosen, indexOf]);
 
-  const pickRow = (commit: Commit, e: React.MouseEvent) => {
+  const pickRow = (commit: Commit, e: React.MouseEvent | React.KeyboardEvent) => {
     if (e.shiftKey && anchor.current) {
       const from = indexOf.get(anchor.current);
       const to = indexOf.get(commit.hash);
@@ -427,6 +425,74 @@ export function LogDock({
     anchor.current = commit.hash;
     setChecked(new Set([commit.hash]));
     onSelect(commit);
+  };
+
+  /** Moves the history's keyboard cursor, keeping the row focused so the
+   *  arrows can be used again; shift and the command key extend or toggle the
+   *  checked set exactly as the mouse does. */
+  const moveTo = (index: number, e: React.KeyboardEvent) => {
+    const commit = commits[index];
+    if (!commit) return;
+    pickRow(commit, e);
+    requestAnimationFrame(() => {
+      const row = rowRefs.current.get(commit.hash);
+      if (!row) return;
+      row.focus({ preventScroll: true });
+      row.scrollIntoView({ block: "nearest" });
+    });
+  };
+
+  const stepHistory = (e: React.KeyboardEvent) => {
+    const current = selected ? indexOf.get(selected) : undefined;
+    const last = commits.length - 1;
+    let next: number;
+    switch (e.key) {
+      case "ArrowDown":
+        next = current === undefined ? 0 : Math.min(last, current + 1);
+        break;
+      case "ArrowUp":
+        next = current === undefined ? last : Math.max(0, current - 1);
+        break;
+      case "PageDown":
+        next = current === undefined ? 0 : Math.min(last, current + 10);
+        break;
+      case "PageUp":
+        next = current === undefined ? last : Math.max(0, current - 10);
+        break;
+      case "Home":
+        next = 0;
+        break;
+      case "End":
+        next = last;
+        break;
+      case "Enter":
+        // The details are already open; Enter reads the first changed file,
+        // the next step after picking a commit.
+        if (detail && detail.hash === selected && detail.files[0]) {
+          e.preventDefault();
+          onSelectFile(detail.files[0]);
+        }
+        return;
+      case "Escape":
+        if (checked.size > 1) {
+          e.preventDefault();
+          setChecked(new Set(selected ? [selected] : []));
+        }
+        return;
+      case "d":
+      case "D":
+        if (!(e.metaKey || e.ctrlKey)) return;
+        if (chosenOldestFirst.length === 2) {
+          e.preventDefault();
+          onCompareVersions(chosenOldestFirst[0]!.hash, chosenOldestFirst[1]!.hash);
+        }
+        return;
+      default:
+        return;
+    }
+    if (commits.length === 0) return;
+    e.preventDefault();
+    moveTo(next, e);
   };
 
   // Dragging a column edge resizes the column to its left; the columns to the
@@ -643,6 +709,24 @@ export function LogDock({
                 onChange={(e) => onSearch(e.target.value)}
                 placeholder={t("searchCommits")}
                 aria-label={t("searchCommits")}
+                onKeyDown={(e) => {
+                  // Down leaves the field for the table, as a table's search
+                  // box does; Escape empties the search first. An IME owns
+                  // Enter and the arrows while composing.
+                  if (e.nativeEvent.isComposing) return;
+                  if (e.key === "ArrowDown" || e.key === "Enter") {
+                    const target = commits.find((c) => c.hash === selected) ?? commits[0];
+                    if (!target) return;
+                    e.preventDefault();
+                    if (target.hash !== selected) pickRow(target, e);
+                    requestAnimationFrame(() => {
+                      rowRefs.current.get(target.hash)?.focus();
+                    });
+                  } else if (e.key === "Escape" && search !== "") {
+                    e.preventDefault();
+                    onSearch("");
+                  }
+                }}
               />
               {search && (
                 <button className="search-clear" onClick={() => onSearch("")} aria-label={t("clearSearch")}>
@@ -817,15 +901,26 @@ export function LogDock({
               return (
                 <div
                   key={commit.hash}
+                  ref={(el) => {
+                    if (el) rowRefs.current.set(commit.hash, el);
+                    else rowRefs.current.delete(commit.hash);
+                  }}
                   role="option"
+                  tabIndex={selected === commit.hash ? 0 : -1}
                   aria-selected={selected === commit.hash}
+                  onKeyDown={stepHistory}
                   className={cx(
                     "log-row",
                     commit.parents.length > 1 && "merge",
                     selected === commit.hash && "selected",
                     checked.size > 1 && checked.has(commit.hash) && "checked",
                   )}
-                  onClick={(e) => pickRow(commit, e)}
+                  onClick={(e) => {
+                    pickRow(commit, e);
+                    // Clicking selects and leaves the keyboard in the table,
+                    // so the arrows immediately walk the history.
+                    e.currentTarget.focus({ preventScroll: true });
+                  }}
                   onContextMenu={(e) => {
                     e.preventDefault();
                     commitMenu(commit, e.clientX, e.clientY);
