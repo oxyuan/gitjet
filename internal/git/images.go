@@ -67,7 +67,7 @@ func (r *Repo) Image(ctx context.Context, path, revision string) (ImageData, err
 	case "INDEX":
 		var text string
 		var truncated bool
-		text, truncated, err = r.runLimited(ctx, limit, "show", ":"+clean)
+		text, truncated, err = r.runLimited(ctx, limit, blobArgs(":"+clean)...)
 		if truncated {
 			return ImageData{}, errors.New("the image is larger than 20 MB")
 		}
@@ -75,7 +75,7 @@ func (r *Repo) Image(ctx context.Context, path, revision string) (ImageData, err
 	default:
 		var text string
 		var truncated bool
-		text, truncated, err = r.runLimited(ctx, limit, "show", rev+":"+clean)
+		text, truncated, err = r.runLimited(ctx, limit, blobArgs(rev+":"+clean)...)
 		if truncated {
 			return ImageData{}, errors.New("the image is larger than 20 MB")
 		}

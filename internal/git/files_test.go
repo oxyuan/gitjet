@@ -138,3 +138,27 @@ func TestExternalFileReadsOutsideTheRepository(t *testing.T) {
 		t.Fatal("ExternalFile accepted a relative path")
 	}
 }
+
+func TestFileContentDoesNotReportAMissingBlobAsEmpty(t *testing.T) {
+	repo, dir := newTestRepo(t)
+	writeFile(t, dir, "star*name.txt", "one\n")
+	runGit(t, dir, "add", "star*name.txt")
+	runGit(t, dir, "commit", "-qm", "glob")
+
+	head, err := repo.FileContent(t.Context(), "star*name.txt", "HEAD")
+	if err != nil {
+		t.Fatalf("FileContent: %v", err)
+	}
+	if head.Text != "one\n" {
+		t.Fatalf("HEAD text = %q", head.Text)
+	}
+	// git show reads a glob path as a pathspec and reports a missing one as
+	// an empty blob; a file absent from the revision must not look empty.
+	missing, err := repo.FileContent(t.Context(), "gone*.txt", "HEAD")
+	if err != nil {
+		t.Fatalf("FileContent missing: %v", err)
+	}
+	if missing.Exists || missing.Text != "" {
+		t.Fatalf("missing = %+v, want no content", missing)
+	}
+}

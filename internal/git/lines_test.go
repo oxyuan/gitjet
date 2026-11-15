@@ -280,3 +280,21 @@ func TestApplyDiffLinesRollsBackASymlinkAsALink(t *testing.T) {
 		t.Fatalf("a.txt = %q, the rollback wrote through the link", content)
 	}
 }
+
+func TestUnstagingEveryLineRemovesAGlobNamedEntry(t *testing.T) {
+	repo, dir := newTestRepo(t)
+	writeFile(t, dir, "star*name.txt", "one\ntwo\n")
+	runGit(t, dir, "add", "star*name.txt")
+	// Every line of a new file: the path has to leave the index, not stay
+	// there as an empty blob. update-index reads the name literally, so an
+	// escaped glob character would silently remove nothing.
+	if err := repo.ApplyDiffLines(t.Context(), DiffOptions{Path: "star*name.txt", Target: DiffStaged}, []int{1, 2}, "unstage"); err != nil {
+		t.Fatalf("ApplyDiffLines: %v", err)
+	}
+	if out := runGit(t, dir, "diff", "--cached", "--name-only"); out != "" {
+		t.Fatalf("still staged: %q", out)
+	}
+	if out := runGit(t, dir, "status", "--porcelain"); !strings.HasPrefix(out, "??") {
+		t.Fatalf("status = %q, want an untracked file", out)
+	}
+}

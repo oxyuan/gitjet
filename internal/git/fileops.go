@@ -145,7 +145,10 @@ func (r *Repo) RenamePath(ctx context.Context, from, to string) error {
 	}
 	tracked := r.tracks(ctx, src)
 	if tracked {
-		if _, err := r.run(ctx, "mv", "--", literalPath(src), dst); err == nil {
+		// mv reads both names literally, so neither one is escaped: an
+		// escaped source is a path git cannot find, and the move used to
+		// fall through to os.Rename for every name holding a glob character.
+		if _, err := r.run(ctx, "mv", "--", src, dst); err == nil {
 			return nil
 		}
 	}

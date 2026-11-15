@@ -136,7 +136,7 @@ func (r *Repo) FileContent(ctx context.Context, path, revision string) (SourceFi
 	}
 	if rev == "INDEX" {
 		out.Revision = "INDEX"
-		text, truncated, err := r.runLimited(ctx, limit, "show", ":"+clean)
+		text, truncated, err := r.runLimited(ctx, limit, blobArgs(":"+clean)...)
 		if err != nil {
 			return out, nil
 		}
@@ -266,7 +266,7 @@ func (r *Repo) ExternalFile(path string) (SourceFile, error) {
 }
 
 func (r *Repo) blob(ctx context.Context, rev, path string, limit int) (string, bool, bool) {
-	out, truncated, err := r.runLimited(ctx, limit, "show", rev+":"+path)
+	out, truncated, err := r.runLimited(ctx, limit, blobArgs(rev+":"+path)...)
 	if err != nil {
 		return "", false, false
 	}

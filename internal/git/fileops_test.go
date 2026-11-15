@@ -191,3 +191,23 @@ func TestSaveFileRefusesASymlink(t *testing.T) {
 		t.Fatalf("the link target = %q, %v; want it untouched", b, err)
 	}
 }
+
+func TestRenamePathMovesAGlobCharacterName(t *testing.T) {
+	repo, dir := newTestRepo(t)
+	writeFile(t, dir, "star*name.txt", "content\n")
+	runGit(t, dir, "add", "star*name.txt")
+	runGit(t, dir, "commit", "-qm", "glob")
+
+	if err := repo.RenamePath(t.Context(), "star*name.txt", "renamed.txt"); err != nil {
+		t.Fatalf("RenamePath: %v", err)
+	}
+	// mv, unlike a pathspec command, reads its names literally; the move
+	// must still be git's own, so the index records the rename.
+	status := runGit(t, dir, "status", "--porcelain", "-z")
+	if !strings.HasPrefix(status, "R  ") {
+		t.Fatalf("status = %q, want a staged rename", status)
+	}
+	if _, err := os.Stat(filepath.Join(dir, "renamed.txt")); err != nil {
+		t.Fatalf("renamed file missing: %v", err)
+	}
+}

@@ -919,7 +919,7 @@ func (r *Repo) Conflict(ctx context.Context, path string) (ConflictContent, erro
 	}
 	const limit = 8 << 20
 	read := func(rev string) (string, bool) {
-		out, err := r.run(ctx, "show", rev+":"+clean)
+		out, err := r.run(ctx, blobArgs(rev+":"+clean)...)
 		if err != nil {
 			return "", false
 		}

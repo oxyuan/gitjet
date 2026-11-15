@@ -488,9 +488,13 @@ func unquoteGitPath(p string) string {
 // that file. Git reads an ordinary path as a glob, so "web/[slug]/page.tsx"
 // would also match "web/s/page.tsx" and stage the wrong file, and a leading
 // colon starts pathspec magic (":weird.txt" matches nothing). Escaping
-// handles the glob characters; the ":(literal)" magic is rejected by blame,
-// so a leading colon is neutralised by the "./" every path-taking command
-// accepts.
+// handles the glob characters; a leading colon is neutralised by the "./"
+// every pathspec-taking command accepts.
+//
+// blame, mv and update-index are the exception: they read their path
+// argument literally, without wildmatch and without unescaping backslashes,
+// so an escaped name there names a file that does not exist. Those commands
+// take the clean path unchanged.
 func literalPath(p string) string {
 	prefix := ""
 	if strings.HasPrefix(p, ":") {
@@ -508,6 +512,14 @@ func literalPath(p string) string {
 		b.WriteRune(r)
 	}
 	return prefix + b.String()
+}
+
+// blobArgs names one blob for reading. git show <rev>:<path> cannot be
+// used instead: a path holding a glob character is read as a pathspec, so a
+// missing path exits 0 with no output and the reader believes the blob is
+// empty. cat-file reads the path literally and refuses one that is absent.
+func blobArgs(spec string) []string {
+	return []string{"cat-file", "blob", spec}
 }
 
 // literalPaths is literalPath over a list.

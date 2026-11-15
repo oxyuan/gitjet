@@ -576,7 +576,7 @@ func (r *Repo) fillText(ctx context.Context, d *FileDiff, opts DiffOptions, path
 		if p == "" {
 			return "", false
 		}
-		out, truncated, err := r.runLimited(ctx, limit, "show", rev+":"+p)
+		out, truncated, err := r.runLimited(ctx, limit, blobArgs(rev+":"+p)...)
 		if err != nil {
 			return "", false
 		}
@@ -625,7 +625,7 @@ func (r *Repo) fillText(ctx context.Context, d *FileDiff, opts DiffOptions, path
 	case DiffStaged:
 		if !opts.NoText {
 			oldText, _ = readBlob("HEAD", oldPath)
-			if out, truncated, err := r.runLimited(ctx, limit, "show", ":"+path); err == nil {
+			if out, truncated, err := r.runLimited(ctx, limit, blobArgs(":"+path)...); err == nil {
 				newText = out
 				if truncated {
 					d.Truncated = true
@@ -644,7 +644,7 @@ func (r *Repo) fillText(ctx context.Context, d *FileDiff, opts DiffOptions, path
 	default:
 		if opts.Revision != "" {
 			oldText, _ = readBlob(opts.Revision, oldPath)
-		} else if out, truncated, err := r.runLimited(ctx, limit, "show", ":"+oldPath); err == nil {
+		} else if out, truncated, err := r.runLimited(ctx, limit, blobArgs(":"+oldPath)...); err == nil {
 			// The worktree diff compares the index with the file, so the
 			// left side is the staged version, not HEAD.
 			oldText = out

@@ -416,7 +416,7 @@ func joinText(lines []string, finalNewline bool) string {
 // exists. Too large a file is a refusal, not a truncation: the caller is
 // about to rewrite the whole file.
 func (r *Repo) revisionText(ctx context.Context, rev string) (string, bool, error) {
-	out, truncated, err := r.runLimited(ctx, lineStageLimit, "show", rev)
+	out, truncated, err := r.runLimited(ctx, lineStageLimit, blobArgs(rev)...)
 	if err != nil {
 		return "", false, nil
 	}
@@ -470,8 +470,10 @@ func (r *Repo) writeIndexText(ctx context.Context, path, text string) error {
 }
 
 // removeIndexEntry takes a path out of the index, leaving the file alone.
+// update-index reads the path literally, so an escaped glob character would
+// name an entry git cannot find and leave the path staged.
 func (r *Repo) removeIndexEntry(ctx context.Context, path string) error {
-	_, err := r.run(ctx, "update-index", "--force-remove", "--", literalPath(path))
+	_, err := r.run(ctx, "update-index", "--force-remove", "--", path)
 	return err
 }
 

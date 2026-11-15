@@ -82,19 +82,21 @@ func (r *Repo) Blame(ctx context.Context, path, revision string, opts BlameOptio
 		args = append(args, "--ignore-revs-file="+rel)
 	}
 	var out string
+	// blame reads its path literally, not as a pathspec: escaping a glob
+	// character would name a file that does not exist.
 	switch rev {
 	case "", "WORKTREE":
-		out, err = r.run(ctx, append(args, "--", literalPath(clean))...)
+		out, err = r.run(ctx, append(args, "--", clean)...)
 	case "INDEX":
 		// Blame has no --cached: feed the index blob as the contents to
 		// annotate, so staged lines still come back uncommitted.
-		staged, serr := r.run(ctx, "show", ":"+clean)
+		staged, serr := r.run(ctx, blobArgs(":"+clean)...)
 		if serr != nil {
 			return BlameResult{}, serr
 		}
-		out, err = r.runInput(ctx, staged, append(args, "--contents", "-", "--", literalPath(clean))...)
+		out, err = r.runInput(ctx, staged, append(args, "--contents", "-", "--", clean)...)
 	default:
-		out, err = r.run(ctx, append(args, rev, "--", literalPath(clean))...)
+		out, err = r.run(ctx, append(args, rev, "--", clean)...)
 	}
 	if err != nil {
 		return BlameResult{}, err

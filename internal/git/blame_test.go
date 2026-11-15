@@ -110,3 +110,20 @@ func TestBlameIndexReadsTheStagedCopy(t *testing.T) {
 		t.Fatalf("the staged line should be uncommitted: %+v", result.Lines[1])
 	}
 }
+
+func TestBlameReadsAGlobCharacterPathLiterally(t *testing.T) {
+	repo, dir := newTestRepo(t)
+	// blame takes its path literally: escaping the glob character the way a
+	// pathspec needs it makes git look for a file named "star\*name.txt".
+	writeFile(t, dir, "star*name.txt", "one\ntwo\n")
+	runGit(t, dir, "add", "star*name.txt")
+	runGit(t, dir, "commit", "-qm", "glob")
+
+	result, err := repo.Blame(t.Context(), "star*name.txt", "", BlameOptions{})
+	if err != nil {
+		t.Fatalf("Blame: %v", err)
+	}
+	if len(result.Lines) != 2 {
+		t.Fatalf("lines = %d, want 2", len(result.Lines))
+	}
+}
