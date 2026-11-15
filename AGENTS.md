@@ -113,7 +113,11 @@ use it only for layout work. Vite's port is pinned to 5173 in **both**
   replayed by git and a conflict leaves the rebase for Continue/Abort.
 - The log page carries its exact `git log` command, and `LogOptions.Refs`
   accepts several refs — the history's branch filter is a multi-select, not
-  a single branch.
+  a single branch. A path filter asks for `--full-history --simplify-merges`,
+  as IDEA's file history and log structure filter do: git's default
+  simplification drops a commit whose change a later merge resolution made
+  irrelevant, which hides side branches from the reader. `-L` walks its own
+  history and takes no such flags.
 - A rewrite plan accepts `exec` and `break` steps between commits. `exec`
   runs the user's shell line in the working tree; a failed command or a
   break leaves the plan paused, and Continue skips the failed exec/break.
@@ -193,10 +197,20 @@ use it only for layout work. Vite's port is pinned to 5173 in **both**
   path in the index), and a gitlink has no text to split: its hunk action
   takes the whole-file path.
 - A path handed to git as a pathspec goes through `literalPath`: git reads
-  `web/[slug]/page.tsx` as a glob and would touch `web/s/page.tsx` too.
-  Escaping, not `:(literal)` magic, because `blame` rejects the magic. A
-  leading `:` starts pathspec magic, so it is prefixed with `./`; `blame`
-  passes its path through the same helper.
+  `web/[slug]/page.tsx` as a glob and would touch `web/s/page.tsx` too. It
+  escapes the glob characters rather than adding `:(literal)` magic, and
+  prefixes a leading `:` with `./` because that starts pathspec magic.
+- `blame`, `mv` and `update-index` are the exception: they read their path
+  arguments literally and do not unescape backslashes, so those commands take
+  the clean path unchanged. Escaping it there named a file that does not
+  exist — blame failed outright, and `update-index --force-remove` exited 0
+  without removing the entry, so staging a whole deletion staged nothing.
+- Object content is read with `git cat-file blob <rev>:<path>`, never
+  `git show`: show reads a glob path as a pathspec and answers a missing one
+  with empty output and exit 0, which made an absent blob look like an empty
+  file (and unstaging every line of a new file wrote an empty blob into the
+  index instead of removing the entry). `blobArgs` (`internal/git/git.go`)
+  is the one spelling.
 - Revisions and branch names reject empty values and a leading `-`; branch
   creation/rename also round-trip `git check-ref-format --branch`.
 - `internal/app` only adds its own check for `Reveal` (`filepath.Rel`).
@@ -226,7 +240,9 @@ use it only for layout work. Vite's port is pinned to 5173 in **both**
   pathspec); limited to the new path git pairs nothing and reports the file
   as added, and the three-sided view loses HEAD. A symlink is read,
   synthesized and written as its target text with mode 120000, never through
-  the link. A chmod has no hunk at all, so `oldMode`/`newMode` let the viewer
+  the link; the working-tree source pane shows that target too, and marks it
+  `symlink` so the page keeps it read-only (saving through it would edit a
+  file git does not track). A chmod has no hunk at all, so `oldMode`/`newMode` let the viewer
   name the change instead of answering "No differences".
 - The diff paints itself with `paintLine` (tokens × word-diff), so a keyword
   that is also part of a changed word keeps its colour under the change mark.
