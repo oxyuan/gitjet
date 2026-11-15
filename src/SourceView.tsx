@@ -16,6 +16,7 @@ const T = {
     index: "Index",
     external: "External file",
     deletedInWorktree: "deleted in working tree",
+    symlink: "symbolic link",
     meta: "{language} · {lines} · {size}",
     lines: "{n} lines",
     openWorkingTree: "Switch to the working tree version",
@@ -44,6 +45,7 @@ const T = {
     index: "暂存区",
     external: "外部文件",
     deletedInWorktree: "工作区中已删除",
+    symlink: "符号链接",
     meta: "{language} · {lines} · {size}",
     lines: "{n} 行",
     openWorkingTree: "切换到工作区版本",
@@ -172,9 +174,10 @@ export function SourceView({
   const dir = file.path.includes("/") ? file.path.slice(0, file.path.lastIndexOf("/") + 1) : "";
   const name = file.path.slice(dir.length);
   const revision = revisionLabel(file.revision, file.external, t);
-  // Only a live working-tree text file can be edited; the index, a commit and
-  // a truncated copy must not be overwritten from this pane.
-  const editable = file.revision === "" && !file.external && file.exists && !file.binary && !file.truncated;
+  // Only a live working-tree text file can be edited; the index, a commit, a
+  // truncated copy and a symbolic link must not be overwritten from this pane.
+  // A link's text is its target, and saving it would replace the link itself.
+  const editable = file.revision === "" && !file.external && file.exists && !file.binary && !file.truncated && !file.symlink;
   const lineEnding = detectLineEnding(file.text);
   const handleDirty = (next: boolean) => onDirtyChange?.(next);
   return (
@@ -196,6 +199,7 @@ export function SourceView({
               lines: t("lines", { n: lines.length }),
               size: formatSize(file.size),
             })}
+            {file.symlink && ` · ${t("symlink")}`}
           </span>
           <span className="spacer" />
           {!file.external && file.revision !== "" && onOpenWorkingTree && (

@@ -139,6 +139,36 @@ func TestExternalFileReadsOutsideTheRepository(t *testing.T) {
 	}
 }
 
+func TestFileContentReadsASymlinkAsItsTarget(t *testing.T) {
+	repo, dir := newTestRepo(t)
+	writeFile(t, dir, "target.txt", "content git does not track here\n")
+	if err := os.Symlink("target.txt", filepath.Join(dir, "link")); err != nil {
+		t.Fatal(err)
+	}
+	runGit(t, dir, "add", "link")
+	runGit(t, dir, "commit", "-qm", "link")
+
+	worktree, err := repo.FileContent(t.Context(), "link", "")
+	if err != nil {
+		t.Fatalf("FileContent: %v", err)
+	}
+	// A link's blob is the target text; reading through it would show the
+	// content of a file that may not belong to the repository.
+	if worktree.Text != "target.txt" {
+		t.Fatalf("worktree text = %q, want the link target", worktree.Text)
+	}
+	if !worktree.Symlink || !worktree.Exists {
+		t.Fatalf("worktree = %+v, want an existing symlink", worktree)
+	}
+	head, err := repo.FileContent(t.Context(), "link", "HEAD")
+	if err != nil {
+		t.Fatalf("FileContent HEAD: %v", err)
+	}
+	if head.Text != worktree.Text {
+		t.Fatalf("HEAD %q and worktree %q disagree", head.Text, worktree.Text)
+	}
+}
+
 func TestFileContentDoesNotReportAMissingBlobAsEmpty(t *testing.T) {
 	repo, dir := newTestRepo(t)
 	writeFile(t, dir, "star*name.txt", "one\n")

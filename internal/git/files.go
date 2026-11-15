@@ -21,6 +21,10 @@ type SourceFile struct {
 	Truncated bool   `json:"truncated"`
 	Size      int64  `json:"size"`
 	Language  string `json:"language"`
+	// Symlink marks a working-tree symbolic link. Its text is the link's
+	// target, which is what git stores for it, and the pane must not edit
+	// it: a write here would edit a file git does not track.
+	Symlink bool `json:"symlink"`
 	// External marks a read-only file outside the repository, such as a
 	// language server's answer in a standard library.
 	External bool `json:"external"`
@@ -105,7 +109,21 @@ func (r *Repo) FileContent(ctx context.Context, path, revision string) (SourceFi
 	out := SourceFile{Path: clean, Revision: rev, Language: languageOf(clean)}
 	if rev == "" || rev == "WORKTREE" {
 		out.Revision = ""
-		st, err := os.Stat(r.AbsPath(clean))
+		st, err := os.Lstat(r.AbsPath(clean))
+		if err == nil && st.Mode()&os.ModeSymlink != 0 {
+			// git keeps a link as its target text. Reading through the
+			// link would show the content of whatever it points at, which
+			// may not even be in the repository.
+			target, lerr := os.Readlink(r.AbsPath(clean))
+			if lerr != nil {
+				return SourceFile{}, lerr
+			}
+			out.Exists = true
+			out.Symlink = true
+			out.Text = target
+			out.Size = int64(len(target))
+			return out, nil
+		}
 		if err == nil && !st.IsDir() {
 			out.Exists = true
 			out.Size = st.Size()

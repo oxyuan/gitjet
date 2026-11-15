@@ -693,6 +693,7 @@ export interface SourceFile {
   truncated: boolean;
   size: number;
   language: string;
+  symlink: boolean;
   external: boolean;
 }
 
