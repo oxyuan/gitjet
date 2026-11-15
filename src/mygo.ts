@@ -1072,6 +1072,10 @@ export const Git = {
   compare(from: string, to: string): Promise<Change[]> {
     return call("Git.Compare", from, to);
   },
+  /** CompareWorktree lists what differs between a revision and the working tree. */
+  compareWorktree(from: string): Promise<Change[]> {
+    return call("Git.CompareWorktree", from);
+  },
   /** Completions suggests git commands and refs. */
   completions(prefix: string): Promise<Completion[]> {
     return call("Git.Completions", prefix);

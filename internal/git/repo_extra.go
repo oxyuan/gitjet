@@ -637,6 +637,27 @@ func (r *Repo) CompareRefs(ctx context.Context, from, to string) ([]Change, erro
 	if err != nil {
 		return nil, err
 	}
+	return parseNameStatus(out), nil
+}
+
+// CompareWorktree lists what differs between a revision and the working tree,
+// the way IDEA's "Compare with Local" does. Untracked files are not part of a
+// diff, so they are not listed.
+func (r *Repo) CompareWorktree(ctx context.Context, from string) ([]Change, error) {
+	from = strings.TrimSpace(from)
+	if from == "" || strings.HasPrefix(from, "-") {
+		return []Change{}, errors.New("choose a revision")
+	}
+	out, err := r.run(ctx, "diff", "--name-status", "-z", from, "--")
+	if err != nil {
+		return nil, err
+	}
+	return parseNameStatus(out), nil
+}
+
+// parseNameStatus reads the NUL-separated records of `git diff
+// --name-status -z`; a rename or copy record names its origin first.
+func parseNameStatus(out string) []Change {
 	fields := strings.Split(out, "\x00")
 	changes := []Change{}
 	for i := 0; i < len(fields); i++ {
@@ -656,7 +677,7 @@ func (r *Repo) CompareRefs(ctx context.Context, from, to string) ([]Change, erro
 		}
 		changes = append(changes, change)
 	}
-	return changes, nil
+	return changes
 }
 
 func diffKind(status string) string {

@@ -2178,6 +2178,22 @@ func (g *Git) Compare(from, to string) ([]git.Change, error) {
 	return changes, nil
 }
 
+// CompareWorktree lists what differs between a revision and the working tree.
+func (g *Git) CompareWorktree(from string) ([]git.Change, error) {
+	repo, err := g.c.currentRepo()
+	if err != nil {
+		return nil, err
+	}
+	changes, err := repo.CompareWorktree(context.Background(), from)
+	if err != nil {
+		return nil, err
+	}
+	if changes == nil {
+		changes = []git.Change{}
+	}
+	return changes, nil
+}
+
 // ---- history rewriting ----
 
 // RewritePlan lists the commits a rewrite of the branch onto onto would

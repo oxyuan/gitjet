@@ -365,7 +365,8 @@ const T = {
     "conflicts.merging": "Merging branch {theirs} into branch {ours}",
     "conflicts.rebasing": "Rebasing {ours} onto {theirs}",
     "conflicts.operation": "Resolving conflicts",
-    "compare.title": "Compare with the working branch",
+    "compare.title": "Compare revisions",
+    "compare.worktree": "Working Tree",
     "compare.loading": "Comparing",
     "compare.empty": "No file differs",
     "compare.swap": "Swap the two revisions",
@@ -674,7 +675,8 @@ const T = {
     "conflicts.merging": "将分支 {theirs} 合并到分支 {ours}",
     "conflicts.rebasing": "正在将 {ours} 变基到 {theirs}",
     "conflicts.operation": "解决冲突",
-    "compare.title": "与当前分支比较",
+    "compare.title": "比较版本",
+    "compare.worktree": "工作区",
     "compare.loading": "正在比较",
     "compare.empty": "没有不同的文件",
     "compare.swap": "交换两个版本",
@@ -3499,38 +3501,51 @@ export function ConflictSummaryDialog({
 }
 
 /** CompareDialog lists the files that differ between a ref and HEAD. */
+/** The right-hand select's "Working Tree" entry: a diff against what is on
+ *  disk rather than a revision. No revision is ever named this. */
+export const WORKTREE_REF = "__working_tree__";
+
 export function CompareDialog({
   from,
+  to,
+  worktree,
   refs,
   onClose,
   onOpenFile,
 }: {
   from: string;
+  /** The other side when the dialog is not comparing against HEAD, as the
+   *  history's "Compare Versions" does with two selected commits. */
+  to?: string;
+  /** Start against the working tree instead, IDEA's "Compare with Local". */
+  worktree?: boolean;
   refs: string[];
   onClose: () => void;
   onOpenFile: (path: string, from: string, to: string) => void;
 }) {
   const t = useT(T);
   const [left, setLeft] = useState(from);
-  const [right, setRight] = useState("HEAD");
+  const [right, setRight] = useState(worktree ? WORKTREE_REF : to || "HEAD");
   const [files, setFiles] = useState<Change[] | null>(null);
   const [error, setError] = useState("");
+  const againstWorktree = right === WORKTREE_REF;
 
   useEffect(() => {
     let alive = true;
     setFiles(null);
     setError("");
-    Git.compare(left, right)
+    const request = againstWorktree ? Git.compareWorktree(left) : Git.compare(left, right);
+    request
       .then((list) => alive && setFiles(list))
       .catch((err: unknown) => alive && setError(err instanceof Error ? err.message : String(err)));
     return () => {
       alive = false;
     };
-  }, [left, right]);
+  }, [left, right, againstWorktree]);
 
   return (
     <Modal
-      title={`${t("compare.title")} — ${left} → ${right}`}
+      title={`${t("compare.title")} — ${left} → ${againstWorktree ? t("compare.worktree") : right}`}
       icon="diff"
       width={680}
       onClose={onClose}
@@ -3545,6 +3560,7 @@ export function CompareDialog({
           ))}
         </Select>
         <Button
+          disabled={againstWorktree}
           onClick={() => {
             const previousLeft = left;
             setLeft(right);
@@ -3555,7 +3571,8 @@ export function CompareDialog({
           ⇄
         </Button>
         <Select value={right} onChange={setRight}>
-          {[...new Set([right, ...refs])].map((ref) => (
+          <option value={WORKTREE_REF}>{t("compare.worktree")}</option>
+          {[...new Set([right, ...refs].filter((ref) => ref !== WORKTREE_REF))].map((ref) => (
             <option key={ref} value={ref}>
               {ref}
             </option>

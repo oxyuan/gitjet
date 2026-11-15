@@ -43,6 +43,7 @@ import {
   StashDialog,
   StashDetailDialog,
   CompareDialog,
+  WORKTREE_REF,
   TagDialog,
   CleanupBranchesDialog,
   ConflictSummaryDialog,
@@ -655,7 +656,7 @@ type Dialog =
   | { kind: "repoTools"; tab: "worktrees" | "submodules" | "shelves" | "lfs" }
   | { kind: "cleanupBranches" }
   | { kind: "conflicts" }
-  | { kind: "compare"; ref: string }
+  | { kind: "compare"; ref: string; to?: string; worktree?: boolean }
   | { kind: "clone" }
   | { kind: "init" }
   | { kind: "remotes" }
@@ -2704,6 +2705,25 @@ function AppShell({ onLangChange }: { onLangChange: (lang: Lang) => void }) {
     }
   };
 
+  /** Compare one path between a revision and what is on disk. */
+  const openCompareWorktreeFile = async (from: string, path: string) => {
+    try {
+      const opts: DiffOptions = {
+        path,
+        target: "head",
+        revision: from,
+        from,
+        context: settingsRef.current?.diffContext ?? -1,
+        whitespace: "none",
+        noText: false,
+      };
+      const diff = await Git.diff(opts);
+      openDoc({ id: `diff:compare:${from}:worktree:${path}`, title: path, kind: "diff", diff, opts });
+    } catch (err) {
+      fail(t("gitFailed"), err);
+    }
+  };
+
   const stashBranch = async (index: number, branch: string) => {
     setDialog(null);
     await withBusy(async () => {
@@ -3590,6 +3610,8 @@ function AppShell({ onLangChange }: { onLangChange: (lang: Lang) => void }) {
             }}
             onShowHistory={showFileHistory}
             onCheckout={(ref) => void checkout(ref)}
+            onCompareVersions={(from, to) => setDialog({ kind: "compare", ref: from, to })}
+            onCompareWithLocal={(hash) => setDialog({ kind: "compare", ref: hash, worktree: true })}
             onNewBranch={(start) => setDialog({ kind: "newBranch", start })}
             onNewTag={(start) => setDialog({ kind: "tag", start })}
             onCherryPick={(hashes) => void cherryPick(hashes)}
@@ -3934,6 +3956,8 @@ function AppShell({ onLangChange }: { onLangChange: (lang: Lang) => void }) {
       {dialog?.kind === "compare" && (
         <CompareDialog
           from={dialog.ref}
+          to={dialog.to}
+          worktree={dialog.worktree}
           refs={[
             ...(refs?.local.map((r) => r.name) ?? []),
             ...(refs?.remote.map((r) => r.name) ?? []),
@@ -3941,7 +3965,9 @@ function AppShell({ onLangChange }: { onLangChange: (lang: Lang) => void }) {
             "HEAD",
           ]}
           onClose={() => setDialog(null)}
-          onOpenFile={(path, from, to) => void openCompareFile(from, path, to)}
+          onOpenFile={(path, from, to) =>
+            void (to === WORKTREE_REF ? openCompareWorktreeFile(from, path) : openCompareFile(from, path, to))
+          }
         />
       )}
       {dialog?.kind === "conflicts" && (

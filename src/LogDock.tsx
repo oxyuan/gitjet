@@ -127,6 +127,8 @@ const T = {
     viewFlat: "Plain file list",
     moreRefs: "Also: {names}",
     resizeColumn: "Drag to resize this column",
+    compareVersions: "Compare Versions",
+    compareWithLocal: "Compare with Local",
   },
   zh: {
     title: "历史",
@@ -212,6 +214,8 @@ const T = {
     viewFlat: "平铺文件列表",
     moreRefs: "另有：{names}",
     resizeColumn: "拖动调整列宽",
+    compareVersions: "比较所选版本",
+    compareWithLocal: "与工作区比较",
   },
 } as const;
 
@@ -264,6 +268,8 @@ export function LogDock({
   onAnnotateRevision,
   onShowHistory,
   onCheckout,
+  onCompareVersions,
+  onCompareWithLocal,
   onNewBranch,
   onNewTag,
   onCherryPick,
@@ -318,6 +324,10 @@ export function LogDock({
   onAnnotateRevision: (path: string, revision: string) => void;
   onShowHistory: (path: string) => void;
   onCheckout: (ref: string) => void;
+  /** IDEA's "Compare Versions": two commits, oldest first. */
+  onCompareVersions: (from: string, to: string) => void;
+  /** IDEA's "Compare with Local": one commit against the working tree. */
+  onCompareWithLocal: (hash: string) => void;
   onNewBranch: (start: string) => void;
   onNewTag: (start: string) => void;
   onCherryPick: (hashes: string[]) => void;
@@ -535,6 +545,12 @@ export function LogDock({
         { label: t("cherryPickMany", { n: target.length }), icon: "cherry", onClick: () => onCherryPick(hashes) },
         { label: t("pushCommits"), icon: "push", onClick: () => onPushCommits(oldest.hash) },
         { label: t("revertMany", { n: target.length }), icon: "revert", onClick: () => onRevert(hashes) },
+        {
+          label: t("compareVersions"),
+          icon: "diff",
+          disabled: target.length !== 2,
+          onClick: () => onCompareVersions(hashes[0]!, hashes[1]!),
+        },
         { separator: true },
         canRewrite
           ? { label: t("rewriteHistory"), icon: "commit", onClick: () => onRewrite(oldest) }
@@ -561,6 +577,8 @@ export function LogDock({
         { label: t("resetSoft"), icon: "reset", onClick: () => onReset(commit.hash, "soft") },
         { label: t("resetMixed"), icon: "reset", onClick: () => onReset(commit.hash, "mixed") },
         { label: t("resetHard"), icon: "reset", danger: true, onClick: () => onReset(commit.hash, "hard") },
+        { separator: true },
+        { label: t("compareWithLocal"), icon: "diff", onClick: () => onCompareWithLocal(commit.hash) },
         { separator: true },
         { label: t("copyRevision"), icon: "copy", onClick: () => onCopy(commit.hash) },
         { label: t("copyMessage"), icon: "copy", onClick: () => onCopy(commit.message) },
