@@ -126,6 +126,14 @@ func (r *Repo) Log(ctx context.Context, opts LogOptions) (LogResult, error) {
 	// Full ref names keep a branch and a tag called "v1" apart; the short
 	// form would invent "heads/v1" and break checkout.
 	args := []string{"log", "--topo-order", "--no-color", "--no-show-signature", "--decorate=full"}
+	if path != "" && opts.Line == 0 {
+		// A file's history asks for every commit that touched it. Git's
+		// default simplification drops a commit whose change a later merge
+		// resolution made irrelevant, which hides side branches from the
+		// reader; IDEA asks for --full-history --simplify-merges for the
+		// same reason. -L walks its own history and must not take these.
+		args = append(args, "--full-history", "--simplify-merges")
+	}
 	if opts.FirstParent {
 		args = append(args, "--first-parent")
 	}

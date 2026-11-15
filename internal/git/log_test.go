@@ -2,6 +2,7 @@ package git
 
 import (
 	"context"
+	"os/exec"
 	"testing"
 )
 
@@ -187,5 +188,36 @@ func TestLogOfARepositoryWithoutCommitsIsEmpty(t *testing.T) {
 	}
 	if len(filtered.Commits) != 0 {
 		t.Fatalf("path log returned %d commits", len(filtered.Commits))
+	}
+}
+
+func TestLogFileHistoryKeepsAnOverwrittenSideBranch(t *testing.T) {
+	repo, dir := newTestRepo(t)
+	writeFile(t, dir, "f.txt", "base\n")
+	runGit(t, dir, "add", "f.txt")
+	runGit(t, dir, "commit", "-qm", "base")
+	runGit(t, dir, "checkout", "-q", "-b", "feature")
+	writeFile(t, dir, "f.txt", "feature\n")
+	runGit(t, dir, "commit", "-qam", "feat")
+	runGit(t, dir, "checkout", "-q", "main")
+	writeFile(t, dir, "f.txt", "mainline\n")
+	runGit(t, dir, "commit", "-qam", "mainline")
+	// The merge resolves to the feature side, which makes the mainline
+	// commit TREESAME to the merge and invisible to git's default history.
+	exec.Command("git", "-C", dir, "merge", "feature", "-m", "merge").Run()
+	writeFile(t, dir, "f.txt", "feature\n")
+	runGit(t, dir, "add", "f.txt")
+	runGit(t, dir, "commit", "-qm", "merge")
+
+	result, err := repo.Log(t.Context(), LogOptions{Path: "f.txt"})
+	if err != nil {
+		t.Fatalf("Log: %v", err)
+	}
+	subjects := map[string]bool{}
+	for _, commit := range result.Commits {
+		subjects[commit.Subject] = true
+	}
+	if !subjects["mainline"] {
+		t.Fatalf("file history hid the overwritten side branch: %v", subjects)
 	}
 }
