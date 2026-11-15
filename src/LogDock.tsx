@@ -1027,6 +1027,11 @@ export function LogDock({
           role="region"
           aria-label={detail?.short ?? t("selectCommit")}
           onKeyDown={step}
+          onMouseDown={(e) => {
+            // The pane owns ↑/↓ for its changed files; clicking a file (or the
+            // space around one) leaves the keyboard here rather than on body.
+            if (e.button === 0) detailRef.current?.focus({ preventScroll: true });
+          }}
         >
           {!detail ? (
             <div className="log-detail-empty">
