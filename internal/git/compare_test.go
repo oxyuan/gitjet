@@ -46,3 +46,34 @@ func TestCompareRefsRefusesAnEmptyRevision(t *testing.T) {
 		t.Fatal("an empty revision should be refused")
 	}
 }
+
+func TestCompareWorktreeSeesStagedAndUnstagedChanges(t *testing.T) {
+	repo, dir := newTestRepo(t)
+	writeFile(t, dir, "tracked.txt", "one\n")
+	runGit(t, dir, "add", ".")
+	runGit(t, dir, "commit", "-q", "-m", "base")
+	base := runGit(t, dir, "rev-parse", "HEAD")
+
+	writeFile(t, dir, "tracked.txt", "one\ntwo\n")
+	writeFile(t, dir, "staged.txt", "new\n")
+	runGit(t, dir, "add", "staged.txt")
+	writeFile(t, dir, "untracked.txt", "not in a diff\n")
+
+	changes, err := repo.CompareWorktree(context.Background(), base)
+	if err != nil {
+		t.Fatalf("CompareWorktree: %v", err)
+	}
+	byPath := make(map[string]Change, len(changes))
+	for _, change := range changes {
+		byPath[change.Path] = change
+	}
+	if got := byPath["tracked.txt"].Kind; got != "modified" {
+		t.Errorf("tracked.txt = %q, want modified", got)
+	}
+	if got := byPath["staged.txt"].Kind; got != "added" {
+		t.Errorf("staged.txt = %q, want added", got)
+	}
+	if _, ok := byPath["untracked.txt"]; ok {
+		t.Error("an untracked file is not part of a diff")
+	}
+}
