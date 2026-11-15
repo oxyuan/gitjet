@@ -183,6 +183,7 @@ const T = {
     "push.branch": "Branch",
     "push.setUpstream": "Set upstream (-u)",
     "push.allTags": "Push tags",
+    "push.runHooks": "Run Git hooks",
     "push.dryRun": "Dry run",
     "push.force": "Force push (--force-with-lease)",
     "push.moreOptions": "More push options",
@@ -491,6 +492,7 @@ const T = {
     "push.branch": "分支",
     "push.setUpstream": "设置上游 (-u)",
     "push.allTags": "Push 标签",
+    "push.runHooks": "运行 Git 钩子",
     "push.dryRun": "试运行",
     "push.force": "Force Push（--force-with-lease）",
     "push.moreOptions": "更多 Push 选项",
@@ -1620,6 +1622,8 @@ export function PushDialog({
   const [force, setForce] = useState(false);
   const [tags, setTags] = useState(false);
   const [dryRun, setDryRun] = useState(false);
+  // IDEA pushes with the repository hooks unless the box is cleared.
+  const [runHooks, setRunHooks] = useState(true);
   const [upstream, setUpstreamState] = useState(setUpstream);
   const [expanded, setExpanded] = useState<ReadonlySet<string>>(new Set());
   const [menu, setMenu] = useState<{ x: number; y: number; items: ContextItem[] } | null>(null);
@@ -1791,6 +1795,7 @@ export function PushDialog({
       footer={
         <>
           <Checkbox checked={tags} onChange={setTags} label={t("push.allTags")} />
+          <Checkbox checked={runHooks} onChange={setRunHooks} label={t("push.runHooks")} />
           <span className="pushd-gap" />
           <Button onClick={onClose}>{t("common.cancel")}</Button>
           <span className="pushd-split">
@@ -1807,6 +1812,7 @@ export function PushDialog({
                   forceIfIncludes,
                   tags,
                   dryRun,
+                  skipHooks: !runHooks,
                 })
               }
             >

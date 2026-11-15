@@ -50,6 +50,9 @@ type PushOptions struct {
 	ForceIfIncludes bool `json:"forceIfIncludes"`
 	Tags            bool `json:"tags"`
 	DryRun          bool `json:"dryRun"`
+	// SkipHooks adds --no-verify, IDEA's "Run Git hooks" switched off: the
+	// pre-push hook is skipped and the push proceeds.
+	SkipHooks bool `json:"skipHooks"`
 }
 
 // PullOptions selects how to integrate the upstream.
@@ -737,6 +740,9 @@ func (r *Repo) Push(ctx context.Context, opts PushOptions, emit func(string)) (s
 	}
 	if opts.SetUpstream {
 		args = append(args, "--set-upstream")
+	}
+	if opts.SkipHooks {
+		args = append(args, "--no-verify")
 	}
 	remote := opts.Remote
 	if remote == "" {

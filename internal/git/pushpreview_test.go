@@ -2,6 +2,8 @@ package git
 
 import (
 	"context"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 )
@@ -171,5 +173,31 @@ func TestPushPreviewAndPushWorkFromADetachedHead(t *testing.T) {
 	}
 	if shown := runGit(t, remote, "show", "--format=", "--name-only", "refs/heads/detached-work"); shown != "detached.txt" {
 		t.Fatalf("published tree = %q", shown)
+	}
+}
+
+func TestPushRunsPrePushHooksUnlessSkipped(t *testing.T) {
+	repo, dir := newTestRepo(t)
+	withRemote(t, dir)
+	hook := filepath.Join(dir, ".git", "hooks", "pre-push")
+	if err := os.MkdirAll(filepath.Dir(hook), 0o755); err != nil {
+		t.Fatalf("mkdir hooks: %v", err)
+	}
+	if err := os.WriteFile(hook, []byte("#!/bin/sh\nexit 1\n"), 0o755); err != nil {
+		t.Fatalf("write hook: %v", err)
+	}
+	writeFile(t, dir, "a.txt", "work\n")
+	runGit(t, dir, "commit", "-q", "-am", "work")
+
+	opts := PushOptions{Remote: "origin", Branch: "main"}
+	if _, err := repo.Push(context.Background(), opts, func(string) {}); err == nil {
+		t.Fatal("Push ignored the failing pre-push hook")
+	}
+	opts.SkipHooks = true
+	if _, err := repo.Push(context.Background(), opts, func(string) {}); err != nil {
+		t.Fatalf("Push with SkipHooks: %v", err)
+	}
+	if got := strings.TrimSpace(runGit(t, dir, "rev-parse", "origin/main")); got != strings.TrimSpace(runGit(t, dir, "rev-parse", "HEAD")) {
+		t.Fatalf("origin/main = %s, want HEAD", got)
 	}
 }

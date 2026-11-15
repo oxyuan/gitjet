@@ -493,6 +493,7 @@ export interface PushOptions {
   forceIfIncludes: boolean;
   tags: boolean;
   dryRun: boolean;
+  skipHooks: boolean;
 }
 
 export interface PushPreview {
