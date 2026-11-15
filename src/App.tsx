@@ -73,7 +73,14 @@ import { SourceView } from "./SourceView";
 import { SymbolPanel } from "./SymbolPanel";
 import { TargetPopup } from "./TargetPopup";
 import { NotificationCenter, type Notice } from "./NotificationCenter";
-import { disconnectLSP, lspServerName, openNavigationTarget, setDocumentOpener, toUri } from "./lsp";
+import {
+  disconnectLSP,
+  lspServerName,
+  openNavigationTarget,
+  setDocumentOpener,
+  setServerMessageReporter,
+  toUri,
+} from "./lsp";
 import {
   canStep,
   emptyHistory,
@@ -1198,6 +1205,14 @@ function AppShell({ onLangChange }: { onLangChange: (lang: Lang) => void }) {
     });
     return () => setDocumentOpener(null);
   }, []);
+
+  // A language server's own message goes to the bell, not to a modal over the
+  // editor: gopls reports "Finished loading packages." on the first file of
+  // every session, which used to block the reader for no decision.
+  useEffect(() => {
+    setServerMessageReporter(({ kind, server, message }) => notify(kind, server, message));
+    return () => setServerMessageReporter(null);
+  }, [notify]);
 
   // Boot: reopen the last repository and restore the tool window.
   useEffect(() => {

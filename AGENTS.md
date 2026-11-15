@@ -537,7 +537,12 @@ use it only for layout work. Vite's port is pinned to 5173 in **both**
   server, `Git.searchSymbol` (git grep) backs the same jumps: `planTextJump`
   (`src/navigation.ts`) reads the hits through `classifyHits`, so a click on
   a usage jumps to the one declaration it finds and a click on a declaration
-  lists its uses; several declarations open the same chooser.
+  lists its uses; several declarations open the same chooser. A server's own
+  `window/showMessage`, and an error `window/logMessage`, go to the status
+  bar's bell through `setServerMessageReporter` (`src/lsp.ts`): the client's
+  built-in handler would open a modal over the editor, so gopls's "Finished
+  loading packages." blocked the first file of a session. The handler returns
+  true to suppress that dialog.
 - Editors register the **absolute** file URI (`joinRoot(root, file.path)`),
   because that is what a server returns. A jump's display path is a git path
   when it is under the root and absolute when it is not; `resolveOpenPath`

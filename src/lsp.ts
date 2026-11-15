@@ -237,6 +237,23 @@ let probed: PackStatus[] | null = null;
 let probing: Promise<PackStatus[]> | null = null;
 let repositoryRoot = "";
 
+/** One message a language server asked the reader to see. */
+export type ServerMessage = {
+  kind: "info" | "error";
+  server: string;
+  message: string;
+};
+
+let serverMessages: ((message: ServerMessage) => void) | null = null;
+
+/** The app supplies where server messages go. The client's own handler opens
+ *  a modal over the editor for every `window/showMessage`, so a server's
+ *  "Finished loading packages." blocked the first file of a session; this
+ *  routes it to the notification bell instead. */
+export function setServerMessageReporter(reporter: ((message: ServerMessage) => void) | null) {
+  serverMessages = reporter;
+}
+
 /** The probe is one call per settings generation: every editor asks for its
  *  own language, and they must not each spawn a probe. */
 async function probeServers(force = false): Promise<PackStatus[]> {
@@ -309,6 +326,28 @@ async function startServer(server: PackStatus): Promise<ActiveClient | null> {
     // Maven project; the handshake itself must still fit in this window.
     timeout: 30000,
     sanitizeHTML,
+    notificationHandlers: {
+      // Returning true keeps the built-in handler, a modal over the editor,
+      // from ever opening for a server's informational message.
+      "window/showMessage": (_client, params) => {
+        const message = params?.message;
+        if (typeof message !== "string") return true;
+        if (typeof params?.type !== "number" || params.type > 3) return false;
+        serverMessages?.({
+          kind: params.type === 1 ? "error" : "info",
+          server: server.serverName ?? server.name,
+          message,
+        });
+        return true;
+      },
+      // The built-in handler only logs a server error to the console, where
+      // nobody looks; an error belongs in the bell beside every other one.
+      "window/logMessage": (_client, params) => {
+        if (params?.type !== 1 || typeof params.message !== "string") return false;
+        serverMessages?.({ kind: "error", server: server.serverName ?? server.name, message: params.message });
+        return true;
+      },
+    },
   });
   next.connect(createTransport(info.id));
   await next.initializing.catch(() => null);
