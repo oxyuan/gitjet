@@ -784,7 +784,6 @@ function AppShell({ onLangChange }: { onLangChange: (lang: Lang) => void }) {
   const [logDetail, setLogDetail] = useState<CommitDetail | null>(null);
   const [logFile, setLogFile] = useState<string | null>(null);
   const [logDockHeight, setLogDockHeight] = useStoredState<number>("gitjet.logDock", 300);
-  const [logInfoRatio, setLogInfoRatio] = useStoredState<number>("gitjet.logInfoRatio", 0.52);
   const [logDockFolded, setLogDockFolded] = useStoredState<boolean>("gitjet.logDockFolded", false);
   // The changelist and the commit details are read at different times, so
   // each keeps its own view.
@@ -3592,8 +3591,6 @@ function AppShell({ onLangChange }: { onLangChange: (lang: Lang) => void }) {
             height={logDockHeight}
             viewMode={detailView}
             onViewMode={setDetailView}
-            infoRatio={logInfoRatio}
-            onInfoResize={setLogInfoRatio}
             collapsed={logDockFolded}
             onToggleCollapsed={() => setLogDockFolded(!logDockFolded)}
             onResize={setLogDockHeight}

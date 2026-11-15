@@ -118,7 +118,6 @@ const T = {
     signatureKey: "Key {key}",
     inBranchesOne: "In 1 branch",
     inBranchesOther: "In {n} branches",
-    resizeDetails: "Drag to resize",
     resizeLogWidth: "Drag to resize the history and the commit details",
     mergeParents: "Merge",
     collapsePanel: "Hide the history panel",
@@ -205,7 +204,6 @@ const T = {
     signatureKey: "密钥 {key}",
     inBranchesOne: "在 1 个分支中",
     inBranchesOther: "在 {n} 个分支中",
-    resizeDetails: "拖动调整高度",
     resizeLogWidth: "拖动可调整历史与提交详情的宽度",
     mergeParents: "Merge",
     collapsePanel: "收起历史面板",
@@ -252,8 +250,6 @@ export function LogDock({
   onToggleCollapsed,
   viewMode,
   onViewMode,
-  infoRatio,
-  onInfoResize,
   onSelect,
   onOpenCommit,
   onSelectFile,
@@ -307,9 +303,6 @@ export function LogDock({
   /** How the changed files of the commit are listed. */
   viewMode: ChangeView;
   onViewMode: (view: ChangeView) => void;
-  /** Share of the details pane taken by the commit information block. */
-  infoRatio: number;
-  onInfoResize: (ratio: number) => void;
   onSelect: (commit: Commit) => void;
   onOpenCommit: (hash: string) => void;
   onSelectFile: (file: CommitFile) => void;
@@ -552,27 +545,6 @@ export function LogDock({
       window.removeEventListener("mouseup", up);
     };
     document.body.classList.add("col-resizing");
-    window.addEventListener("mousemove", move);
-    window.addEventListener("mouseup", up);
-  };
-
-  // The files list and the commit's information share the details pane and
-  // the divider between them moves.
-  const startInfoResize = (e: React.MouseEvent) => {
-    const startY = e.clientY;
-    const startRatio = infoRatio;
-    const pane = detailRef.current?.getBoundingClientRect().height ?? 0;
-    if (pane <= 0) return;
-    const move = (ev: MouseEvent) => {
-      const next = Math.min(0.85, Math.max(0.16, startRatio + (startY - ev.clientY) / pane));
-      onInfoResize(Math.round(next * 1000) / 1000);
-    };
-    const up = () => {
-      document.body.classList.remove("resizing-row");
-      window.removeEventListener("mousemove", move);
-      window.removeEventListener("mouseup", up);
-    };
-    document.body.classList.add("resizing-row");
     window.addEventListener("mousemove", move);
     window.addEventListener("mouseup", up);
   };
@@ -1040,201 +1012,204 @@ export function LogDock({
             </div>
           ) : (
             <>
-              <div className="log-detail-files">
-                <div className="log-detail-files-head">
-                  <button
-                    className="toolbar-text-btn"
-                    title={viewMode === "tree" ? t("viewFlat") : t("viewTree")}
-                    onClick={() => onViewMode(viewMode === "tree" ? "flat" : "tree")}
-                  >
-                    <Icon name={viewMode === "tree" ? "list" : "folder"} size={12} />
-                  </button>
-                  <span className="spacer" />
-                  <span className="details-stats">
-                    {count(detail.stats.files, t("filesChangedOne"), t("filesChangedOther", { n: detail.stats.files }))}
-                    {detail.stats.additions > 0 && <span className="add-count"> +{detail.stats.additions}</span>}
-                    {detail.stats.deletions > 0 && <span className="del-count"> −{detail.stats.deletions}</span>}
-                  </span>
-                </div>
-                <div className="log-detail-files-list">
-                  <FileTree
-                    files={detail.files}
-                    view={viewMode}
-                    expanded={fileDirs}
-                    onToggleDir={(key) =>
-                      setFileDirs((prev) => {
-                        const next = new Set(prev);
-                        if (next.has(key)) next.delete(key);
-                        else next.add(key);
-                        return next;
-                      })
-                    }
-                    indent={8}
-                    renderFile={(file, depth, flat) => (
-                      <div
-                        ref={selectedFile === file.path ? fileRowRef : undefined}
-                        style={{ marginLeft: depth * 12 }}
-                        className="details-file"
-                        onClick={() => onSelectFile(file)}
-                        title={file.oldPath ? `${file.oldPath} → ${file.path}` : file.path}
-                      >
-                      <StatusMark kind={file.status} />
-                      <FileIcon path={file.path} size={14} />
-                      <span className="details-file-path">
-                        <span className="file-base">{file.path.slice(file.path.lastIndexOf("/") + 1)}</span>
-                        {flat && file.path.includes("/") && (
-                          <span className="file-dir">{file.path.slice(0, file.path.lastIndexOf("/") + 1)}</span>
-                        )}
-                      </span>
-                      <button
-                        className="mini-icon"
-                        title={t("openSource")}
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          onOpenSource(file.path, detail.hash);
-                        }}
-                      >
-                        <Icon name="file" size={12} />
-                      </button>
-                      <button
-                        className="mini-icon"
-                        title={t("annotateRevision")}
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          onAnnotateRevision(file.path, detail.hash);
-                        }}
-                      >
-                        <Icon name="user" size={12} />
-                      </button>
-                      <button
-                        className="mini-icon"
-                        title={t("showHistory")}
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          onShowHistory(file.path);
-                        }}
-                      >
-                        <Icon name="log" size={12} />
-                      </button>
-                      <span className="tree-stats">
-                        {file.additions > 0 && <span className="add-count">+{file.additions}</span>}
-                        {file.deletions > 0 && <span className="del-count">−{file.deletions}</span>}
-                      </span>
-                      </div>
-                    )}
-                  />
-                </div>
-              </div>
-              <div
-                className="log-detail-split"
-                onMouseDown={startInfoResize}
-                title={t("resizeDetails")}
-              />
-              <div className="log-detail-info" style={{ flexBasis: `${infoRatio * 100}%` }}>
-                <div className="log-detail-subject">{detail.subject}</div>
-                <div className="log-detail-meta">
-                  <button
-                    className="mini-icon"
-                    title={t("browseRevision")}
-                    onClick={() => onBrowseRevision(detail.hash)}
-                  >
-                    <Icon name="folder" size={12} />
-                  </button>
-                  <button className="hash-copy" title={t("copyHash")} onClick={() => onCopy(detail.hash)}>
-                    <Icon name="hash" size={11} />
-                    <code>{detail.short}</code>
-                    <Icon name="copy" size={11} />
-                  </button>
-                  <span className="bp-avatar">{(detail.author || "?").slice(0, 1).toUpperCase()}</span>
-                  <span className="log-detail-author" title={detail.authorEmail}>
-                    {detail.author}
-                  </span>
-                  <span className="muted">{formatStamp(detail.authorTime, t("today"))}</span>
-                </div>
-                <div className="log-detail-nav">
-                  {detail.parents[0] && (
+              <div className="log-detail-scroll">
+                <div className="log-detail-files">
+                  <div className="log-detail-files-head">
                     <button
                       className="toolbar-text-btn"
-                      title={t("goToParent")}
-                      onClick={() => onOpenCommit(detail.parents[0]!)}
+                      title={viewMode === "tree" ? t("viewFlat") : t("viewTree")}
+                      onClick={() => onViewMode(viewMode === "tree" ? "flat" : "tree")}
                     >
-                      <Icon name="chevronDown" size={11} /> {detail.parents[0].slice(0, 8)}
+                      <Icon name={viewMode === "tree" ? "list" : "folder"} size={12} />
                     </button>
+                    <span className="spacer" />
+                    <span className="details-stats">
+                      {count(detail.stats.files, t("filesChangedOne"), t("filesChangedOther", { n: detail.stats.files }))}
+                      {detail.stats.additions > 0 && <span className="add-count"> +{detail.stats.additions}</span>}
+                      {detail.stats.deletions > 0 && <span className="del-count"> −{detail.stats.deletions}</span>}
+                    </span>
+                  </div>
+                  <div className="log-detail-files-list">
+                    <FileTree
+                      files={detail.files}
+                      view={viewMode}
+                      expanded={fileDirs}
+                      onToggleDir={(key) =>
+                        setFileDirs((prev) => {
+                          const next = new Set(prev);
+                          if (next.has(key)) next.delete(key);
+                          else next.add(key);
+                          return next;
+                        })
+                      }
+                      indent={8}
+                      renderFile={(file, depth, flat) => (
+                        <div
+                          ref={selectedFile === file.path ? fileRowRef : undefined}
+                          style={{ marginLeft: depth * 12 }}
+                          className="details-file"
+                          onClick={() => onSelectFile(file)}
+                          title={file.oldPath ? `${file.oldPath} → ${file.path}` : file.path}
+                        >
+                        <StatusMark kind={file.status} />
+                        <FileIcon path={file.path} size={14} />
+                        <span className="details-file-path">
+                          <span className="file-base">{file.path.slice(file.path.lastIndexOf("/") + 1)}</span>
+                          {flat && file.path.includes("/") && (
+                            <span className="file-dir">{file.path.slice(0, file.path.lastIndexOf("/") + 1)}</span>
+                          )}
+                        </span>
+                        <button
+                          className="mini-icon"
+                          title={t("openSource")}
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            onOpenSource(file.path, detail.hash);
+                          }}
+                        >
+                          <Icon name="file" size={12} />
+                        </button>
+                        <button
+                          className="mini-icon"
+                          title={t("annotateRevision")}
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            onAnnotateRevision(file.path, detail.hash);
+                          }}
+                        >
+                          <Icon name="user" size={12} />
+                        </button>
+                        <button
+                          className="mini-icon"
+                          title={t("showHistory")}
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            onShowHistory(file.path);
+                          }}
+                        >
+                          <Icon name="log" size={12} />
+                        </button>
+                        <span className="tree-stats">
+                          {file.additions > 0 && <span className="add-count">+{file.additions}</span>}
+                          {file.deletions > 0 && <span className="del-count">−{file.deletions}</span>}
+                        </span>
+                        </div>
+                      )}
+                    />
+                  </div>
+                </div>
+                <div className="log-detail-info">
+                  <div className="log-detail-subject" title={detail.subject}>
+                    {detail.subject}
+                  </div>
+                  <div className="log-detail-meta">
+                    <button
+                      className="mini-icon"
+                      title={t("browseRevision")}
+                      onClick={() => onBrowseRevision(detail.hash)}
+                    >
+                      <Icon name="folder" size={12} />
+                    </button>
+                    <button className="hash-copy" title={t("copyHash")} onClick={() => onCopy(detail.hash)}>
+                      <Icon name="hash" size={11} />
+                      <code>{detail.short}</code>
+                      <Icon name="copy" size={11} />
+                    </button>
+                    <span className="bp-avatar">{(detail.author || "?").slice(0, 1).toUpperCase()}</span>
+                    <span className="log-detail-author" title={detail.authorEmail}>
+                      {detail.author}
+                    </span>
+                    <span className="muted">{formatStamp(detail.authorTime, t("today"))}</span>
+                  </div>
+                  <div className="log-detail-nav">
+                    {detail.parents[0] && (
+                      <button
+                        className="toolbar-text-btn"
+                        title={t("goToParent")}
+                        onClick={() => onOpenCommit(detail.parents[0]!)}
+                      >
+                        <Icon name="chevronDown" size={11} /> {detail.parents[0].slice(0, 8)}
+                      </button>
+                    )}
+                    {child && (
+                      <button className="toolbar-text-btn" title={t("goToChild")} onClick={() => onOpenCommit(child.hash)}>
+                        <Icon name="chevronRight" size={11} /> {child.short}
+                      </button>
+                    )}
+                  </div>
+                  {detail.parents.length > 1 && (
+                    <div className="log-detail-merge">
+                      <span>{t("mergeParents")}</span>
+                      {detail.parents.map((parent) => (
+                        <button
+                          key={parent}
+                          className="merge-parent"
+                          title={parent}
+                          onClick={() => onOpenCommit(parent)}
+                        >
+                          {parent.slice(0, 8)}
+                        </button>
+                      ))}
+                    </div>
                   )}
-                  {child && (
-                    <button className="toolbar-text-btn" title={t("goToChild")} onClick={() => onOpenCommit(child.hash)}>
-                      <Icon name="chevronRight" size={11} /> {child.short}
-                    </button>
+                  {hasSignature(detail.signature) && (
+                    <div className={cx("log-detail-signature", signatureTone(detail.signature.status))}>
+                      <Icon
+                        name={signatureTone(detail.signature.status) === "good" ? "check" : "warning"}
+                        size={11}
+                      />
+                      <span>{t(signatureKey(detail.signature.status)!)}</span>
+                      {detail.signature.signer && <span className="muted">{detail.signature.signer}</span>}
+                    </div>
+                  )}
+                  {detail.committer !== detail.author && (
+                    <div className="log-detail-meta muted">
+                      {t("committedBy", { name: detail.committer, date: formatStamp(detail.commitTime, t("today")) })}
+                    </div>
+                  )}
+                  {detail.refs.length > 0 && (
+                    <div className="log-detail-refs" title={detail.refs.map((r) => r.name).join(", ")}>
+                      {detail.refs.map((r, i) => (
+                        <RefChip key={i} name={r.name} type={r.type} head={r.head} />
+                      ))}
+                    </div>
+                  )}
+                  {detail.branches.length > 0 && (
+                    <div className="log-detail-branches" title={detail.branches.join(", ")}>
+                      <span className="log-detail-branches-count">
+                        {count(detail.branches.length, t("inBranchesOne"), t("inBranchesOther", { n: detail.branches.length }))}
+                      </span>
+                      <div className="log-detail-branch-names">
+                        {detail.branches.map((name) => (
+                          <span key={name} className="log-detail-branch">
+                            <Icon name="branch" size={10} />
+                            {name}
+                          </span>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+                  {detail.tags && detail.tags.length > 0 && (
+                    <div className="log-detail-branches" title={detail.tags.join(", ")}>
+                      <span className="log-detail-branches-count">
+                        {count(detail.tags.length, t("inTagsOne"), t("inTagsOther", { n: detail.tags.length }))}
+                      </span>
+                      <div className="log-detail-branch-names">
+                        {detail.tags.map((name) => (
+                          <span key={name} className="log-detail-branch">
+                            <Icon name="tag" size={10} />
+                            {name}
+                          </span>
+                        ))}
+                      </div>
+                    </div>
                   )}
                 </div>
-                {detail.parents.length > 1 && (
-                  <div className="log-detail-merge">
-                    <span>{t("mergeParents")}</span>
-                    {detail.parents.map((parent) => (
-                      <button
-                        key={parent}
-                        className="merge-parent"
-                        title={parent}
-                        onClick={() => onOpenCommit(parent)}
-                      >
-                        {parent.slice(0, 8)}
-                      </button>
-                    ))}
+                {detail.body && (
+                  <div className="log-detail-message">
+                    <pre className="details-body">{detail.body}</pre>
                   </div>
                 )}
-                {hasSignature(detail.signature) && (
-                  <div className={cx("log-detail-signature", signatureTone(detail.signature.status))}>
-                    <Icon
-                      name={signatureTone(detail.signature.status) === "good" ? "check" : "warning"}
-                      size={11}
-                    />
-                    <span>{t(signatureKey(detail.signature.status)!)}</span>
-                    {detail.signature.signer && <span className="muted">{detail.signature.signer}</span>}
-                  </div>
-                )}
-                {detail.committer !== detail.author && (
-                  <div className="log-detail-meta muted">
-                    {t("committedBy", { name: detail.committer, date: formatStamp(detail.commitTime, t("today")) })}
-                  </div>
-                )}
-                {detail.refs.length > 0 && (
-                  <div className="log-detail-refs">
-                    {detail.refs.map((r, i) => (
-                      <RefChip key={i} name={r.name} type={r.type} head={r.head} />
-                    ))}
-                  </div>
-                )}
-                {detail.branches.length > 0 && (
-                  <div className="log-detail-branches">
-                    <span className="log-detail-branches-count">
-                      {count(detail.branches.length, t("inBranchesOne"), t("inBranchesOther", { n: detail.branches.length }))}
-                    </span>
-                    <div className="log-detail-branch-names">
-                      {detail.branches.map((name) => (
-                        <span key={name} className="log-detail-branch">
-                          <Icon name="branch" size={10} />
-                          {name}
-                        </span>
-                      ))}
-                    </div>
-                  </div>
-                )}
-                {detail.tags && detail.tags.length > 0 && (
-                  <div className="log-detail-branches">
-                    <span className="log-detail-branches-count">
-                      {count(detail.tags.length, t("inTagsOne"), t("inTagsOther", { n: detail.tags.length }))}
-                    </span>
-                    <div className="log-detail-branch-names">
-                      {detail.tags.map((name) => (
-                        <span key={name} className="log-detail-branch">
-                          <Icon name="tag" size={10} />
-                          {name}
-                        </span>
-                      ))}
-                    </div>
-                  </div>
-                )}
-                {detail.body && <pre className="details-body">{detail.body}</pre>}
               </div>
               <div className="log-detail-foot">
                 <span>{t("stepFiles")}</span>

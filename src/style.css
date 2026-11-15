@@ -6108,6 +6108,7 @@ body.col-resizing .log-detail-grip::after {
   flex-direction: column;
   min-height: 0;
   outline: none;
+  overflow: hidden;
   background: var(--panel-raised);
 }
 
@@ -6126,73 +6127,67 @@ body.col-resizing .log-detail-grip::after {
   font-size: 11.5px;
 }
 
-/* Files on top, the commit's own information underneath. */
-.log-detail-files {
+/* The details are one page: the changed files head it and the commit's own
+   information follows them, so the pane scrolls once instead of splitting the
+   file list and the message into two scrolling halves. */
+.log-detail-scroll {
   flex: 1;
   min-height: 0;
+  overflow: auto;
+}
+
+.log-detail-files {
   display: flex;
   flex-direction: column;
 }
 
+/* The count and the view toggle stay put while a long list scrolls under them. */
 .log-detail-files-head {
   flex: none;
+  position: sticky;
+  top: 0;
+  z-index: 1;
   display: flex;
   align-items: baseline;
   justify-content: flex-end;
   gap: 8px;
   padding: 8px 12px 6px;
+  background: var(--panel-raised);
 }
 
 .log-detail-files-list {
-  flex: 1;
-  min-height: 0;
-  overflow: auto;
   padding: 0 8px 8px;
 }
 
-.log-detail-split {
-  flex: none;
-  position: relative;
-  height: 7px;
-  margin-bottom: -3px;
-  cursor: row-resize;
-  z-index: 1;
-}
-
-.log-detail-split::after {
-  content: "";
-  position: absolute;
-  left: 0;
-  right: 0;
-  top: 3px;
-  height: 1px;
-  background: var(--border);
-}
-
-.log-detail-split:hover::after,
-body.resizing-row .log-detail-split::after {
-  top: 2px;
-  height: 3px;
-  background: var(--accent);
-}
-
+/* The commit's own information sits under the file list, one line per fact:
+   a subject cut to the pane's width, the author row, the refs and the branches
+   it lives in. A long value keeps its full text in a tooltip rather than
+   spending three rows on a pane this narrow. */
 .log-detail-info {
-  flex: none;
-  min-height: 60px;
-  overflow: auto;
-  padding: 9px 12px 10px;
   display: flex;
   flex-direction: column;
-  gap: 7px;
+  gap: 6px;
+  padding: 9px 12px 10px;
+  border-top: 1px solid var(--border);
 }
 
+/* The message keeps its own line breaks; the pane's one scrollbar covers it. */
+.log-detail-message {
+  padding: 0 12px 10px;
+}
+
+/* One line, as IDEA's own details header: a wrapped subject pushed the author
+   row and the file list around for the sake of a sentence already in the
+   history row above. The tooltip carries the whole text. */
 .log-detail-subject {
   display: block;
   font-size: 13px;
   font-weight: 600;
   line-height: 1.4;
   color: var(--fg);
-  overflow-wrap: anywhere;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .log-detail-meta {
@@ -6252,32 +6247,41 @@ body.resizing-row .log-detail-split::after {
 
 .log-detail-files-list .details-file {
   border-radius: 5px;
+  /* The head above the list sticks, so a row scrolled into view must clear it. */
+  scroll-margin-top: 34px;
 }
 
 .log-detail-refs {
   display: flex;
-  flex-wrap: wrap;
+  flex-wrap: nowrap;
   gap: 4px;
+  overflow: hidden;
 }
 
 .log-detail-branches {
   display: flex;
-  flex-direction: column;
-  gap: 4px;
+  align-items: baseline;
+  gap: 8px;
+  min-width: 0;
+  white-space: nowrap;
 }
 
 .log-detail-branches-count {
+  flex: none;
   color: var(--muted-2);
   font-size: 10.5px;
 }
 
 .log-detail-branch-names {
   display: flex;
-  flex-wrap: wrap;
-  gap: 4px 10px;
+  flex-wrap: nowrap;
+  gap: 10px;
+  min-width: 0;
+  overflow: hidden;
 }
 
 .log-detail-branch {
+  flex: none;
   display: inline-flex;
   align-items: center;
   gap: 4px;
@@ -6290,7 +6294,7 @@ body.resizing-row .log-detail-split::after {
   color: var(--muted-2);
 }
 
-.log-detail-info .details-body {
+.log-detail-message .details-body {
   margin: 0;
   padding: 0;
   background: none;
@@ -6299,6 +6303,10 @@ body.resizing-row .log-detail-split::after {
   font-size: 11.5px;
   line-height: 1.5;
   color: var(--muted);
+  /* The message block owns the height and the scrolling; the dialog's own
+     cap would hide the rest of a long body inside a 220 px box. */
+  max-height: none;
+  overflow: visible;
 }
 
 .log-title {
