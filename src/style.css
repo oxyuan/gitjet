@@ -10891,3 +10891,17 @@ button.diff-nav-count:disabled {
 .branch-scroll:focus {
   outline: none;
 }
+
+/* The status bar's conflict count is the way into the resolver. */
+button.status-conflicts {
+  border: 0;
+  padding: 1px 4px;
+  background: none;
+  font: inherit;
+  border-radius: 5px;
+  cursor: pointer;
+}
+
+button.status-conflicts:hover {
+  background: var(--hover);
+}

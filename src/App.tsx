@@ -3488,6 +3488,7 @@ function AppShell({ onLangChange }: { onLangChange: (lang: Lang) => void }) {
         <div className="workspace-right">
         <RightPane
             root={snapshot?.state.root ?? ""}
+            onQuickOpen={() => setQuickOpen(true)}
             commitView={detailView}
             diffMode={diffMode}
             setDiffMode={setDiffMode}
@@ -3683,10 +3684,14 @@ function AppShell({ onLangChange }: { onLangChange: (lang: Lang) => void }) {
           </span>
         )}
         {state?.conflicts ? (
-          <span className="status-conflicts">
+          <button
+            className="status-conflicts"
+            title={t("resolveConflicts")}
+            onClick={() => setDialog({ kind: "conflicts" })}
+          >
             <Icon name="warning" size={12} />{" "}
             {count(state.conflicts, t("conflictOne", { n: state.conflicts }), t("conflictOther", { n: state.conflicts }))}
-          </span>
+          </button>
         ) : null}
         <span className="spacer" />
         {snapshot && (
@@ -4208,6 +4213,7 @@ function tabDetail(doc: Doc, t: Translate): string {
 function RightPane({
   root,
   repoOpen,
+  onQuickOpen,
   docs,
   activeId,
   onActivate,
@@ -4259,6 +4265,8 @@ function RightPane({
   /** Absolute path of the repository, for the copy-path menu. */
   root: string;
   repoOpen: boolean;
+  /** The empty editor area's way into Quick Open while a repository is open. */
+  onQuickOpen: () => void;
   docs: Doc[];
   activeId: string | null;
   onActivate: (id: string) => void;
@@ -4473,11 +4481,17 @@ function RightPane({
         <h1>{repoOpen ? t("noFileOpen") : t("welcomeHeadline")}</h1>
         <p className="welcome-tagline">{repoOpen ? t("emptyOpen") : t("welcomeTagline")}</p>
         <div className="welcome-actions">
-          <Button variant="primary" onClick={() => onOpenRecent("")}>
-            <Icon name="open" /> {t("openRepository")}
-          </Button>
+          {repoOpen ? (
+            <Button variant="primary" onClick={onQuickOpen}>
+              <Icon name="search" /> {t("hintQuickOpen")}
+            </Button>
+          ) : (
+            <Button variant="primary" onClick={() => onOpenRecent("")}>
+              <Icon name="open" /> {t("openRepository")}
+            </Button>
+          )}
         </div>
-        {recent.length > 0 && (
+        {!repoOpen && recent.length > 0 && (
           <div className="recent-list">
             <div className="recent-head">
               <span className="recent-title">{t("recentRepositories")}</span>
@@ -4508,7 +4522,9 @@ function RightPane({
           </div>
         )}
         <div className="welcome-hints">
-          <span><kbd>⌘/Ctrl</kbd><kbd>O</kbd>{t("hintOpen")}</span>
+          {!repoOpen && (
+            <span><kbd>⌘/Ctrl</kbd><kbd>O</kbd>{t("hintOpen")}</span>
+          )}
           <span><kbd>⌘/Ctrl</kbd><kbd>P</kbd>{t("hintQuickOpen")}</span>
           <span><kbd>⌘/Ctrl</kbd><kbd>K</kbd>{t("hintCommit")}</span>
           <span><kbd>⌘/Ctrl</kbd><kbd>Shift</kbd><kbd>K</kbd>{t("hintPush")}</span>
