@@ -270,6 +270,15 @@ use it only for layout work. Vite's port is pinned to 5173 in **both**
   Modify/delete conflicts are not auto-resolvable there, exactly as in IDEA:
   they need a side choice. `merge.ts`'s `tryResolveRange` is the one entry
   point; `myers.ts` stays the line diff behind the merge view.
+- The conflict view's ranges are the IDE's `ComparisonMergeUtil.buildMerge`:
+  `merge.ts` walks both sides' unchanged stretches against the base and keeps
+  their overlap, so touching edits share a range and a hunk that only reaches a
+  range's boundary contributes nothing. With "Ignore differences" on, an
+  aligned stretch whose lines differ exactly is still split out
+  (`IgnoringChangeBuilder`), so the menu hides the marks without hiding the
+  text; without it, saving such a merge dropped both sides' whitespace edits.
+  Verified range-for-range against the IDE's `LineComparisonMergeUtilTest`
+  corpus.
 - The diff viewer never drops a line: `buildDiffRows` returns every row and
   `foldRanges` / `visibleRows` (`src/diff.ts`) hide unchanged runs at render
   time, keeping `FOLD_CONTEXT` lines beside each change and none at the file

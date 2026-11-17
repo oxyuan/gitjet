@@ -393,3 +393,50 @@ describe("blockText", () => {
     expect(replace(model.ranges[0]!.theirs)).toBe("// changed 6\nuseEffect(() => {\n};\n");
   });
 });
+
+// IDEA's `LineComparisonMergeUtilTest` corpus, in its own line order
+// (left, base, right) and its own range notation. "Ignore differences" hides
+// the marks; it must not hide the change, or saving the merge would drop both
+// sides' whitespace edits.
+describe("computeMerge with ignored differences", () => {
+  const ranges = (left: string, base: string, right: string, mode: WhitespaceMode) =>
+    computeMerge(base, left, right, { whitespaceMode: mode }).ranges.map(
+      (range) =>
+        `L(${range.oursStart},${range.oursEnd})B(${range.baseStart},${range.baseEnd})R(${range.theirsStart},${range.theirsEnd})`,
+    );
+
+  it("splits an ignored stretch into the changes it holds", () => {
+    expect(ranges("x\n y \nz", "x\ny\nz", "x\n  y\n  z", "spaces")).toEqual(["L(1,3)B(1,3)R(1,3)"]);
+    expect(ranges("x\n y \nz", "x\nY\nz", "x\n  y\n  z", "spaces")).toEqual([
+      "L(1,2)B(1,2)R(1,2)",
+      "L(2,3)B(2,3)R(2,3)",
+    ]);
+    expect(ranges(" x \ny\nz", "x\ny\nz", "x\ny\n  z", "spaces")).toEqual([
+      "L(0,1)B(0,1)R(0,1)",
+      "L(2,3)B(2,3)R(2,3)",
+    ]);
+  });
+
+  it("keeps one-sided and overlapping ignored changes apart", () => {
+    expect(ranges("x\n y \nz", "x\nY\nz", "x\n  y\nz", "spaces")).toEqual(["L(1,2)B(1,2)R(1,2)"]);
+    expect(ranges(" x \nnew\ny\nz", "x\n y \nz", "x\ny\nnew\n z", "spaces")).toEqual([
+      "L(0,1)B(0,1)R(0,1)",
+      "L(1,2)B(1,1)R(1,1)",
+      "L(2,3)B(1,2)R(1,2)",
+      "L(3,3)B(2,2)R(2,3)",
+      "L(3,4)B(2,3)R(3,4)",
+    ]);
+    expect(ranges(" x \nnew\ny1\nz", "x\n y \nz", "x\ny2\nnew\n z", "spaces")).toEqual([
+      "L(0,1)B(0,1)R(0,1)",
+      "L(1,3)B(1,2)R(1,3)",
+      "L(3,4)B(2,3)R(3,4)",
+    ]);
+  });
+
+  it("never drops an ignored change from the resolved text", () => {
+    const model = computeMerge("x\ny\nz", " x \ny\nz", "x\ny\n  z", { whitespaceMode: "spaces" });
+    expect(model.ranges).toHaveLength(2);
+    expect(resolveSimpleConflicts(model).text).toBe(" x \ny\n  z");
+    expect(resolveSimpleConflicts(model, true).text).toBe(" x \ny\n  z");
+  });
+});

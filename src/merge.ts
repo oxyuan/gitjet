@@ -157,65 +157,6 @@ export function diffHunks(a: string[], b: string[], ignoreWhitespace = false): D
   return hunks;
 }
 
-interface Boundaries {
-  before: number[];
-  after: number[];
-}
-
-function sideBoundaries(baseLength: number, ops: DiffOp[]): Boundaries {
-  const before = new Array<number>(baseLength + 1).fill(0);
-  const after = new Array<number>(baseLength + 1).fill(0);
-  const beforeSet = new Array<boolean>(baseLength + 1).fill(false);
-  const afterSet = new Array<boolean>(baseLength + 1).fill(false);
-  beforeSet[0] = true;
-  afterSet[0] = true;
-  let b = 0;
-  let s = 0;
-  for (const op of ops) {
-    if (op.kind === "equal") {
-      const len = op.aEnd - op.aStart;
-      for (let i = 0; i < len; i++) {
-        if (!beforeSet[b + i]) {
-          before[b + i] = s + i;
-          beforeSet[b + i] = true;
-        }
-        after[b + i] = s + i;
-        afterSet[b + i] = true;
-      }
-      b += len;
-      s += len;
-      if (!beforeSet[b]) before[b] = s;
-      beforeSet[b] = true;
-      after[b] = s;
-      afterSet[b] = true;
-    } else if (op.kind === "delete") {
-      const len = op.aEnd - op.aStart;
-      for (let i = 0; i < len; i++) {
-        if (!beforeSet[b + i]) before[b + i] = s;
-        beforeSet[b + i] = true;
-        after[b + i] = s;
-        afterSet[b + i] = true;
-      }
-      b += len;
-      if (!beforeSet[b]) before[b] = s;
-      beforeSet[b] = true;
-      after[b] = s;
-      afterSet[b] = true;
-    } else {
-      if (!beforeSet[b]) before[b] = s;
-      beforeSet[b] = true;
-      after[b] = s + (op.bEnd - op.bStart);
-      afterSet[b] = true;
-      s += op.bEnd - op.bStart;
-    }
-  }
-  for (let i = 0; i <= baseLength; i++) {
-    if (!beforeSet[i]) before[i] = s;
-    if (!afterSet[i]) after[i] = s;
-  }
-  return { before, after };
-}
-
 function whitespaceInsensitive(a: string, b: string): boolean {
   return ignoreSpaces(a) === ignoreSpaces(b);
 }
@@ -233,98 +174,187 @@ function textEqual(a: string[], b: string[], eq: LineEq): boolean {
   return true;
 }
 
-function hunksWithEq(base: string[], side: string[], key: LineKey): DiffHunk[] {
-  const ops = lineDiffOps(base, side, key);
-  const hunks: DiffHunk[] = [];
-  let current: DiffHunk | null = null;
-  const flush = () => {
-    if (current) hunks.push(current);
-    current = null;
-  };
+/** The stretches one side's diff left untouched, in base and side coordinates. */
+function unchangedRuns(ops: DiffOp[]): { baseStart: number; baseEnd: number; sideStart: number; sideEnd: number }[] {
+  const runs: { baseStart: number; baseEnd: number; sideStart: number; sideEnd: number }[] = [];
   for (const op of ops) {
-    if (op.kind === "equal") {
-      flush();
-      continue;
-    }
-    if (!current) {
-      current = { baseStart: op.aStart, baseEnd: op.aEnd, sideStart: op.bStart, sideEnd: op.bEnd };
-    } else {
-      current.baseStart = Math.min(current.baseStart, op.aStart);
-      current.baseEnd = Math.max(current.baseEnd, op.aEnd);
-      current.sideStart = Math.min(current.sideStart, op.bStart);
-      current.sideEnd = Math.max(current.sideEnd, op.bEnd);
+    if (op.kind === "equal" && op.aEnd > op.aStart) {
+      runs.push({ baseStart: op.aStart, baseEnd: op.aEnd, sideStart: op.bStart, sideEnd: op.bEnd });
     }
   }
-  flush();
-  return hunks;
+  return runs;
 }
 
+interface RawRange {
+  baseStart: number;
+  baseEnd: number;
+  oursStart: number;
+  oursEnd: number;
+  theirsStart: number;
+  theirsEnd: number;
+}
+
+/**
+ * IDEA's `ComparisonMergeUtil.buildMerge`: the two sides' unchanged stretches
+ * are walked together, and their overlap marks a stretch unchanged on *both*
+ * sides, so a range is exactly the gap between two such stretches. Changes
+ * that touch therefore share a range — adjacent edits conflict even when they
+ * sit on different lines — and a hunk that only touches a range's boundary
+ * contributes nothing to it.
+ *
+ * `trueEq` is IDEA's `equalsDefaultPolicy`. With "Ignore differences" on, an
+ * aligned stretch whose lines are equal under the policy but not exactly is
+ * still split out as its own change (`IgnoringChangeBuilder`), so the menu
+ * hides the marks without hiding the text; without it, saving such a merge
+ * dropped both sides' whitespace edits.
+ */
 function buildRanges(
   baseLines: string[],
   oursLines: string[],
   theirsLines: string[],
-  oursHunks: DiffHunk[],
-  theirsHunks: DiffHunk[],
-  oursBoundary: Boundaries,
-  theirsBoundary: Boundaries,
-  eq: LineEq,
-): MergeRange[] {
-  const ranges: MergeRange[] = [];
-  const push = (start: number, end: number, as: DiffHunk[], bs: DiffHunk[]) => {
-    const base = baseLines.slice(start, end);
-    const oursStart = as.length > 0 && as[0]!.baseStart === start ? as[0]!.sideStart : oursBoundary.after[start]!;
-    const oursEnd = as.length > 0 && as[as.length - 1]!.baseEnd === end ? as[as.length - 1]!.sideEnd : oursBoundary.before[end]!;
-    const theirsStart = bs.length > 0 && bs[0]!.baseStart === start ? bs[0]!.sideStart : theirsBoundary.after[start]!;
-    const theirsEnd = bs.length > 0 && bs[bs.length - 1]!.baseEnd === end ? bs[bs.length - 1]!.sideEnd : theirsBoundary.before[end]!;
-    const ours = oursLines.slice(oursStart, oursEnd);
-    const theirs = theirsLines.slice(theirsStart, theirsEnd);
-    const oursEqBase = textEqual(ours, base, eq);
-    const theirsEqBase = textEqual(theirs, base, eq);
-    const sameSides = textEqual(ours, theirs, eq);
-    // The kind is IDEA's MergeRangeUtil.getMergeType, and with it come the two
-    // "this side changed the range" flags: they are not simply "a hunk exists",
-    // because a hunk can sit on the boundary and contribute nothing.
-    let kind: MergeKind;
-    let oursChanged: boolean;
-    let theirsChanged: boolean;
-    if (base.length === 0) {
-      if (ours.length === 0) {
-        kind = "inserted";
-        oursChanged = false;
-        theirsChanged = true;
-      } else if (theirs.length === 0) {
-        kind = "inserted";
-        oursChanged = true;
-        theirsChanged = false;
-      } else if (sameSides) {
-        kind = "inserted";
-        oursChanged = true;
-        theirsChanged = true;
-      } else {
-        kind = "conflict";
-        oursChanged = true;
-        theirsChanged = true;
+  oursOps: DiffOp[],
+  theirsOps: DiffOp[],
+  trueEq: LineEq,
+): RawRange[] {
+  const oursRuns = unchangedRuns(oursOps);
+  const theirsRuns = unchangedRuns(theirsOps);
+  const ranges: RawRange[] = [];
+  let lastBase = 0;
+  let lastOurs = 0;
+  let lastTheirs = 0;
+  // Where the last recorded change ended: the start of the equal run being
+  // checked for ignored differences.
+  let changeBase = 0;
+  let changeOurs = 0;
+  let changeTheirs = 0;
+
+  const record = (
+    baseStart: number,
+    baseEnd: number,
+    oursStart: number,
+    oursEnd: number,
+    theirsStart: number,
+    theirsEnd: number,
+  ) => {
+    if (baseStart === baseEnd && oursStart === oursEnd && theirsStart === theirsEnd) return;
+    ranges.push({ baseStart, baseEnd, oursStart, oursEnd, theirsStart, theirsEnd });
+    changeBase = baseEnd;
+    changeOurs = oursEnd;
+    changeTheirs = theirsEnd;
+  };
+
+  /** IDEA's `IgnoringChangeBuilder.addIgnoredChanges`: an equal run is split
+   *  where a line is equal under the policy but not exactly, so an ignored
+   *  difference is still a change the reader can take or leave. */
+  const addIgnored = (
+    baseStart: number,
+    baseEnd: number,
+    oursStart: number,
+    oursEnd: number,
+    theirsStart: number,
+    theirsEnd: number,
+  ) => {
+    const count = baseEnd - baseStart;
+    let first = -1;
+    for (let i = 0; i < count; i++) {
+      const ignored =
+        !trueEq(baseLines[baseStart + i]!, oursLines[oursStart + i]!) ||
+        !trueEq(baseLines[baseStart + i]!, theirsLines[theirsStart + i]!);
+      if (ignored && first < 0) first = i;
+      if (!ignored && first >= 0) {
+        record(
+          baseStart + first,
+          baseStart + i,
+          oursStart + first,
+          oursStart + i,
+          theirsStart + first,
+          theirsStart + i,
+        );
+        first = -1;
       }
-    } else if (ours.length === 0 && theirs.length === 0) {
-      kind = "deleted";
-      oursChanged = true;
-      theirsChanged = true;
-    } else if (oursEqBase && theirsEqBase) {
-      // Equal under the current policy but not identical: a whitespace-only
-      // change still belongs to the side that wrote it.
-      kind = "modified";
-      oursChanged = !textEqual(ours, base, exact);
-      theirsChanged = !textEqual(theirs, base, exact);
-    } else if (oursEqBase) {
-      kind = theirs.length === 0 ? "deleted" : "modified";
+    }
+    if (first >= 0) record(baseStart + first, baseEnd, oursStart + first, oursEnd, theirsStart + first, theirsEnd);
+  };
+
+  /** IDEA's `ChangeBuilder.processChange`: the stretch since the last equal run
+   *  is a change; before it is recorded, the equal run before it is checked for
+   *  differences the policy ignores. */
+  const flushChange = (baseEnd: number, oursEnd: number, theirsEnd: number) => {
+    addIgnored(changeBase, lastBase, changeOurs, lastOurs, changeTheirs, lastTheirs);
+    record(lastBase, baseEnd, lastOurs, oursEnd, lastTheirs, theirsEnd);
+  };
+
+  const markEqual = (
+    baseStart: number,
+    baseEnd: number,
+    oursStart: number,
+    oursEnd: number,
+    theirsStart: number,
+    theirsEnd: number,
+  ) => {
+    flushChange(baseStart, oursStart, theirsStart);
+    lastBase = baseEnd;
+    lastOurs = oursEnd;
+    lastTheirs = theirsEnd;
+  };
+
+  let i = 0;
+  let j = 0;
+  while (i < oursRuns.length && j < theirsRuns.length) {
+    const ours = oursRuns[i]!;
+    const theirs = theirsRuns[j]!;
+    let advanceOurs: boolean;
+    if (ours.baseEnd <= theirs.baseStart) {
+      advanceOurs = true;
+    } else if (theirs.baseEnd <= ours.baseStart) {
+      advanceOurs = false;
+    } else {
+      const start = Math.max(ours.baseStart, theirs.baseStart);
+      const end = Math.min(ours.baseEnd, theirs.baseEnd);
+      const count = end - start;
+      const oursStart = ours.sideStart + (start - ours.baseStart);
+      const theirsStart = theirs.sideStart + (start - theirs.baseStart);
+      markEqual(start, end, oursStart, oursStart + count, theirsStart, theirsStart + count);
+      advanceOurs = ours.baseEnd <= theirs.baseEnd;
+    }
+    if (advanceOurs) i++;
+    else j++;
+  }
+  flushChange(baseLines.length, oursLines.length, theirsLines.length);
+  return ranges;
+}
+
+/** IDEA's `MergeRangeUtil.getMergeType`, and with it the two "this side changed
+ *  the range" flags: they are not simply "a hunk exists", because a hunk can
+ *  sit on the boundary and contribute nothing. */
+function classifyRange(
+  baseLines: string[],
+  oursLines: string[],
+  theirsLines: string[],
+  raw: RawRange,
+  index: number,
+  eq: LineEq,
+): MergeRange {
+  const base = baseLines.slice(raw.baseStart, raw.baseEnd);
+  const ours = oursLines.slice(raw.oursStart, raw.oursEnd);
+  const theirs = theirsLines.slice(raw.theirsStart, raw.theirsEnd);
+  const oursEqBase = textEqual(ours, base, eq);
+  const theirsEqBase = textEqual(theirs, base, eq);
+  const sameSides = textEqual(ours, theirs, eq);
+  let kind: MergeKind;
+  let oursChanged: boolean;
+  let theirsChanged: boolean;
+  if (base.length === 0) {
+    if (ours.length === 0) {
+      kind = "inserted";
       oursChanged = false;
       theirsChanged = true;
-    } else if (theirsEqBase) {
-      kind = ours.length === 0 ? "deleted" : "modified";
+    } else if (theirs.length === 0) {
+      kind = "inserted";
       oursChanged = true;
       theirsChanged = false;
     } else if (sameSides) {
-      kind = "modified";
+      kind = "inserted";
       oursChanged = true;
       theirsChanged = true;
     } else {
@@ -332,52 +362,43 @@ function buildRanges(
       oursChanged = true;
       theirsChanged = true;
     }
-    ranges.push({
-      index: ranges.length,
-      kind,
-      baseStart: start,
-      baseEnd: end,
-      oursStart,
-      oursEnd,
-      theirsStart,
-      theirsEnd,
-      oursChanged,
-      theirsChanged,
-      base,
-      ours,
-      theirs,
-    });
-  };
-
-  // A range is the gap between two stretches that are unchanged in *both*
-  // versions. So changes that touch — no line left unchanged on both sides
-  // between them — are one range, and adjacent edits conflict even when they
-  // sit on different lines. The IDE merges them exactly this way.
-  const hunks = [
-    ...oursHunks.map((hunk) => ({ hunk, ours: true })),
-    ...theirsHunks.map((hunk) => ({ hunk, ours: false })),
-  ].sort(
-    (a, b) =>
-      a.hunk.baseStart - b.hunk.baseStart ||
-      a.hunk.baseEnd - b.hunk.baseEnd ||
-      (a.ours === b.ours ? 0 : a.ours ? -1 : 1),
-  );
-
-  let i = 0;
-  while (i < hunks.length) {
-    const start = hunks[i]!.hunk.baseStart;
-    let end = hunks[i]!.hunk.baseEnd;
-    const as: DiffHunk[] = [];
-    const bs: DiffHunk[] = [];
-    while (i < hunks.length && hunks[i]!.hunk.baseStart <= end) {
-      const item = hunks[i]!;
-      (item.ours ? as : bs).push(item.hunk);
-      end = Math.max(end, item.hunk.baseEnd);
-      i++;
-    }
-    push(start, end, as, bs);
+  } else if (ours.length === 0 && theirs.length === 0) {
+    kind = "deleted";
+    oursChanged = true;
+    theirsChanged = true;
+  } else if (oursEqBase && theirsEqBase) {
+    // Equal under the current policy but not identical: a whitespace-only
+    // change still belongs to the side that wrote it.
+    kind = "modified";
+    oursChanged = !textEqual(ours, base, exact);
+    theirsChanged = !textEqual(theirs, base, exact);
+  } else if (oursEqBase) {
+    kind = theirs.length === 0 ? "deleted" : "modified";
+    oursChanged = false;
+    theirsChanged = true;
+  } else if (theirsEqBase) {
+    kind = ours.length === 0 ? "deleted" : "modified";
+    oursChanged = true;
+    theirsChanged = false;
+  } else if (sameSides) {
+    kind = "modified";
+    oursChanged = true;
+    theirsChanged = true;
+  } else {
+    kind = "conflict";
+    oursChanged = true;
+    theirsChanged = true;
   }
-  return ranges;
+  return {
+    index,
+    kind,
+    ...raw,
+    oursChanged,
+    theirsChanged,
+    base,
+    ours,
+    theirs,
+  };
 }
 
 /** The lines a non-conflict range contributes to the result. */
@@ -524,17 +545,8 @@ export function computeMerge(
   const key = lineKey(mode);
   const oursOps = lineDiffOps(base.lines, ours.lines, key);
   const theirsOps = lineDiffOps(base.lines, theirs.lines, key);
-  const oursHunks = hunksWithEq(base.lines, ours.lines, key);
-  const theirsHunks = hunksWithEq(base.lines, theirs.lines, key);
-  const ranges = buildRanges(
-    base.lines,
-    ours.lines,
-    theirs.lines,
-    oursHunks,
-    theirsHunks,
-    sideBoundaries(base.lines.length, oursOps),
-    sideBoundaries(base.lines.length, theirsOps),
-    eq,
+  const ranges = buildRanges(base.lines, ours.lines, theirs.lines, oursOps, theirsOps, exact).map(
+    (raw, index) => classifyRange(base.lines, ours.lines, theirs.lines, raw, index, eq),
   );
   const labels: MergeLabels = {
     ours: options.labels?.ours?.trim() || "LOCAL",
