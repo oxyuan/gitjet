@@ -1815,7 +1815,14 @@ export function ConflictView({
 
   useEffect(() => {
     const onKey = (event: KeyboardEvent) => {
-      if (event.key === "F7") {
+      if (event.key === "Escape") {
+        // IDEA closes the merge dialog on Esc, asking first when the result
+        // is unsaved. A menu is dismissed by its own listener, and a modal
+        // stops the event, so only a plain Esc reaches this branch.
+        if (event.defaultPrevented || menu !== null) return;
+        event.preventDefault();
+        requestClose();
+      } else if (event.key === "F7") {
         event.preventDefault();
         jump(event.shiftKey ? -1 : 1);
       } else if (event.altKey && event.shiftKey && event.key === "ArrowLeft") {
@@ -1852,7 +1859,7 @@ export function ConflictView({
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [applyRange, jump, rangeAtCaret, redo, undo]);
+  }, [applyRange, jump, menu, rangeAtCaret, redo, requestClose, undo]);
 
   const versionText = (key: VersionKey) => {
     if (key === "base") return conflict.base;
