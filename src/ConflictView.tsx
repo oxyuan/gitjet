@@ -35,6 +35,7 @@ import {
   Modal,
   Spinner,
   cx,
+  useStoredState,
 } from "./ui";
 import { count, useT } from "./i18n";
 
@@ -47,6 +48,7 @@ const T = {
     typeConflict: "Conflict",
     viewOptions: "View options",
     syncScroll: "Synchronize scrolling",
+    autoApplyOnOpen: "Apply non-conflicting changes on open",
     collapseUnchanged: "Collapse unchanged lines",
     softWrap: "Soft wrap",
     showWhitespace: "Show whitespace",
@@ -156,6 +158,7 @@ const T = {
     typeConflict: "冲突",
     viewOptions: "视图选项",
     syncScroll: "同步滚动",
+    autoApplyOnOpen: "打开时应用不冲突的更改",
     collapseUnchanged: "折叠未修改行",
     softWrap: "自动换行",
     showWhitespace: "显示空白",
@@ -606,6 +609,7 @@ export function ConflictView({
     empty: boolean;
   } | null>(null);
   const [autoScroll, setAutoScroll] = useState(true);
+  const [autoApply, setAutoApply] = useStoredState("gitjet.mergeAutoApplyNonConflicts", true);
   const [collapsed, setCollapsed] = useState(false);
   const [wrap, setWrap] = useState(false);
   const [showWhitespace, setShowWhitespace] = useState(false);
@@ -1276,6 +1280,44 @@ export function ConflictView({
     commitDecision(changes);
   }, [commitDecision, model]);
 
+  /** IDEA's "Apply non-conflicting changes automatically" setting
+   *  (`MERGE_AUTO_APPLY_NON_CONFLICTED_CHANGES`): the result starts with every
+   *  one-sided change applied, and that applied result — not the merge base —
+   *  is what "unchanged" means for this window. Conflicts and anything the
+   *  reader already decided stay untouched. */
+  const applyAutoNonConflicts = useCallback(() => {
+    const pane = resultPane.current;
+    if (!pane) return;
+    const changes: BlockChange[] = [];
+    for (const range of model.ranges) {
+      if (range.kind === "conflict") continue;
+      const state = blocksRef.current.get(range.index);
+      if (!state || state.left || state.right) continue;
+      changes.push({
+        index: range.index,
+        before: state,
+        after: {
+          lines: range.oursChanged ? range.ours : range.theirs,
+          left: true,
+          right: true,
+          oneside: false,
+        },
+      });
+    }
+    if (changes.length === 0) return;
+    commitDecision(changes);
+    // The applied merge is the window's starting point, not a decision to undo.
+    journal.current = { entries: [], at: 0 };
+    lastAction.current = null;
+    initialRef.current = pane.getDoc();
+    resultTextRef.current = initialRef.current;
+    setDirty(false);
+  }, [commitDecision, model]);
+  const autoApplyRef = useRef(autoApply);
+  autoApplyRef.current = autoApply;
+  const applyAutoNonConflictsRef = useRef<() => void>(() => {});
+  applyAutoNonConflictsRef.current = applyAutoNonConflicts;
+
   const openViewMenu = (event: React.MouseEvent) => {
     const rect = event.currentTarget.getBoundingClientRect();
     setMenu({
@@ -1283,6 +1325,16 @@ export function ConflictView({
       y: rect.bottom,
       items: [
         { label: t("syncScroll"), icon: "refresh", checked: autoScroll, onClick: () => setAutoScroll((v) => !v) },
+        {
+          label: t("autoApplyOnOpen"),
+          icon: "sparkle",
+          checked: autoApply,
+          onClick: () => {
+            const next = !autoApply;
+            setAutoApply(next);
+            if (next) applyAutoNonConflicts();
+          },
+        },
         {
           label: t("ignoreDiff"),
           icon: "eye",
@@ -1741,6 +1793,9 @@ export function ConflictView({
     // A file that was saved with some blocks still open starts with those
     // blocks' arrows; the closed ones keep their status dot.
     refreshDecorations();
+    // The stored preference is IDEA's auto-apply setting: it runs on open and
+    // again after a whitespace rebuild, as the IDE re-applies it on rediff.
+    if (autoApplyRef.current) applyAutoNonConflictsRef.current();
     return () => {
       ours.destroy();
       result.destroy();

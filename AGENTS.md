@@ -298,6 +298,13 @@ use it only for layout work. Vite's port is pinned to 5173 in **both**
   hand-typed resolution is accepted. "Accept Left/Right" replaces the whole
   result, so it asks first when there is work to lose, as `handleAcceptSide`
   does.
+- The view menu's "Apply non-conflicting changes on open" is IDEA's
+  `MERGE_AUTO_APPLY_NON_CONFLICTED_CHANGES`, stored as
+  `gitjet.mergeAutoApplyNonConflicts` and on by default: a merge opens with
+  every change only one side made already applied, so only the conflicts need
+  a decision. An auto-applied result becomes the window's baseline, so opening
+  is not dirty and Apply writes the merged text; "Revert All Changes" still
+  returns to the merge base.
 - The diff viewer never drops a line: `buildDiffRows` returns every row and
   `foldRanges` / `visibleRows` (`src/diff.ts`) hide unchanged runs at render
   time, keeping `FOLD_CONTEXT` lines beside each change and none at the file
