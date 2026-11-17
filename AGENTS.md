@@ -279,6 +279,11 @@ use it only for layout work. Vite's port is pinned to 5173 in **both**
   text; without it, saving such a merge dropped both sides' whitespace edits.
   Verified range-for-range against the IDE's `LineComparisonMergeUtilTest`
   corpus.
+- A selection in any pane acts on every change it covers: the pane menu's
+  Accept / Ignore / Resolve / Revert apply to the selection and name its count,
+  as IDEA's `ApplySelectedChanges` actions do. The decision rules live in
+  `merge.ts` (`applySide` / `ignoreSide` / `resetDecision`), so a gutter arrow
+  and a selection cannot decide differently.
 - The diff viewer never drops a line: `buildDiffRows` returns every row and
   `foldRanges` / `visibleRows` (`src/diff.ts`) hide unchanged runs at render
   time, keeping `FOLD_CONTEXT` lines beside each change and none at the file

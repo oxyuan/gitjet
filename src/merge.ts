@@ -424,6 +424,73 @@ export function tryResolveRange(range: MergeRange, ignoreWhitespace = false): st
   return merged === null ? null : merged.split("\n");
 }
 
+/** One range's decision, as the merge view keeps it: the lines the result
+ *  shows for the range, and which sides have been settled. */
+export interface RangeDecision {
+  lines: string[];
+  left: boolean;
+  right: boolean;
+  /** One side of a conflict is in the result and the other still is not. */
+  oneside: boolean;
+}
+
+/** Taking one side of a range, the way IDEA's `MergeConflictModel.replaceChange`
+ *  does: a side that changed nothing decides the range without moving text, and
+ *  a half-decided conflict appends the second side instead of replacing the
+ *  first. `resolve` is IDEA's "resolve the whole change": a conflict is decided
+ *  at once rather than left half-open. Null means there is nothing left to do. */
+export function applySide(
+  range: MergeRange,
+  state: RangeDecision,
+  side: "ours" | "theirs",
+  resolve = false,
+): RangeDecision | null {
+  if (side === "ours" ? state.left : state.right) return null;
+  if (side === "ours" ? !range.oursChanged : !range.theirsChanged) {
+    return { ...state, left: true, right: true, oneside: false };
+  }
+  const lines = side === "ours" ? range.ours : range.theirs;
+  const otherHasText = (side === "ours" ? range.theirs : range.ours).length > 0;
+  if (range.kind === "conflict" && !resolve && otherHasText) {
+    const left = side === "ours" || state.left;
+    const right = side === "theirs" || state.right;
+    return {
+      lines: state.oneside ? [...state.lines, ...lines] : lines,
+      left,
+      right,
+      oneside: !(left && right),
+    };
+  }
+  return { lines, left: true, right: true, oneside: false };
+}
+
+/** Ignoring one side records the decision without moving any text, so the
+ *  result keeps whatever it already holds for the range. */
+export function ignoreSide(
+  range: MergeRange,
+  state: RangeDecision,
+  side: "ours" | "theirs",
+  resolve = false,
+): RangeDecision | null {
+  if (side === "ours" ? state.left : state.right) return null;
+  if (range.kind === "conflict" && !resolve) {
+    return {
+      ...state,
+      left: side === "ours" || state.left,
+      right: side === "theirs" || state.right,
+    };
+  }
+  return { ...state, left: true, right: true, oneside: false };
+}
+
+/** Reverting puts the range back to the merge base, undecided — IDEA's
+ *  `resetResolvedChange`, and how one conflict is cancelled without undoing
+ *  the others. */
+export function resetDecision(range: MergeRange, state: RangeDecision): RangeDecision | null {
+  if (!state.left && !state.right) return null;
+  return { lines: range.base, left: false, right: false, oneside: false };
+}
+
 /** Character offsets of the composed result's line starts. */
 function lineStartsOf(text: string): number[] {
   const starts = [0];

@@ -1,13 +1,16 @@
 import { describe, expect, it } from "bun:test";
 import {
+  applySide,
   blockText,
   buildMergeView,
   canRevertRange,
   computeMerge,
   conflictLabels,
   diffHunks,
+  ignoreSide,
   needsSideChoice,
   rangeTone,
+  resetDecision,
   resultTone,
   splitLines,
   resolveSimpleConflicts,
@@ -438,5 +441,43 @@ describe("computeMerge with ignored differences", () => {
     expect(model.ranges).toHaveLength(2);
     expect(resolveSimpleConflicts(model).text).toBe(" x \ny\n  z");
     expect(resolveSimpleConflicts(model, true).text).toBe(" x \ny\n  z");
+  });
+});
+
+// IDEA's `MergeConflictModel.replaceChange` / `ignoreChange` / `resetResolvedChange`,
+// as the gutter arrows and a selection both go through them.
+describe("range decisions", () => {
+  const model = computeMerge("a\nb\nc\n", "a\nOURS\nc\n", "a\nTHEIRS\nc\n");
+  const conflict = model.ranges[0]!;
+  const empty = { lines: conflict.base, left: false, right: false, oneside: false };
+
+  it("appends the second side of a conflict instead of replacing the first", () => {
+    const left = applySide(conflict, empty, "ours")!;
+    expect(left).toEqual({ lines: ["OURS"], left: true, right: false, oneside: true });
+    const both = applySide(conflict, left, "theirs")!;
+    expect(both).toEqual({ lines: ["OURS", "THEIRS"], left: true, right: true, oneside: false });
+  });
+
+  it("decides a conflict in one step when the whole change is taken", () => {
+    expect(applySide(conflict, empty, "theirs", true)).toEqual({
+      lines: ["THEIRS"],
+      left: true,
+      right: true,
+      oneside: false,
+    });
+  });
+
+  it("decides a one-sided change without moving text", () => {
+    const oneSided = computeMerge("a\nb\nc\n", "a\nOURS\nc\n", "a\nb\nc\n").ranges[0]!;
+    expect(applySide(oneSided, empty, "theirs")).toEqual({ ...empty, left: true, right: true });
+    expect(applySide(oneSided, { ...empty, left: true }, "ours")).toBeNull();
+  });
+
+  it("ignores one side of a conflict and reverts the range to the base", () => {
+    const ignored = ignoreSide(conflict, empty, "ours")!;
+    expect(ignored).toEqual({ ...empty, left: true, right: false });
+    expect(ignoreSide(conflict, ignored, "ours")).toBeNull();
+    expect(resetDecision(conflict, ignored)).toEqual(empty);
+    expect(resetDecision(conflict, empty)).toBeNull();
   });
 });

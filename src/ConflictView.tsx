@@ -1,13 +1,16 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { ConflictContent, MergeDetails } from "./mygo";
 import {
+  applySide,
   buildMergeView,
   canRevertRange,
   computeMerge,
   conflictLabels,
   diffHunks,
+  ignoreSide,
   needsSideChoice,
   rangeTone,
+  resetDecision,
   resultTone,
   splitLines,
   tryResolveRange,
@@ -16,6 +19,7 @@ import {
   type MergeRange,
   type MergeTone,
   type MergeView,
+  type RangeDecision,
   type WhitespaceMode,
 } from "./merge";
 import { charDiff, wordDiff } from "./diff";
@@ -365,14 +369,9 @@ function resultBlocks(
 /** A range's decision, kept the way the IDE keeps it: each side is applied or
  *  ignored on its own, and a conflict is decided only when both are. Applying
  *  one side of a conflict leaves the other pending, so accepting both appends
- *  the second one. */
-interface RangeState {
-  lines: string[];
-  left: boolean;
-  right: boolean;
-  /** The left side of a conflict is in the text and the right still is not. */
-  oneside: boolean;
-}
+ *  the second one. The rules themselves live in the model, so a gutter arrow
+ *  and a selection cannot decide differently. */
+type RangeState = RangeDecision;
 
 function decided(state: RangeState | undefined): boolean {
   return state !== undefined && state.left && state.right;
@@ -579,7 +578,7 @@ export function ConflictView({
   const [dirty, setDirty] = useState(false);
   const [current, setCurrent] = useState(0);
   const [selected, setSelected] = useState<{
-    side: "ours" | "theirs";
+    side: "ours" | "theirs" | "result";
     start: number;
     end: number;
     empty: boolean;
@@ -852,8 +851,43 @@ export function ConflictView({
   /** The range under the caret in one of the side panes. */
   const rangeAtSide = useCallback(
     (side: "ours" | "theirs"): MergeRange | null =>
-      selected ? rangeAtSideLine(side, Math.min(selected.start, selected.end)) : null,
+      selected && selected.side === side
+        ? rangeAtSideLine(side, Math.min(selected.start, selected.end))
+        : null,
     [rangeAtSideLine, selected],
+  );
+  /** The changes a selection covers in one pane: IDEA's ApplySelectedChanges
+   *  treats a change as selected when any of its lines is inside the span, so
+   *  selecting three blocks and pressing Accept takes all three in one step.
+   *  A caret with no selection selects nothing. */
+  const selectedRanges = useCallback(
+    (side: "ours" | "theirs" | "result"): MergeRange[] => {
+      if (!selected || selected.side !== side || selected.empty) return [];
+      const from = Math.min(selected.start, selected.end);
+      const to = Math.max(selected.start, selected.end);
+      if (side === "result") {
+        const pane = resultPane.current;
+        if (!pane) return [];
+        const doc = pane.view.state.doc;
+        const out: MergeRange[] = [];
+        for (const block of pane.getBlocks()) {
+          const first = doc.lineAt(Math.max(0, Math.min(block.from, doc.length))).number;
+          const last = doc.lineAt(
+            Math.max(0, Math.min(block.to > block.from ? block.to - 1 : block.from, doc.length)),
+          ).number;
+          if (first > to || last < from) continue;
+          const range = ranges[block.id];
+          if (range) out.push(range);
+        }
+        return out;
+      }
+      return ranges.filter((range) => {
+        const first = (side === "ours" ? range.oursStart : range.theirsStart) + 1;
+        const last = Math.max(first, side === "ours" ? range.oursEnd : range.theirsEnd);
+        return first <= to && last >= from;
+      });
+    },
+    [ranges, selected],
   );
   /** The toolbar counter follows the caret, the way the IDE's does. */
   const syncCurrentRef = useRef<(line: number) => void>(() => {});
@@ -1097,46 +1131,20 @@ export function ConflictView({
       const range = model.ranges[index];
       const state = blocksRef.current.get(index);
       if (!pane || !range || !state) return;
-      const applied = side === "ours" ? state.left : state.right;
-      if (applied) return;
-      const changed = side === "ours" ? range.oursChanged : range.theirsChanged;
-      if (!changed) {
-        // The side did not touch the range, so taking it decides the change
-        // without moving any text.
-        commitDecision([{ index, before: state, after: { ...state, left: true, right: true } }]);
-        return;
-      }
-      const lines = side === "ours" ? range.ours : range.theirs;
-      const otherHasText = (side === "ours" ? range.theirs : range.ours).length > 0;
-      if (range.kind === "conflict" && !resolveChange && otherHasText) {
-        // Half a conflict: the chosen side goes into the result, the other one
-        // stays pending, and a later accept of it appends instead of replacing.
-        const next = state.oneside ? [...state.lines, ...lines] : lines;
-        commitDecision([
-          {
-            index,
-            before: state,
-            after: {
-              lines: next,
-              left: side === "ours" || state.left,
-              right: side === "theirs" || state.right,
-              oneside: true,
-            },
-          },
-        ]);
-        return;
-      }
-      commitDecision([{ index, before: state, after: { lines, left: true, right: true, oneside: false } }]);
+      const after = applySide(range, state, side, resolveChange);
+      if (!after) return;
+      commitDecision([{ index, before: state, after }]);
+      if (!decided(after)) return;
       // Accepting a conflict advances the caret to the next open block, the way
       // the IDE moves on after a decision.
       const open = [...blocksRef.current.entries()]
         .filter(([, candidate]) => !decided(candidate))
         .map(([id]) => id)
         .sort((a, b) => a - b);
-      const after = open.find((candidate) => candidate > index) ?? open[0];
-      if (after === undefined) return;
-      setCurrent(after);
-      const block = pane.getBlocks().find((candidate) => candidate.id === after);
+      const next = open.find((candidate) => candidate > index) ?? open[0];
+      if (next === undefined) return;
+      setCurrent(next);
+      const block = pane.getBlocks().find((candidate) => candidate.id === next);
       if (!block) return;
       const doc = pane.view.state.doc;
       const at = Math.min(block.from, doc.length);
@@ -1159,17 +1167,8 @@ export function ConflictView({
       const range = model.ranges[index];
       const state = blocksRef.current.get(index);
       if (!range || !state) return;
-      if (side === "ours" ? state.left : state.right) return;
-      commitDecision([
-        {
-          index,
-          before: state,
-          after:
-            range.kind === "conflict" && !resolve
-              ? { ...state, left: side === "ours" || state.left, right: side === "theirs" || state.right }
-              : { ...state, left: true, right: true, oneside: false },
-        },
-      ]);
+      const after = ignoreSide(range, state, side, resolve);
+      if (after) commitDecision([{ index, before: state, after }]);
     },
     [commitDecision, model],
   );
@@ -1180,12 +1179,31 @@ export function ConflictView({
     (index: number) => {
       const range = model.ranges[index];
       const state = blocksRef.current.get(index);
-      if (!range || !state || (!state.left && !state.right)) return;
-      commitDecision([
-        { index, before: state, after: { lines: range.base, left: false, right: false, oneside: false } },
-      ]);
+      if (!range || !state) return;
+      const after = resetDecision(range, state);
+      if (after) commitDecision([{ index, before: state, after }]);
     },
     [commitDecision, model],
+  );
+
+  /** One decision per selected change, committed as one undoable step — IDEA's
+   *  `ApplySelectedChanges` actions, which act on a selection rather than on
+   *  the block under the pointer. */
+  const decideSelection = useCallback(
+    (
+      targets: MergeRange[],
+      change: (range: MergeRange, state: RangeDecision) => RangeDecision | null,
+    ) => {
+      const changes: BlockChange[] = [];
+      for (const range of targets) {
+        const state = blocksRef.current.get(range.index);
+        if (!state) continue;
+        const after = change(range, state);
+        if (after) changes.push({ index: range.index, before: state, after });
+      }
+      commitDecision(changes);
+    },
+    [commitDecision],
   );
 
   /** "Apply non-conflicting changes": the IDE's three toolbar arrows. `base`
@@ -1221,19 +1239,6 @@ export function ConflictView({
       commitDecision(changes);
     },
     [commitDecision, ranges],
-  );
-
-  /** Resolve one conflict with the word-level text merge the wand uses. */
-  const autoResolveOne = useCallback(
-    (index: number) => {
-      const range = model.ranges[index];
-      const state = blocksRef.current.get(index);
-      if (!range || !state || decided(state) || state.left || state.right) return;
-      const lines = tryResolveRange(range);
-      if (!lines) return;
-      commitDecision([{ index, before: state, after: { lines, left: true, right: true, oneside: false } }]);
-    },
-    [commitDecision, model],
   );
 
   const autoResolve = useCallback(() => {
@@ -1361,55 +1366,72 @@ export function ConflictView({
         : side === "result"
           ? rangeAtResultLine(pointerLine)
           : rangeAtSideLine(side, pointerLine);
-    const conflictTarget = target?.kind === "conflict" ? target : null;
-    const state = target ? blocksRef.current.get(target.index) : undefined;
-    const sideTarget =
-      target && (side === "ours" ? target.oursChanged : side === "theirs" ? target.theirsChanged : false)
-        ? target
-        : null;
-    const resolvable = conflictTarget !== null && resolvableConflicts.has(conflictTarget.index);
+    // A selection acts on every change it covers; a caret acts on the block
+    // under the pointer, the way IDEA's ApplySelectedChanges actions do.
+    const selection = selectedRanges(side);
+    const targets = selection.length > 0 ? selection : target ? [target] : [];
+    const withCount = (label: string, count: number) => (count > 1 ? `${label} (${count})` : label);
+    const conflictTargets = targets.filter((range) => range.kind === "conflict");
+    const sideTargets = targets.filter((range) => (side === "ours" ? range.oursChanged : range.theirsChanged));
+    const open = (index: number, pick: "left" | "right") => blocksRef.current.get(index)?.[pick] !== true;
+    const resolvableTargets = conflictTargets.filter((range) => {
+      const current = blocksRef.current.get(range.index);
+      return (
+        resolvableConflicts.has(range.index) &&
+        current !== undefined &&
+        !current.left &&
+        !current.right
+      );
+    });
+    const revertable = targets.filter((range) => canRevertRange(range, blocksRef.current.get(range.index)));
+    const ignorable = targets.filter((range) => {
+      const current = blocksRef.current.get(range.index);
+      return current !== undefined && (side === "ours" ? !current.left : !current.right);
+    });
     const items: ContextItem[] = [];
     if (side === "result") {
       items.push({
-        label: t("acceptLeft"),
+        label: withCount(t("acceptLeft"), conflictTargets.length),
         shortcut: "⌘⌃→",
         icon: "ours",
-        disabled: conflictTarget === null,
-        onClick: () => conflictTarget && applyRange(conflictTarget.index, "ours"),
+        disabled: !conflictTargets.some((range) => open(range.index, "left")),
+        onClick: () => decideSelection(conflictTargets, (range, current) => applySide(range, current, "ours")),
       });
       items.push({
-        label: t("acceptRight"),
+        label: withCount(t("acceptRight"), conflictTargets.length),
         shortcut: "⌘⌃←",
         icon: "theirs",
-        disabled: conflictTarget === null,
-        onClick: () => conflictTarget && applyRange(conflictTarget.index, "theirs"),
+        disabled: !conflictTargets.some((range) => open(range.index, "right")),
+        onClick: () => decideSelection(conflictTargets, (range, current) => applySide(range, current, "theirs")),
       });
       items.push({
-        label: t("resolveAutomatically"),
+        label: withCount(t("resolveAutomatically"), resolvableTargets.length),
         icon: "sparkle",
-        disabled: !conflictTarget || decided(state) || state?.left === true || state?.right === true || !resolvable,
-        onClick: () => conflictTarget && autoResolveOne(conflictTarget.index),
+        disabled: resolvableTargets.length === 0,
+        onClick: () =>
+          decideSelection(resolvableTargets, (range, current) => {
+            const lines = tryResolveRange(range);
+            return lines ? { lines, left: true, right: true, oneside: false } : null;
+          }),
       });
       items.push({
-        label: t("revertChange"),
+        label: withCount(t("revertChange"), revertable.length),
         icon: "undo",
-        disabled: !canRevertRange(target ?? undefined, state),
-        onClick: () => target && resetRange(target.index),
+        disabled: revertable.length === 0,
+        onClick: () => decideSelection(revertable, (range, current) => resetDecision(range, current)),
       });
       items.push({ separator: true });
       items.push({ label: t("resolveUsingLocal"), icon: "ours", onClick: () => applyWholeSide("ours") });
       items.push({ label: t("resolveUsingRemote"), icon: "theirs", onClick: () => applyWholeSide("theirs") });
     } else {
       items.push({
-        label: t("accept"),
+        label: withCount(t("accept"), sideTargets.length),
         shortcut: side === "ours" ? "⌘⌃→" : "⌘⌃←",
         icon: side,
         // Every change the side made can be accepted, not only a conflict:
         // this is how one side of an auto-merged change replaces the other.
-        disabled: sideTarget === null,
-        onClick: () => {
-          if (sideTarget) applyRange(sideTarget.index, side);
-        },
+        disabled: sideTargets.length === 0,
+        onClick: () => decideSelection(sideTargets, (range, current) => applySide(range, current, side)),
       });
       items.push({
         label: side === "ours" ? t("resolveUsingLocal") : t("resolveUsingRemote"),
@@ -1417,12 +1439,10 @@ export function ConflictView({
         onClick: () => applyWholeSide(side),
       });
       items.push({
-        label: t("ignore"),
+        label: withCount(t("ignore"), ignorable.length),
         icon: "eye",
-        disabled: sideTarget === null,
-        onClick: () => {
-          if (sideTarget) ignoreChange(sideTarget.index, side);
-        },
+        disabled: ignorable.length === 0,
+        onClick: () => decideSelection(ignorable, (range, current) => ignoreSide(range, current, side)),
       });
     }
     items.push({ separator: true });
@@ -1572,7 +1592,10 @@ export function ConflictView({
         sync("result", line);
         scheduleMeasure();
       },
-      onSelection: (start) => syncCurrentRef.current(start),
+      onSelection: (start, end, empty) => {
+        syncCurrentRef.current(start);
+        setSelected({ side: "result", start, end, empty });
+      },
       onSaveRequest: () => requestSaveRef.current(true, true),
       onUndoRequest: () => undoRef.current(),
       onRedoRequest: () => redoRef.current(),
