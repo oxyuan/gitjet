@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { ConflictContent, MergeDetails } from "./mygo";
 import {
   applySide,
+  autoResolvableRanges,
   buildMergeView,
   canRevertRange,
   computeMerge,
@@ -95,7 +96,6 @@ const T = {
     resolvedBlock: "Resolved conflict",
     fromChanges: "Changes from {name}",
     showDetails: "Show details",
-    resolveSimple: "Resolve simple conflicts",
     applyNonConflicts: "Apply non-conflicting changes",
     left: "Left",
     all: "All",
@@ -106,6 +106,16 @@ const T = {
     accept: "Accept",
     resolveUsingLocal: "Resolve Using Left",
     resolveUsingRemote: "Resolve Using Right",
+    resolveSelectionLocal: "Resolve Selection Using Left",
+    resolveSelectionRemote: "Resolve Selection Using Right",
+    markResolved: "Mark Resolved",
+    revertAll: "Revert All Changes",
+    goToChange: "Go to Change",
+    discardSideTitle: "Discard the Merge Result",
+    discardSideMessage:
+      "Accepting {side} replaces the whole result, and the decisions and edits made so far are discarded.",
+    discardSideAccept: "Discard and Accept",
+    continueMerge: "Continue Merge",
     ignore: "Ignore",
     compareClipboard: "Compare with Clipboard",
     annotateBlame: "Annotate with Git Blame",
@@ -195,7 +205,6 @@ const T = {
     resolvedBlock: "已解决的冲突",
     fromChanges: "来自 {name} 的更改",
     showDetails: "显示详细信息",
-    resolveSimple: "解决简单冲突",
     applyNonConflicts: "应用不冲突的更改",
     left: "左侧",
     all: "所有",
@@ -206,6 +215,15 @@ const T = {
     accept: "接受",
     resolveUsingLocal: "使用左侧解决",
     resolveUsingRemote: "使用右侧解决",
+    resolveSelectionLocal: "使用左侧解决所选",
+    resolveSelectionRemote: "使用右侧解决所选",
+    markResolved: "标记为已解决",
+    revertAll: "还原所有更改",
+    goToChange: "转到变更",
+    discardSideTitle: "丢弃合并结果",
+    discardSideMessage: "接受{side}会替换整个结果，此前做出的决定和编辑都会被丢弃。",
+    discardSideAccept: "丢弃并接受",
+    continueMerge: "继续合并",
     ignore: "忽略",
     compareClipboard: "与剪贴板比较",
     annotateBlame: "使用 Git 追溯注解",
@@ -398,6 +416,9 @@ interface WholeDecision {
     beforeBlocks: MergePaneBlock[];
     beforeStates: Map<number, RangeState>;
     afterText: string;
+    /** The spans that belong to afterText; empty when the whole result is one
+     *  side and has no changes left to mark. */
+    afterBlocks?: MergePaneBlock[];
     afterStates: Map<number, RangeState>;
   };
 }
@@ -575,6 +596,7 @@ export function ConflictView({
   const initialText = initial.text;
   const [resultText, setResultText] = useState(initialText);
   const [unresolved, setUnresolved] = useState(initial.blocks.length);
+  const [actionable, setActionable] = useState<{ auto: number; revert: boolean }>({ auto: 0, revert: false });
   const [dirty, setDirty] = useState(false);
   const [current, setCurrent] = useState(0);
   const [selected, setSelected] = useState<{
@@ -595,6 +617,7 @@ export function ConflictView({
   const [detailsSide, setDetailsSide] = useState<"ours" | "theirs" | null>(null);
   const [pendingSave, setPendingSave] = useState<{ stage: boolean; advance: boolean } | null>(null);
   const [pendingWhitespace, setPendingWhitespace] = useState<WhitespaceMode | null>(null);
+  const [pendingWholeSide, setPendingWholeSide] = useState<"ours" | "theirs" | null>(null);
   const [confirmClose, setConfirmClose] = useState(false);
   const [links, setLinks] = useState<RibbonLink[]>([]);
 
@@ -753,23 +776,10 @@ export function ConflictView({
     ),
   };
 
-  /** Conflicts the IDE's word-level text merge can settle, worked out once per
-   *  model the way the IDE decides a conflict's resolution strategy when it
-   *  builds the ranges. */
-  const resolvableConflicts = useMemo(() => {
-    const out = new Set<number>();
-    for (const range of ranges) {
-      if (range.kind === "conflict" && tryResolveRange(range) !== null) out.add(range.index);
-    }
-    return out;
-  }, [ranges]);
-  /** The wand needs an untouched conflict it can merge; with nothing left it
-   *  is disabled, as in the IDE. */
-  const wandable = ranges.some((range) => {
-    if (!resolvableConflicts.has(range.index)) return false;
-    const state = blocksRef.current.get(range.index);
-    return !!state && !state.left && !state.right;
-  });
+  /** The ranges "Resolve Automatically" settles without a decision: every
+   *  non-conflicting change, plus the conflicts the IDE's word-level text merge
+   *  resolves. Published by `refreshDecorations`, with the other decisions. */
+  const wandable = actionable.auto > 0;
 
   /** The file as Git must see it. Only a completely decided result is written;
    *  with anything still undecided the file goes back exactly as the merge
@@ -990,6 +1000,13 @@ export function ConflictView({
       );
     }
     setUnresolved(pending.size);
+    // The toolbar's wand and revert buttons read decisions, not text: a
+    // decision that moves nothing (an ignore, taking one side) must still
+    // re-render them, so publish what is actionable with the count.
+    setActionable({
+      auto: autoResolvableRanges(model, blocksRef.current).length,
+      revert: [...blocksRef.current.values()].some((state) => state.left || state.right),
+    });
   }, [highlightMode, model, t, tr]);
 
   /** Pushes a decision and applies it: the block states change here, the text
@@ -1085,7 +1102,8 @@ export function ConflictView({
         if (history.at >= history.entries.length) return false;
         history.at++;
         const entry = history.entries[history.at - 1]!;
-        if ("whole" in entry) resetPane(entry.whole.afterText, [], entry.whole.afterStates);
+        if ("whole" in entry)
+          resetPane(entry.whole.afterText, entry.whole.afterBlocks ?? [], entry.whole.afterStates);
         else restoreDecision(entry, "after");
       }
       lastAction.current = "decision";
@@ -1241,18 +1259,22 @@ export function ConflictView({
     [commitDecision, ranges],
   );
 
+  /** IDEA's "Resolve Automatically" (`applyResolvableConflictedChanges`): one
+   *  step settles every change the text merge can settle — the non-conflicting
+   *  changes too, not only the conflicts — and leaves the rest untouched. */
   const autoResolve = useCallback(() => {
     const changes: BlockChange[] = [];
-    for (const [index, state] of blocksRef.current) {
-      if (decided(state) || state.left || state.right) continue;
-      const range = ranges[index];
-      if (!range || range.kind !== "conflict") continue;
-      const resolved = tryResolveRange(range);
-      if (!resolved) continue;
-      changes.push({ index, before: state, after: { lines: resolved, left: true, right: true, oneside: false } });
+    for (const resolution of autoResolvableRanges(model, blocksRef.current)) {
+      const state = blocksRef.current.get(resolution.index);
+      if (!state) continue;
+      changes.push({
+        index: resolution.index,
+        before: state,
+        after: { lines: resolution.lines, left: true, right: true, oneside: false },
+      });
     }
     commitDecision(changes);
-  }, [commitDecision, ranges]);
+  }, [commitDecision, model]);
 
   const openViewMenu = (event: React.MouseEvent) => {
     const rect = event.currentTarget.getBoundingClientRect();
@@ -1307,6 +1329,36 @@ export function ConflictView({
     });
   };
 
+  /** The counter opens IDEA's change list: one row per change, named by its
+   *  kind and its first text line, with the change under the caret checked. */
+  const openChangeMenu = (event: React.MouseEvent) => {
+    if (ranges.length === 0) return;
+    const rect = event.currentTarget.getBoundingClientRect();
+    const preview = (lines: string[]) => {
+      const line = lines.find((text) => text.trim() !== "");
+      return line ? ` — ${line.trim().slice(0, 48)}` : "";
+    };
+    setMenu({
+      x: rect.left,
+      y: rect.bottom,
+      items: ranges.map((range) => ({
+        label: `${range.index + 1}. ${rangeType(range, tr)}${preview(
+          range.ours.length > 0 ? range.ours : range.theirs.length > 0 ? range.theirs : range.base,
+        )}`,
+        checked: range.index === current,
+        onClick: () => {
+          setCurrent(range.index);
+          scrollToRange(range);
+          const pane = resultPane.current;
+          const block = pane?.getBlocks().find((candidate) => candidate.id === range.index);
+          if (!pane || !block) return;
+          const anchor = Math.min(block.from, pane.view.state.doc.length);
+          pane.view.dispatch({ selection: { anchor } });
+        },
+      })),
+    });
+  };
+
   /** "Resolve Using Left/Right": the whole result becomes that revision. */
   const applyWholeSide = useCallback(
     (side: "ours" | "theirs") => {
@@ -1333,6 +1385,44 @@ export function ConflictView({
       resetPane(text, [], afterStates);
     },
     [conflict.ours, conflict.theirs, resetPane],
+  );
+
+  /** IDEA's "Revert all changes": every decision is cleared and the result
+   *  goes back to the merge base, as one undoable step. A manual edit in the
+   *  result goes with it, as `resetAllChanges` discards the output document. */
+  const canRevertAll = actionable.revert;
+  const revertAll = useCallback(() => {
+    const pane = resultPane.current;
+    if (!pane) return;
+    const beforeStates = new Map(blocksRef.current);
+    if (![...beforeStates.values()].some((state) => state.left || state.right)) return;
+    const states = new Map(stateFromView);
+    const afterBlocks = resultBlocks(model, states, initial, tr);
+    const history = journal.current;
+    history.entries.length = history.at;
+    history.entries.push({
+      whole: {
+        beforeText: pane.getDoc(),
+        beforeBlocks: pane.getBlocks(),
+        beforeStates,
+        afterText: initialText,
+        afterBlocks,
+        afterStates: states,
+      },
+    });
+    history.at = history.entries.length;
+    lastAction.current = "decision";
+    resetPane(initialText, afterBlocks, states);
+  }, [initial, initialText, model, resetPane, stateFromView, tr]);
+
+  /** Accepting one side throws away the whole result, so it asks first when
+   *  there is work to lose — IDEA's `handleAcceptSide` confirmation. */
+  const requestWholeSide = useCallback(
+    (side: "ours" | "theirs") => {
+      if (isDirty()) setPendingWholeSide(side);
+      else applyWholeSide(side);
+    },
+    [applyWholeSide, isDirty],
   );
 
   const compareClipboard = useCallback(
@@ -1374,20 +1464,22 @@ export function ConflictView({
     const conflictTargets = targets.filter((range) => range.kind === "conflict");
     const sideTargets = targets.filter((range) => (side === "ours" ? range.oursChanged : range.theirsChanged));
     const open = (index: number, pick: "left" | "right") => blocksRef.current.get(index)?.[pick] !== true;
-    const resolvableTargets = conflictTargets.filter((range) => {
+    const resolvableTargets = targets.filter((range) => {
       const current = blocksRef.current.get(range.index);
-      return (
-        resolvableConflicts.has(range.index) &&
-        current !== undefined &&
-        !current.left &&
-        !current.right
-      );
+      return current !== undefined && !current.left && !current.right && tryResolveRange(range) !== null;
+    });
+    const unresolvedTargets = targets.filter((range) => {
+      const current = blocksRef.current.get(range.index);
+      return current !== undefined && !(current.left && current.right);
     });
     const revertable = targets.filter((range) => canRevertRange(range, blocksRef.current.get(range.index)));
     const ignorable = targets.filter((range) => {
       const current = blocksRef.current.get(range.index);
       return current !== undefined && (side === "ours" ? !current.left : !current.right);
     });
+    const openSide = sideTargets.filter((range) =>
+      side === "ours" ? open(range.index, "left") : open(range.index, "right"),
+    );
     const items: ContextItem[] = [];
     if (side === "result") {
       items.push({
@@ -1409,10 +1501,21 @@ export function ConflictView({
         icon: "sparkle",
         disabled: resolvableTargets.length === 0,
         onClick: () =>
-          decideSelection(resolvableTargets, (range, current) => {
+          decideSelection(resolvableTargets, (range) => {
             const lines = tryResolveRange(range);
             return lines ? { lines, left: true, right: true, oneside: false } : null;
           }),
+      });
+      items.push({
+        // IDEA's IgnoreChanges: the range is accepted as it stands, without
+        // moving any text — how a hand-typed resolution is closed.
+        label: withCount(t("markResolved"), unresolvedTargets.length),
+        icon: "check",
+        disabled: unresolvedTargets.length === 0,
+        onClick: () =>
+          decideSelection(unresolvedTargets, (range, current) =>
+            ignoreSide(range, current, current.left ? "theirs" : "ours", true),
+          ),
       });
       items.push({
         label: withCount(t("revertChange"), revertable.length),
@@ -1421,8 +1524,8 @@ export function ConflictView({
         onClick: () => decideSelection(revertable, (range, current) => resetDecision(range, current)),
       });
       items.push({ separator: true });
-      items.push({ label: t("resolveUsingLocal"), icon: "ours", onClick: () => applyWholeSide("ours") });
-      items.push({ label: t("resolveUsingRemote"), icon: "theirs", onClick: () => applyWholeSide("theirs") });
+      items.push({ label: t("resolveUsingLocal"), icon: "ours", onClick: () => requestWholeSide("ours") });
+      items.push({ label: t("resolveUsingRemote"), icon: "theirs", onClick: () => requestWholeSide("theirs") });
     } else {
       items.push({
         label: withCount(t("accept"), sideTargets.length),
@@ -1434,9 +1537,18 @@ export function ConflictView({
         onClick: () => decideSelection(sideTargets, (range, current) => applySide(range, current, side)),
       });
       items.push({
+        label: withCount(
+          side === "ours" ? t("resolveSelectionLocal") : t("resolveSelectionRemote"),
+          openSide.length,
+        ),
+        icon: side,
+        disabled: openSide.length === 0,
+        onClick: () => decideSelection(openSide, (range, current) => applySide(range, current, side, true)),
+      });
+      items.push({
         label: side === "ours" ? t("resolveUsingLocal") : t("resolveUsingRemote"),
         icon: side,
-        onClick: () => applyWholeSide(side),
+        onClick: () => requestWholeSide(side),
       });
       items.push({
         label: withCount(t("ignore"), ignorable.length),
@@ -1878,9 +1990,14 @@ export function ConflictView({
         <div className="diff-toolbar merge3-toolbar">
           <IconButton icon="chevronUp" title={t("previous")} small onClick={() => jump(-1)} />
           <IconButton icon="chevronDown" title={t("next")} small onClick={() => jump(1)} />
-          <span className="diff-nav-count">
+          <button
+            type="button"
+            className="diff-nav-count"
+            title={t("goToChange")}
+            onClick={openChangeMenu}
+          >
             {ranges.length === 0 ? "0 / 0" : `${Math.min(current + 1, ranges.length)} / ${ranges.length}`}
-          </span>
+          </button>
           <IconButton icon="diff" title={t("compareContents")} small onClick={openCompareMenu} />
           <IconButton
             icon="collapse"
@@ -1920,10 +2037,17 @@ export function ConflictView({
           <span className="toolbar-sep" />
           <IconButton
             icon="sparkle"
-            title={t("resolveSimple")}
+            title={t("resolveAutomatically")}
             small
             onClick={autoResolve}
             disabled={!wandable}
+          />
+          <IconButton
+            icon="reset"
+            title={t("revertAll")}
+            small
+            onClick={revertAll}
+            disabled={!canRevertAll}
           />
           {onAutoMerge && (
             <IconButton
@@ -2035,10 +2159,10 @@ export function ConflictView({
           )}
         </span>
         <span className="spacer" />
-        <Button size="small" onClick={() => applyWholeSide("ours")} disabled={busy || (!conflict.hasOurs && conflict.hasTheirs)}>
+        <Button size="small" onClick={() => requestWholeSide("ours")} disabled={busy || (!conflict.hasOurs && conflict.hasTheirs)}>
           {t("acceptLeft")}
         </Button>
-        <Button size="small" onClick={() => applyWholeSide("theirs")} disabled={busy || (!conflict.hasTheirs && conflict.hasOurs)}>
+        <Button size="small" onClick={() => requestWholeSide("theirs")} disabled={busy || (!conflict.hasTheirs && conflict.hasOurs)}>
           {t("acceptRight")}
         </Button>
         <Button size="small" onClick={() => requestSave(false, false)} disabled={busy}>
@@ -2111,6 +2235,35 @@ export function ConflictView({
           }
         >
           <div className="confirm-message">{t("restartMessage")}</div>
+        </Modal>
+      )}
+      {pendingWholeSide !== null && (
+        <Modal
+          title={t("discardSideTitle")}
+          icon="warning"
+          width={430}
+          onClose={() => setPendingWholeSide(null)}
+          footer={
+            <>
+              <Button onClick={() => setPendingWholeSide(null)} autoFocus>
+                {t("continueMerge")}
+              </Button>
+              <Button
+                variant="danger"
+                onClick={() => {
+                  const side = pendingWholeSide;
+                  setPendingWholeSide(null);
+                  applyWholeSide(side);
+                }}
+              >
+                {t("discardSideAccept")}
+              </Button>
+            </>
+          }
+        >
+          <div className="confirm-message">
+            {t("discardSideMessage", { side: pendingWholeSide === "ours" ? t("left") : t("right") })}
+          </div>
         </Modal>
       )}
       {confirmClose && (

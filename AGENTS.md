@@ -270,6 +270,10 @@ use it only for layout work. Vite's port is pinned to 5173 in **both**
   Modify/delete conflicts are not auto-resolvable there, exactly as in IDEA:
   they need a side choice. `merge.ts`'s `tryResolveRange` is the one entry
   point; `myers.ts` stays the line diff behind the merge view.
+  `autoResolvableRanges` is IDEA's `getAutoResolvableChanges`: the wand
+  ("Resolve Automatically") settles every non-conflicting change by taking the
+  side that made it, plus the conflicts the word merge resolves, in one step.
+  `tryResolveText` is checked against the IDE's `MergeResolveUtilTest` corpus.
 - The conflict view's ranges are the IDE's `ComparisonMergeUtil.buildMerge`:
   `merge.ts` walks both sides' unchanged stretches against the base and keeps
   their overlap, so touching edits share a range and a hunk that only reaches a
@@ -284,6 +288,16 @@ use it only for layout work. Vite's port is pinned to 5173 in **both**
   as IDEA's `ApplySelectedChanges` actions do. The decision rules live in
   `merge.ts` (`applySide` / `ignoreSide` / `resetDecision`), so a gutter arrow
   and a selection cannot decide differently.
+- The merge toolbar follows IDEA's action set. The counter opens the "Go to
+  change" list (one row per change, named by kind and its first text line).
+  The reset button is `RevertConflictResolutionAction`: every decision is
+  cleared and the result returns to the merge base as one undoable step. A
+  side pane's "Resolve Selection Using Left/Right" applies that side and
+  decides the selected changes at once, and the result menu's "Mark Resolved"
+  closes a range without moving text (`IgnoreSelectedChangesAction`) — how a
+  hand-typed resolution is accepted. "Accept Left/Right" replaces the whole
+  result, so it asks first when there is work to lose, as `handleAcceptSide`
+  does.
 - The diff viewer never drops a line: `buildDiffRows` returns every row and
   `foldRanges` / `visibleRows` (`src/diff.ts`) hide unchanged runs at render
   time, keeping `FOLD_CONTEXT` lines beside each change and none at the file

@@ -38,3 +38,40 @@ describe("tryResolveText", () => {
     expect(tryResolveText("same", "same", "same")).toBe("same");
   });
 });
+
+/** The cases from the IDE's own `MergeResolveUtilTest`: `test(base, left,
+ *  right, expected)` there is `tryResolveText(left, base, right)` here. */
+describe("tryResolveText against the IDE's corpus", () => {
+  it("keeps an unchanged stretch and takes a changed one", () => {
+    expect(tryResolveText("x x x", "x x x", "x x x")).toBe("x x x");
+    expect(tryResolveText("x Y x", "x x x", "x x x")).toBe("x Y x");
+    expect(tryResolveText("x x", "x x", "x Y x")).toBe("x Y x");
+    expect(tryResolveText("x x", "x X x", "x X x")).toBe("x x");
+  });
+
+  it("settles the same modification made on both sides", () => {
+    expect(tryResolveText("x Y x", "x x x", "x Y x")).toBe("x Y x");
+    expect(tryResolveText("x Y x", "x x", "x Y x")).toBe("x Y x");
+    expect(tryResolveText("x x", "x X x", "x x")).toBe("x x");
+  });
+
+  it("merges non-conflicting changes around each other", () => {
+    expect(tryResolveText("x Y x x", "x x x", "x x Z x")).toBe("x Y x Z x");
+    expect(tryResolveText("x Y", "x", "Z x")).toBe("Z x Y");
+    expect(tryResolveText("x", "x x", "Z x x")).toBe("Z x");
+  });
+
+  it("refuses changes to the same words", () => {
+    expect(tryResolveText("x Y x", "x x x", "x Z x")).toBeNull();
+    expect(tryResolveText("x Y x", "x x", "x Z x")).toBeNull();
+  });
+
+  it("merges a version line changed at both ends", () => {
+    expect(tryResolveText("version: 2.0.0", "version: 1.0.0", "version: 1.0.4")).toBe("version: 2.0.4");
+  });
+
+  it("matches the IDE's regression cases", () => {
+    expect(tryResolveText("i", "i\n", "\ni")).toBe("i");
+    expect(tryResolveText("Y C\nX\nC Y", "Y X Y", "Y \nX\n Y")).toBe("Y \nC\nX\nC Y");
+  });
+});

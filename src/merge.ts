@@ -424,6 +424,27 @@ export function tryResolveRange(range: MergeRange, ignoreWhitespace = false): st
   return merged === null ? null : merged.split("\n");
 }
 
+/** The ranges "Resolve Automatically" settles without asking, IDEA's
+ *  `MergeConflictModel.getAutoResolvableChanges`: a non-conflict range is
+ *  resolved by taking the side that changed it, and a conflict by the
+ *  word-level text merge when that can merge it. A range with any side
+ *  already decided is left alone — its text is in the result, and appending
+ *  to it would be a different merge. */
+export function autoResolvableRanges(
+  model: Pick<MergeModel, "ranges">,
+  states: ReadonlyMap<number, { lines: string[]; left: boolean; right: boolean; oneside: boolean }>,
+  ignoreWhitespace = false,
+): { index: number; lines: string[] }[] {
+  const out: { index: number; lines: string[] }[] = [];
+  for (const range of model.ranges) {
+    const state = states.get(range.index);
+    if (!state || state.left || state.right) continue;
+    const lines = tryResolveRange(range, ignoreWhitespace);
+    if (lines) out.push({ index: range.index, lines });
+  }
+  return out;
+}
+
 /** One range's decision, as the merge view keeps it: the lines the result
  *  shows for the range, and which sides have been settled. */
 export interface RangeDecision {

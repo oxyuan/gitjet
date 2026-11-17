@@ -1,6 +1,7 @@
 import { describe, expect, it } from "bun:test";
 import {
   applySide,
+  autoResolvableRanges,
   blockText,
   buildMergeView,
   canRevertRange,
@@ -479,5 +480,53 @@ describe("range decisions", () => {
     expect(ignoreSide(conflict, ignored, "ours")).toBeNull();
     expect(resetDecision(conflict, ignored)).toEqual(empty);
     expect(resetDecision(conflict, empty)).toBeNull();
+  });
+
+  it("marks a half-decided conflict resolved without moving its text", () => {
+    const left = applySide(conflict, empty, "ours")!;
+    expect(ignoreSide(conflict, left, "theirs", true)).toEqual({
+      lines: ["OURS"],
+      left: true,
+      right: true,
+      oneside: false,
+    });
+  });
+});
+
+// IDEA's MergeConflictModel.getAutoResolvableChanges, which the wand and the
+// "Resolve Automatically" menu item both apply as one step.
+describe("autoResolvableRanges", () => {
+  const undecided = (model: ReturnType<typeof computeMerge>) =>
+    new Map(
+      model.ranges.map((range) => [
+        range.index,
+        { lines: range.base, left: false, right: false, oneside: false },
+      ]),
+    );
+
+  it("takes the side that changed each non-conflicting range", () => {
+    const model = computeMerge("a\nb\nc\nd\n", "A\nb\nc\nd\n", "a\nb\nc\nD\n");
+    expect(autoResolvableRanges(model, undecided(model))).toEqual([
+      { index: 0, lines: ["A"] },
+      { index: 1, lines: ["D"] },
+    ]);
+  });
+
+  it("resolves a conflict the word merge can settle", () => {
+    const model = computeMerge("the quick brown fox\n", "the fast brown fox\n", "the quick brown cat\n");
+    expect(model.ranges.map((range) => range.kind)).toEqual(["conflict"]);
+    expect(autoResolvableRanges(model, undecided(model))).toEqual([
+      { index: 0, lines: ["the fast brown cat"] },
+    ]);
+  });
+
+  it("leaves a conflict the word merge cannot settle, and any decided range", () => {
+    const hard = computeMerge("base\n", "one\n", "two\n");
+    expect(autoResolvableRanges(hard, undecided(hard))).toEqual([]);
+
+    const mixed = computeMerge("a\nb\nc\n", "A\nb\nC\n", "a\nb\nc\n");
+    const states = undecided(mixed);
+    states.set(0, { lines: ["A"], left: true, right: true, oneside: false });
+    expect(autoResolvableRanges(mixed, states)).toEqual([{ index: 1, lines: ["C"] }]);
   });
 });
