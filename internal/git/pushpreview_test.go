@@ -224,3 +224,31 @@ func TestPushStopsAtTheChosenCommit(t *testing.T) {
 		t.Fatal("the local branch moved; the cut only limits the push")
 	}
 }
+
+// TestPushTagModes covers the push dialog's two tag choices: --follow-tags
+// sends the annotated tags the pushed commits reach, --tags sends them all.
+func TestPushTagModes(t *testing.T) {
+	repo, dir := newTestRepo(t)
+	bare := t.TempDir()
+	runGit(t, bare, "init", "-q", "--bare", "-b", "main")
+	runGit(t, dir, "remote", "add", "origin", bare)
+	runGit(t, dir, "tag", "-a", "annotated", "-m", "release")
+	runGit(t, dir, "tag", "light")
+
+	ctx := context.Background()
+	if _, err := repo.Push(ctx, PushOptions{Remote: "origin", Branch: "main", TagsMode: "follow"}, func(string) {}); err != nil {
+		t.Fatalf("Push follow: %v", err)
+	}
+	if err := runGitNoOut(bare, "rev-parse", "refs/tags/annotated"); err != nil {
+		t.Fatal("--follow-tags did not send the annotated tag")
+	}
+	if err := runGitNoOut(bare, "rev-parse", "refs/tags/light"); err == nil {
+		t.Fatal("--follow-tags sent a lightweight tag")
+	}
+	if _, err := repo.Push(ctx, PushOptions{Remote: "origin", Branch: "main", TagsMode: "all"}, func(string) {}); err != nil {
+		t.Fatalf("Push all: %v", err)
+	}
+	if err := runGitNoOut(bare, "rev-parse", "refs/tags/light"); err != nil {
+		t.Fatal("--tags did not send the lightweight tag")
+	}
+}
