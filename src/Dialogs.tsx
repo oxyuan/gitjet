@@ -1585,10 +1585,13 @@ export function PushDialog({
   onToggleWrap,
   whitespace,
   onWhitespace,
+  remoteBranches,
   onClose,
   onSubmit,
 }: {
   remotes: Remote[];
+  /** Full names of the remote branches, e.g. "origin/main", for the target. */
+  remoteBranches: string[];
   current: string;
   branch?: string;
   /** The configured upstream of the branch being pushed, as remote/branch. */
@@ -1883,6 +1886,7 @@ export function PushDialog({
                 value={target}
                 spellCheck={false}
                 autoComplete="off"
+                list="push-target-choices"
                 aria-label={t("push.targetBranch")}
                 title={t("push.targetHint")}
                 size={Math.max(6, Math.min(40, target.length + 1))}
@@ -1892,6 +1896,15 @@ export function PushDialog({
                 }}
               />
               {preview?.creates && <span className="pushd-badge">{t("push.newBranch")}</span>}
+              {/* The names that already exist on this remote, so a target can
+                  be picked instead of typed from memory. */}
+              <datalist id="push-target-choices">
+                {[...new Set(remoteBranches.filter((n) => n.startsWith(remote + "/")).map((n) => n.slice(remote.length + 1)))]
+                  .sort((a, b) => a.localeCompare(b))
+                  .map((name) => (
+                    <option key={name} value={name} />
+                  ))}
+              </datalist>
             </div>
             <div className="pushd-commits">
               {commits.map((c, i) => (

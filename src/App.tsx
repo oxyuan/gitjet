@@ -3884,6 +3884,7 @@ function AppShell({ onLangChange }: { onLangChange: (lang: Lang) => void }) {
           onToggleWrap={() => setDiffWrap(!diffWrap)}
           whitespace={whitespace}
           onWhitespace={chooseWhitespace}
+          remoteBranches={(refs?.remote ?? []).map((b) => b.name)}
           onClose={() => setDialog(null)}
           onSubmit={(opts) => void push(opts)}
         />
