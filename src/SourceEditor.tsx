@@ -15,6 +15,7 @@ const T = {
   en: {
     lineHistory: "Show history of this line",
     commitFileDiff: "Show all changes of this commit in this file",
+    annotatePrevious: "Annotate Previous Revision",
     copyHash: "Copy commit hash",
     uncommitted: "Uncommitted changes",
     annotateWithBlame: "Annotate with Git Blame",
@@ -35,6 +36,7 @@ const T = {
   zh: {
     lineHistory: "查看该行的历史",
     commitFileDiff: "查看该提交在此文件中的全部差异",
+    annotatePrevious: "标注上一个版本",
     copyHash: "复制提交哈希",
     uncommitted: "未提交的更改",
     annotateWithBlame: "使用 Git Blame 标注",
@@ -214,6 +216,9 @@ export function SourceEditor({
   // only as keys and modified clicks.
   const [symbolMenu, setSymbolMenu] = useState<{ x: number; y: number; pos: number } | null>(null);
   const [annotate, setAnnotate] = useStoredState<boolean>("gitjet.annotate", false);
+  // Blame can be read at a revision before the file's own, IDEA's "Annotate
+  // Previous Revision"; it belongs to this document, not to the setting.
+  const [blameAt, setBlameAt] = useState<string | null>(null);
   const [ignoreWs, setIgnoreWs] = useStoredState<boolean>("gitjet.blameIgnoreWhitespace", false);
   // Change bars belong to the working tree; blame belongs to whichever
   // version of the file this pane shows. A library file outside the
@@ -336,7 +341,7 @@ export function SourceEditor({
     } else {
       setChanges([]);
     }
-    Git.blame(file.path, file.revision, { ignoreWhitespace: ignoreWs, ignoreRevsFile: "" })
+    Git.blame(file.path, blameAt ?? file.revision, { ignoreWhitespace: ignoreWs, ignoreRevsFile: "" })
       .then((result) => {
         if (!cancelled) setBlame(result.lines);
       })
@@ -344,7 +349,7 @@ export function SourceEditor({
     return () => {
       cancelled = true;
     };
-  }, [workingTree, file.binary, file.exists, file.path, file.revision, file.text, ignoreWs]);
+  }, [workingTree, file.binary, file.exists, file.path, file.revision, file.text, ignoreWs, blameAt]);
 
   useEffect(() => {
     editor.current?.setChanges(changes);
@@ -388,6 +393,7 @@ export function SourceEditor({
           uncommitted: t("uncommitted"),
           lineHistory: t("lineHistory"),
           commitFileDiff: t("commitFileDiff"),
+          annotatePrevious: t("annotatePrevious"),
           copyHash: t("copyHash"),
           annotate: t("annotateWithBlame"),
           closeAnnotations: t("closeAnnotations"),
@@ -400,6 +406,7 @@ export function SourceEditor({
         onToggleIgnoreWhitespace: () => setIgnoreWs(!ignoreWs),
         onLineHistory,
         onCommitDiff,
+        onAnnotatePrevious: (revision) => setBlameAt(revision),
         onCopy,
       })
     : [];

@@ -10,6 +10,8 @@ export interface BlameMenuLabels {
   closeAnnotations: string;
   /** Offered only where the reader is not already looking at the diff. */
   commitFileDiff?: string;
+  /** Names the revision before a commit, IDEA's "Annotate Previous Revision". */
+  annotatePrevious?: string;
   ignoreWhitespace: string;
   keepWhitespace: string;
 }
@@ -27,6 +29,7 @@ export function blameMenuItems({
   onToggleIgnoreWhitespace,
   onLineHistory,
   onCommitDiff,
+  onAnnotatePrevious,
   onCopy,
 }: {
   blame?: BlameLine | null;
@@ -38,6 +41,7 @@ export function blameMenuItems({
   onToggleIgnoreWhitespace?: () => void;
   onLineHistory?: (line: number) => void;
   onCommitDiff?: (hash: string) => void;
+  onAnnotatePrevious?: (revision: string) => void;
   onCopy?: (text: string) => void;
 }): ContextItem[] {
   const items: ContextItem[] = [];
@@ -51,6 +55,14 @@ export function blameMenuItems({
     // git labels a local line "Version of … from …", which is noise here.
     if (!blame.uncommitted && blame.summary) items.push({ header: true, label: blame.summary });
     items.push({ separator: true });
+  }
+  if (labels.annotatePrevious && hash) {
+    items.push({
+      label: labels.annotatePrevious,
+      icon: "user",
+      disabled: !onAnnotatePrevious,
+      onClick: () => onAnnotatePrevious?.(`${hash}^`),
+    });
   }
   if (labels.commitFileDiff) {
     items.push({
