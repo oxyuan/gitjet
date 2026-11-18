@@ -1895,6 +1895,10 @@ export function ConflictView({
       } else if (event.key === "F7") {
         event.preventDefault();
         jump(event.shiftKey ? -1 : 1);
+      } else if (event.ctrlKey && event.shiftKey && event.altKey && (event.key === "ArrowUp" || event.key === "ArrowDown")) {
+        // IDEA's "go to next/previous change marker" in a merge viewer.
+        event.preventDefault();
+        jump(event.key === "ArrowDown" ? 1 : -1);
       } else if (event.altKey && event.shiftKey && event.key === "ArrowLeft") {
         event.preventDefault();
         jump(-1);
