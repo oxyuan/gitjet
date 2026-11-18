@@ -53,6 +53,10 @@ type PushOptions struct {
 	// SkipHooks adds --no-verify, IDEA's "Run Git hooks" switched off: the
 	// pre-push hook is skipped and the push proceeds.
 	SkipHooks bool `json:"skipHooks"`
+	// ToCommit pushes the branch only up to this commit, which is how the
+	// push dialog's preview sends a range of the local commits: the refspec
+	// names the commit, not the branch, so the newer ones stay local.
+	ToCommit string `json:"toCommit"`
 }
 
 // PullOptions selects how to integrate the upstream.
@@ -768,14 +772,28 @@ func (r *Repo) Push(ctx context.Context, opts PushOptions, emit func(string)) (s
 		args = append(args, "HEAD:refs/heads/"+target)
 		return r.stream(ctx, emit, args...)
 	}
-	if target != "" && target != branch {
+	name := target
+	if name == "" {
+		name = branch
+	}
+	if name != branch {
 		// A fully qualified refspec pushes this branch to a different name
 		// on the remote, which is how a local branch takes over one that is
 		// already there under another name.
-		if _, err := r.run(ctx, "check-ref-format", "--branch", target); err != nil {
+		if _, err := r.run(ctx, "check-ref-format", "--branch", name); err != nil {
 			return "", errors.New("that is not a branch name")
 		}
-		args = append(args, "refs/heads/"+branch+":refs/heads/"+target)
+	}
+	if cut := strings.TrimSpace(opts.ToCommit); cut != "" {
+		// The push dialog unticked the newer commits: the commit itself is
+		// the source, so the branch stops there on the remote and the
+		// commits above it stay local.
+		if _, err := r.run(ctx, "rev-parse", "--verify", cut+"^{commit}"); err != nil {
+			return "", errors.New("that commit is not in this repository")
+		}
+		args = append(args, cut+":refs/heads/"+name)
+	} else if name != branch {
+		args = append(args, "refs/heads/"+branch+":refs/heads/"+name)
 	} else {
 		args = append(args, branch)
 	}

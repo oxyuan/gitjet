@@ -1632,6 +1632,9 @@ export function PushDialog({
   const [loading, setLoading] = useState(true);
   const [selected, setSelected] = useState<string | null>(null);
   const [detail, setDetail] = useState<CommitDetail | null>(null);
+  // The newest commit the push includes: `commits` is newest first, so the
+  // preview keeps a suffix of it and `from` names where that suffix starts.
+  const [from, setFrom] = useState(0);
   const [force, setForce] = useState(false);
   const [tags, setTags] = useState(false);
   const [dryRun, setDryRun] = useState(false);
@@ -1666,6 +1669,7 @@ export function PushDialog({
           .then((p) => {
             if (!alive) return;
             setPreview(p);
+            setFrom(0);
             // Only a branch with no upstream gets -u proposed; a push to a
             // differently named remote branch must not steal the tracking.
             if (p.creates && !upstreamRef.known) setUpstreamState(true);
@@ -1814,7 +1818,9 @@ export function PushDialog({
           <span className="pushd-split">
             <Button
               variant="primary"
-              disabled={loading || !!error || (nothing && !tags)}
+              disabled={
+                loading || !!error || (nothing && !tags) || (commits.length > 0 && from >= commits.length)
+              }
               onClick={() =>
                 onSubmit({
                   remote,
@@ -1826,6 +1832,7 @@ export function PushDialog({
                   tags,
                   dryRun,
                   skipHooks: !runHooks,
+                  toCommit: from > 0 ? commits[from]?.hash ?? "" : "",
                 })
               }
             >
@@ -1887,19 +1894,28 @@ export function PushDialog({
               {preview?.creates && <span className="pushd-badge">{t("push.newBranch")}</span>}
             </div>
             <div className="pushd-commits">
-              {commits.map((c) => (
-                <button
-                  key={c.hash}
-                  type="button"
-                  className={cx("pushd-commit", selected === c.hash && "active")}
-                  onClick={() => setSelected(c.hash)}
-                  title={c.message}
-                >
-                  <span className="pushd-commit-subject">{c.subject || c.short}</span>
-                  <span className="pushd-commit-meta">
-                    {c.short} · {c.author} · {formatWhen(c.commitTime)}
-                  </span>
-                </button>
+              {commits.map((c, i) => (
+                <div key={c.hash} className="pushd-commit-row">
+                  {/* IDEA's push preview: unticking a commit leaves it, and
+                      every commit above it, local — a push can only send a
+                      contiguous range that ends at the newest ticked one. */}
+                  <Checkbox
+                    checked={i >= from}
+                    disabled={commits.length === 0}
+                    onChange={() => setFrom(i >= from ? i + 1 : i)}
+                  />
+                  <button
+                    type="button"
+                    className={cx("pushd-commit", selected === c.hash && "active", i < from && "excluded")}
+                    onClick={() => setSelected(c.hash)}
+                    title={c.message}
+                  >
+                    <span className="pushd-commit-subject">{c.subject || c.short}</span>
+                    <span className="pushd-commit-meta">
+                      {c.short} · {c.author} · {formatWhen(c.commitTime)}
+                    </span>
+                  </button>
+                </div>
               ))}
             </div>
           </div>

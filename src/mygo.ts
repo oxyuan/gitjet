@@ -494,6 +494,7 @@ export interface PushOptions {
   tags: boolean;
   dryRun: boolean;
   skipHooks: boolean;
+  toCommit: string;
 }
 
 export interface PushPreview {

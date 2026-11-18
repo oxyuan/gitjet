@@ -201,3 +201,26 @@ func TestPushRunsPrePushHooksUnlessSkipped(t *testing.T) {
 		t.Fatalf("origin/main = %s, want HEAD", got)
 	}
 }
+
+// TestPushStopsAtTheChosenCommit covers the push dialog's unticked commits:
+// the branch is sent only up to the newest included commit, and the newer
+// ones stay local.
+func TestPushStopsAtTheChosenCommit(t *testing.T) {
+	repo, dir := newTestRepo(t)
+	bare := t.TempDir()
+	runGit(t, bare, "init", "-q", "--bare", "-b", "main")
+	runGit(t, dir, "remote", "add", "origin", bare)
+	writeFile(t, dir, "a.txt", "one\ntwo\nthree\n")
+	runGit(t, dir, "commit", "-q", "-am", "second")
+	cut := runGit(t, dir, "rev-parse", "HEAD~1")
+
+	if _, err := repo.Push(context.Background(), PushOptions{Remote: "origin", Branch: "main", ToCommit: cut}, func(string) {}); err != nil {
+		t.Fatalf("Push: %v", err)
+	}
+	if got := runGit(t, bare, "rev-parse", "refs/heads/main"); got != cut {
+		t.Fatalf("remote main = %s, want the chosen commit %s", got, cut)
+	}
+	if got := runGit(t, dir, "rev-parse", "HEAD"); got == cut {
+		t.Fatal("the local branch moved; the cut only limits the push")
+	}
+}
