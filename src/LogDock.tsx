@@ -940,6 +940,14 @@ export function LogDock({
           <div
             className="log-list"
             role="listbox"
+            tabIndex={0}
+            // Tab reaches the history here; the caret lands on the selected
+            // commit (or the newest one), so the arrows work immediately.
+            onFocus={(e) => {
+              if (e.target !== e.currentTarget) return;
+              const hash = selected ?? commits[0]?.hash;
+              if (hash) rowRefs.current.get(hash)?.focus({ preventScroll: false });
+            }}
             style={
               {
                 "--col-hash": `${cols.hash}px`,

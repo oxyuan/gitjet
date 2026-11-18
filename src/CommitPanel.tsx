@@ -964,6 +964,15 @@ export function CommitPanel({
         className="changes-scroll"
         onContextMenu={(e) => fileMenu.openMenu(e, { path: "", isDir: true })}
         onKeyDown={handleListKeys}
+        tabIndex={0}
+        // Tab reaches the list here; the caret lands on a row so the arrows
+        // and Enter work at once, as a tree does.
+        onFocus={(e) => {
+          if (e.target !== e.currentTarget) return;
+          const rows = fileRows();
+          const row = rows.find((r) => r.classList.contains("selected")) ?? rows[0];
+          row?.focus({ preventScroll: true });
+        }}
       >
         {showStaged && staged.length > 0 &&
           section(
