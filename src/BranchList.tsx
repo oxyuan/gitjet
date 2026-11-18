@@ -239,7 +239,8 @@ export function BranchList({
       if (e.isComposing || e.metaKey || e.ctrlKey || e.altKey || e.defaultPrevented) return;
       const target = e.target as Element | null;
       if (target?.closest("input, textarea, select, button, [contenteditable='true']")) return;
-      if (document.querySelector(".modal-overlay")) return;
+      // A dialog or an open menu owns the keyboard while it is up.
+      if (document.querySelector(".modal-overlay, .context-menu, .context-submenu")) return;
       const q = queryRef.current;
       if (e.key === "Escape") {
         if (q === "") return;

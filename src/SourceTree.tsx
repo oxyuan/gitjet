@@ -158,7 +158,8 @@ export function SourceTree({
       const target = e.target as Element | null;
       if (isTextTarget(target) || isTextTarget(document.activeElement)) return;
       // A dialog owns the keyboard while it is up, even with nothing focused.
-      if (document.querySelector(".modal-overlay")) return;
+      // A dialog or an open menu owns the keyboard while it is up.
+      if (document.querySelector(".modal-overlay, .context-menu, .context-submenu")) return;
       const state = live.current;
       if (e.key === "Escape") {
         if (state.q === "") return;
