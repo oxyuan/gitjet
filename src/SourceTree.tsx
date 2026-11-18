@@ -2,7 +2,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import type { ReactNode } from "react";
 import { Git, type RepoFile } from "./mygo";
 import { buildChangeTree } from "./changes";
-import { ancestorDirs, expandedTo, matchIndices, visibleFiles } from "./explorer";
+import { ancestorDirs, expandedTo, matchIndices } from "./explorer";
 import { FileTree, type ChangeView, type ListedFile } from "./FileTree";
 import { useFileMenu } from "./FileMenu";
 import { FileIcon, Icon } from "./icons";
@@ -128,29 +128,21 @@ export function SourceTree({
     setExpanded(next);
   };
 
-  // Typing anywhere that is not a text field matches the names of the files on
-  // screen. The tree keeps every row; the match only lights up the characters
-  // that were typed and picks one row to step through, so a keystroke never
-  // hides the file you were looking at.
+  // Typing anywhere that is not a text field matches every file of the
+  // repository, not only the rows a folded tree is showing: the search field
+  // is gone, so a match inside a closed folder still has to be reachable. The
+  // match lights up the characters that were typed and picks one row to step
+  // through, so a keystroke never hides the file you were looking at.
   const [typing, setTyping] = useState<{ q: string; at: number }>({ q: "", at: 0 });
-  // In the flat view every file is on screen, in the same order FileTree draws
-  // them; stepping through a collapsed tree's rows would miss what is shown.
-  const rows = useMemo(
-    () =>
-      viewMode === "flat"
-        ? [...visible].sort((a, b) => a.path.localeCompare(b.path, undefined, { sensitivity: "base" }))
-        : visibleFiles(visible, shownExpanded),
-    [viewMode, visible, shownExpanded],
-  );
   const matches = useMemo(() => {
     if (typing.q === "") return [] as { path: string; hits: number[] }[];
     const found: { path: string; hits: number[] }[] = [];
-    for (const row of rows) {
-      const hits = matchIndices(row.path.slice(row.path.lastIndexOf("/") + 1), typing.q);
-      if (hits) found.push({ path: row.path, hits });
+    for (const file of files) {
+      const hits = matchIndices(file.path.slice(file.path.lastIndexOf("/") + 1), typing.q);
+      if (hits) found.push({ path: file.path, hits });
     }
-    return found;
-  }, [rows, typing.q]);
+    return found.sort((a, b) => a.path.localeCompare(b.path, undefined, { sensitivity: "base" }));
+  }, [files, typing.q]);
   const at = matches.length === 0 ? -1 : Math.min(typing.at, matches.length - 1);
   const hit = at >= 0 ? matches[at] : undefined;
   const hits = useMemo(() => new Map(matches.map((m) => [m.path, m.hits])), [matches]);
@@ -209,13 +201,26 @@ export function SourceTree({
   }, []);
 
   // The stepped row must be reachable without the mouse: scroll it into the
-  // explorer's own viewport, and no further.
+  // explorer's own viewport, and no further. A match inside a closed folder
+  // opens its ancestors first, since the field that used to reveal it is gone.
   const bodyRef = useRef<HTMLDivElement>(null);
   useEffect(() => {
     if (!hit) return;
-    const row = bodyRef.current?.querySelector(`[data-path="${CSS.escape(hit.path)}"]`);
-    row?.scrollIntoView({ block: "nearest" });
-  }, [hit]);
+    const path = hit.path;
+    const find = () => bodyRef.current?.querySelector<HTMLElement>(`[data-path="${CSS.escape(path)}"]`);
+    const row = find();
+    if (row) {
+      row.scrollIntoView({ block: "nearest" });
+      return;
+    }
+    if (viewMode !== "tree") return;
+    setExpanded((prev) => {
+      const next = new Set(prev);
+      for (const dir of ancestorDirs(path)) next.add(dir);
+      return next;
+    });
+    requestAnimationFrame(() => find()?.scrollIntoView({ block: "nearest" }));
+  }, [hit, viewMode]);
 
   // Locating is a request, not a render-time scan: opening the file's folders
   // and clearing a filter that hides it must land in the DOM before the row
