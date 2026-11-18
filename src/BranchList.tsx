@@ -166,7 +166,6 @@ export function BranchList({
   // The keyboard cursor over the rows the tree is showing (favourites,
   // expanded groups and tags alike); -1 means the list has no focus.
   const [active, setActive] = useState(-1);
-  const searchRef = useRef<HTMLInputElement>(null);
   const listRef = useRef<HTMLDivElement>(null);
   const rowRefs = useRef(new Map<string, HTMLElement>());
 
@@ -227,11 +226,37 @@ export function BranchList({
   }, [rows]);
   const activeRow = active >= 0 ? rows[active] : undefined;
   // Collapsing a group can leave the cursor past the end of the visible rows.
-  // The popup opens with the keyboard in the filter, as IDEA's does: typing
-  // a branch name starts the search without a click.
+  // Typing over the page itself filters the tree, IDEA's speed search: the
+  // list has no search field, so the characters land in the same query the
+  // field used to hold, and Backspace and Escape edit or clear it.
   useEffect(() => {
-    searchRef.current?.focus();
-  }, []);
+    const onKey = (e: KeyboardEvent) => {
+      if (e.isComposing || e.metaKey || e.ctrlKey || e.altKey || e.defaultPrevented) return;
+      const target = e.target as Element | null;
+      if (target?.closest("input, textarea, select, button, [contenteditable='true']")) return;
+      if (document.querySelector(".modal-overlay")) return;
+      if (e.key === "Escape") {
+        if (query === "") return;
+        e.preventDefault();
+        setQuery("");
+        setActive(-1);
+        return;
+      }
+      if (e.key === "Backspace") {
+        if (query === "") return;
+        e.preventDefault();
+        setQuery(query.slice(0, -1));
+        setActive(-1);
+        return;
+      }
+      if (e.key.length !== 1) return;
+      e.preventDefault();
+      setQuery(query + e.key);
+      setActive(-1);
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [query]);
 
   useEffect(() => {
     setActive((index) => (index >= rows.length ? rows.length - 1 : index));
@@ -304,44 +329,13 @@ export function BranchList({
           onDeleteTag(activeRow.tag.name);
         }
         break;
-      case "f":
-      case "F":
-        if (e.metaKey || e.ctrlKey) {
-          e.preventDefault();
-          searchRef.current?.focus();
-          searchRef.current?.select();
-        }
-        break;
       case "Escape":
         e.preventDefault();
         setActive(-1);
-        searchRef.current?.focus();
+        if (query !== "") setQuery("");
         break;
       default:
         break;
-    }
-  };
-
-  const onSearchKey = (e: React.KeyboardEvent<HTMLInputElement>) => {
-    // An IME uses Enter and the arrows to commit or pick a candidate.
-    if (e.nativeEvent.isComposing) return;
-    if (e.key === "ArrowDown" || e.key === "ArrowUp") {
-      e.preventDefault();
-      moveTo(e.key === "ArrowDown" ? 0 : rows.length - 1);
-      return;
-    }
-    if (e.key === "Enter") {
-      const row = activeRow ?? rows[0];
-      if (row) {
-        e.preventDefault();
-        activateRow(row);
-      }
-      return;
-    }
-    if (e.key === "Escape" && query !== "") {
-      e.preventDefault();
-      setQuery("");
-      setActive(-1);
     }
   };
 
@@ -543,24 +537,17 @@ export function BranchList({
 
   return (
     <div className="branch-list">
-      <div className="picker-search branch-list-search">
-        <Icon name="search" size={13} />
-        <input
-          ref={searchRef}
-          value={query}
-          onChange={(e) => {
-            setQuery(e.target.value);
-            setActive(-1);
-          }}
-          onKeyDown={onSearchKey}
-          placeholder={t("searchBranches")}
-          aria-label={t("searchBranches")}
-        />
-        {query && (
-          <button className="search-clear" onClick={() => setQuery("")} aria-label={t("searchBranches")}>
-            <Icon name="close" size={11} />
-          </button>
+      <div className="branch-list-toolbar">
+        {query !== "" && (
+          <span className="branch-match" title={t("searchBranches")}>
+            <Icon name="search" size={12} />
+            <span className="branch-match-text">{query}</span>
+            <button className="search-clear" onClick={() => setQuery("")} aria-label={t("searchBranches")}>
+              <Icon name="close" size={11} />
+            </button>
+          </span>
         )}
+        <span className="spacer" />
         <span className="branch-list-actions">
           <IconButton icon="expand" title={t("expandAll")} small onClick={() => setAllCollapsed(false)} />
           <IconButton icon="collapse" title={t("collapseAll")} small onClick={() => setAllCollapsed(true)} />
