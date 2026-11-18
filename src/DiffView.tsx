@@ -2,7 +2,7 @@ import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } fr
 import { annotateDate, blameDepth } from "./annotate";
 import { blameMenuItems } from "./blameMenu";
 import { Git, type BlameLine, type DiffOptions, type FileDiff, type ThreeWayDiff } from "./mygo";
-import { FOLD_CONTEXT, buildDiffRows, changeBlockIndex, changeBlockRows, changeBlockSelections, foldRanges, lineWidth, revealWhitespace, visibleRows, type FoldRange, type HighlightMode, type VisibleRow, type WhitespaceMode, type WordSegment } from "./diff";
+import { buildDiffRows, changeBlockIndex, changeBlockRows, changeBlockSelections, foldRanges, lineWidth, revealWhitespace, visibleRows, type FoldRange, type HighlightMode, type VisibleRow, type WhitespaceMode, type WordSegment } from "./diff";
 import { ImageDiff } from "./ImageDiff";
 import { isImagePath } from "./images";
 import { FileIcon, Icon } from "./icons";
