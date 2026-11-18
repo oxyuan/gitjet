@@ -3,7 +3,7 @@ import { Git } from "./mygo";
 import type { PlanCommit, PlanStep } from "./mygo";
 import { Icon } from "./icons";
 import { useT } from "./i18n";
-import { Button, Field, Modal, Select, Spinner, TextInput, cx } from "./ui";
+import { Button, ConfirmDialog, Field, Modal, Select, Spinner, TextInput, cx } from "./ui";
 
 const T = {
   en: {
@@ -34,6 +34,9 @@ const T = {
     insertBreak: "Add break",
     execPlaceholder: "Command to run at this point",
     removeStep: "Remove this step",
+    discardTitle: "Discard the rewrite plan?",
+    discardMessage: "The changes to this plan are not applied yet. Closing the dialog loses them.",
+    discard: "Discard",
     exec: "exec (run a command)",
     break: "break (stop here)",
   },
@@ -62,6 +65,9 @@ const T = {
     insertBreak: "添加 break",
     execPlaceholder: "在此处执行的命令",
     removeStep: "删除此步骤",
+    discardTitle: "放弃重写计划？",
+    discardMessage: "对计划的修改尚未执行，关闭对话框会丢失这些修改。",
+    discard: "放弃",
     exec: "exec（执行命令）",
     break: "break（停在这里）",
   },
@@ -85,6 +91,10 @@ export function EditHistoryDialog({
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [editing, setEditing] = useState<string | null>(null);
+  // The plan as it was read, so closing can ask before throwing edits away —
+  // IDEA's "Discard / Continue" question on the interactive rebase dialog.
+  const [initial, setInitial] = useState("");
+  const [confirmDiscard, setConfirmDiscard] = useState(false);
 
   useEffect(() => {
     let alive = true;
@@ -92,7 +102,9 @@ export function EditHistoryDialog({
       .then((plan) => {
         if (!alive) return;
         setCommits(plan);
-        setSteps(plan.map((c) => ({ hash: c.hash, action: "pick", message: c.message })));
+        const next = plan.map((c) => ({ hash: c.hash, action: "pick" as const, message: c.message }));
+        setSteps(next);
+        setInitial(JSON.stringify(next));
       })
       .catch((err: unknown) => {
         if (alive) setError(err instanceof Error ? err.message : String(err));
@@ -121,6 +133,9 @@ export function EditHistoryDialog({
       return next;
     });
 
+  const dirty = initial !== "" && JSON.stringify(steps) !== initial;
+  const requestClose = () => (dirty ? setConfirmDiscard(true) : onClose());
+
   const byHash = new Map(commits.map((c) => [c.hash, c]));
   const firstKept = steps.find((s) => s.action !== "drop" && s.action !== "exec" && s.action !== "break")?.hash ?? "";
   const picked = steps.filter((s) => s.action === "pick" || s.action === "reword" || s.action === "edit").length;
@@ -132,10 +147,10 @@ export function EditHistoryDialog({
       title={t("title")}
       icon="commit"
       width={720}
-      onClose={onClose}
+      onClose={requestClose}
       footer={
         <>
-          <Button onClick={onClose}>{t("cancel")}</Button>
+          <Button onClick={requestClose}>{t("cancel")}</Button>
           <Button variant="primary" onClick={() => onSubmit(steps)} disabled={loading || steps.length === 0}>
             {t("apply", { n: steps.length })}
           </Button>

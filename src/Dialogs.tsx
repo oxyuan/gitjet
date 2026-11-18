@@ -2302,6 +2302,18 @@ export function PushCommitsDialog({
   );
 }
 
+/** The pull dialog's remembered choices, IDEA's GitPullSettings. */
+interface PullFlags {
+  rebase: boolean;
+  autostash: boolean;
+  prune: boolean;
+  tags: boolean;
+  ffOnly: boolean;
+  noFF: boolean;
+  squash: boolean;
+  noCommit: boolean;
+}
+
 export function PullDialog({
   remotes,
   updateMethod,
@@ -2337,14 +2349,20 @@ export function PullDialog({
   useEffect(() => {
     if (!picked) setBranch(preferred);
   }, [preferred, picked]);
-  const [rebase, setRebase] = useState(updateMethod === "rebase");
-  const [autostash, setAutostash] = useState(true);
-  const [prune, setPrune] = useState(false);
-  const [tags, setTags] = useState(false);
-  const [ffOnly, setFFOnly] = useState(false);
-  const [noFF, setNoFF] = useState(false);
-  const [squash, setSquash] = useState(false);
-  const [noCommit, setNoCommit] = useState(false);
+  // IDEA's pull dialog remembers its flags between runs; only the branch is
+  // about this pull, not about how the reader integrates.
+  const [flags, setFlags] = useStoredState<PullFlags>("gitjet.pullOptions", {
+    rebase: updateMethod === "rebase",
+    autostash: true,
+    prune: false,
+    tags: false,
+    ffOnly: false,
+    noFF: false,
+    squash: false,
+    noCommit: false,
+  });
+  const { rebase, autostash, prune, tags, ffOnly, noFF, squash, noCommit } = flags;
+  const set = (patch: Partial<PullFlags>) => setFlags({ ...flags, ...patch });
   return (
     <Modal
       title={t("pull.title")}
@@ -2395,39 +2413,42 @@ export function PullDialog({
         <Field label={t("pull.integrate")}>
           <div className="radio-row">
             <label className="radio">
-              <input type="radio" checked={!rebase} onChange={() => setRebase(false)} /> {t("settings.merge")}
+              <input type="radio" checked={!rebase} onChange={() => set({ rebase: false })} /> {t("settings.merge")}
             </label>
             <label className="radio">
-              <input type="radio" checked={rebase} onChange={() => setRebase(true)} /> {t("settings.rebase")}
+              <input type="radio" checked={rebase} onChange={() => set({ rebase: true })} /> {t("settings.rebase")}
             </label>
           </div>
         </Field>
         <div className="dialog-checks">
           <Checkbox
             checked={ffOnly}
-            onChange={(v) => {
-              setFFOnly(v);
-              if (v) setNoFF(false);
-            }}
+            onChange={(v) => set({ ffOnly: v, noFF: v ? false : noFF })}
             label={t("pull.ffOnly")}
           />
           <Checkbox
             checked={noFF}
-            onChange={(v) => {
-              setNoFF(v);
-              if (v) setFFOnly(false);
-            }}
+            onChange={(v) => set({ noFF: v, ffOnly: v ? false : ffOnly })}
             label={t("pull.noFF")}
           />
-          <Checkbox checked={squash} onChange={setSquash} label={t("pull.squash")} />
-          <Checkbox checked={noCommit} onChange={setNoCommit} label={t("pull.noCommit")} />
-          <Checkbox checked={autostash} onChange={setAutostash} label={t("pull.autostash")} />
-          <Checkbox checked={prune} onChange={setPrune} label={t("pull.prune")} />
-          <Checkbox checked={tags} onChange={setTags} label={t("pull.tags")} />
+          <Checkbox checked={squash} onChange={(v) => set({ squash: v })} label={t("pull.squash")} />
+          <Checkbox checked={noCommit} onChange={(v) => set({ noCommit: v })} label={t("pull.noCommit")} />
+          <Checkbox checked={autostash} onChange={(v) => set({ autostash: v })} label={t("pull.autostash")} />
+          <Checkbox checked={prune} onChange={(v) => set({ prune: v })} label={t("pull.prune")} />
+          <Checkbox checked={tags} onChange={(v) => set({ tags: v })} label={t("pull.tags")} />
         </div>
       </div>
     </Modal>
   );
+}
+
+/** The rebase dialog's remembered choices, IDEA's GitRebaseSettings. */
+interface RebaseFlags {
+  autostash: boolean;
+  updateRefs: boolean;
+  rebaseMerges: boolean;
+  empty: string;
+  autoSquash: string;
 }
 
 export function RebaseDialog({
@@ -2446,12 +2467,18 @@ export function RebaseDialog({
   const t = useT(T);
   const [base, setBase] = useState(onto);
   const [branch, setBranch] = useState("");
-  const [autostash, setAutostash] = useState(true);
-  const [updateRefs, setUpdateRefs] = useState(false);
-  const [rebaseMerges, setRebaseMerges] = useState(false);
-  const [empty, setEmpty] = useState("");
+  // As with pull, the flags are a preference: IDEA's GitRebaseSettings
+  // remembers them, while `onto` and the branch belong to this rebase.
+  const [flags, setFlags] = useStoredState<RebaseFlags>("gitjet.rebaseOptions", {
+    autostash: true,
+    updateRefs: false,
+    rebaseMerges: false,
+    empty: "",
+    autoSquash: "",
+  });
+  const { autostash, updateRefs, rebaseMerges, empty, autoSquash } = flags;
+  const set = (patch: Partial<RebaseFlags>) => setFlags({ ...flags, ...patch });
   const [root, setRoot] = useState(false);
-  const [autoSquash, setAutoSquash] = useState("");
   const ready = root || base.trim() !== "";
   return (
     <Modal
@@ -2499,14 +2526,14 @@ export function RebaseDialog({
           </Select>
         </Field>
         <Field label={t("rebase.autosquash")}>
-          <Select value={autoSquash} onChange={setAutoSquash}>
+          <Select value={autoSquash} onChange={(v) => set({ autoSquash: v })}>
             <option value="">{t("rebase.autosquashConfig")}</option>
             <option value="true">{t("rebase.autosquashOn")}</option>
             <option value="false">{t("rebase.autosquashOff")}</option>
           </Select>
         </Field>
         <Field label={t("rebase.empty")}>
-          <Select value={empty} onChange={setEmpty}>
+          <Select value={empty} onChange={(v) => set({ empty: v })}>
             <option value="">{t("rebase.emptyDefault")}</option>
             <option value="keep">{t("rebase.emptyKeep")}</option>
             <option value="drop">{t("rebase.emptyDrop")}</option>
@@ -2514,9 +2541,9 @@ export function RebaseDialog({
           </Select>
         </Field>
         <div className="dialog-checks">
-          <Checkbox checked={autostash} onChange={setAutostash} label={t("rebase.autostash")} />
-          <Checkbox checked={updateRefs} onChange={setUpdateRefs} label={t("rebase.updateRefs")} />
-          <Checkbox checked={rebaseMerges} onChange={setRebaseMerges} label={t("rebase.merges")} />
+          <Checkbox checked={autostash} onChange={(v) => set({ autostash: v })} label={t("rebase.autostash")} />
+          <Checkbox checked={updateRefs} onChange={(v) => set({ updateRefs: v })} label={t("rebase.updateRefs")} />
+          <Checkbox checked={rebaseMerges} onChange={(v) => set({ rebaseMerges: v })} label={t("rebase.merges")} />
           <Checkbox
             checked={root}
             onChange={(v) => {
