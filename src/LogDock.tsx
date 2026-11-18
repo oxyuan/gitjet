@@ -121,6 +121,10 @@ const T = {
     inBranchesOne: "In 1 branch",
     inBranchesOther: "In {n} branches",
     resizeLogWidth: "Drag to resize the history and the commit details",
+    columns: "Columns",
+    colHash: "Commit Hash",
+    colAuthor: "Author",
+    colTime: "Date",
     mergeParents: "Merge",
     collapsePanel: "Hide the history panel",
     expandPanel: "Show the history panel",
@@ -207,6 +211,10 @@ const T = {
     inBranchesOne: "在 1 个分支中",
     inBranchesOther: "在 {n} 个分支中",
     resizeLogWidth: "拖动可调整历史与提交详情的宽度",
+    columns: "列",
+    colHash: "提交哈希",
+    colAuthor: "作者",
+    colTime: "日期",
     mergeParents: "Merge",
     collapsePanel: "收起历史面板",
     expandPanel: "展开历史面板",
@@ -370,6 +378,10 @@ export function LogDock({
   const rowRefs = useRef(new Map<string, HTMLDivElement>());
   const [fileDirs, setFileDirs] = useState<Set<string>>(new Set());
   const [storedCols, setStoredCols] = useStoredState<LogColumns>("gitjet.logColumns", DEFAULT_COLUMNS);
+  // IDEA's table hides columns on request; the subject always stays.
+  const [hiddenCols, setHiddenCols] = useStoredState<string[]>("gitjet.logColumnsHidden", []);
+  const [colMenu, setColMenu] = useState<{ x: number; y: number } | null>(null);
+  const shows = (key: string) => !hiddenCols.includes(key);
   // Widths saved by an older build may sit outside today's limits.
   const merged = { ...DEFAULT_COLUMNS, ...storedCols };
   const cols: LogColumns = {
@@ -867,6 +879,15 @@ export function LogDock({
               onClick={() => setMarkCherry((v) => !v)}
             />
             <IconButton
+              icon="columns"
+              title={t("columns")}
+              active={hiddenCols.length > 0}
+              onClick={(e) => {
+                const rect = (e.currentTarget as HTMLElement).getBoundingClientRect();
+                setColMenu({ x: rect.left - 120, y: rect.bottom + 4 });
+              }}
+            />
+            <IconButton
               icon="download"
               title={t("loadMoreCommits")}
               onClick={onLoadMore}
@@ -889,6 +910,10 @@ export function LogDock({
           )}
           <div
             className="log-cols"
+            onContextMenu={(e) => {
+              e.preventDefault();
+              setColMenu({ x: e.clientX, y: e.clientY });
+            }}
             style={
               {
                 "--col-hash": `${cols.hash}px`,
@@ -898,15 +923,19 @@ export function LogDock({
             }
           >
             <span className="log-cols-graph" style={{ width }} />
-            <span className="log-col" style={{ width: cols.hash }}>
-              <span className="col-grip" title={t("resizeColumn")} onMouseDown={startColumn("hash", 1)} />
-            </span>
+            {shows("hash") && (
+              <span className="log-col" style={{ width: cols.hash }}>
+                <span className="col-grip" title={t("resizeColumn")} onMouseDown={startColumn("hash", 1)} />
+              </span>
+            )}
             <span className="log-col flexible" />
             <span className="log-col flexible" />
-            <span className="log-col end" style={{ width: cols.author }}>
-              <span className="col-grip start" title={t("resizeColumn")} onMouseDown={startColumn("author", -1)} />
-            </span>
-            <span className="log-col end" style={{ width: cols.time }} />
+            {shows("author") && (
+              <span className="log-col end" style={{ width: cols.author }}>
+                <span className="col-grip start" title={t("resizeColumn")} onMouseDown={startColumn("author", -1)} />
+              </span>
+            )}
+            {shows("time") && <span className="log-col end" style={{ width: cols.time }} />}
           </div>
           <div
             className="log-list"
@@ -1008,7 +1037,7 @@ export function LogDock({
                       className={cx("graph-dot", `lane-${row.lane % 6}`, commit.parents.length > 1 && "merge")}
                     />
                   </svg>
-                  <span className="log-hash">{commit.short}</span>
+                  {shows("hash") && <span className="log-hash">{commit.short}</span>}
                   <span className="log-subject" title={commit.subject}>
                     {commit.subject}
                   </span>
@@ -1049,10 +1078,12 @@ export function LogDock({
                       <Icon name="cherry" size={11} />
                     </span>
                   )}
-                  <span className="log-author" title={commit.author}>
-                    {commit.author}
-                  </span>
-                  <span className="log-time">{formatStamp(commit.authorTime, t("today"))}</span>
+                  {shows("author") && (
+                    <span className="log-author" title={commit.author}>
+                      {commit.author}
+                    </span>
+                  )}
+                  {shows("time") && <span className="log-time">{formatStamp(commit.authorTime, t("today"))}</span>}
                 </div>
               );
             })}
@@ -1309,6 +1340,25 @@ export function LogDock({
           )}
         </div>
       </div>
+      {colMenu && (
+        <ContextMenu
+          x={colMenu.x}
+          y={colMenu.y}
+          items={[
+            { header: true, label: t("columns") },
+            ...(["hash", "author", "time"] as const).map<ContextItem>((key) => ({
+              label: t(key === "hash" ? "colHash" : key === "author" ? "colAuthor" : "colTime"),
+              checked: shows(key),
+              disabled: shows(key) && hiddenCols.length >= 2,
+              onClick: () =>
+                setHiddenCols(
+                  hiddenCols.includes(key) ? hiddenCols.filter((k) => k !== key) : [...hiddenCols, key],
+                ),
+            })),
+          ]}
+          onClose={() => setColMenu(null)}
+        />
+      )}
       {menu && <ContextMenu x={menu.x} y={menu.y} items={menu.items} onClose={() => setMenu(null)} />}
     </section>
   );
