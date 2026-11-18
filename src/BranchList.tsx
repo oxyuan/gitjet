@@ -316,7 +316,9 @@ export function BranchList({
         break;
       case "Enter":
         e.preventDefault();
-        activateRow(activeRow);
+        // With a filter typed and no cursor yet, Enter takes the first match,
+        // as the field's Enter did before the field became the page itself.
+        activateRow(activeRow ?? rows[0]);
         break;
       case " ":
         // IDEA toggles the favorite of the selected branch with Space.
