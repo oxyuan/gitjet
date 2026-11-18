@@ -506,7 +506,7 @@ export function CommitPanel({
   const menuFor = (entry: FileEntry, event: React.MouseEvent) => {
     const chosen = selected.has(entry.path) && selected.size > 1 ? [...selected] : [entry.path];
     const items: ContextItem[] = [
-      { label: t("showDiff"), icon: "diff", onClick: () => actions.onShowDiff(entry) },
+      { label: t("showDiff"), icon: "diff", shortcut: "Enter", onClick: () => actions.onShowDiff(entry) },
       { label: t("threeWay"), icon: "columns", onClick: () => actions.onShowThreeWay(entry) },
       { label: t("openSourceFile"), icon: "file", onClick: () => actions.onOpenSource(entry.path, entry.staged ? "INDEX" : "") },
       { label: t("showHistory"), icon: "log", onClick: () => actions.onShowHistory(entry.path) },
@@ -522,7 +522,7 @@ export function CommitPanel({
       );
     } else if (entry.staged) {
       items.push(
-        { label: t("unstage"), icon: "unstage", onClick: () => actions.onUnstage(chosen) },
+        { label: t("unstage"), icon: "unstage", shortcut: "Space", onClick: () => actions.onUnstage(chosen) },
         { label: t("rollback"), icon: "undo", danger: true, onClick: () => actions.onRollback(chosen) },
       );
     } else {
@@ -533,7 +533,7 @@ export function CommitPanel({
         );
       } else {
         items.push(
-          { label: t("stage"), icon: "stage", onClick: () => actions.onStage(chosen) },
+          { label: t("stage"), icon: "stage", shortcut: "Space", onClick: () => actions.onStage(chosen) },
           { label: t("rollback"), icon: "undo", danger: true, onClick: () => actions.onRollback(chosen) },
         );
       }
