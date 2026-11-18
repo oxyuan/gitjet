@@ -2,7 +2,7 @@ import { describe, expect, it } from "bun:test";
 import { annotateDate, blameDepth, changeRanges } from "./annotate";
 import type { FileDiff } from "./mygo";
 
-function diff(lines: [string, number, number][], newStart = 10): FileDiff {
+function diff(lines: [string, number, number, string?][], newStart = 10): FileDiff {
   return {
     path: "a.ts",
     status: "modified",
@@ -23,7 +23,7 @@ function diff(lines: [string, number, number][], newStart = 10): FileDiff {
         oldLines: 4,
         newStart,
         newLines: 4,
-        lines: lines.map(([kind, oldNo, newNo]) => ({ kind, oldNo, newNo, text: "" })),
+        lines: lines.map(([kind, oldNo, newNo, text]) => ({ kind, oldNo, newNo, text: text ?? "" })),
       },
     ],
   };
@@ -51,7 +51,7 @@ describe("changeRanges", () => {
         ["context", 11, 11],
       ]),
     );
-    expect(ranges).toEqual([{ start: 11, count: 0, kind: "del", hunk: 0 }]);
+    expect(ranges).toMatchObject([{ start: 11, count: 0, kind: "del", hunk: 0 }]);
   });
 
   it("turns a replaced line into one modification and keeps the surplus", () => {
@@ -78,7 +78,7 @@ describe("changeRanges", () => {
         ["context", 11, 13],
       ]),
     );
-    expect(ranges).toEqual([{ start: 11, count: 2, kind: "mod", hunk: 0 }]);
+    expect(ranges).toMatchObject([{ start: 11, count: 2, kind: "mod", hunk: 0 }]);
   });
 
   it("keeps one marker for a deletion at the end of the file", () => {
@@ -91,7 +91,19 @@ describe("changeRanges", () => {
         10,
       ),
     );
-    expect(ranges).toEqual([{ start: 11, count: 0, kind: "del", hunk: 0 }]);
+    expect(ranges).toMatchObject([{ start: 11, count: 0, kind: "del", hunk: 0 }]);
+  });
+
+  it("carries the text a change replaced, for copying its base", () => {
+    const ranges = changeRanges(
+      diff([
+        ["del", 8, 0, "old a"],
+        ["del", 9, 0, "old b"],
+        ["add", 0, 10, "new"],
+      ]),
+    );
+    expect(ranges[0]?.kind).toBe("mod");
+    expect(ranges[0]?.base).toBe("old a\nold b");
   });
 
   it("draws nothing for a binary or empty diff", () => {

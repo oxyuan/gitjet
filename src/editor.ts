@@ -731,8 +731,10 @@ class ChangeMarker extends GutterMarker {
       alt: boolean,
       x: number,
       y: number,
+      base: string,
     ) => void,
     readonly label: string,
+    readonly base: string,
   ) {
     super();
   }
@@ -743,7 +745,8 @@ class ChangeMarker extends GutterMarker {
       other.hunk === this.hunk &&
       other.kind === this.kind &&
       other.line === this.line &&
-      other.label === this.label
+      other.label === this.label &&
+      other.base === this.base
     );
   }
   toDOM() {
@@ -756,7 +759,7 @@ class ChangeMarker extends GutterMarker {
     el.addEventListener("mousedown", (event) => {
       event.preventDefault();
       event.stopPropagation();
-      this.onClick(this.hunk, this.kind, this.line, event.altKey, event.clientX, event.clientY);
+      this.onClick(this.hunk, this.kind, this.line, event.altKey, event.clientX, event.clientY, this.base);
     });
     return el;
   }
@@ -779,7 +782,15 @@ const changeField = StateField.define<ChangeRange[]>({
  *  them, clickable per hunk. A deletion has no line of its own, so its wedge
  *  sits on the line the text disappeared from. */
 function changeGutter(
-  onClick: (hunk: number, kind: "add" | "del" | "mod", line: number, alt: boolean, x: number, y: number) => void,
+  onClick: (
+    hunk: number,
+    kind: "add" | "del" | "mod",
+    line: number,
+    alt: boolean,
+    x: number,
+    y: number,
+    base: string,
+  ) => void,
   labels: { add: string; del: string; mod: string },
 ): Extension {
   return [
@@ -801,7 +812,7 @@ function changeGutter(
             builder.add(
               line.from,
               line.from,
-              new ChangeMarker(range.hunk, range.kind, no, onClick, label),
+              new ChangeMarker(range.hunk, range.kind, no, onClick, label, range.base ?? ""),
             );
           }
         }
@@ -1256,7 +1267,14 @@ export type EditorOptions = {
   blame?: BlameLine[] | null;
   /** A click on a change bar, with the pointer position for its menu.
    *  Alt-clicking is the quick "roll back this line" path. */
-  onChangeClick?: (hunk: number, line: number, alt: boolean, x: number, y: number) => void;
+  onChangeClick?: (
+    hunk: number,
+    line: number,
+    alt: boolean,
+    x: number,
+    y: number,
+    base: string,
+  ) => void;
   /** Repository-relative path of the document, so a jump can remember where
    *  it started. */
   path: string;
@@ -1867,8 +1885,8 @@ export class SourceEditor {
           // Both start empty and fill in when the data arrives, so the
           // effects that carry it always have a field to land in.
           changeGutter(
-            (hunk, kind, line, alt, x, y) => {
-              opts.onChangeClick?.(hunk, line, alt, x, y);
+            (hunk, kind, line, alt, x, y, base) => {
+              opts.onChangeClick?.(hunk, line, alt, x, y, base);
             },
             {
               add: opts.labels?.addedHere ?? "Added here",

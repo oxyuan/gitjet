@@ -12,6 +12,9 @@ export type ChangeRange = {
   kind: "add" | "del" | "mod";
   /** The hunk it belongs to, which is what rollback names. */
   hunk: number;
+  /** The text this run replaced, joined by newlines; empty for a pure
+   *  addition. IDEA's marker menu copies it as the change's base. */
+  base?: string;
 };
 
 /** Turns a file diff into the bars a change gutter draws.
@@ -32,17 +35,24 @@ export function changeRanges(diff: FileDiff | null): ChangeRange[] {
     let dels = 0;
     let addStart = 0;
     let adds = 0;
+    const removed: string[] = [];
     const flush = () => {
       if (dels === 0 && adds === 0) return;
       const paired = Math.min(dels, adds);
-      if (paired > 0) ranges.push({ start: addStart, count: paired, kind: "mod", hunk: index });
-      if (adds > paired) ranges.push({ start: addStart + paired, count: adds - paired, kind: "add", hunk: index });
+      const base = removed.join("\n");
+      // The base text is only carried when there is some: a pure addition
+      // has nothing to copy, and the field would be noise on every range.
+      const withBase = (range: ChangeRange): ChangeRange => (base === "" ? range : { ...range, base });
+      if (paired > 0) ranges.push(withBase({ start: addStart, count: paired, kind: "mod", hunk: index }));
+      if (adds > paired)
+        ranges.push({ start: addStart + paired, count: adds - paired, kind: "add", hunk: index });
       if (dels > paired) {
         // After the lines that still exist the surplus deletions get the
         // wedge; a pure deletion sits on the first line of the new side.
         const at = adds > 0 ? addStart + paired : Math.min(lastNew + 1, hunk.newStart + Math.max(hunk.newLines, 1));
-        ranges.push({ start: at, count: 0, kind: "del", hunk: index });
+        ranges.push(withBase({ start: at, count: 0, kind: "del", hunk: index }));
       }
+      removed.length = 0;
       dels = 0;
       adds = 0;
       addStart = 0;
@@ -56,6 +66,7 @@ export function changeRanges(diff: FileDiff | null): ChangeRange[] {
       }
       if (line.kind === "del") {
         dels++;
+        removed.push(line.text);
         continue;
       }
       flush();

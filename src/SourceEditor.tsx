@@ -30,6 +30,7 @@ const T = {
     noFormatter: "No formatter is available for this file",
     noRename: "A language server is needed to rename this symbol",
     showDiff: "Show Diff",
+    copyBase: "Copy the text this change replaced",
     rollbackBlock: "Roll back This Block",
     rollbackLine: "Roll back This Line",
   },
@@ -51,6 +52,7 @@ const T = {
     noFormatter: "此文件没有可用的格式化工具",
     noRename: "重命名需要语言服务器支持",
     showDiff: "显示差异",
+    copyBase: "复制此改动替换掉的文本",
     rollbackBlock: "回滚此代码块",
     rollbackLine: "回滚此行",
   },
@@ -209,9 +211,13 @@ export function SourceEditor({
   const [menu, setMenu] = useState<{ x: number; y: number; line: number } | null>(null);
   // A change bar's menu, as IDEA's marker popup offers: see the diff of the
   // block, or roll it back, without a bare click discarding anything.
-  const [changeMenu, setChangeMenu] = useState<{ x: number; y: number; hunk: number; line: number } | null>(
-    null,
-  );
+  const [changeMenu, setChangeMenu] = useState<{
+    x: number;
+    y: number;
+    hunk: number;
+    line: number;
+    base: string;
+  } | null>(null);
   // The code area's own menu: IDEA offers the navigation commands here, not
   // only as keys and modified clicks.
   const [symbolMenu, setSymbolMenu] = useState<{ x: number; y: number; pos: number } | null>(null);
@@ -243,11 +249,11 @@ export function SourceEditor({
       onDirtyChange: (dirty) => actions.current.onDirtyChange?.(dirty),
       onDocChange: () => actions.current.onEdit?.(),
       onSaveRequest: editable ? () => actions.current.onSaveRequest?.() : undefined,
-      onChangeClick: (hunk, line, alt, x, y) => {
+      onChangeClick: (hunk, line, alt, x, y, base) => {
         // Alt-click keeps the direct line rollback; a plain click opens the
         // menu IDEA shows, so a stray click cannot discard a block.
         if (alt) actions.current.onRollbackLine?.(line);
-        else setChangeMenu({ x, y, hunk, line });
+        else setChangeMenu({ x, y, hunk, line, base });
       },
       path: file.path,
       revision: file.revision,
@@ -449,6 +455,19 @@ export function SourceEditor({
                 onClick: () => {
                   setChangeMenu(null);
                   onShowDiff();
+                },
+              },
+            ]
+          : []),
+        ...(changeMenu.base !== "" && onCopy
+          ? [
+              {
+                label: t("copyBase"),
+                icon: "copy" as const,
+                onClick: () => {
+                  const target = changeMenu;
+                  setChangeMenu(null);
+                  onCopy(target.base);
                 },
               },
             ]
