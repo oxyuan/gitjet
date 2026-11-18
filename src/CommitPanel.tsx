@@ -602,7 +602,9 @@ export function CommitPanel({
           // The drag carries the whole selection when the row is part of it,
           // so a multi-file move needs one gesture.
           const paths = selected.has(entry.path) ? [...selected] : [entry.path];
-          e.dataTransfer.setData("application/x-gitjet-paths", JSON.stringify(paths));
+          const payload = JSON.stringify(paths);
+          e.dataTransfer.setData("application/x-gitjet-paths", payload);
+          e.dataTransfer.setData("text/plain", payload);
           e.dataTransfer.effectAllowed = "move";
         }}
         tabIndex={isSelected ? 0 : -1}
@@ -1002,7 +1004,10 @@ export function CommitPanel({
           const id = target?.dataset.changelist;
           setDragOver(null);
           if (!id) return;
-          const raw = e.dataTransfer.getData("application/x-gitjet-paths");
+          // WebKit keeps only text/plain for a custom drag in some versions,
+          // so the list rides both types.
+          const raw =
+            e.dataTransfer.getData("application/x-gitjet-paths") || e.dataTransfer.getData("text/plain");
           if (raw === "") return;
           e.preventDefault();
           try {
