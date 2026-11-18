@@ -229,34 +229,40 @@ export function BranchList({
   // Typing over the page itself filters the tree, IDEA's speed search: the
   // list has no search field, so the characters land in the same query the
   // field used to hold, and Backspace and Escape edit or clear it.
+  // The listener is registered once and reads the query through a mirror:
+  // re-subscribing per keystroke could drop the characters typed between a
+  // render and its effect.
+  const queryRef = useRef(query);
+  queryRef.current = query;
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if (e.isComposing || e.metaKey || e.ctrlKey || e.altKey || e.defaultPrevented) return;
       const target = e.target as Element | null;
       if (target?.closest("input, textarea, select, button, [contenteditable='true']")) return;
       if (document.querySelector(".modal-overlay")) return;
+      const q = queryRef.current;
       if (e.key === "Escape") {
-        if (query === "") return;
+        if (q === "") return;
         e.preventDefault();
         setQuery("");
         setActive(-1);
         return;
       }
       if (e.key === "Backspace") {
-        if (query === "") return;
+        if (q === "") return;
         e.preventDefault();
-        setQuery(query.slice(0, -1));
+        setQuery(q.slice(0, -1));
         setActive(-1);
         return;
       }
       if (e.key.length !== 1) return;
       e.preventDefault();
-      setQuery(query + e.key);
+      setQuery(q + e.key);
       setActive(-1);
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [query]);
+  }, []);
 
   useEffect(() => {
     setActive((index) => (index >= rows.length ? rows.length - 1 : index));
