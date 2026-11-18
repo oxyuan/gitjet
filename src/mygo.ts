@@ -919,6 +919,14 @@ export const Workspace = {
     return call("Workspace.SaveSettings", s);
   },
   /**
+   * SetMergeUnsaved is the merge page's unsaved count for its own window. A
+   * native close with a result still to write asks the page first, as IDEA's
+   * merge dialog does; the count is 0 once the result is written or discarded.
+   */
+  setMergeUnsaved(unsaved: number): Promise<void> {
+    return call("Workspace.SetMergeUnsaved", unsaved);
+  },
+  /**
    * SetUnsaved is the page's unsaved-document count. A close or a quit with
    * edits is deferred until the page has written them, as IDEA defers its own
    * exit; the count is the same dirty set Save All writes.

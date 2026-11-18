@@ -107,7 +107,16 @@ func (w *Workspace) OpenInWindow(path string) error {
 var (
 	mergeMu      sync.Mutex
 	mergeWindows = map[string]*mygo.Window{}
+	// mergeStates is each merge window's unsaved result. A native close with
+	// one asks first, as IDEA's merge dialog asks before exiting without
+	// applying changes; allowClose is set once the page has decided.
+	mergeStates = map[*mygo.Window]*mergeWindowState{}
 )
+
+type mergeWindowState struct {
+	dirty      bool
+	allowClose bool
+}
 
 // OpenMergeWindow shows one file's merge editor in its own window. IDEA
 // resolves a conflict in a window that belongs only to that file; closing it
@@ -139,12 +148,27 @@ func (w *Workspace) OpenMergeWindow(path string) error {
 	installPageContextMenu(win)
 	mergeMu.Lock()
 	mergeWindows[path] = win
+	mergeStates[win] = &mergeWindowState{}
 	mergeMu.Unlock()
+	// A half-resolved conflict is work the page has not written yet. Ask it
+	// before the window goes away, as MergeUtil.showExitWithoutApplyingChangesDialog does.
+	win.OnClose(func(e *mygo.CloseEvent) {
+		mergeMu.Lock()
+		state := mergeStates[win]
+		ask := state != nil && state.dirty && !state.allowClose
+		mergeMu.Unlock()
+		if !ask {
+			return
+		}
+		e.PreventDefault()
+		Command.Broadcast("merge-close:" + path)
+	})
 	win.OnClosed(func() {
 		mergeMu.Lock()
 		if mergeWindows[path] == win {
 			delete(mergeWindows, path)
 		}
+		delete(mergeStates, win)
 		mergeMu.Unlock()
 	})
 	win.Focus()
@@ -173,6 +197,21 @@ func (w *Workspace) QuitApp() {
 	mygo.App.Quit()
 }
 
+// SetMergeUnsaved is the merge page's unsaved count for its own window. A
+// native close with a result still to write asks the page first, as IDEA's
+// merge dialog does; the count is 0 once the result is written or discarded.
+func (w *Workspace) SetMergeUnsaved(ctx context.Context, unsaved int) {
+	win := mygo.CallerWindow(ctx)
+	if win == nil {
+		return
+	}
+	mergeMu.Lock()
+	if state := mergeStates[win]; state != nil {
+		state.dirty = unsaved > 0
+	}
+	mergeMu.Unlock()
+}
+
 // CloseWindow closes the window the call came from. The merge editor calls it
 // when its file is applied, saved or handed to the next conflict. On the
 // repository window it also opens the save gate, so the close it retries is
@@ -187,6 +226,13 @@ func (w *Workspace) CloseWindow(ctx context.Context) error {
 		saveGate.allowClose = true
 		saveGate.mu.Unlock()
 	}
+	// The page has decided: either it wrote the resolution or it asked to
+	// discard it, so the close is not asked about again.
+	mergeMu.Lock()
+	if state := mergeStates[win]; state != nil {
+		state.allowClose = true
+	}
+	mergeMu.Unlock()
 	win.Close()
 	return nil
 }

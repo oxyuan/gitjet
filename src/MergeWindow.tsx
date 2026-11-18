@@ -37,6 +37,7 @@ export function MergeWindow({ path }: { path: string }) {
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
   const [dirty, setDirty] = useState(false);
+  const [closeRequest, setCloseRequest] = useState(0);
   const [root, setRoot] = useState("");
   const busyRef = useRef(false);
   const lang = resolveLang(boot?.settings.language ?? "system");
@@ -92,6 +93,21 @@ export function MergeWindow({ path }: { path: string }) {
     });
     return off;
   }, [path]);
+
+  useEffect(() => {
+    void Workspace.setMergeUnsaved(dirty ? 1 : 0);
+  }, [dirty]);
+
+  // A native close with an unsaved result stops in the host, which asks this
+  // page; the confirmation then offers to discard it, as IDEA's merge dialog
+  // does before exiting without applying changes.
+  useEffect(
+    () =>
+      events.appCommand.on((cmd) => {
+        if (cmd === `merge-close:${path}`) setCloseRequest((n) => n + 1);
+      }),
+    [path],
+  );
 
   useEffect(() => {
     if (!boot) return;
@@ -179,6 +195,7 @@ export function MergeWindow({ path }: { path: string }) {
         }
         onClose={() => void Workspace.closeWindow()}
         onDirtyChange={setDirty}
+        closeRequest={closeRequest}
         onAutoMerge={() =>
           void run(async () => {
             const result = await mergeConflictInMemory(

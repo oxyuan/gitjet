@@ -297,7 +297,14 @@ use it only for layout work. Vite's port is pinned to 5173 in **both**
   closes a range without moving text (`IgnoreSelectedChangesAction`) — how a
   hand-typed resolution is accepted. "Accept Left/Right" replaces the whole
   result, so it asks first when there is work to lose, as `handleAcceptSide`
-  does.
+  does. The `⌘⌃←/→` shortcut takes the same side for the change under the
+  result caret, including a one-sided change, not only a conflict.
+- A native close of a merge window with an unwritten result is deferred by the
+  host, as IDEA asks before exiting without applying changes: the page reports
+  `Workspace.SetMergeUnsaved`, the window's `OnClose` broadcasts
+  `merge-close:<path>`, and the editor shows the same discard confirmation as
+  the Close button and Esc. `Workspace.CloseWindow` opens that gate, so the
+  close the page confirmed proceeds.
 - The view menu's "Apply non-conflicting changes on open" is IDEA's
   `MERGE_AUTO_APPLY_NON_CONFLICTED_CHANGES`, stored as
   `gitjet.mergeAutoApplyNonConflicts` and on by default: a merge opens with

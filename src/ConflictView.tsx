@@ -543,6 +543,7 @@ export function ConflictView({
   onShowHistory,
   onDirtyChange,
   onAutoMerge,
+  closeRequest = 0,
   visible = true,
 }: {
   path: string;
@@ -559,6 +560,8 @@ export function ConflictView({
   /** Merge the three stages in memory and write the result; the host owns
    *  the repository call and the reload that follows it. */
   onAutoMerge?: () => void;
+  /** Bumped by the host when a native close must be confirmed here. */
+  closeRequest?: number;
   visible?: boolean;
 }) {
   const t = useT(T);
@@ -734,6 +737,18 @@ export function ConflictView({
     if (isDirty()) setConfirmClose(true);
     else onClose();
   }, [isDirty, onClose]);
+
+  // A native close with an unsaved result stops in the host and comes back as
+  // a close request: the same confirmation the Close button and Esc show. The
+  // ref keeps a later dirty-state change from firing it a second time.
+  const closeRequestRef = useRef(requestClose);
+  closeRequestRef.current = requestClose;
+  const seenCloseRequest = useRef(0);
+  useEffect(() => {
+    if (closeRequest === seenCloseRequest.current) return;
+    seenCloseRequest.current = closeRequest;
+    closeRequestRef.current();
+  }, [closeRequest]);
 
   const dirtyRef = useRef(onDirtyChange);
   dirtyRef.current = onDirtyChange;
@@ -1890,7 +1905,13 @@ export function ConflictView({
         if (event.key !== "ArrowLeft" && event.key !== "ArrowRight") return;
         event.preventDefault();
         const range = rangeAtCaret();
-        if (range?.kind === "conflict") applyRange(range.index, event.key === "ArrowRight" ? "ours" : "theirs");
+        if (!range) return;
+        const side = event.key === "ArrowRight" ? "ours" : "theirs";
+        // The menu's Accept covers every change the side made, not only a
+        // conflict; the shortcut must mean the same thing.
+        if (range.kind === "conflict" || (side === "ours" ? range.oursChanged : range.theirsChanged)) {
+          applyRange(range.index, side);
+        }
       } else if (event.altKey && !event.ctrlKey && !event.defaultPrevented && event.key === "ArrowLeft") {
         // The editors bind Alt+Arrow to word movement and consume it; only a
         // key nothing else handled means "take this side".
@@ -2125,6 +2146,8 @@ export function ConflictView({
           <span className="spacer" />
           {busy && <Spinner />}
           <span className={cx("merge3-status", unresolved === 0 && "done")}>
+            {unresolved === 0 && <Icon name="check" size={12} />}
+            {unresolved === 0 && " "}
             {changesText}, {conflictsText}
           </span>
           <IconButton icon="settings" title={t("viewOptions")} small onClick={openViewMenu} />
