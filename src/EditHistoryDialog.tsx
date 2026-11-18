@@ -1,9 +1,9 @@
 import { useEffect, useState } from "react";
 import { Git } from "./mygo";
-import type { PlanCommit, PlanStep } from "./mygo";
-import { Icon } from "./icons";
+import type { CommitDetail, PlanCommit, PlanStep } from "./mygo";
+import { FileIcon, Icon } from "./icons";
 import { useT } from "./i18n";
-import { Button, ConfirmDialog, Field, Modal, Select, Spinner, TextInput, cx } from "./ui";
+import { Button, ConfirmDialog, Field, Modal, Select, Spinner, StatusMark, TextInput, cx } from "./ui";
 
 const T = {
   en: {
@@ -39,6 +39,8 @@ const T = {
     discard: "Discard",
     exec: "exec (run a command)",
     break: "break (stop here)",
+    filesOf: "Files of {hash}",
+    binary: "binary",
   },
   zh: {
     title: "编辑历史",
@@ -70,6 +72,8 @@ const T = {
     discard: "放弃",
     exec: "exec（执行命令）",
     break: "break（停在这里）",
+    filesOf: "{hash} 的文件",
+    binary: "二进制",
   },
 } as const;
 
@@ -95,6 +99,10 @@ export function EditHistoryDialog({
   // IDEA's "Discard / Continue" question on the interactive rebase dialog.
   const [initial, setInitial] = useState("");
   const [confirmDiscard, setConfirmDiscard] = useState(false);
+  // The row under the keyboard is described below the plan, as IDEA's
+  // interactive rebase dialog splits the list against the commit's files.
+  const [shown, setShown] = useState("");
+  const [detail, setDetail] = useState<CommitDetail | null>(null);
 
   useEffect(() => {
     let alive = true;
@@ -132,6 +140,24 @@ export function EditHistoryDialog({
       next.splice(target, 0, step!);
       return next;
     });
+
+  useEffect(() => {
+    if (shown === "") {
+      setDetail(null);
+      return;
+    }
+    let alive = true;
+    Git.showCommit(shown)
+      .then((d) => {
+        if (alive) setDetail(d);
+      })
+      .catch(() => {
+        if (alive) setDetail(null);
+      });
+    return () => {
+      alive = false;
+    };
+  }, [shown]);
 
   const dirty = initial !== "" && JSON.stringify(steps) !== initial;
   const requestClose = () => (dirty ? setConfirmDiscard(true) : onClose());
@@ -175,7 +201,16 @@ export function EditHistoryDialog({
               const first = step.hash === firstKept;
               const messageAction = step.action === "reword" || step.action === "squash";
               return (
-                <div className={cx("rewrite-row", step.action === "drop" && "dropped")} key={step.hash || `extra:${i}`} role="listitem">
+                <div
+                  className={cx(
+                    "rewrite-row",
+                    step.action === "drop" && "dropped",
+                    step.hash !== "" && shown === step.hash && "active",
+                  )}
+                  key={step.hash || `extra:${i}`}
+                  role="listitem"
+                  onClick={() => step.hash && setShown(step.hash)}
+                >
                   <div className="rewrite-line">
                     {extra ? (
                       <span className="rewrite-action">{t(step.action as "exec" | "break")}</span>
@@ -268,6 +303,35 @@ export function EditHistoryDialog({
               );
             })}
           </div>
+          {detail && (
+            <div className="rewrite-detail">
+              <div className="rewrite-detail-head">
+                <code className="rewrite-hash">{detail.short}</code>
+                <span className="rewrite-subject" title={detail.subject}>
+                  {detail.subject || t("filesOf", { hash: detail.short })}
+                </span>
+              </div>
+              <div className="rewrite-detail-files">
+                {detail.files.map((file) => (
+                  <div key={file.path} className="rewrite-detail-file" title={file.oldPath ? `${file.oldPath} → ${file.path}` : file.path}>
+                    <StatusMark kind={file.status} />
+                    <FileIcon path={file.path} size={13} />
+                    <span className="tree-name">{file.path}</span>
+                    <span className="tree-stats">
+                      {file.binary ? (
+                        <span className="pushd-binary">{t("binary")}</span>
+                      ) : (
+                        <>
+                          {file.additions > 0 && <span className="add-count">+{file.additions}</span>}
+                          {file.deletions > 0 && <span className="del-count">−{file.deletions}</span>}
+                        </>
+                      )}
+                    </span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
           <p className="setting-hint">{t("summary", { picked, dropped, folded })}</p>
         </>
       )}

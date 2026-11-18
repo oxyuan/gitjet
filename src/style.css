@@ -10989,3 +10989,57 @@ button.status-conflicts:hover {
 .pushd-commit.excluded {
   opacity: 0.45;
 }
+
+/* The plan row whose commit is described below it. */
+.rewrite-row.active {
+  border-color: color-mix(in srgb, var(--accent) 55%, var(--border));
+  background: color-mix(in srgb, var(--accent) 8%, transparent);
+}
+
+/* The files of the selected plan row, under the list: IDEA's interactive
+   rebase dialog keeps the commit's changes in sight while the actions are
+   chosen. */
+.rewrite-detail {
+  margin-top: 8px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  overflow: hidden;
+}
+
+.rewrite-detail-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 10px;
+  background: var(--panel);
+  border-bottom: 1px solid var(--border);
+}
+
+.rewrite-detail-files {
+  max-height: 160px;
+  overflow: auto;
+  padding: 4px 0;
+}
+
+.rewrite-detail-file {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 3px 10px;
+  font-size: 11.5px;
+}
+
+.rewrite-detail-file .tree-name {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.rewrite-detail-file .tree-stats {
+  flex: none;
+  display: flex;
+  gap: 6px;
+  font-size: 10.5px;
+}
