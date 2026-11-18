@@ -11075,3 +11075,24 @@ button.status-conflicts:hover {
 .tree-row.file[draggable="true"] {
   cursor: default;
 }
+
+/* The change list's speed-search buffer, over the rows like the history's. */
+.changes-scroll {
+  position: relative;
+}
+
+.change-speed {
+  position: sticky;
+  top: 0;
+  z-index: 2;
+  float: right;
+  margin: 4px 8px 0 0;
+  padding: 2px 8px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--panel-raised);
+  box-shadow: var(--shadow-sm);
+  color: var(--fg);
+  font-family: var(--font-mono);
+  font-size: 11px;
+}

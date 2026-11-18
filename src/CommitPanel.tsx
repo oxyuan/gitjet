@@ -1,5 +1,6 @@
 import { useMemo, useRef, useState } from "react";
 import { completeFiles, messageToken, reformatCommitMessage } from "./commitMessage";
+import { speedSearchMatch } from "./speedSearch";
 import { buildChangeTree, directoryKeys, treeFiles } from "./changes";
 import { FileTree, type ChangeView } from "./FileTree";
 import { useFileMenu } from "./FileMenu";
@@ -360,6 +361,11 @@ export function CommitPanel({
   const [showHistory, setShowHistory] = useState(false);
   // The changelist a drag is hovering, IDEA's drop highlight.
   const [dragOver, setDragOver] = useState<string | null>(null);
+  // Typing over the list jumps to a file, IDEA's speed search in the changes
+  // tree; the buffer shows over the list and clears when typing stops.
+  const [speed, setSpeed] = useState("");
+  const speedBuffer = useRef("");
+  const speedTimer = useRef<number | null>(null);
   const historyRef = useRef<HTMLDivElement | null>(null);
   const optionsRef = useRef<HTMLDivElement | null>(null);
   useDismiss(showHistory, historyRef, () => setShowHistory(false));
@@ -495,7 +501,28 @@ export function CommitPanel({
         fileMenu.requestDelete(entry.path);
         return;
       default:
-        return;
+        break;
+    }
+    if (!next) {
+      // A printable key starts the speed search instead of moving a row.
+      if (e.key.length !== 1 || e.metaKey || e.ctrlKey || e.altKey) return;
+      e.preventDefault();
+      speedBuffer.current += e.key;
+      if (speedTimer.current !== null) window.clearTimeout(speedTimer.current);
+      speedTimer.current = window.setTimeout(() => {
+        speedBuffer.current = "";
+        setSpeed("");
+      }, 1200);
+      setSpeed(speedBuffer.current);
+      const rows = fileRows();
+      const paths = rows.map((r) => r.dataset.path ?? "");
+      const at = speedSearchMatch(paths, speedBuffer.current, rows.indexOf(row) + 1);
+      if (at < 0) return;
+      const target = rows[at]!;
+      setSelected(new Set([paths[at]!]));
+      target.focus({ preventScroll: true });
+      target.scrollIntoView({ block: "nearest" });
+      return;
     }
     e.preventDefault();
     if (next) {
@@ -1026,6 +1053,11 @@ export function CommitPanel({
           row?.focus({ preventScroll: true });
         }}
       >
+        {speed !== "" && (
+          <div className="change-speed" aria-live="polite">
+            {speed}
+          </div>
+        )}
         {showStaged && staged.length > 0 &&
           section(
             "staged",
