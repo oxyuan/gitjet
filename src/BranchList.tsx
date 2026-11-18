@@ -280,6 +280,32 @@ export function BranchList({
         e.preventDefault();
         activateRow(activeRow);
         break;
+      case " ":
+        // IDEA toggles the favorite of the selected branch with Space.
+        if (activeRow?.kind === "leaf") {
+          e.preventDefault();
+          onToggleFavorite(activeRow.leaf.key);
+        }
+        break;
+      case "Delete":
+      case "Backspace":
+        // The popup's own delete actions, which ask before removing anything.
+        if (activeRow?.kind === "leaf") {
+          e.preventDefault();
+          onDelete(activeRow.leaf.name);
+        } else if (activeRow?.kind === "tag") {
+          e.preventDefault();
+          onDeleteTag(activeRow.tag.name);
+        }
+        break;
+      case "f":
+      case "F":
+        if (e.metaKey || e.ctrlKey) {
+          e.preventDefault();
+          searchRef.current?.focus();
+          searchRef.current?.select();
+        }
+        break;
       case "Escape":
         e.preventDefault();
         setActive(-1);

@@ -2,7 +2,7 @@ import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } fr
 import { annotateDate, blameDepth } from "./annotate";
 import { blameMenuItems } from "./blameMenu";
 import { Git, type BlameLine, type DiffOptions, type FileDiff, type ThreeWayDiff } from "./mygo";
-import { buildDiffRows, changeBlockIndex, changeBlockRows, changeBlockSelections, foldRanges, lineWidth, revealWhitespace, visibleRows, type FoldRange, type HighlightMode, type VisibleRow, type WhitespaceMode, type WordSegment } from "./diff";
+import { FOLD_CONTEXT, buildDiffRows, changeBlockIndex, changeBlockRows, changeBlockSelections, foldRanges, lineWidth, revealWhitespace, visibleRows, type FoldRange, type HighlightMode, type VisibleRow, type WhitespaceMode, type WordSegment } from "./diff";
 import { ImageDiff } from "./ImageDiff";
 import { isImagePath } from "./images";
 import { FileIcon, Icon } from "./icons";
@@ -80,6 +80,7 @@ const T = {
     unchangedLines: "{n} unchanged lines",
     foldUnchanged: "Collapse unchanged fragments",
     unfoldUnchanged: "Expand all unchanged fragments",
+    foldContext: "Keep {n} unchanged lines",
     ignoreDifferences: "Ignore Differences",
     highlightDifferences: "Highlighting Differences",
     hlLines: "Lines",
@@ -149,6 +150,7 @@ const T = {
     unchangedLines: "{n} 行未更改",
     foldUnchanged: "折叠未更改片段",
     unfoldUnchanged: "展开全部未更改片段",
+    foldContext: "保留 {n} 行未更改内容",
     ignoreDifferences: "忽略差异",
     highlightDifferences: "高亮差异",
     hlLines: "整行",
@@ -229,7 +231,14 @@ export function DiffView({
   // Folding is a view decision, so the rows above never lose a line: a fold
   // hides a range of them and reopening it needs no new model.
   const [folded, setFolded] = useStoredState<boolean>("gitjet.diffFoldUnchanged", true);
-  const folds = useMemo(() => (folded ? foldRanges(rows) : []), [rows, folded]);
+  // How many unchanged lines stay beside a change, IDEA's context range: 1, 2,
+  // 4 or 8, with folding switched off as the last choice.
+  const [foldContext, setFoldContext] = useStoredState<number>("gitjet.diffFoldContext", 4);
+  const folds = useMemo(
+    () => (folded && foldContext > 0 ? foldRanges(rows, foldContext) : []),
+    [rows, folded, foldContext],
+  );
+  const [foldMenu, setFoldMenu] = useState<{ x: number; y: number } | null>(null);
   const [open, setOpen] = useState<Set<number>>(new Set());
   const visible = useMemo(() => visibleRows(rows, folds, open), [rows, folds, open]);
   const [current, setCurrent] = useState(-1);
@@ -754,9 +763,9 @@ export function DiffView({
             title={folded ? t("unfoldUnchanged") : t("foldUnchanged")}
             small
             active={folded}
-            onClick={() => {
-              setFolded(!folded);
-              setOpen(new Set());
+            onClick={(e) => {
+              const rect = (e.currentTarget as HTMLElement).getBoundingClientRect();
+              setFoldMenu({ x: rect.left, y: rect.bottom + 2 });
             }}
           />
           {!diff.binary && (
@@ -987,6 +996,33 @@ export function DiffView({
       )}
       {hlMenu && (
         <ContextMenu x={hlMenu.x} y={hlMenu.y} items={highlightItems} onClose={() => setHlMenu(null)} />
+      )}
+      {foldMenu && (
+        <ContextMenu
+          x={foldMenu.x}
+          y={foldMenu.y}
+          items={[
+            {
+              label: folded ? t("unfoldUnchanged") : t("foldUnchanged"),
+              checked: folded,
+              onClick: () => {
+                setFolded(!folded);
+                setOpen(new Set());
+              },
+            },
+            { separator: true },
+            ...[1, 2, 4, 8].map<ContextItem>((n) => ({
+              label: t("foldContext", { n: String(n) }),
+              checked: folded && foldContext === n,
+              onClick: () => {
+                setFoldContext(n);
+                setFolded(true);
+                setOpen(new Set());
+              },
+            })),
+          ]}
+          onClose={() => setFoldMenu(null)}
+        />
       )}
     </div>
   );
