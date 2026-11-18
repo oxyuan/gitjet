@@ -325,8 +325,19 @@ export function BranchList({
         }
         break;
       case "Delete":
-      case "Backspace":
         // The popup's own delete actions, which ask before removing anything.
+        if (activeRow?.kind === "leaf") {
+          e.preventDefault();
+          onDelete(activeRow.leaf.name);
+        } else if (activeRow?.kind === "tag") {
+          e.preventDefault();
+          onDeleteTag(activeRow.tag.name);
+        }
+        break;
+      case "Backspace":
+        // On a Mac keyboard this is the delete key, but while a filter is
+        // typed it edits the filter: the page-wide listener owns it then.
+        if (query !== "") break;
         if (activeRow?.kind === "leaf") {
           e.preventDefault();
           onDelete(activeRow.leaf.name);
