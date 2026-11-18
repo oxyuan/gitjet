@@ -703,6 +703,12 @@ export function LogDock({
     } else if (e.key === "ArrowUp") {
       e.preventDefault();
       onStepFile(-1);
+    } else if (e.key === "Enter") {
+      // Enter reads the file the arrows landed on, the same step as a click.
+      const file = detail.files.find((f) => f.path === selectedFile);
+      if (!file) return;
+      e.preventDefault();
+      onSelectFile(file);
     }
   };
 
