@@ -39,6 +39,9 @@ const T = {
     previousChange: "Previous change (Shift+F7)",
     nextChange: "Next change (F7)",
     goToChange: "Go to change",
+    added: "added",
+    deleted: "deleted",
+    modified: "modified",
     findInDiff: "Find in the diff (⌘/Ctrl+F)",
     findPlaceholder: "Find in the diff",
     matchCase: "Match case",
@@ -109,6 +112,9 @@ const T = {
     previousChange: "上一处更改（Shift+F7）",
     nextChange: "下一处更改（F7）",
     goToChange: "跳转到更改",
+    added: "新增",
+    deleted: "删除",
+    modified: "修改",
     findInDiff: "在差异中查找（⌘/Ctrl+F）",
     findPlaceholder: "在差异中查找",
     matchCase: "区分大小写",
@@ -431,9 +437,14 @@ export function DiffView({
   // The changes list IDEA opens from its "N of M" counter: every block with
   // the header git printed for it, so a reader can jump anywhere.
   const changeItems: ContextItem[] = changeRows.map((rowIndex, index) => {
-    const hunk = diff.hunks[rows[rowIndex]?.hunk ?? -1];
+    // IDEA names a change by what happened to its text and its first line;
+    // git's header alone says where, never what.
+    const row = rows[rowIndex];
+    const first = row?.right?.text ?? row?.left?.text ?? "";
+    const kind = row?.kind === "add" ? "added" : row?.kind === "del" ? "deleted" : "modified";
+    const text = first.trim().slice(0, 60);
     return {
-      label: hunk ? `${index + 1}  ${hunk.header}` : `${index + 1}`,
+      label: text ? `${index + 1}. ${t(kind)} — ${text}` : `${index + 1}`,
       checked: index === current,
       onClick: () => {
         setChangeMenu(null);
