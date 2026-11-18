@@ -11043,3 +11043,24 @@ button.status-conflicts:hover {
   gap: 6px;
   font-size: 10.5px;
 }
+
+/* A changed file proposed for the commit message: an icon, its base name, and
+   the directory behind it, as IDEA's changed-files completion lists them. */
+.message-completion-item {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.message-completion-item .file-base.deleted {
+  text-decoration: line-through;
+  opacity: 0.75;
+}
+
+.message-completion-item .file-dir {
+  color: var(--muted-2);
+  font-size: 11px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}

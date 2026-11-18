@@ -1065,10 +1065,19 @@ export function CommitPanel({
             spellCheck
             onChange={(e) => {
               actions.onCommitFormChange({ ...form, message: e.target.value });
+              const caret = e.target.selectionStart;
+              const query = messageToken(e.target.value, caret);
               if (completion) {
-                const caret = e.target.selectionStart;
-                const query = messageToken(e.target.value, caret);
                 setCompletion({ ...completion, query, start: caret - query.length, end: caret, index: 0 });
+              } else if (query.length >= 5) {
+                // IDEA's changed-files completion pops up itself once a token
+                // is long enough to be a file name; Ctrl+Space forces it for
+                // shorter ones (and is the only way in where macOS keeps that
+                // chord for the input source).
+                const matches = completeFiles(entries.map((x) => x.path), query);
+                if (matches.length > 0) {
+                  setCompletion({ query, start: caret - query.length, end: caret, index: 0 });
+                }
               }
             }}
             onKeyDown={(e) => {
@@ -1152,7 +1161,13 @@ export function CommitPanel({
                       messageRef.current?.focus();
                     }}
                   >
-                    {path}
+                    <FileIcon path={path} size={13} />
+                    <span className={cx("file-base", entries.find((x) => x.path === path)?.kind === "deleted" && "deleted")}>
+                      {path.slice(path.lastIndexOf("/") + 1)}
+                    </span>
+                    {path.includes("/") && (
+                      <span className="file-dir">{path.slice(0, path.lastIndexOf("/") + 1)}</span>
+                    )}
                   </button>
                 ))}
               {completeFiles(entries.map((x) => x.path), completion.query).length === 0 && (
