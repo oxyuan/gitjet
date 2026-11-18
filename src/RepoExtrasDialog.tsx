@@ -1,10 +1,21 @@
 import { useEffect, useState } from "react";
 import { Channel } from "mygo-runtime";
-import { Git } from "./mygo";
+import { Git, Workspace } from "./mygo";
 import type { Hook, LFSStatus, Shelf, Submodule, Worktree } from "./mygo";
 import { Icon } from "./icons";
 import { useT } from "./i18n";
-import { Button, Checkbox, ConfirmDialog, Field, Modal, Spinner, TextInput, cx } from "./ui";
+import {
+  Button,
+  Checkbox,
+  ConfirmDialog,
+  ContextMenu,
+  Field,
+  Modal,
+  Spinner,
+  TextInput,
+  cx,
+  type ContextItem,
+} from "./ui";
 
 const T = {
   en: {
@@ -50,6 +61,7 @@ const T = {
     locked: "locked",
     prunable: "prunable",
     openWindow: "Open in Window",
+    copyPath: "Copy Path",
     remove: "Remove",
     removeTitle: "Remove worktree",
     removeMessage: "Delete the working tree at {path}? The folder is removed; the branch is kept.",
@@ -118,6 +130,7 @@ const T = {
     locked: "已锁定",
     prunable: "可清理",
     openWindow: "在新窗口打开",
+    copyPath: "复制路径",
     remove: "移除",
     removeTitle: "移除工作树",
     removeMessage: "删除 {path} 的工作树？文件夹会被移除，分支保留。",
@@ -200,6 +213,8 @@ export function RepoExtrasDialog({
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
   const [path, setPath] = useState("");
+  // The row menu of the worktrees list, IDEA's toolwindow popup.
+  const [treeMenu, setTreeMenu] = useState<{ x: number; y: number; tree: Worktree } | null>(null);
   const [removing, setRemoving] = useState<Worktree | null>(null);
   const [branch, setBranch] = useState("");
   const [createBranch, setCreateBranch] = useState(true);
@@ -281,7 +296,14 @@ export function RepoExtrasDialog({
           {trees?.length === 1 && <p className="setting-hint">{t("emptyWorktrees")}</p>}
           <div className="repo-list">
             {trees?.map((tree) => (
-              <div className="repo-row" key={tree.path}>
+              <div
+                className="repo-row"
+                key={tree.path}
+                onContextMenu={(e) => {
+                  e.preventDefault();
+                  setTreeMenu({ x: e.clientX, y: e.clientY, tree });
+                }}
+              >
                 <Icon name="folder" size={14} />
                 <div className="repo-row-main">
                   <span className="repo-row-title" title={tree.path}>
@@ -435,6 +457,47 @@ export function RepoExtrasDialog({
         </div>
       )}
 
+      {treeMenu && (
+        <ContextMenu
+          x={treeMenu.x}
+          y={treeMenu.y}
+          items={[
+            {
+              label: t("openWindow"),
+              icon: "external",
+              onClick: () => onOpenWorktree(treeMenu.tree.path),
+            },
+            {
+              label: t("copyPath"),
+              icon: "copy",
+              onClick: () => void Workspace.copy(treeMenu.tree.path).catch(() => {}),
+            },
+            { separator: true },
+            treeMenu.tree.locked
+              ? {
+                  label: t("unlock"),
+                  icon: "check",
+                  onClick: () => void act(() => Git.unlockWorktree(treeMenu.tree.path)),
+                }
+              : {
+                  label: t("lock"),
+                  icon: "eye",
+                  onClick: () => void act(() => Git.lockWorktree(treeMenu.tree.path, "")),
+                },
+            ...(treeMenu.tree.main || treeMenu.tree.path === root
+              ? []
+              : [
+                  {
+                    label: t("remove"),
+                    icon: "trash" as const,
+                    danger: true,
+                    onClick: () => setRemoving(treeMenu.tree),
+                  },
+                ]),
+          ]}
+          onClose={() => setTreeMenu(null)}
+        />
+      )}
       {tab === "hooks" && (
         <div className="repo-panel">
           {!hooks && !error && <Spinner label={t("loading")} />}
