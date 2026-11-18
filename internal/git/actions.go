@@ -49,7 +49,10 @@ type PushOptions struct {
 	// update when the remote moved since the last fetch.
 	ForceIfIncludes bool `json:"forceIfIncludes"`
 	Tags            bool `json:"tags"`
-	DryRun          bool `json:"dryRun"`
+	// TagsMode picks how tags travel: "all" is --tags, "follow" is
+	// --follow-tags; empty means Tags alone, which is --tags.
+	TagsMode string `json:"tagsMode"`
+	DryRun   bool   `json:"dryRun"`
 	// SkipHooks adds --no-verify, IDEA's "Run Git hooks" switched off: the
 	// pre-push hook is skipped and the push proceeds.
 	SkipHooks bool `json:"skipHooks"`
@@ -733,8 +736,17 @@ func (r *Repo) Push(ctx context.Context, opts PushOptions, emit func(string)) (s
 	if opts.DryRun {
 		args = append(args, "--dry-run")
 	}
-	if opts.Tags {
+	// --tags sends every tag; --follow-tags only the annotated ones the
+	// pushed commits reach, which is IDEA's "follow tags" choice.
+	switch opts.TagsMode {
+	case "follow":
+		args = append(args, "--follow-tags")
+	case "all":
 		args = append(args, "--tags")
+	default:
+		if opts.Tags {
+			args = append(args, "--tags")
+		}
 	}
 	if opts.ForceWithLease {
 		args = append(args, "--force-with-lease")

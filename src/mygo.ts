@@ -492,6 +492,7 @@ export interface PushOptions {
   forceWithLease: boolean;
   forceIfIncludes: boolean;
   tags: boolean;
+  tagsMode: string;
   dryRun: boolean;
   skipHooks: boolean;
   toCommit: string;

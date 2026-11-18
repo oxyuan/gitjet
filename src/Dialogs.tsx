@@ -184,6 +184,8 @@ const T = {
     "push.branch": "Branch",
     "push.setUpstream": "Set upstream (-u)",
     "push.allTags": "Push tags",
+    "push.tagsAll": "All tags",
+    "push.tagsFollow": "Follow pushed commits",
     "push.runHooks": "Run Git hooks",
     "push.dryRun": "Dry run",
     "push.force": "Force push (--force-with-lease)",
@@ -499,6 +501,8 @@ const T = {
     "push.branch": "分支",
     "push.setUpstream": "设置上游 (-u)",
     "push.allTags": "Push 标签",
+    "push.tagsAll": "全部标签",
+    "push.tagsFollow": "跟随所推提交",
     "push.runHooks": "运行 Git 钩子",
     "push.dryRun": "试运行",
     "push.force": "Force Push（--force-with-lease）",
@@ -1640,6 +1644,8 @@ export function PushDialog({
   const [from, setFrom] = useState(0);
   const [force, setForce] = useState(false);
   const [tags, setTags] = useState(false);
+  // IDEA pushes every tag or only the ones the pushed commits reach.
+  const [tagsMode, setTagsMode] = useState("");
   const [dryRun, setDryRun] = useState(false);
   // IDEA pushes with the repository hooks unless the box is cleared.
   const [runHooks, setRunHooks] = useState(true);
@@ -1815,6 +1821,12 @@ export function PushDialog({
       footer={
         <>
           <Checkbox checked={tags} onChange={setTags} label={t("push.allTags")} />
+          {tags && (
+            <Select value={tagsMode} onChange={setTagsMode}>
+              <option value="">{t("push.tagsAll")}</option>
+              <option value="follow">{t("push.tagsFollow")}</option>
+            </Select>
+          )}
           <Checkbox checked={runHooks} onChange={setRunHooks} label={t("push.runHooks")} />
           <span className="pushd-gap" />
           <Button onClick={onClose}>{t("common.cancel")}</Button>
@@ -1833,6 +1845,7 @@ export function PushDialog({
                   forceWithLease: force,
                   forceIfIncludes,
                   tags,
+                  tagsMode: tags ? tagsMode : "",
                   dryRun,
                   skipHooks: !runHooks,
                   toCommit: from > 0 ? commits[from]?.hash ?? "" : "",
