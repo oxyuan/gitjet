@@ -1004,7 +1004,19 @@ export function LogDock({
                   {commit.refs.length > 0 && (
                     <span className="log-refs" title={commit.refs.map((ref) => ref.name).join(", ")}>
                       {commit.refs.slice(0, 2).map((ref, ri) => (
-                        <RefChip key={ri} name={ref.name} type={ref.type} head={ref.head} />
+                        <RefChip
+                          key={ri}
+                          name={ref.name}
+                          type={ref.type}
+                          head={ref.head}
+                          onClick={(e) => {
+                            // A label narrows the history to its branch, as
+                            // clicking one in the IDE's log does; the row
+                            // itself stays unselected.
+                            e.stopPropagation();
+                            onRefs([ref.name]);
+                          }}
+                        />
                       ))}
                       {commit.refs.length > 2 && (
                         <span
@@ -1226,7 +1238,16 @@ export function LogDock({
                   {detail.refs.length > 0 && (
                     <div className="log-detail-refs" title={detail.refs.map((r) => r.name).join(", ")}>
                       {detail.refs.map((r, i) => (
-                        <RefChip key={i} name={r.name} type={r.type} head={r.head} />
+                        <RefChip
+                          key={i}
+                          name={r.name}
+                          type={r.type}
+                          head={r.head}
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            onRefs([r.name]);
+                          }}
+                        />
                       ))}
                     </div>
                   )}

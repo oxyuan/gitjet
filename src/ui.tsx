@@ -751,7 +751,7 @@ export function RefChip({
   name: string;
   type: string;
   head?: boolean;
-  onClick?: () => void;
+  onClick?: (e: React.MouseEvent) => void;
 }) {
   const t = useT(T);
   return (
