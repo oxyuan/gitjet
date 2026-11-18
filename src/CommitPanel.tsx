@@ -358,6 +358,8 @@ export function CommitPanel({
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
   const [showOptions, setShowOptions] = useState(false);
   const [showHistory, setShowHistory] = useState(false);
+  // The changelist a drag is hovering, IDEA's drop highlight.
+  const [dragOver, setDragOver] = useState<string | null>(null);
   const historyRef = useRef<HTMLDivElement | null>(null);
   const optionsRef = useRef<HTMLDivElement | null>(null);
   useDismiss(showHistory, historyRef, () => setShowHistory(false));
@@ -595,6 +597,14 @@ export function CommitPanel({
         style={{ paddingLeft: padding }}
         data-path={entry.path}
         data-staged={entry.staged ? "1" : ""}
+        draggable={!entry.unmerged && !entry.ignored}
+        onDragStart={(e) => {
+          // The drag carries the whole selection when the row is part of it,
+          // so a multi-file move needs one gesture.
+          const paths = selected.has(entry.path) ? [...selected] : [entry.path];
+          e.dataTransfer.setData("application/x-gitjet-paths", JSON.stringify(paths));
+          e.dataTransfer.effectAllowed = "move";
+        }}
         tabIndex={isSelected ? 0 : -1}
         onClick={(e) => {
           selectRow(e, entry);
@@ -666,10 +676,15 @@ export function CommitPanel({
     children: React.ReactNode,
     extra?: React.ReactNode,
     titleClass?: string,
+    /** The changelist this section stands for, which a dragged file drops on. */
+    changelistId?: string,
   ) => {
     const isCollapsed = collapsed.has(key);
     return (
-      <div className="change-section">
+      <div
+        className={cx("change-section", changelistId && dragOver === changelistId && "drop-target")}
+        data-changelist={changelistId}
+      >
         <div
           className="section-header"
           onClick={() => {
@@ -802,6 +817,7 @@ export function CommitPanel({
           ),
           extra,
           cx("changelist", isActive && "active"),
+          cl.id,
         )}
       </div>
     );
@@ -967,6 +983,34 @@ export function CommitPanel({
         className="changes-scroll"
         onContextMenu={(e) => fileMenu.openMenu(e, { path: "", isDir: true })}
         onKeyDown={handleListKeys}
+        onDragOver={(e) => {
+          const target = (e.target as HTMLElement).closest<HTMLElement>("[data-changelist]");
+          const id = target?.dataset.changelist;
+          if (!id) {
+            setDragOver(null);
+            return;
+          }
+          e.preventDefault();
+          e.dataTransfer.dropEffect = "move";
+          setDragOver(id);
+        }}
+        onDragLeave={(e) => {
+          if (!e.currentTarget.contains(e.relatedTarget as Node | null)) setDragOver(null);
+        }}
+        onDrop={(e) => {
+          const target = (e.target as HTMLElement).closest<HTMLElement>("[data-changelist]");
+          const id = target?.dataset.changelist;
+          setDragOver(null);
+          if (!id) return;
+          const raw = e.dataTransfer.getData("application/x-gitjet-paths");
+          if (raw === "") return;
+          e.preventDefault();
+          try {
+            actions.onMoveToChangelist(JSON.parse(raw) as string[], id);
+          } catch {
+            // A drag from outside carries no list; nothing to move.
+          }
+        }}
         tabIndex={0}
         // Tab reaches the list here; the caret lands on a row so the arrows
         // and Enter work at once, as a tree does.

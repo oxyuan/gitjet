@@ -11064,3 +11064,14 @@ button.status-conflicts:hover {
   text-overflow: ellipsis;
   white-space: nowrap;
 }
+
+/* The changelist a dragged file is over: IDEA paints the drop target. */
+.change-section.drop-target > .section-header {
+  background: color-mix(in srgb, var(--accent) 22%, var(--panel));
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--accent) 55%, transparent);
+  border-radius: 5px;
+}
+
+.tree-row.file[draggable="true"] {
+  cursor: default;
+}
