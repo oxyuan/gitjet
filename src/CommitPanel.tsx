@@ -374,6 +374,9 @@ export function CommitPanel({
   const staged = entries.filter((e) => e.staged);
   const conflicts = entries.filter((e) => e.unmerged && !e.staged);
   const ignored = entries.filter((e) => e.ignored);
+  // Untracked files belong to no changelist: they are one node beside the
+  // changelists, as IDEA's "Unversioned Files" is a sibling of "Changes".
+  const unversioned = entries.filter((e) => e.kind === "untracked");
   const changelists = snapshot.changelists;
 
   const entriesByPath = useMemo(() => {
@@ -460,11 +463,13 @@ export function CommitPanel({
           { label: t("rollback"), icon: "undo", danger: true, onClick: () => actions.onRollback(chosen) },
         );
       }
-      const clItems = changelists.items
-        .map<ContextItem>((cl) => ({
-          label: cl.name,
-          onClick: () => actions.onMoveToChangelist(chosen, cl.id),
-        }));
+      const clItems =
+        entry.kind === "untracked"
+          ? []
+          : changelists.items.map<ContextItem>((cl) => ({
+              label: cl.name,
+              onClick: () => actions.onMoveToChangelist(chosen, cl.id),
+            }));
       if (clItems.length > 0) {
         items.push({ separator: true }, ...clItems);
       }
@@ -548,16 +553,22 @@ export function CommitPanel({
   );
 
   const allDirectories = () => {
-    const groups = [staged, conflicts, ignored, ...changelists.items.map((cl) => filesOfChangelist(cl))];
+    const groups = [staged, conflicts, ignored, unversioned, ...changelists.items.map((cl) => filesOfChangelist(cl))];
     return new Set(groups.flatMap((files) => directoryKeys(buildChangeTree(files))));
   };
 
   const filesOfChangelist = (cl: Changelist) => {
     const paths = new Set(cl.paths);
     // A staged file shown by the staged section is not repeated here; with
-    // that section hidden it is still a change, and must stay visible.
+    // that section hidden it is still a change, and must stay visible. An
+    // untracked file is in no changelist: it lives in the node beside them.
     return entries.filter(
-      (e) => !e.unmerged && !e.ignored && paths.has(e.path) && (!e.staged || !showStaged),
+      (e) =>
+        !e.unmerged &&
+        !e.ignored &&
+        e.kind !== "untracked" &&
+        paths.has(e.path) &&
+        (!e.staged || !showStaged),
     );
   };
 
@@ -599,22 +610,19 @@ export function CommitPanel({
     );
   };
 
-  const countLabel = (n: number) => count(n, t("changedOne"), t("changedOther", { n }));
-
   // Untracked files are not part of the change yet, so they get their own
-  // node instead of sitting between modified files, like IDEA's
-  // "Unversioned Files". The node collapses as one row, which is what
-  // "Collapse All" and the chevron act on.
-  const renderUnversioned = (changelistID: string, files: FileEntry[]) => {
-    const key = "group:" + changelistID;
+  // node beside the changelists instead of sitting between modified files,
+  // like IDEA's "Unversioned Files" beside "Changes". The node collapses as
+  // one row, which is what "Collapse All" and the chevron act on.
+  const unversionedNode = () => {
+    const key = "unversioned";
     const open = !collapsed.has(key);
-    const paths = files.map((f) => f.path);
+    const paths = unversioned.map((f) => f.path);
     const state = checkState(paths);
     return (
-      <div key={key}>
+      <div className="change-section">
         <div
-          className={cx("tree-row group", open && "expanded")}
-          style={{ paddingLeft: 4 }}
+          className="section-header"
           onClick={() => {
             const next = new Set(collapsed);
             if (open) next.add(key);
@@ -625,9 +633,9 @@ export function CommitPanel({
           aria-expanded={open}
           title={paths.slice(0, 12).join("\n")}
         >
-          <button className="tree-chevron" tabIndex={-1}>
+          <span className="tree-chevron">
             <Icon name={open ? "chevronDown" : "chevronRight"} size={12} />
-          </button>
+          </span>
           <span className="dir-check" onClick={(e) => e.stopPropagation()}>
             <Checkbox
               checked={state === true}
@@ -635,21 +643,12 @@ export function CommitPanel({
               onChange={(v) => toggle(paths, v)}
             />
           </span>
-          <span className="tree-name">{t("untrackedFiles")}</span>
-          <span className="tree-count">{countLabel(files.length)}</span>
+          <span className="section-title">{t("untrackedFiles")}</span>
+          <span className="section-count">{unversioned.length}</span>
+          <span className="section-extra" />
         </div>
-        {open && renderList(files, 4)}
+        {open && renderList(unversioned, 4)}
       </div>
-    );
-  };
-
-  const renderChangelistBody = (changelistID: string, list: FileEntry[]) => {
-    const { tracked, untracked } = splitTracked(list);
-    return (
-      <>
-        {tracked.length > 0 && renderList(tracked, 4)}
-        {untracked.length > 0 && renderUnversioned(changelistID, untracked)}
-      </>
     );
   };
 
@@ -702,7 +701,7 @@ export function CommitPanel({
           list.length === 0 ? (
             entries.length === 0 ? null : <div className="empty-section">{t("noChanges")}</div>
           ) : (
-            renderChangelistBody(cl.id, list)
+            renderList(list, 4)
           ),
           extra,
           cx("changelist", isActive && "active"),
@@ -738,13 +737,11 @@ export function CommitPanel({
           title={t("collapseAll")}
           onClick={() => {
             const next = new Set<string>();
-            for (const cl of changelists.items) {
-              next.add("cl:" + cl.id);
-              next.add("group:" + cl.id);
-            }
+            for (const cl of changelists.items) next.add("cl:" + cl.id);
             next.add("staged");
             next.add("conflicts");
             next.add("ignored");
+            next.add("unversioned");
             setCollapsed(next);
             setExpanded(new Set());
           }}
@@ -901,6 +898,7 @@ export function CommitPanel({
             />,
           )}
         {changelistNodes}
+        {unversioned.length > 0 && unversionedNode()}
         {showStashes && snapshot.stashes.length > 0 && (
           <div className="stash-section">
             <div className="section-header static">
