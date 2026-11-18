@@ -641,6 +641,38 @@ export function ContextMenu({
   );
 }
 
+/**
+ * Dismisses a popover on an outside press or Escape, the way IDEA's popups
+ * close. The trigger of a popover must stop its own press (`onMouseDown`), or
+ * the press closes what the click then reopens.
+ */
+export function useDismiss(
+  open: boolean,
+  ref: React.RefObject<HTMLElement | null>,
+  close: () => void,
+) {
+  const closeRef = useRef(close);
+  closeRef.current = close;
+  useEffect(() => {
+    if (!open) return;
+    const onDown = (e: MouseEvent) => {
+      const target = e.target as Element | null;
+      if (target && target.closest(".context-menu, .context-submenu")) return;
+      if (ref.current && target && ref.current.contains(target)) return;
+      closeRef.current();
+    };
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") closeRef.current();
+    };
+    window.addEventListener("mousedown", onDown);
+    window.addEventListener("keydown", onKey);
+    return () => {
+      window.removeEventListener("mousedown", onDown);
+      window.removeEventListener("keydown", onKey);
+    };
+  }, [open, ref]);
+}
+
 /** The single bottom-right stack that owns toasts and the operation dock.
  *  Both portal into it so the corner has one aligned edge; render order within
  *  it is set by the order rules in style.css. */

@@ -11,6 +11,7 @@ import {
   ContextMenu,
   cx,
   IconButton,
+  useDismiss,
   type ContextItem,
 } from "./ui";
 import type { TreeNode } from "./changes";
@@ -357,10 +358,13 @@ export function CommitPanel({
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
   const [showOptions, setShowOptions] = useState(false);
   const [showHistory, setShowHistory] = useState(false);
+  const historyRef = useRef<HTMLDivElement | null>(null);
+  const optionsRef = useRef<HTMLDivElement | null>(null);
+  useDismiss(showHistory, historyRef, () => setShowHistory(false));
+  useDismiss(showOptions, optionsRef, () => setShowOptions(false));
   // File-name completion in the message box, invoked with Ctrl+Space.
   const messageRef = useRef<HTMLTextAreaElement | null>(null);
   const listRef = useRef<HTMLDivElement | null>(null);
-  const historyRef = useRef<HTMLDivElement | null>(null);
   const [completion, setCompletion] = useState<{ query: string; start: number; end: number; index: number } | null>(null);
   const fileMenu = useFileMenu({
     root: snapshot.state.root,
@@ -1142,6 +1146,7 @@ export function CommitPanel({
             <button
               className="mini-icon"
               title={t("recentMessages")}
+              onMouseDown={(e) => e.stopPropagation()}
               onClick={() => setShowHistory((v) => !v)}
             >
               <Icon name="clock" size={13} />
@@ -1150,7 +1155,6 @@ export function CommitPanel({
               <div
                 ref={historyRef}
                 className="message-history"
-                onMouseLeave={() => setShowHistory(false)}
                 onKeyDown={(e) => {
                   const rows = [
                     ...(historyRef.current?.querySelectorAll<HTMLButtonElement>(".message-history-item") ?? []),
@@ -1207,7 +1211,12 @@ export function CommitPanel({
             label={t("amend")}
           />
           <span className="spacer" />
-          <button className="commit-options-btn" onClick={() => setShowOptions((v) => !v)} title={t("commitOptions")}>
+          <button
+            className="commit-options-btn"
+            onMouseDown={(e) => e.stopPropagation()}
+            onClick={() => setShowOptions((v) => !v)}
+            title={t("commitOptions")}
+          >
             <Icon name="settings" size={13} />
             {t("options")}
             {(form.signOff || form.noVerify || form.allowEmpty || form.sign || form.stagedOnly || form.authorName) && (
@@ -1215,7 +1224,7 @@ export function CommitPanel({
             )}
           </button>
           {showOptions && (
-            <div className="options-popover" onMouseLeave={() => setShowOptions(false)}>
+            <div className="options-popover" ref={optionsRef}>
               <Checkbox
                 checked={form.signOff}
                 onChange={(v) => actions.onCommitFormChange({ ...form, signOff: v })}

@@ -16,6 +16,7 @@ import {
   RefChip,
   Spinner,
   StatusMark,
+  useDismiss,
   useStoredState,
   type ContextItem,
 } from "./ui";
@@ -340,6 +341,10 @@ export function LogDock({
 
   const [showFilters, setShowFilters] = useState(false);
   const [showRefs, setShowRefs] = useState(false);
+  const filtersRef = useRef<HTMLDivElement | null>(null);
+  const refsRef = useRef<HTMLDivElement | null>(null);
+  useDismiss(showFilters, filtersRef, () => setShowFilters(false));
+  useDismiss(showRefs, refsRef, () => setShowRefs(false));
   const [showCommand, setShowCommand] = useState(false);
   // The commit details' share of the dock; the edge between the history and
   // the details sets it and the dock keeps it across sessions.
@@ -773,7 +778,7 @@ export function LogDock({
             >
               Aa
             </button>
-            <div className="log-filter-wrap">
+            <div className="log-filter-wrap" ref={filtersRef} onMouseDown={(e) => e.stopPropagation()}>
               <IconButton
                 icon="list"
                 title={t("filters")}
@@ -781,7 +786,7 @@ export function LogDock({
                 onClick={() => setShowFilters((v) => !v)}
               />
               {showFilters && (
-                <div className="log-filter-popover" onMouseLeave={() => setShowFilters(false)}>
+                <div className="log-filter-popover">
                   <label className="field field-inline">
                     <span className="field-label">{t("since")}</span>
                     <input
@@ -809,7 +814,7 @@ export function LogDock({
               )}
             </div>
             <AuthorPicker authors={authors} value={author} onChange={onAuthor} />
-            <div className="log-filter-wrap">
+            <div className="log-filter-wrap" ref={refsRef} onMouseDown={(e) => e.stopPropagation()}>
               <IconButton
                 icon="branch"
                 title={t("filterBranches")}
@@ -817,7 +822,7 @@ export function LogDock({
                 onClick={() => setShowRefs((v) => !v)}
               />
               {showRefs && (
-                <div className="log-filter-popover log-refs-popover" onMouseLeave={() => setShowRefs(false)}>
+                <div className="log-filter-popover log-refs-popover">
                   <button className="log-ref-all" onClick={() => onRefs([])}>
                     <Icon name="list" size={12} /> {t("allRefs")}
                   </button>
