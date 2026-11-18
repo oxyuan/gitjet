@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState, type MouseEvent as ReactMouseEvent } from "react";
 import { buildChangeTree, directoryKeys } from "./changes";
 import type { FileEntry } from "./CommitPanel";
+import { speedSearchMatch } from "./speedSearch";
 import { DiffView } from "./DiffView";
 import type { WhitespaceMode } from "./diff";
 import { FileTree } from "./FileTree";
@@ -3321,6 +3322,55 @@ export function ConflictSummaryDialog({
   // removes a path, and acting on it again would "take a side" for a path that
   // is no longer unmerged (git would delete it).
   const chosen = conflicts.filter((c) => selected.has(c.path)).map((c) => c.path);
+  const listRef = useRef<HTMLDivElement | null>(null);
+  const rowRefs = useRef(new Map<string, HTMLDivElement>());
+  /** IDEA's TableSpeedSearch: a typed query selects the matching row, and a
+   *  pause starts a new query instead of appending to the old one. */
+  const search = useRef({ text: "", at: 0 });
+  const selectPath = (path: string) => {
+    setSelected(new Set([path]));
+    rowRefs.current.get(path)?.scrollIntoView({ block: "nearest" });
+  };
+  const onListKeyDown = (event: React.KeyboardEvent<HTMLDivElement>) => {
+    if (event.key === "ArrowDown" || event.key === "ArrowUp") {
+      event.preventDefault();
+      if (conflicts.length === 0) return;
+      const at = Math.max(0, conflicts.findIndex((c) => c.path === current?.path));
+      const next = Math.max(0, Math.min(conflicts.length - 1, at + (event.key === "ArrowDown" ? 1 : -1)));
+      const target = conflicts[next];
+      if (target) selectPath(target.path);
+      return;
+    }
+    if (event.key === "Enter") {
+      event.preventDefault();
+      if (current) onOpen(current.path);
+      return;
+    }
+    if (event.key === "Backspace" && search.current.text !== "") {
+      event.preventDefault();
+      search.current.text = search.current.text.slice(0, -1);
+      search.current.at = Date.now();
+      const index = speedSearchMatch(conflicts.map((c) => c.path), search.current.text, 0);
+      const target = index >= 0 ? conflicts[index] : undefined;
+      if (target) selectPath(target.path);
+      return;
+    }
+    if (event.key.length === 1 && !event.metaKey && !event.ctrlKey && !event.altKey) {
+      event.preventDefault();
+      const now = Date.now();
+      const typed = now - search.current.at > 800 ? event.key : search.current.text + event.key;
+      search.current = { text: typed, at: now };
+      const from = Math.max(0, conflicts.findIndex((c) => c.path === current?.path));
+      const index = speedSearchMatch(conflicts.map((c) => c.path), typed, from);
+      const target = index >= 0 ? conflicts[index] : undefined;
+      if (target) selectPath(target.path);
+    }
+  };
+  // IDEA focuses the file table when its dialog opens, so arrows, Enter and
+  // typing work without a click first.
+  useEffect(() => {
+    listRef.current?.focus();
+  }, []);
   const stateLabel = (state: string) =>
     state === "added"
       ? t("conflicts.added")
@@ -3348,8 +3398,15 @@ export function ConflictSummaryDialog({
     return (
       <div
         key={c.path}
+        ref={(element) => {
+          if (element) rowRefs.current.set(c.path, element);
+          else rowRefs.current.delete(c.path);
+        }}
+        role="option"
+        aria-selected={selected.has(c.path)}
         className={cx("conflict-row2", selected.has(c.path) && "selected")}
         onClick={(event) => {
+          listRef.current?.focus();
           if (event.metaKey || event.ctrlKey) {
             setSelected((prev) => {
               const next = new Set(prev);
@@ -3475,7 +3532,14 @@ export function ConflictSummaryDialog({
           }}
         />
       </div>
-      <div className="conflict-table">
+      <div
+        className="conflict-table"
+        role="listbox"
+        aria-label={t("conflicts.title")}
+        tabIndex={0}
+        ref={listRef}
+        onKeyDown={onListKeyDown}
+      >
         <div className="conflict-table-head">
           <span className="conflict-file" />
           <span className="conflict-side">{t("conflicts.yoursCol", { name: ours })}</span>

@@ -10913,3 +10913,10 @@ button.status-conflicts {
 button.status-conflicts:hover {
   background: var(--hover);
 }
+
+/* The conflict list takes focus so arrows, Enter and speed search work, as
+   the IDE's table does; the ring marks the keyboard target. */
+.conflict-table:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: -2px;
+}

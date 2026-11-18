@@ -305,6 +305,10 @@ use it only for layout work. Vite's port is pinned to 5173 in **both**
   `merge-close:<path>`, and the editor shows the same discard confirmation as
   the Close button and Esc. `Workspace.CloseWindow` opens that gate, so the
   close the page confirmed proceeds.
+- The conflicts dialog is IDEA's file table: the list takes focus when it
+  opens, ↑/↓ move the selection, Enter opens the merge view, and typing starts
+  a speed search (`speedSearchMatch`) that prefers a file name prefix, then a
+  substring, then the whole path, wrapping from the selected row.
 - The view menu's "Apply non-conflicting changes on open" is IDEA's
   `MERGE_AUTO_APPLY_NON_CONFLICTED_CHANGES`, stored as
   `gitjet.mergeAutoApplyNonConflicts` and on by default: a merge opens with
