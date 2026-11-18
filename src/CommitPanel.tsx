@@ -504,6 +504,9 @@ export function CommitPanel({
   };
 
   const menuFor = (entry: FileEntry, event: React.MouseEvent) => {
+    // A right click acts on the row under the pointer, selecting it first
+    // when it was outside the selection, as IDEA's changes browser does.
+    if (!selected.has(entry.path)) setSelected(new Set([entry.path]));
     const chosen = selected.has(entry.path) && selected.size > 1 ? [...selected] : [entry.path];
     const items: ContextItem[] = [
       { label: t("showDiff"), icon: "diff", shortcut: "Enter", onClick: () => actions.onShowDiff(entry) },
