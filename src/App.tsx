@@ -3892,6 +3892,9 @@ function AppShell({ onLangChange }: { onLangChange: (lang: Lang) => void }) {
         <PullDialog
           remotes={remotes}
           updateMethod={settings.updateMethod}
+          current={state?.branch ?? ""}
+          upstream={refs?.local.find((b) => b.name === refs.current)?.upstream ?? ""}
+          remoteBranches={(refs?.remote ?? []).map((b) => b.name)}
           onClose={() => setDialog(null)}
           onSubmit={pull}
         />

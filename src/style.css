@@ -3014,6 +3014,13 @@ kbd {
   background: var(--selection);
 }
 
+/* A menu takes the keyboard when it opens, so the focused row must read as
+   the selected one, as a popup's highlight does. */
+.menu-item:focus {
+  background: var(--selection);
+  outline: none;
+}
+
 .menu-item:disabled {
   opacity: 0.45;
 }
@@ -4048,7 +4055,26 @@ kbd {
 
 /* Log rows read as a continuous timeline, not a table. */
 .log-list {
+  position: relative;
   padding: 5px 6px 10px;
+}
+
+/* The table's speed-search buffer, floating over the rows the way a table's
+   printed query sits at the top of the list. */
+.log-speed {
+  position: sticky;
+  top: 0;
+  z-index: 2;
+  float: right;
+  margin: 4px 8px 0 0;
+  padding: 2px 8px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--panel-raised);
+  box-shadow: var(--shadow-sm);
+  color: var(--fg);
+  font-family: var(--font-mono);
+  font-size: 11px;
 }
 
 .log-row {
@@ -9554,6 +9580,23 @@ body.col-resizing .log-detail-grip::after {
   min-width: 0;
 }
 
+/* What the commit will include, when the checkboxes leave files behind:
+   IDEA's commit status line. */
+.commit-legend {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  margin: 0 8px 6px;
+  color: var(--muted);
+  font-size: 10.5px;
+}
+
+.commit-legend .icon {
+  width: 11px;
+  height: 11px;
+  color: var(--muted-2);
+}
+
 /* Stop is the way out of a console command that waits for input: it holds
    the repository's write lock while it runs. */
 .console-stop {
@@ -10624,12 +10667,6 @@ body.col-resizing .log-detail-grip::after {
   font-size: 11px;
 }
 
-/* Untracked files are a node of the change tree, as IDEA's "Unversioned
-   Files" is: one row that folds every file under it. */
-.tree-row.group {
-  font-weight: 500;
-}
-
 .rollback-list {
   max-height: 340px;
   overflow: auto;
@@ -10919,4 +10956,13 @@ button.status-conflicts:hover {
 .conflict-table:focus-visible {
   outline: 2px solid var(--accent);
   outline-offset: -2px;
+}
+
+/* A tag message is a paragraph: four rows, wrapping, no monospace. */
+.tag-message {
+  width: 100%;
+  min-height: 76px;
+  resize: vertical;
+  font-family: inherit;
+  line-height: 1.45;
 }

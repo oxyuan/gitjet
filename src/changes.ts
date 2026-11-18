@@ -123,17 +123,3 @@ export function directoryKeys<T extends TreeFile>(nodes: TreeNode<T>[]): string[
   nodes.forEach(walk);
   return keys;
 }
-
-/**
- * Splits a changelist into the files git tracks and the ones it does not,
- * so untracked files never sit mixed in with modified ones.
- */
-export function splitTracked<T extends { kind: string }>(files: T[]): { tracked: T[]; untracked: T[] } {
-  const tracked: T[] = [];
-  const untracked: T[] = [];
-  for (const file of files) {
-    if (file.kind === "untracked") untracked.push(file);
-    else tracked.push(file);
-  }
-  return { tracked, untracked };
-}

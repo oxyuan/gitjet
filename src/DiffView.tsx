@@ -438,11 +438,35 @@ export function DiffView({
   useEffect(() => {
     gotoRef.current = goto;
   });
+  // IDEA's other two diff keys: F4 opens the change in the editor, and
+  // Alt+Shift+Left/Right reaches the neighbouring changed file.
+  const openHere = () => {
+    const side: Side = diff.status === "deleted" ? "before" : "after";
+    onOpenFile(side, currentLine, side === "before" ? beforePath : diff.path);
+  };
+  const openRef = useRef(openHere);
+  const nextFileRef = useRef(onNextFile);
+  useEffect(() => {
+    openRef.current = openHere;
+    nextFileRef.current = onNextFile;
+  });
   useEffect(() => {
     const onKey = (event: KeyboardEvent) => {
-      if (event.key !== "F7" || event.defaultPrevented) return;
+      if (event.defaultPrevented) return;
       const target = event.target as HTMLElement | null;
       if (target && (target.tagName === "INPUT" || target.tagName === "TEXTAREA" || target.isContentEditable)) return;
+      if (event.key === "F4") {
+        event.preventDefault();
+        openRef.current();
+        return;
+      }
+      if (event.altKey && event.shiftKey && (event.key === "ArrowLeft" || event.key === "ArrowRight")) {
+        if (!nextFileRef.current) return;
+        event.preventDefault();
+        nextFileRef.current(event.key === "ArrowRight" ? 1 : -1);
+        return;
+      }
+      if (event.key !== "F7") return;
       event.preventDefault();
       gotoRef.current(event.shiftKey ? -1 : 1);
     };

@@ -223,6 +223,9 @@ const T = {
     "pull.title": "Update Project",
     "pull.note": "Pull fetches the remote and integrates the upstream into the current branch.",
     "pull.integrate": "Integrate with",
+    "pull.branch": "Branch",
+    "pull.defaultBranch": "Default (tracked branch)",
+    "pull.trackedSuffix": " (tracked)",
     "pull.autostash": "Stash local changes before update (--autostash)",
     "pull.prune": "Prune deleted remote branches",
     "pull.tags": "Fetch tags",
@@ -264,6 +267,8 @@ const T = {
     "tag.title": "New Tag",
     "tag.tagging": "Tagging {hash}",
     "tag.name": "Tag name",
+    "tag.commit": "Commit",
+    "tag.commitHint": "A branch, tag or commit hash to tag; HEAD tags the checked out commit.",
     "tag.message": "Message",
     "tag.messageHint": "Leave empty for a lightweight tag.",
     "tag.messagePlaceholder": "Release 1.0.0",
@@ -533,6 +538,9 @@ const T = {
     "pull.title": "Pull",
     "pull.note": "Pull 会 Fetch 远程内容，并把上游 Merge 进当前分支。",
     "pull.integrate": "整合方式",
+    "pull.branch": "分支",
+    "pull.defaultBranch": "默认（跟踪分支）",
+    "pull.trackedSuffix": "（跟踪）",
     "pull.autostash": "Pull 前 Stash 本地更改（--autostash）",
     "pull.prune": "清理已删除的远程分支",
     "pull.tags": "Fetch 标签",
@@ -574,6 +582,8 @@ const T = {
     "tag.title": "新建标签",
     "tag.tagging": "为 {hash} 创建标签",
     "tag.name": "标签名",
+    "tag.commit": "提交",
+    "tag.commitHint": "要打标签的分支、标签或提交哈希；HEAD 表示当前检出的提交。",
     "tag.message": "说明",
     "tag.messageHint": "留空则创建轻量标签。",
     "tag.messagePlaceholder": "发布 1.0.0",
@@ -2295,16 +2305,38 @@ export function PushCommitsDialog({
 export function PullDialog({
   remotes,
   updateMethod,
+  current,
+  upstream,
+  remoteBranches,
   onClose,
   onSubmit,
 }: {
   remotes: Remote[];
   updateMethod: string;
+  /** The checked out branch, and the remote branch it tracks, if any. */
+  current: string;
+  upstream: string;
+  /** Full names of the remote branches, e.g. "origin/main". */
+  remoteBranches: string[];
   onClose: () => void;
   onSubmit: (opts: PullOptions) => void;
 }) {
   const t = useT(T);
   const [remote, setRemote] = useState(remotes.find((r) => r.name === "origin")?.name ?? remotes[0]?.name ?? "");
+  // IDEA pulls the tracked branch by default and lets another one be named;
+  // without a tracked branch the same-name remote branch is the best guess.
+  const tracked = upstream.startsWith(remote + "/") ? upstream.slice(remote.length + 1) : "";
+  const branchNames = remoteBranches
+    .filter((name) => name.startsWith(remote + "/"))
+    .map((name) => name.slice(remote.length + 1))
+    .sort((a, b) => a.localeCompare(b));
+  const preferred = tracked || (branchNames.includes(current) ? current : branchNames[0] ?? "");
+  const [branch, setBranch] = useState(preferred);
+  // A remote change re-seeds the branch, unless the reader already chose one.
+  const [picked, setPicked] = useState(false);
+  useEffect(() => {
+    if (!picked) setBranch(preferred);
+  }, [preferred, picked]);
   const [rebase, setRebase] = useState(updateMethod === "rebase");
   const [autostash, setAutostash] = useState(true);
   const [prune, setPrune] = useState(false);
@@ -2323,7 +2355,7 @@ export function PullDialog({
         <>
           <Button onClick={onClose}>{t("common.cancel")}</Button>
           <Button variant="primary" onClick={() =>
-            onSubmit({ remote, branch: "", rebase, autostash, prune, tags, ffOnly, noFF, squash, noCommit, tagsMode: "" })
+            onSubmit({ remote, branch, rebase, autostash, prune, tags, ffOnly, noFF, squash, noCommit, tagsMode: "" })
           }>
             {t("common.pull")}
           </Button>
@@ -2343,6 +2375,23 @@ export function PullDialog({
             </Select>
           </Field>
         )}
+        <Field label={t("pull.branch")}>
+          <Select
+            value={branch}
+            onChange={(v) => {
+              setPicked(true);
+              setBranch(v);
+            }}
+          >
+            {branchNames.length === 0 && <option value="">{t("pull.defaultBranch")}</option>}
+            {branchNames.map((name) => (
+              <option key={name} value={name}>
+                {name}
+                {name === tracked ? t("pull.trackedSuffix") : ""}
+              </option>
+            ))}
+          </Select>
+        </Field>
         <Field label={t("pull.integrate")}>
           <div className="radio-row">
             <label className="radio">
@@ -2667,6 +2716,9 @@ export function TagDialog({
 }) {
   const t = useT(T);
   const [name, setName] = useState("");
+  // IDEA's tag dialog names the commit too, so a release can be tagged
+  // without checking it out first; the dialog's `start` is its first guess.
+  const [revision, setRevision] = useState(start);
   const [message, setMessage] = useState("");
   const [force, setForce] = useState(false);
   return (
@@ -2678,7 +2730,11 @@ export function TagDialog({
       footer={
         <>
           <Button onClick={onClose}>{t("common.cancel")}</Button>
-          <Button variant="primary" onClick={() => onSubmit({ name, message, revision: start, force })} disabled={!name.trim()}>
+          <Button
+            variant="primary"
+            onClick={() => onSubmit({ name, message, revision: revision.trim() || start, force })}
+            disabled={!name.trim()}
+          >
             {t("tag.create")}
           </Button>
         </>
@@ -2689,8 +2745,22 @@ export function TagDialog({
         <Field label={t("tag.name")}>
           <TextInput value={name} onChange={setName} autoFocus placeholder="v1.0.0" />
         </Field>
+        <Field label={t("tag.commit")} hint={t("tag.commitHint")}>
+          <input
+            className="text-input"
+            value={revision}
+            onChange={(e) => setRevision(e.target.value)}
+            placeholder={shortHash(start)}
+          />
+        </Field>
         <Field label={t("tag.message")} hint={t("tag.messageHint")}>
-          <TextInput value={message} onChange={setMessage} placeholder={t("tag.messagePlaceholder")} />
+          <textarea
+            className="text-input tag-message"
+            rows={4}
+            value={message}
+            onChange={(e) => setMessage(e.target.value)}
+            placeholder={t("tag.messagePlaceholder")}
+          />
         </Field>
         <Checkbox checked={force} onChange={setForce} label={t("tag.force")} />
       </div>

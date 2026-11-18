@@ -1,5 +1,5 @@
 import { describe, expect, it } from "bun:test";
-import { buildChangeTree, directoryKeys, splitTracked, treeFiles, treeTotals, type TreeNode } from "./changes";
+import { buildChangeTree, directoryKeys, treeFiles, treeTotals, type TreeNode } from "./changes";
 
 interface File {
   path: string;
@@ -53,18 +53,5 @@ describe("buildChangeTree", () => {
     const tree = buildChangeTree([file("a/b/x.java"), file("c/y.java")]);
     expect(directoryKeys(tree).sort()).toEqual(["a", "c"]);
     expect(treeFiles(tree[0]!).map((f) => f.path)).toEqual(["a/b/x.java"]);
-  });
-});
-
-describe("splitTracked", () => {
-  it("separates files git does not track from the rest", () => {
-    const { tracked, untracked } = splitTracked([
-      file("a.java"),
-      file("new.html", 0, 0, "untracked"),
-      file("b.java", 1, 1, "deleted"),
-      file("doc/x.sql", 0, 0, "untracked"),
-    ]);
-    expect(tracked.map((f) => f.path)).toEqual(["a.java", "b.java"]);
-    expect(untracked.map((f) => f.path)).toEqual(["new.html", "doc/x.sql"]);
   });
 });

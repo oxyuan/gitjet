@@ -1,6 +1,6 @@
 import { useMemo, useRef, useState } from "react";
 import { completeFiles, messageToken, reformatCommitMessage } from "./commitMessage";
-import { buildChangeTree, directoryKeys, splitTracked, treeFiles } from "./changes";
+import { buildChangeTree, directoryKeys, treeFiles } from "./changes";
 import { FileTree, type ChangeView } from "./FileTree";
 import { useFileMenu } from "./FileMenu";
 import { count, useT } from "./i18n";
@@ -51,8 +51,7 @@ const T = {
     changelistActions: "Changelist actions",
     changesChangelist: "Changes",
     untrackedFiles: "Unversioned Files",
-    changedOne: "1 file",
-    changedOther: "{n} files",
+    includedCount: "{checked} of {total} files included",
     viewTree: "Group by folder",
     viewFlat: "Plain file list",
     showStagedSection: "Show staged changes",
@@ -141,8 +140,7 @@ const T = {
     changelistActions: "变更列表操作",
     changesChangelist: "更改",
     untrackedFiles: "未进行版本管理的文件",
-    changedOne: "1 个文件",
-    changedOther: "{n} 个文件",
+    includedCount: "已包含 {checked} / {total} 个文件",
     viewTree: "按目录分组",
     viewFlat: "平铺文件列表",
     showStagedSection: "显示已暂存的更改",
@@ -361,6 +359,8 @@ export function CommitPanel({
   const [showHistory, setShowHistory] = useState(false);
   // File-name completion in the message box, invoked with Ctrl+Space.
   const messageRef = useRef<HTMLTextAreaElement | null>(null);
+  const listRef = useRef<HTMLDivElement | null>(null);
+  const historyRef = useRef<HTMLDivElement | null>(null);
   const [completion, setCompletion] = useState<{ query: string; start: number; end: number; index: number } | null>(null);
   const fileMenu = useFileMenu({
     root: snapshot.state.root,
@@ -391,7 +391,8 @@ export function CommitPanel({
 
   const allPaths = entries.filter((e) => !e.unmerged && !e.ignored).map((e) => e.path);
   const rollbackable = entries.some((e) => !e.unmerged && !e.ignored);
-  const uniqueChecked = [...new Set(allPaths)].filter((p) => checked.has(p));
+  const distinctPaths = [...new Set(allPaths)];
+  const uniqueChecked = distinctPaths.filter((p) => checked.has(p));
 
   const toggle = (paths: string[], value: boolean) => {
     const next = new Set(checked);
@@ -425,8 +426,68 @@ export function CommitPanel({
       next.add(entry.path);
     }
     setSelected(next);
+  };
+
+  /** The row's diff, or the conflict editor: what a double click or Enter
+   *  opens, as IDEA's changes browser does. A single click only selects. */
+  const openEntry = (entry: FileEntry) => {
     if (entry.unmerged) actions.onShowConflict(entry.path);
     else actions.onShowDiff(entry);
+  };
+
+  /** The visible file rows in the order they are painted, so the arrows walk
+   *  the tree the way it looks, fold state included. */
+  const fileRows = () => [
+    ...(listRef.current?.querySelectorAll<HTMLElement>(".tree-row.file") ?? []),
+  ];
+
+  const rowEntry = (row: HTMLElement | null): FileEntry | undefined => {
+    const path = row?.dataset.path;
+    if (path === undefined) return undefined;
+    const staged = row?.dataset.staged === "1";
+    const list = entriesByPath.get(path) ?? [];
+    return list.find((e) => e.staged === staged) ?? list[0];
+  };
+
+  const handleListKeys = (e: React.KeyboardEvent) => {
+    const row = (e.target as HTMLElement).closest<HTMLElement>(".tree-row.file");
+    if (!row) return;
+    const entry = rowEntry(row);
+    if (!entry) return;
+    const rows = fileRows();
+    const at = rows.indexOf(row);
+    let next: HTMLElement | undefined;
+    switch (e.key) {
+      case "ArrowDown":
+        next = rows[at + 1];
+        break;
+      case "ArrowUp":
+        next = rows[at - 1];
+        break;
+      case "Home":
+        next = rows[0];
+        break;
+      case "End":
+        next = rows[rows.length - 1];
+        break;
+      case "Enter":
+        e.preventDefault();
+        openEntry(entry);
+        return;
+      case " ":
+        if (entry.unmerged || entry.ignored) return;
+        e.preventDefault();
+        toggle([entry.path], !checked.has(entry.path));
+        return;
+      default:
+        return;
+    }
+    e.preventDefault();
+    if (next) {
+      setSelected(new Set([next.dataset.path!]));
+      next.focus({ preventScroll: true });
+      next.scrollIntoView({ block: "nearest" });
+    }
   };
 
   const menuFor = (entry: FileEntry, event: React.MouseEvent) => {
@@ -516,7 +577,16 @@ export function CommitPanel({
         key={"file:" + entry.path + (entry.staged ? ":s" : "")}
         className={cx("tree-row file", flat && "flat", isSelected && "selected")}
         style={{ paddingLeft: padding }}
-        onClick={(e) => selectRow(e, entry)}
+        data-path={entry.path}
+        data-staged={entry.staged ? "1" : ""}
+        tabIndex={isSelected ? 0 : -1}
+        onClick={(e) => {
+          selectRow(e, entry);
+          // The click leaves the keyboard in the tree, so the arrows and
+          // Enter work on the row the reader just picked.
+          e.currentTarget.focus({ preventScroll: true });
+        }}
+        onDoubleClick={() => openEntry(entry)}
         onContextMenu={(e) => {
           menuFor(entry, e);
         }}
@@ -691,12 +761,23 @@ export function CommitPanel({
       </>
     );
     const name = cl.default && cl.name === "Changes" ? t("changesChangelist") : cl.name;
+    const paths = list.map((e) => e.path);
+    const state = checkState(paths);
     return (
       <div key={cl.id}>
         {section(
           "cl:" + cl.id,
           name,
-          null,
+          // The list itself is includable, as IDEA's changelist node is: one
+          // click includes or excludes every change in it.
+          <span className="dir-check" onClick={(e) => e.stopPropagation()}>
+            <Checkbox
+              checked={state === true}
+              indeterminate={state === "mixed"}
+              onChange={(v) => toggle(paths, v)}
+              disabled={paths.length === 0}
+            />
+          </span>,
           null,
           list.length === 0 ? (
             entries.length === 0 ? null : <div className="empty-section">{t("noChanges")}</div>
@@ -866,8 +947,10 @@ export function CommitPanel({
       </div>
 
       <div
+        ref={listRef}
         className="changes-scroll"
         onContextMenu={(e) => fileMenu.openMenu(e, { path: "", isDir: true })}
+        onKeyDown={handleListKeys}
       >
         {showStaged && staged.length > 0 &&
           section(
@@ -972,6 +1055,31 @@ export function CommitPanel({
                 actions.onCommit(false);
                 return;
               }
+              // IDEA's commit-message chords: Alt+M toggles amend, Ctrl+O the
+              // options popup, Ctrl+M the message history, ⌥⌘L reformats.
+              if (e.altKey && !e.metaKey && !e.ctrlKey && (e.key === "m" || e.key === "M")) {
+                e.preventDefault();
+                actions.onToggleAmend(!form.amend);
+                return;
+              }
+              if ((e.metaKey || e.ctrlKey) && !e.altKey && (e.key === "o" || e.key === "O")) {
+                e.preventDefault();
+                setShowOptions((v) => !v);
+                return;
+              }
+              if ((e.metaKey || e.ctrlKey) && !e.altKey && (e.key === "m" || e.key === "M")) {
+                e.preventDefault();
+                setShowHistory(true);
+                requestAnimationFrame(() =>
+                  historyRef.current?.querySelector<HTMLButtonElement>(".message-history-item")?.focus(),
+                );
+                return;
+              }
+              if ((e.metaKey || e.ctrlKey) && e.altKey && (e.key === "l" || e.key === "L")) {
+                e.preventDefault();
+                actions.onCommitFormChange({ ...form, message: reformatCommitMessage(form.message) });
+                return;
+              }
               if ((e.ctrlKey || e.metaKey) && e.key === " ") {
                 e.preventDefault();
                 const area = e.currentTarget;
@@ -1039,7 +1147,33 @@ export function CommitPanel({
               <Icon name="clock" size={13} />
             </button>
             {showHistory && history.length > 0 && (
-              <div className="message-history" onMouseLeave={() => setShowHistory(false)}>
+              <div
+                ref={historyRef}
+                className="message-history"
+                onMouseLeave={() => setShowHistory(false)}
+                onKeyDown={(e) => {
+                  const rows = [
+                    ...(historyRef.current?.querySelectorAll<HTMLButtonElement>(".message-history-item") ?? []),
+                  ];
+                  const at = rows.indexOf(document.activeElement as HTMLButtonElement);
+                  if (e.key === "Escape") {
+                    e.preventDefault();
+                    setShowHistory(false);
+                    messageRef.current?.focus();
+                    return;
+                  }
+                  if (e.key === "ArrowDown" || e.key === "ArrowUp") {
+                    e.preventDefault();
+                    const delta = e.key === "ArrowDown" ? 1 : -1;
+                    rows[(at + delta + rows.length) % rows.length]?.focus();
+                    return;
+                  }
+                  if (e.key === "Enter" && at >= 0) {
+                    e.preventDefault();
+                    rows[at]!.click();
+                  }
+                }}
+              >
                 {history.map((m, i) => (
                   <button
                     key={i}
@@ -1047,6 +1181,7 @@ export function CommitPanel({
                     onClick={() => {
                       actions.onCommitFormChange({ ...form, message: m });
                       setShowHistory(false);
+                      messageRef.current?.focus();
                     }}
                   >
                     {m.split("\n")[0]}
@@ -1134,6 +1269,12 @@ export function CommitPanel({
             <button className="commit-options-btn" onClick={actions.onResolveConflicts}>
               {t("resolveAll")}
             </button>
+          </div>
+        )}
+        {!form.stagedOnly && distinctPaths.length > 0 && uniqueChecked.length < distinctPaths.length && (
+          <div className="commit-legend">
+            <Icon name="info" size={11} />
+            <span>{t("includedCount", { checked: uniqueChecked.length, total: distinctPaths.length })}</span>
           </div>
         )}
         <div className="commit-buttons">

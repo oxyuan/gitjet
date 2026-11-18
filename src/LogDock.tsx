@@ -3,6 +3,7 @@ import { Git } from "./mygo";
 import type { Commit, CommitDetail, CommitFile, LogResult } from "./mygo";
 import { hasSignature, signatureKey, signatureTone } from "./signature";
 import { computeGraph, graphWidth } from "./graph";
+import { commitSpeedMatch } from "./logSpeed";
 import { FileIcon, Icon } from "./icons";
 import { useT } from "./i18n";
 import { count } from "./i18n";
@@ -346,6 +347,11 @@ export function LogDock({
   const ratio = Math.min(0.75, Math.max(0.2, detailRatio));
   const [markCherry, setMarkCherry] = useState(false);
   const [cherry, setCherry] = useState<Set<string>>(new Set());
+  // Letters typed into the table jump the selection, as IDEA's table speed
+  // search does; the buffer shows over the list and clears when typing stops.
+  const [speed, setSpeed] = useState("");
+  const speedBuffer = useRef("");
+  const speedTimer = useRef<number | null>(null);
   // A commit row can be part of a multi-commit selection, which the context
   // menu then acts on as a whole, like a table of commits.
   const [checked, setChecked] = useState<Set<string>>(new Set());
@@ -438,7 +444,7 @@ export function LogDock({
   const stepHistory = (e: React.KeyboardEvent) => {
     const current = selected ? indexOf.get(selected) : undefined;
     const last = commits.length - 1;
-    let next: number;
+    let next: number | undefined;
     switch (e.key) {
       case "ArrowDown":
         next = current === undefined ? 0 : Math.min(last, current + 1);
@@ -458,6 +464,23 @@ export function LogDock({
       case "End":
         next = last;
         break;
+      case "ArrowLeft": {
+        // IDEA's "Go to Parent": the first parent's row, when it is loaded.
+        const parent = selected ? commits[current ?? -1]?.parents[0] : undefined;
+        const at = parent === undefined ? undefined : indexOf.get(parent);
+        if (at === undefined) return;
+        e.preventDefault();
+        moveTo(at, e);
+        return;
+      }
+      case "ArrowRight": {
+        // IDEA's "Go to Child": only the loaded rows can name one.
+        const at = child === undefined ? undefined : indexOf.get(child.hash);
+        if (at === undefined) return;
+        e.preventDefault();
+        moveTo(at, e);
+        return;
+      }
       case "Enter":
         // The details are already open; Enter reads the first changed file,
         // the next step after picking a commit.
@@ -474,16 +497,37 @@ export function LogDock({
         return;
       case "d":
       case "D":
-        if (!(e.metaKey || e.ctrlKey)) return;
-        if (chosenOldestFirst.length === 2) {
-          e.preventDefault();
-          onCompareVersions(chosenOldestFirst[0]!.hash, chosenOldestFirst[1]!.hash);
+        if (e.metaKey || e.ctrlKey) {
+          if (chosenOldestFirst.length === 2) {
+            e.preventDefault();
+            onCompareVersions(chosenOldestFirst[0]!.hash, chosenOldestFirst[1]!.hash);
+          }
+          return;
         }
-        return;
+        // A plain "d" is speed-search text, not the compare chord.
+        break;
       default:
-        return;
+        break;
     }
     if (commits.length === 0) return;
+    if (next === undefined) {
+      // A printable key starts (or extends) the speed-search buffer. Modifier
+      // chords are commands, not search text, and the search field keeps
+      // whatever the reader types into it.
+      if (e.key.length !== 1 || e.metaKey || e.ctrlKey || e.altKey) return;
+      speedBuffer.current += e.key;
+      if (speedTimer.current !== null) window.clearTimeout(speedTimer.current);
+      speedTimer.current = window.setTimeout(() => {
+        speedBuffer.current = "";
+        setSpeed("");
+      }, 1200);
+      setSpeed(speedBuffer.current);
+      const found = commitSpeedMatch(commits, speedBuffer.current, (current ?? -1) + 1);
+      if (found < 0) return;
+      e.preventDefault();
+      moveTo(found, e);
+      return;
+    }
     e.preventDefault();
     moveTo(next, e);
   };
@@ -861,6 +905,11 @@ export function LogDock({
               } as React.CSSProperties
             }
           >
+            {speed !== "" && (
+              <div className="log-speed" aria-live="polite">
+                {speed}
+              </div>
+            )}
             {commits.length === 0 && !loading && (
               <div className="changes-empty">
                 <Icon name="log" size={20} />
@@ -892,6 +941,13 @@ export function LogDock({
                     // Clicking selects and leaves the keyboard in the table,
                     // so the arrows immediately walk the history.
                     e.currentTarget.focus({ preventScroll: true });
+                  }}
+                  onDoubleClick={() => {
+                    // A double click reads the commit, as Enter does: its
+                    // first changed file opens beside the history.
+                    if (detail && detail.hash === commit.hash && detail.files[0]) {
+                      onSelectFile(detail.files[0]);
+                    }
                   }}
                   onContextMenu={(e) => {
                     e.preventDefault();

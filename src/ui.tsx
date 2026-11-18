@@ -505,6 +505,21 @@ function SubMenu({
       // The root menu listens for mousedown on the window to close itself;
       // a press inside this portal is not "outside" it.
       onMouseDown={(e) => e.stopPropagation()}
+      onKeyDown={(e) => {
+        const rows = [
+          ...(ref.current?.querySelectorAll<HTMLButtonElement>(".menu-item:not(:disabled)") ?? []),
+        ];
+        if (rows.length === 0) return;
+        const at = rows.indexOf(document.activeElement as HTMLButtonElement);
+        const delta = e.key === "ArrowDown" ? 1 : e.key === "ArrowUp" ? -1 : 0;
+        if (delta !== 0) {
+          e.preventDefault();
+          rows[(at + delta + rows.length) % rows.length]!.focus();
+        } else if ((e.key === "Enter" || e.key === " ") && at >= 0) {
+          e.preventDefault();
+          rows[at]!.click();
+        }
+      }}
     >
       {menuRows(items, onClose, null, null)}
     </div>,
@@ -551,10 +566,48 @@ export function ContextMenu({
       window.removeEventListener("keydown", onKey);
     };
   }, [onClose]);
+  // A menu takes the keyboard when it opens, so the arrows walk its rows and
+  // Enter runs the focused one, as a popup menu does.
+  useEffect(() => {
+    const rows = ref.current?.querySelectorAll<HTMLButtonElement>(".menu-item:not(:disabled)") ?? [];
+    rows[0]?.focus();
+  }, []);
+  const stepMenu = (e: React.KeyboardEvent) => {
+    const rows = [
+      ...(ref.current?.querySelectorAll<HTMLButtonElement>(".menu-item:not(:disabled)") ?? []),
+    ];
+    if (rows.length === 0) return;
+    const at = rows.indexOf(document.activeElement as HTMLButtonElement);
+    let next: number | undefined;
+    switch (e.key) {
+      case "ArrowDown":
+        next = at < 0 ? 0 : (at + 1) % rows.length;
+        break;
+      case "ArrowUp":
+        next = at < 0 ? rows.length - 1 : (at - 1 + rows.length) % rows.length;
+        break;
+      case "Home":
+        next = 0;
+        break;
+      case "End":
+        next = rows.length - 1;
+        break;
+      case "Enter":
+      case " ":
+        if (at < 0) return;
+        e.preventDefault();
+        rows[at]!.click();
+        return;
+      default:
+        return;
+    }
+    e.preventDefault();
+    rows[next]!.focus();
+  };
   return (
     <>
       {createPortal(
-        <div className="context-menu" style={pos} ref={ref} role="menu">
+        <div className="context-menu" style={pos} ref={ref} role="menu" onKeyDown={stepMenu}>
           {menuRows(
             items,
             onClose,
