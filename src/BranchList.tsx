@@ -227,6 +227,12 @@ export function BranchList({
   }, [rows]);
   const activeRow = active >= 0 ? rows[active] : undefined;
   // Collapsing a group can leave the cursor past the end of the visible rows.
+  // The popup opens with the keyboard in the filter, as IDEA's does: typing
+  // a branch name starts the search without a click.
+  useEffect(() => {
+    searchRef.current?.focus();
+  }, []);
+
   useEffect(() => {
     setActive((index) => (index >= rows.length ? rows.length - 1 : index));
   }, [rows.length]);
