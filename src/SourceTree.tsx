@@ -2,7 +2,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import type { ReactNode } from "react";
 import { Git, type RepoFile } from "./mygo";
 import { buildChangeTree } from "./changes";
-import { ancestorDirs, expandedTo, filterFiles, matchIndices, visibleFiles } from "./explorer";
+import { ancestorDirs, expandedTo, matchIndices, visibleFiles } from "./explorer";
 import { FileTree, type ChangeView, type ListedFile } from "./FileTree";
 import { useFileMenu } from "./FileMenu";
 import { FileIcon, Icon } from "./icons";
@@ -12,11 +12,9 @@ import { useT } from "./i18n";
 const T = {
   en: {
     title: "Files",
-    search: "Filter by path",
     refresh: "Re-read the working tree",
     openRepositoryFirst: "Open a repository first",
     noFiles: "No files",
-    noMatch: "No path matches “{query}”",
     untracked: "Not tracked by git yet",
     expandAll: "Expand all",
     collapseAll: "Collapse all",
@@ -31,11 +29,9 @@ const T = {
   },
   zh: {
     title: "文件",
-    search: "按路径筛选",
     refresh: "重新读取工作区",
     openRepositoryFirst: "请先打开仓库",
     noFiles: "没有文件",
-    noMatch: "没有路径匹配“{query}”",
     untracked: "尚未被 git 跟踪",
     expandAll: "全部展开",
     collapseAll: "全部折叠",
@@ -81,7 +77,6 @@ export function SourceTree({
   const t = useT(T);
   const [files, setFiles] = useState<ExplorerRow[]>([]);
   const [loading, setLoading] = useState(false);
-  const [query, setQuery] = useState("");
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
   const [viewMode, setViewMode] = useStoredState<ChangeView>("gitjet.sourceView", "tree");
   const [nonce, setNonce] = useState(0);
@@ -118,19 +113,13 @@ export function SourceTree({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [repoOpen, reloadKey, nonce]);
 
-  const visible = useMemo(() => filterFiles(files, query), [files, query]);
-  const filtered = query.trim() !== "";
+  const visible = files;
   const activeInTree = useMemo(
     () => activePath !== undefined && files.some((f) => f.path === activePath),
     [files, activePath],
   );
 
-  // A filter is a search result, not a browsing session: the tree opens fully
-  // so matches are visible rather than hidden inside collapsed folders.
-  const shownExpanded = useMemo(
-    () => (filtered ? expandedTo(buildChangeTree(visible), 99) : expanded),
-    [filtered, visible, expanded],
-  );
+  const shownExpanded = expanded;
 
   const toggleDir = (key: string) => {
     const next = new Set(expanded);
@@ -246,9 +235,6 @@ export function SourceTree({
 
   const locate = () => {
     if (!repoOpen || !activePath || !activeInTree) return;
-    // A filter is a search result; locating the open file replaces it rather
-    // than leaving the target out of the tree.
-    if (!visible.some((f) => f.path === activePath)) setQuery("");
     if (viewMode === "tree") {
       const next = new Set(expanded);
       for (const dir of ancestorDirs(activePath)) next.add(dir);
@@ -260,30 +246,6 @@ export function SourceTree({
   return (
     <div className="source-tree-panel">
       <div className="panel-toolbar explorer-toolbar">
-        <span className="explorer-search">
-          <Icon name="search" size={13} />
-          <input
-            className="explorer-input"
-            autoCapitalize="off"
-            autoCorrect="off"
-            autoComplete="off"
-            spellCheck={false}
-            value={query}
-            placeholder={repoOpen ? t("search") : t("openRepositoryFirst")}
-            disabled={!repoOpen}
-            onChange={(e) => setQuery(e.target.value)}
-            onKeyDown={(e) => {
-              if (e.key !== "Escape") return;
-              e.preventDefault();
-              setQuery("");
-            }}
-          />
-          {query !== "" && (
-            <button className="explorer-clear" onClick={() => setQuery("")} title={t("search")}>
-              <Icon name="close" size={11} />
-            </button>
-          )}
-        </span>
         {typing.q !== "" && (
           <span className="explorer-match" title={t("matchHint")}>
             <span className="explorer-match-text">{typing.q}</span>
@@ -340,7 +302,7 @@ export function SourceTree({
       >
         {visible.length === 0 ? (
           <div className="explorer-empty muted">
-            {files.length === 0 ? (repoOpen ? t("noFiles") : t("openRepositoryFirst")) : t("noMatch", { query })}
+            {repoOpen ? t("noFiles") : t("openRepositoryFirst")}
           </div>
         ) : (
           <FileTree
