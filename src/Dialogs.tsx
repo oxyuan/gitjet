@@ -53,6 +53,7 @@ import {
 } from "./ui";
 
 import { count, useT } from "./i18n";
+import { pullBranchDefault, pullBranchNames } from "./pullDefaults";
 import { FileIcon } from "./icons";
 
 const T = {
@@ -2380,11 +2381,8 @@ export function PullDialog({
   // IDEA pulls the tracked branch by default and lets another one be named;
   // without a tracked branch the same-name remote branch is the best guess.
   const tracked = upstream.startsWith(remote + "/") ? upstream.slice(remote.length + 1) : "";
-  const branchNames = remoteBranches
-    .filter((name) => name.startsWith(remote + "/"))
-    .map((name) => name.slice(remote.length + 1))
-    .sort((a, b) => a.localeCompare(b));
-  const preferred = tracked || (branchNames.includes(current) ? current : branchNames[0] ?? "");
+  const branchNames = pullBranchNames(remoteBranches, remote);
+  const preferred = pullBranchDefault({ current, upstream, remote, names: branchNames });
   const [branch, setBranch] = useState(preferred);
   // A remote change re-seeds the branch, unless the reader already chose one.
   const [picked, setPicked] = useState(false);
