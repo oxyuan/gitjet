@@ -452,6 +452,9 @@ export function BranchList({
           // Put the keyboard in the tree, where the arrows work.
           listRef.current?.focus({ preventScroll: true });
         }}
+        // The keyboard cursor follows the pointer, as IDEA's popup tree does:
+        // Enter then acts on the row under the mouse.
+        onMouseEnter={() => setActive(rowIndex.get(id) ?? -1)}
         onDoubleClick={() => onSelect(leaf.name)}
         onContextMenu={(e) => {
           e.preventDefault();

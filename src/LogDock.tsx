@@ -481,6 +481,15 @@ export function LogDock({
         moveTo(at, e);
         return;
       }
+      case "a":
+      case "A":
+        if (e.metaKey || e.ctrlKey) {
+          // The whole loaded page of commits, as a table's Select All.
+          e.preventDefault();
+          setChecked(new Set(commits.map((c) => c.hash)));
+          return;
+        }
+        break;
       case "Enter":
         // The details are already open; Enter reads the first changed file,
         // the next step after picking a commit.
