@@ -354,5 +354,11 @@ export function useFileMenu({
     </>
   );
 
-  return { openMenu, menuNode: node };
+  return {
+    openMenu,
+    menuNode: node,
+    // A keyboard action names the path itself; the confirmation step is the
+    // same dialog the menu opens.
+    requestDelete: (path: string, isDir = false) => setConfirm({ kind: "delete", path, isDir }),
+  };
 }

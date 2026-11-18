@@ -483,6 +483,15 @@ export function CommitPanel({
         e.preventDefault();
         toggle([entry.path], !checked.has(entry.path));
         return;
+      case "Delete":
+      case "Backspace":
+        // IDEA's Delete removes the file itself, after asking; on a Mac
+        // keyboard that is the backspace key. A conflicted file is left to
+        // the merge view.
+        if (entry.unmerged) return;
+        e.preventDefault();
+        fileMenu.requestDelete(entry.path);
+        return;
       default:
         return;
     }
