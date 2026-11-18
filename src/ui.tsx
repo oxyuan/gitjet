@@ -333,7 +333,26 @@ export function Modal({
         onClose();
       }}
     >
-      <div className={`modal${className ? " " + className : ""}`} style={{ width }} role="dialog" aria-modal="true">
+      <div
+        className={`modal${className ? " " + className : ""}`}
+        style={{ width }}
+        role="dialog"
+        aria-modal="true"
+        // Enter runs the dialog's default action, IDEA's OK: a single-line
+        // field submits the form it belongs to. A textarea keeps its newline
+        // and a button keeps its own activation.
+        onKeyDown={(e) => {
+          if (e.key !== "Enter" || e.defaultPrevented || e.nativeEvent.isComposing) return;
+          const target = e.target as HTMLElement;
+          if (target.tagName === "TEXTAREA" || target.tagName === "BUTTON") return;
+          const button = e.currentTarget.querySelector<HTMLButtonElement>(
+            ".modal-footer .btn-primary, .modal-footer .btn-danger",
+          );
+          if (!button || button.disabled) return;
+          e.preventDefault();
+          button.click();
+        }}
+      >
         <div className="modal-header">
           {icon && <Icon name={icon} />}
           <span className="modal-title">{title}</span>
