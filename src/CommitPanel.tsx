@@ -7,7 +7,7 @@ import { useFileMenu } from "./FileMenu";
 import { count, useT } from "./i18n";
 import type { Changelist, ChangesSnapshot, Settings } from "./mygo";
 import { FileIcon, Icon } from "./icons";
-import { StashRows } from "./StashPanel";
+import { StashRows } from "./StashRows";
 import {
   Checkbox,
   ContextMenu,
@@ -59,8 +59,6 @@ const T = {
     viewFlat: "Plain file list",
     showStagedSection: "Show staged changes",
     hideStagedSection: "Hide staged changes",
-    showStashes: "Show stashes",
-    hideStashes: "Hide stashes",
     more: "More actions",
     noChanges: "No changes",
     refresh: "Refresh",
@@ -76,6 +74,8 @@ const T = {
     stagedChanges: "Staged Changes",
     mergeConflicts: "Merge Conflicts",
     stashes: "Stashes",
+    noStashes: "No stashes",
+    stashHint: "Stashing sets the working tree aside and leaves the index as it was.",
     ignoredFiles: "Ignored Files",
     staged: "Staged",
     resolveAll: "Resolve conflicts…",
@@ -141,8 +141,6 @@ const T = {
     viewFlat: "平铺文件列表",
     showStagedSection: "显示已暂存的更改",
     hideStagedSection: "隐藏已暂存的更改",
-    showStashes: "显示 Stash",
-    hideStashes: "隐藏 Stash",
     more: "更多操作",
     noChanges: "无更改",
     refresh: "刷新",
@@ -158,6 +156,8 @@ const T = {
     stagedChanges: "已暂存的更改",
     mergeConflicts: "合并冲突",
     stashes: "Stash",
+    noStashes: "没有 Stash",
+    stashHint: "Stash 会把工作区搁置起来，索引保持原样。",
     ignoredFiles: "已忽略的文件",
     staged: "已暂存",
     resolveAll: "解决冲突…",
@@ -341,7 +341,9 @@ export function CommitPanel({
   const entries = useMemo(() => entriesFor(snapshot), [snapshot]);
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [menu, setMenu] = useState<{ x: number; y: number; items: ContextItem[] } | null>(null);
-  const [collapsed, setCollapsed] = useState<Set<string>>(new Set());
+  // Stashes start folded: the section is a convenience beside the changes and
+  // would otherwise take the room the commit form needs.
+  const [collapsed, setCollapsed] = useState<Set<string>>(() => new Set(["stash"]));
   // Directories start collapsed: the tree shows modules first, files on demand.
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
   const [showOptions, setShowOptions] = useState(false);
@@ -871,6 +873,7 @@ export function CommitPanel({
             next.add("conflicts");
             next.add("ignored");
             next.add("unversioned");
+            next.add("stash");
             setCollapsed(next);
             setExpanded(new Set());
           }}
@@ -881,6 +884,22 @@ export function CommitPanel({
           title={t("rollback")}
           disabled={!rollbackable}
           onClick={() => actions.onRollback(selected.size > 0 ? [...selected] : [])}
+        />
+        <span className="toolbar-sep" />
+        <IconButton
+          icon="stash"
+          title={snapshot.stashes.length > 0 ? `${t("stashes")} (${snapshot.stashes.length})` : t("stashes")}
+          active={showStashes}
+          onClick={() => {
+            // Opening the section shows the list, not just its header, so a
+            // click answers the question the button was pressed for.
+            if (!showStashes) {
+              const next = new Set(collapsed);
+              next.delete("stash");
+              setCollapsed(next);
+            }
+            onToggleStashes();
+          }}
         />
         <span className="spacer" />
         <IconButton
@@ -977,12 +996,6 @@ export function CommitPanel({
                   onClick: actions.onStashPush,
                 },
                 {
-                  label: showStashes ? t("hideStashes") : t("showStashes"),
-                  icon: "stash",
-                  checked: showStashes,
-                  onClick: onToggleStashes,
-                },
-                {
                   label: showStaged ? t("hideStagedSection") : t("showStagedSection"),
                   icon: "stage",
                   checked: showStaged,
@@ -1075,26 +1088,39 @@ export function CommitPanel({
           )}
         {changelistNodes}
         {unversioned.length > 0 && unversionedNode()}
-        {showStashes && snapshot.stashes.length > 0 && (
-          <div className="stash-section">
-            <div className="section-header static">
-              <Icon name="stash" />
-              <span className="section-title">{t("stashes")}</span>
-              <span className="section-count">{snapshot.stashes.length}</span>
-              <span className="spacer" />
-              <IconButton icon="trash" title={t("clearStashes")} small onClick={actions.onClearStashes} />
+        {showStashes &&
+          section(
+            "stash",
+            t("stashes"),
+            <Icon name="stash" size={13} />,
+            snapshot.stashes.length,
+            snapshot.stashes.length > 0 ? (
+              <StashRows
+                stashes={snapshot.stashes}
+                actions={{
+                  onOpen: actions.onShowStashDetail,
+                  onApply: actions.onStashApply,
+                  onDrop: actions.onStashDrop,
+                }}
+              />
+            ) : (
+              <div className="changes-empty stash-empty">
+                <Icon name="stash" size={16} />
+                <span>{t("noStashes")}</span>
+                <span className="muted">{t("stashHint")}</span>
+              </div>
+            ),
+            <>
+              <IconButton
+                icon="trash"
+                title={t("clearStashes")}
+                small
+                disabled={snapshot.stashes.length === 0}
+                onClick={actions.onClearStashes}
+              />
               <IconButton icon="plus" title={t("stashChanges")} small onClick={actions.onStashPush} />
-            </div>
-            <StashRows
-              stashes={snapshot.stashes}
-              actions={{
-                onOpen: actions.onShowStashDetail,
-                onApply: actions.onStashApply,
-                onDrop: actions.onStashDrop,
-              }}
-            />
-          </div>
-        )}
+            </>,
+          )}
         {settings.showIgnored && ignored.length > 0 &&
           section(
             "ignored",

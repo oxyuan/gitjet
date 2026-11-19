@@ -8,7 +8,6 @@ describe("normalizeTabOrder", () => {
       "commit",
       "files",
       "branch",
-      "stash",
     ]);
   });
 
@@ -18,12 +17,11 @@ describe("normalizeTabOrder", () => {
       "console",
       "commit",
       "files",
-      "stash",
     ]);
   });
 
   it("appends whatever the old value did not mention", () => {
-    expect(normalizeTabOrder(["files"])).toEqual(["files", "commit", "branch", "console", "stash"]);
+    expect(normalizeTabOrder(["files"])).toEqual(["files", "commit", "branch", "console"]);
   });
 
   it("falls back to the full default order for junk", () => {

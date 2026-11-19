@@ -25,7 +25,7 @@ import {
 } from "./mygo";
 import { CommitPanel, entriesFor, type CommitActions, type CommitForm, type FileEntry } from "./CommitPanel";
 import { ConsolePanel } from "./ConsolePanel";
-import { StashPanel, type StashActions } from "./StashPanel";
+import type { StashActions } from "./StashRows";
 import { SourceTree } from "./SourceTree";
 import { normalizeTabOrder, type ToolTab, TOOL_TABS, TOOL_TAB_ICONS } from "./tabs";
 import { isProtectedBranch } from "./protected";
@@ -135,7 +135,6 @@ const T = {
     filesTab: "Files",
     branchTab: "Branch",
     consoleTab: "Console",
-    stashTab: "Stash",
     detachedHead: "Detached HEAD",
     noCommitsYet: "No commits yet",
     pushOne: "Push {n} commit",
@@ -373,7 +372,6 @@ const T = {
     filesTab: "文件",
     branchTab: "分支",
     consoleTab: "控制台",
-    stashTab: "Stash",
     detachedHead: "分离的 HEAD",
     noCommitsYet: "暂无提交",
     pushOne: "Push {n} 个提交",
@@ -727,9 +725,10 @@ function AppShell({ onLangChange }: { onLangChange: (lang: Lang) => void }) {
   const [refs, setRefs] = useState<RefsSnapshot | null>(null);
   const [remotes, setRemotes] = useState<Remote[]>([]);
   const [recentBranches, setRecentBranches] = useState<string[]>([]);
-  // Tabs were renamed once; keep an old stored "log" pointing at the branch page.
-  const [storedTab, setStoredTab] = useStoredState<ToolTab | "log">("gitjet.tab", "commit");
-  const tab: ToolTab = storedTab === "log" ? "branch" : storedTab;
+  // Tabs were renamed once; keep an old stored "log" pointing at the branch
+  // page, and an old "stash" at the commit page, which owns stashes now.
+  const [storedTab, setStoredTab] = useStoredState<ToolTab | "log" | "stash">("gitjet.tab", "commit");
+  const tab: ToolTab = storedTab === "log" ? "branch" : storedTab === "stash" ? "commit" : storedTab;
   const setTab = (next: ToolTab) => setStoredTab(next);
   // The strip's order, dragged by the user; repaired when the stored value is
   // older or broken.
@@ -793,7 +792,9 @@ function AppShell({ onLangChange }: { onLangChange: (lang: Lang) => void }) {
   const [changeView, setChangeView] = useStoredState<ChangeView>("gitjet.changeView", "tree");
   const [detailView, setDetailView] = useStoredState<ChangeView>("gitjet.detailView", "tree");
   const [showStaged, setShowStaged] = useStoredState<boolean>("gitjet.showStaged", false);
-  const [showStashes, setShowStashes] = useStoredState<boolean>("gitjet.showStashes", false);
+  // Stashes live behind the commit page's toolbar button, so the panel keeps
+  // the room until the reader asks for the list.
+  const [showStashes, setShowStashes] = useStoredState<boolean>("gitjet.commit.showStashes", false);
   const [logPath, setLogPath] = useState("");
   // A line of that file, when the history was asked for from the gutter.
   const [logLine, setLogLine] = useState(0);
@@ -3128,9 +3129,6 @@ function AppShell({ onLangChange }: { onLangChange: (lang: Lang) => void }) {
         case "tab:console":
           setTab("console");
           break;
-        case "tab:stash":
-          setTab("stash");
-          break;
       }
     },
     // The handler closes over current state through the functions above.
@@ -3184,8 +3182,8 @@ function AppShell({ onLangChange }: { onLangChange: (lang: Lang) => void }) {
     setLogFile(null);
   };
 
-  /** One set of stash actions for the commit page's section and the stash
-   *  tab, so both act on the same entries the same way. */
+  /** The commit page's stash section is the one stash list, so its rows act
+   *  on the entries the same way wherever they are drawn. */
   const stashActions: StashActions = {
     onOpen: (index) => {
       const stash = snapshot?.stashes.find((s) => s.index === index);
@@ -3355,7 +3353,6 @@ function AppShell({ onLangChange }: { onLangChange: (lang: Lang) => void }) {
         branch: t("branchTab"),
         files: t("filesTab"),
         console: t("consoleTab"),
-        stash: t("stashTab"),
       }}
     />
   );
@@ -3516,23 +3513,6 @@ function AppShell({ onLangChange }: { onLangChange: (lang: Lang) => void }) {
                   onError={(err) => fail(t("openFileFailed"), err)}
                   onActionError={(err) => fail(t("fileActionFailed"), err)}
                   onIgnore={(paths) => void ignorePaths(paths)}
-                />
-              ) : (
-                <NoRepo
-                  onOpen={() => void openRepo()}
-                  onClone={() => setDialog({ kind: "clone" })}
-                  onInit={() => setDialog({ kind: "init" })}
-                />
-              ))}
-            {tab === "stash" &&
-              (repoOpen ? (
-                <StashPanel
-                  stashes={snapshot?.stashes ?? []}
-                  actions={stashActions}
-                  onStashPush={() => setDialog({ kind: "stash" })}
-                  onRefresh={() => void reload(true)}
-                  onClear={() => void clearStashes()}
-                  busy={busy > 0}
                 />
               ) : (
                 <NoRepo

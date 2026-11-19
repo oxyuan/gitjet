@@ -22,3 +22,24 @@ export function speedSearchMatch(paths: string[], query: string, from = 0): numb
   }
   return -1;
 }
+
+/**
+ * The same walk for a plain-text list (a stash message, a notice): a row that
+ * starts with the query wins, then one that contains it, wrapping from `from`.
+ */
+export function textSpeedSearch(rows: string[], query: string, from = 0): number {
+  const needle = query.trim().toLowerCase();
+  if (needle === "" || rows.length === 0) return -1;
+  const order = rows.map((_, offset) => (from + offset) % rows.length);
+  const tests: ((row: string) => boolean)[] = [
+    (row) => row.toLowerCase().startsWith(needle),
+    (row) => row.toLowerCase().includes(needle),
+  ];
+  for (const matches of tests) {
+    for (const index of order) {
+      const row = rows[index];
+      if (row !== undefined && matches(row)) return index;
+    }
+  }
+  return -1;
+}

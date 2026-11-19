@@ -1170,10 +1170,8 @@ body.resizing-row * {
   flex: 1;
 }
 
-.stash-section {
-  margin-top: 4px;
-  border-top: 1px solid var(--border);
-  padding-top: 2px;
+.stash-empty {
+  padding: 10px 20px;
 }
 
 .stash-row {
@@ -11095,26 +11093,6 @@ button.status-conflicts:hover {
   font-size: 11px;
 }
 
-/* The stash toolwindow: the commit page's rows in a tab of their own. */
-.stash-panel {
-  display: flex;
-  flex-direction: column;
-  flex: 1;
-  min-height: 0;
-  overflow: hidden;
-}
-
-.stash-panel .stash-rows {
-  flex: 1;
-  min-height: 0;
-  overflow: auto;
-  padding-top: 2px;
-}
-
-.stash-panel .changes-empty {
-  flex: none;
-}
-
 .stash-row {
   cursor: pointer;
 }
@@ -11127,12 +11105,4 @@ button.status-conflicts:hover {
 .stash-row:focus .stash-actions,
 .stash-row:focus-within .stash-actions {
   display: flex;
-}
-
-.stash-panel-hint {
-  flex: none;
-  padding: 4px 8px;
-  font-size: 10.5px;
-  color: var(--muted-2);
-  border-top: 1px solid var(--border);
 }

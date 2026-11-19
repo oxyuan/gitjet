@@ -1,11 +1,11 @@
 import { useRef, useState } from "react";
 import type { Stash } from "./mygo";
 import { useT } from "./i18n";
-import { Icon } from "./icons";
+import { textSpeedSearch } from "./speedSearch";
 import { ContextMenu, formatWhen, type ContextItem } from "./ui";
 
-/** What a stash row can do to its entry; the dock panel and the commit page's
- *  stash section share it, so one list has one set of actions. */
+/** What a stash row can do to its entry. The commit page owns the only list,
+ *  so one set of actions serves every entry. */
 export interface StashActions {
   onOpen: (index: number) => void;
   onApply: (index: number, pop: boolean, restoreIndex: boolean) => void;
@@ -14,36 +14,22 @@ export interface StashActions {
 
 const T = {
   en: {
-    stashes: "Stashes",
     stashDetail: "Show the stash contents",
     popStash: "Pop stash",
     applyStash: "Apply stash",
     dropStash: "Drop stash",
-    clearStashes: "Clear all stashes",
-    stashChanges: "Stash changes",
-    refresh: "Refresh",
     pop: "Pop",
     apply: "Apply",
     drop: "Drop",
-    empty: "No stashes",
-    emptyHint: "Stashing puts the working tree aside and leaves the index as it was.",
-    stepHint: "↑↓ step · Enter shows the contents · ⌫ drops",
   },
   zh: {
-    stashes: "Stash",
     stashDetail: "查看 Stash 内容",
     popStash: "弹出 Stash",
     applyStash: "应用 Stash",
     dropStash: "删除 Stash",
-    clearStashes: "清空所有 Stash",
-    stashChanges: "Stash 更改",
-    refresh: "刷新",
     pop: "弹出",
     apply: "应用",
     drop: "删除",
-    empty: "没有 Stash",
-    emptyHint: "Stash 会把工作区搁置起来，索引保持原样。",
-    stepHint: "↑↓ 切换 · Enter 查看内容 · ⌫ 删除",
   },
 } as const;
 
@@ -64,13 +50,17 @@ function stashMenu(
   ];
 }
 
-/** The stash rows themselves: the commit page's section body and the dock
- *  panel draw the same list, so both get the buttons, the menu and the
- *  keyboard from one place. */
+/** The stash rows the commit page draws: the buttons, the context menu and
+ *  the keyboard live together so one row behaves the same way everywhere. */
 export function StashRows({ stashes, actions }: { stashes: Stash[]; actions: StashActions }) {
   const t = useT(T);
   const [menu, setMenu] = useState<{ x: number; y: number; items: ContextItem[] } | null>(null);
   const listRef = useRef<HTMLDivElement>(null);
+  // Typing walks the list, as a JBList's speed search does; the buffer shows
+  // over the rows and clears when typing stops.
+  const [speed, setSpeed] = useState("");
+  const speedBuffer = useRef("");
+  const speedTimer = useRef<number | null>(null);
 
   /** IDEA walks a list with the keyboard: ↑↓ move, Enter is the row's click,
    *  and the delete key is the row's own delete. */
@@ -87,6 +77,26 @@ export function StashRows({ stashes, actions }: { stashes: Stash[]; actions: Sta
       actions.onDrop(stash.index);
       return;
     }
+    if (e.key.length === 1 && !e.metaKey && !e.ctrlKey && !e.altKey) {
+      e.preventDefault();
+      speedBuffer.current += e.key;
+      if (speedTimer.current !== null) window.clearTimeout(speedTimer.current);
+      speedTimer.current = window.setTimeout(() => {
+        speedBuffer.current = "";
+        setSpeed("");
+      }, 1200);
+      setSpeed(speedBuffer.current);
+      const rows = listRef.current?.querySelectorAll<HTMLElement>(".stash-row");
+      const found = textSpeedSearch(
+        stashes.map((s) => s.message),
+        speedBuffer.current,
+        at,
+      );
+      const target = found >= 0 ? rows?.[found] : undefined;
+      target?.focus({ preventScroll: true });
+      target?.scrollIntoView({ block: "nearest" });
+      return;
+    }
     if (e.key !== "ArrowDown" && e.key !== "ArrowUp") return;
     e.preventDefault();
     const rows = listRef.current?.querySelectorAll<HTMLElement>(".stash-row");
@@ -97,6 +107,11 @@ export function StashRows({ stashes, actions }: { stashes: Stash[]; actions: Sta
 
   return (
     <div className="stash-rows" ref={listRef}>
+      {speed && (
+        <div className="stash-speed" aria-live="polite">
+          {speed}
+        </div>
+      )}
       {stashes.map((s, at) => (
         <div
           className="tree-row stash-row"
@@ -126,60 +141,6 @@ export function StashRows({ stashes, actions }: { stashes: Stash[]; actions: Sta
         </div>
       ))}
       {menu && <ContextMenu x={menu.x} y={menu.y} items={menu.items} onClose={() => setMenu(null)} />}
-    </div>
-  );
-}
-
-/** IDEA's stash tab in the Git tool window: the entries, a way to make one,
- *  and the same rows the commit page draws. */
-export function StashPanel({
-  stashes,
-  actions,
-  onStashPush,
-  onRefresh,
-  onClear,
-  busy,
-}: {
-  stashes: Stash[];
-  actions: StashActions;
-  onStashPush: () => void;
-  onRefresh: () => void;
-  onClear: () => void;
-  busy?: boolean;
-}) {
-  const t = useT(T);
-  return (
-    <div className="stash-panel">
-      <div className="section-header static">
-        <Icon name="stash" size={13} />
-        <span className="section-title">{t("stashes")}</span>
-        <span className="section-count">{stashes.length}</span>
-        <span className="spacer" />
-        <button className="mini-btn" onClick={onStashPush} title={t("stashChanges")}>
-          + {t("stashChanges")}
-        </button>
-        <button className="mini-btn" onClick={onRefresh} title={t("refresh")}>
-          ⟳
-        </button>
-        <button
-          className="mini-btn danger"
-          onClick={onClear}
-          disabled={stashes.length === 0 || busy}
-          title={t("clearStashes")}
-        >
-          ⌫
-        </button>
-      </div>
-      {stashes.length === 0 ? (
-        <div className="changes-empty">
-          <Icon name="stash" size={20} />
-          <span>{t("empty")}</span>
-          <span className="muted">{t("emptyHint")}</span>
-        </div>
-      ) : (
-        <StashRows stashes={stashes} actions={actions} />
-      )}
-      <div className="stash-panel-hint">{t("stepHint")}</div>
     </div>
   );
 }
