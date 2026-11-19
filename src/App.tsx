@@ -597,7 +597,7 @@ const T = {
 type TKey = keyof typeof T["en"];
 type Translate = (key: TKey, vars?: Record<string, string | number>) => string;
 
-/** The dock's four pages, in the order Settings holds. The strip itself is not
+/** The dock's pages, in the order Settings holds. The strip itself is not
  *  reorderable: the order is a preference, and dragging a tab in a strip that
  *  switches pages on click was the wrong place to edit one. */
 function ToolTabs({
