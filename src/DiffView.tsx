@@ -647,10 +647,13 @@ export function DiffView({
     }
     return { left, right };
   }, [rows]);
+  // The gutter arithmetic (--diff-gutter-half, --diff-uni-pad) lives in the
+  // stylesheet beside the row tracks, because annotate adds a blame column to
+  // each side and the panes' 50% floor has to leave room for it.
   const layout = {
-    "--diff-left-w": `max(calc(50% - 65px), calc(${widths.left + 2}ch + 10px))`,
-    "--diff-right-w": `max(calc(50% - 65px), calc(${widths.right + 2}ch + 10px))`,
-    "--diff-uni-w": `max(calc(100% - 100px), calc(${Math.max(widths.left, widths.right) + 2}ch + 10px))`,
+    "--diff-left-w": `max(calc(50% - var(--diff-gutter-half)), calc(${widths.left + 2}ch + 10px))`,
+    "--diff-right-w": `max(calc(50% - var(--diff-gutter-half)), calc(${widths.right + 2}ch + 10px))`,
+    "--diff-uni-w": `max(calc(100% - var(--diff-uni-pad)), calc(${Math.max(widths.left, widths.right) + 2}ch + 10px))`,
   } as React.CSSProperties;
   const whitespaceItems: ContextItem[] = [
     { header: true, label: t("ignoreDifferences") },
@@ -962,7 +965,7 @@ export function DiffView({
         </div>
       ) : (
         <div
-          className={cx("diff-body", mode, wrap && "wrap", highlight === "none" && "hl-none")}
+          className={cx("diff-body", mode, wrap && "wrap", annotate && "annotate", highlight === "none" && "hl-none")}
           style={layout}
           ref={bodyRef}
         >

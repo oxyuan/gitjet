@@ -324,7 +324,12 @@ use it only for layout work. Vite's port is pinned to 5173 in **both**
   the apply arrows survive folding, and a hunk's chevron sits on its first
   *visible* row. Wrap is real: `.diff-body.wrap` reflows the text; unwrapped,
   the viewer sets `--diff-left-w` / `--diff-right-w` from `lineWidth`, so a
-  line wider than its half scrolls instead of being clipped.
+  line wider than its half scrolls instead of being clipped. Every diff
+  layout — split or unified, wrapped or not, annotated or not — takes its row
+  tracks from that one section of `style.css`, whose `--diff-gutter-half` /
+  `--diff-uni-pad` carry the gutter arithmetic annotate widens: the wrap
+  rules outrank `.diff-rows.split.annotate`, so an annotated row needs its own
+  wrap rule or its seven cells land in five tracks and wrap onto extra rows.
 - Ignore-differences is one policy, not flags: `DiffOptions.Whitespace` is
   `none`, `trim` (`--ignore-space-change`), `whitespace` (`-w`) or
   `whitespace-blank` (`-w --ignore-blank-lines`), and the diff toolbar's menu

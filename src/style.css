@@ -7660,15 +7660,9 @@ body.col-resizing .log-detail-grip::after {
 /* ---------- Diff blame ---------- */
 
 /* The diff gutter answers like the source editor's: the blame column sits
-   beside the line numbers, and the line number itself opens the Git menu. */
-.diff-rows.split.annotate .diff-row {
-  grid-template-columns: 156px 46px minmax(0, 1fr) 20px 156px 46px minmax(0, 1fr);
-}
-
-.diff-rows.unified.annotate .diff-row {
-  grid-template-columns: 156px 46px 16px minmax(0, 1fr) 20px;
-}
-
+   beside the line numbers, and the line number itself opens the Git menu.
+   The row's tracks for every layout live with the other diff track sets,
+   "Diff view: folding, wrapping, horizontal scroll" below. */
 .diff-rows.split.annotate .diff-row > div:nth-child(4) {
   border-left: 0;
 }
@@ -10082,14 +10076,43 @@ body.col-resizing .log-detail-grip::after {
   grid-template-columns: 46px var(--diff-left-w) 38px 46px var(--diff-right-w);
 }
 
+/* An annotated side spends its blame column before its line number, and the
+ * apply chevrons narrow to a lane between the halves. */
+.diff-rows.split.annotate .diff-row {
+  grid-template-columns:
+    var(--diff-annotate-w) 46px var(--diff-left-w) 20px
+    var(--diff-annotate-w) 46px var(--diff-right-w);
+}
+
 .diff-rows.unified .diff-row {
   grid-template-columns: 46px 16px var(--diff-uni-w) 38px;
+}
+
+.diff-rows.unified.annotate .diff-row {
+  grid-template-columns: var(--diff-annotate-w) 46px 16px var(--diff-uni-w) 20px;
 }
 
 .diff-body.split .diff-columns {
   width: max-content;
   min-width: 100%;
   grid-template-columns: calc(46px + var(--diff-left-w) + 38px) calc(46px + var(--diff-right-w));
+  /* `ch` in --diff-left-w / --diff-right-w resolves against the element that
+   * uses it, so the header has to measure in the rows' font or its divider
+   * drifts from theirs as soon as a long line sets the width. */
+  font-family: var(--font-mono);
+  font-size: 12px;
+}
+
+.diff-body.split .diff-columns .diff-col-label {
+  font-family: var(--font-ui);
+  font-size: 10.5px;
+}
+
+/* The header's divider has to land where the rows' divider does. */
+.diff-body.split:not(.wrap).annotate .diff-columns {
+  grid-template-columns:
+    calc(var(--diff-annotate-w) + 46px + var(--diff-left-w) + 20px)
+    calc(var(--diff-annotate-w) + 46px + var(--diff-right-w));
 }
 
 .diff-row .line-text {
@@ -10097,14 +10120,40 @@ body.col-resizing .log-detail-grip::after {
   text-overflow: clip;
 }
 
+/* Gutter arithmetic the pane widths leave room for: both line-number columns
+ * and the divider — and the blame columns when annotate is on. The viewer
+ * writes --diff-left-w / --diff-right-w / --diff-uni-w in terms of these, so
+ * annotated and plain diffs share one sizing rule. */
+.diff-body {
+  --diff-annotate-w: 156px;
+  --diff-gutter-half: 65px; /* split: (46 + 38 + 46) / 2 */
+  --diff-uni-pad: 100px; /* unified: 46 + 16 + 38 */
+}
+
+.diff-body.annotate {
+  --diff-gutter-half: 212px; /* split: (156 + 46 + 20) + (156 + 46) over two sides */
+  --diff-uni-pad: 238px; /* unified: 156 + 46 + 16 + 20 */
+}
+
 /* Wrapped mode divides the viewport again: every line is visible, so the
- * body must not scroll sideways. */
+ * body must not scroll sideways. An annotated row keeps its blame columns and
+ * line numbers fixed and gives each half what is left. */
 .diff-body.wrap .diff-rows.split .diff-row {
   grid-template-columns: 46px minmax(0, 1fr) 38px 46px minmax(0, 1fr);
 }
 
+.diff-body.wrap .diff-rows.split.annotate .diff-row {
+  grid-template-columns:
+    var(--diff-annotate-w) 46px minmax(0, 1fr) 20px
+    var(--diff-annotate-w) 46px minmax(0, 1fr);
+}
+
 .diff-body.wrap .diff-rows.unified .diff-row {
   grid-template-columns: 46px 16px minmax(0, 1fr) 38px;
+}
+
+.diff-body.wrap .diff-rows.unified.annotate .diff-row {
+  grid-template-columns: var(--diff-annotate-w) 46px 16px minmax(0, 1fr) 20px;
 }
 
 .diff-body.wrap .diff-columns {
