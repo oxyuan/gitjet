@@ -33,6 +33,7 @@ const T = {
     diffLayout: "Diff layout",
     sideBySide: "Side-by-side diff",
     unifiedDiff: "Unified diff",
+    swapSides: "Swap sides: read the comparison the other way round",
     wrapLongLines: "Wrap long lines",
     wrap: "Wrap",
     whitespace: "Whitespace",
@@ -108,6 +109,7 @@ const T = {
     diffLayout: "差异布局",
     sideBySide: "并排差异",
     unifiedDiff: "统一差异",
+    swapSides: "交换两侧：反向读取这次比较",
     wrapLongLines: "长行折行显示",
     wrap: "折行",
     whitespace: "忽略空白",
@@ -191,6 +193,9 @@ export function DiffView({
   onExternalDiff,
   onShowFileHistory,
   onCommitDiff,
+  /** Reads a two-revision comparison the other way round, as IDEA's compare
+   *  panel does; the diff is recomputed, so labels and sides stay truthful. */
+  onSwapSides,
   root,
   onCopyPath,
   busy,
@@ -214,6 +219,7 @@ export function DiffView({
   onShowFileHistory?: (path: string, line: number, revision: string) => void;
   /** The file's changes in one commit, IDEA's "Show Diff" on a blame popup. */
   onCommitDiff?: (hash: string) => void;
+  onSwapSides?: () => void;
   root: string;
   onCopyPath: (text: string) => void;
   busy?: boolean;
@@ -758,6 +764,7 @@ export function DiffView({
               <Icon name="rows" />
             </button>
           </div>
+          {onSwapSides && <IconButton icon="swap" title={t("swapSides")} small onClick={onSwapSides} />}
           <button
             className={cx("toolbar-text-btn", wrap && "active")}
             onClick={onToggleWrap}

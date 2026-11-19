@@ -1710,6 +1710,28 @@ function AppShell({ onLangChange }: { onLangChange: (lang: Lang) => void }) {
   };
 
   /**
+   * A comparison of two revisions read the other way round, as IDEA's compare
+   * panel swaps sides. The diff is recomputed from the exchanged revisions, so
+   * the side labels, the word marks and the hunks all follow; exchanging rows
+   * in the viewer would leave every one of them naming the wrong revision.
+   */
+  const swapCompare = (doc: Extract<Doc, { kind: "diff" }>) => {
+    const opts: DiffOptions = { ...doc.opts, from: doc.opts.revision, revision: doc.opts.from };
+    // Adopt the swapped options at once, so a response for the old direction
+    // is recognisable as stale when it lands and cannot repaint the tab.
+    setDocs((prev) => prev.map((d) => (d.id === doc.id && d.kind === "diff" ? { ...d, opts } : d)));
+    void Git.diff(opts).then(
+      (diff) =>
+        setDocs((prev) =>
+          prev.map((d) =>
+            d.id === doc.id && d.kind === "diff" && d.opts === opts ? { ...d, diff } : d,
+          ),
+        ),
+      (err) => fail(t("gitFailed"), err),
+    );
+  };
+
+  /**
    * The ignore-whitespace policy is a view setting, as it is in IDEA's
    * per-place diff settings: every open viewer re-reads its diff, because a
    * tab left under the old policy would show that policy's hunks beneath a
@@ -3538,6 +3560,7 @@ function AppShell({ onLangChange }: { onLangChange: (lang: Lang) => void }) {
             onApplyThreeFile={applyThreeFile}
             onOpenFile={(path, revision, line) => void showFile(path, revision, line)}
             onOpenDiff={(path, revision) => void showFileDiff(path, revision)}
+            onSwapCompare={swapCompare}
             onNextDiffFile={nextDiffFile}
             onCopyPath={copyText}
             onReveal={(path) => void Workspace.reveal(path).catch((err) => fail(t("revealFailed"), err))}
@@ -4256,6 +4279,7 @@ function RightPane({
   onOpenFile,
   onExternalDiff,
   onOpenDiff,
+  onSwapCompare,
   onNextDiffFile,
   onCopyPath,
   onReveal,
@@ -4314,6 +4338,8 @@ function RightPane({
   onOpenFile: (path: string, revision: string, line?: number) => void;
   onExternalDiff: (opts: DiffOptions) => void;
   onOpenDiff: (path: string, revision: string) => void;
+  /** Reads a two-revision comparison the other way round, in place. */
+  onSwapCompare: (doc: Extract<Doc, { kind: "diff" }>) => void;
   /** Moves to the neighbouring changed file of the same transition. */
   onNextDiffFile: (path: string, revision: string, delta: 1 | -1) => void;
   onCopyPath: (text: string) => void;
@@ -4790,6 +4816,7 @@ function RightPane({
             }}
             onShowFileHistory={onShowFileHistory}
             onCommitDiff={(hash) => onOpenDiff(active.opts.path, hash)}
+            onSwapSides={active.opts.target === "range" ? () => onSwapCompare(active) : undefined}
             root={root}
             onCopyPath={(text) => onCopyPath(text)}
             busy={busy}
