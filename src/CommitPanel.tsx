@@ -1104,6 +1104,21 @@ export function CommitPanel({
                 key={s.ref}
                 onClick={() => actions.onShowStashDetail(s.index)}
                 title={t("stashDetail")}
+                onContextMenu={(e) => {
+                  e.preventDefault();
+                  setMenu({
+                    x: e.clientX,
+                    y: e.clientY,
+                    items: [
+                      { label: t("stashDetail"), icon: "diff", onClick: () => actions.onShowStashDetail(s.index) },
+                      { separator: true },
+                      { label: t("popStash"), icon: "unstage", onClick: () => actions.onStashApply(s.index, true, false) },
+                      { label: t("applyStash"), icon: "stage", onClick: () => actions.onStashApply(s.index, false, false) },
+                      { separator: true },
+                      { label: t("dropStash"), icon: "trash", onClick: () => actions.onStashDrop(s.index) },
+                    ],
+                  });
+                }}
               >
                 <span className="stash-ref">stash@{"{" + s.index + "}"}</span>
                 <span className="tree-name">{s.message}</span>
