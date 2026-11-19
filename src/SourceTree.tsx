@@ -154,11 +154,11 @@ export function SourceTree({
   live.current = { q: typing.q, matches, at, open: onOpen };
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
-      if (e.isComposing || e.metaKey || e.ctrlKey || e.altKey) return;
+      if (e.isComposing || e.metaKey || e.ctrlKey || e.altKey || e.defaultPrevented) return;
       const target = e.target as Element | null;
       if (isTextTarget(target) || isTextTarget(document.activeElement)) return;
-      // A dialog owns the keyboard while it is up, even with nothing focused.
-      // A dialog or an open menu owns the keyboard while it is up.
+      // A dialog or an open menu owns the keyboard while it is up, even with
+      // nothing focused inside it.
       if (document.querySelector(".modal-overlay, .context-menu, .context-submenu")) return;
       const state = live.current;
       if (e.key === "Escape") {
