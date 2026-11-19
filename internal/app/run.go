@@ -210,6 +210,7 @@ func buildMenu(l lang) *mygo.Menu {
 		{Label: l.tr("menu.logTab"), Accelerator: "CmdOrCtrl+0", Click: send("tab:branch")},
 		{Label: l.tr("menu.filesTab"), Accelerator: "CmdOrCtrl+Shift+E", Click: send("tab:files")},
 		{Label: l.tr("menu.consoleTab"), Accelerator: "CmdOrCtrl+Shift+9", Click: send("tab:console")},
+		{Label: l.tr("menu.stashTab"), Click: send("tab:stash")},
 		mygo.Separator(),
 		{Label: l.tr("menu.refresh"), Accelerator: "CmdOrCtrl+R", Click: send("refresh")},
 	}

@@ -1,13 +1,13 @@
-/** The left dock's four tool windows are a user-ordered strip: the stored
+/** The left dock's tool windows are a user-ordered strip: the stored
  *  order is the only thing that says which comes first, so it has to be
  *  repaired rather than trusted — a stored value may predate a tab, name one
  *  twice, or carry a name that no longer exists. */
 
 import type { IconName } from "./icons";
 
-export type ToolTab = "commit" | "branch" | "files" | "console";
+export type ToolTab = "commit" | "branch" | "files" | "console" | "stash";
 
-export const TOOL_TABS: ToolTab[] = ["commit", "branch", "files", "console"];
+export const TOOL_TABS: ToolTab[] = ["commit", "branch", "files", "console", "stash"];
 
 /** The glyph each tab wears, shared by the strip and the settings list. */
 export const TOOL_TAB_ICONS: Record<ToolTab, IconName> = {
@@ -15,6 +15,7 @@ export const TOOL_TAB_ICONS: Record<ToolTab, IconName> = {
   branch: "branch",
   files: "folder",
   console: "console",
+  stash: "stash",
 };
 
 /** A complete permutation of `TOOL_TABS`: known names only, no repeats, in the

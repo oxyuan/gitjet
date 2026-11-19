@@ -7,6 +7,7 @@ import { useFileMenu } from "./FileMenu";
 import { count, useT } from "./i18n";
 import type { Changelist, ChangesSnapshot, Settings } from "./mygo";
 import { FileIcon, Icon } from "./icons";
+import { StashRows } from "./StashPanel";
 import {
   Checkbox,
   ContextMenu,
@@ -77,17 +78,10 @@ const T = {
     stashes: "Stashes",
     ignoredFiles: "Ignored Files",
     staged: "Staged",
-    popStash: "Pop stash",
-    applyStash: "Apply stash",
-    dropStash: "Drop stash",
     resolveAll: "Resolve conflicts…",
     blockedByConflictOne: "1 conflicted file has to be resolved before committing.",
     blockedByConflicts: "{n} conflicted files have to be resolved before committing.",
     commitBlockedTooltip: "Resolve the conflicts first",
-    stashDetail: "Show the stash contents",
-    pop: "Pop",
-    apply: "Apply",
-    drop: "Drop",
     noLocalChanges: "No local changes",
     workingTreeClean: "The working tree is clean.",
     commitMessage: "Commit message",
@@ -166,17 +160,10 @@ const T = {
     stashes: "Stash",
     ignoredFiles: "已忽略的文件",
     staged: "已暂存",
-    popStash: "Stash pop",
-    applyStash: "Stash apply",
-    dropStash: "Stash drop",
     resolveAll: "解决冲突…",
     blockedByConflictOne: "有 1 个冲突文件，解决后才能提交。",
     blockedByConflicts: "有 {n} 个冲突文件，解决后才能提交。",
     commitBlockedTooltip: "请先解决冲突",
-    stashDetail: "查看 Stash 内容",
-    pop: "弹出",
-    apply: "应用",
-    drop: "删除",
     noLocalChanges: "没有本地更改",
     workingTreeClean: "工作区是干净的。",
     commitMessage: "提交信息",
@@ -1098,43 +1085,14 @@ export function CommitPanel({
               <IconButton icon="trash" title={t("clearStashes")} small onClick={actions.onClearStashes} />
               <IconButton icon="plus" title={t("stashChanges")} small onClick={actions.onStashPush} />
             </div>
-            {snapshot.stashes.map((s) => (
-              <div
-                className="tree-row stash-row"
-                key={s.ref}
-                onClick={() => actions.onShowStashDetail(s.index)}
-                title={t("stashDetail")}
-                onContextMenu={(e) => {
-                  e.preventDefault();
-                  setMenu({
-                    x: e.clientX,
-                    y: e.clientY,
-                    items: [
-                      { label: t("stashDetail"), icon: "diff", onClick: () => actions.onShowStashDetail(s.index) },
-                      { separator: true },
-                      { label: t("popStash"), icon: "unstage", onClick: () => actions.onStashApply(s.index, true, false) },
-                      { label: t("applyStash"), icon: "stage", onClick: () => actions.onStashApply(s.index, false, false) },
-                      { separator: true },
-                      { label: t("dropStash"), icon: "trash", onClick: () => actions.onStashDrop(s.index) },
-                    ],
-                  });
-                }}
-              >
-                <span className="stash-ref">stash@{"{" + s.index + "}"}</span>
-                <span className="tree-name">{s.message}</span>
-                <span className="stash-actions" onClick={(e) => e.stopPropagation()}>
-                  <button className="mini-btn" onClick={() => actions.onStashApply(s.index, true, false)} title={t("popStash")}>
-                    {t("pop")}
-                  </button>
-                  <button className="mini-btn" onClick={() => actions.onStashApply(s.index, false, false)} title={t("applyStash")}>
-                    {t("apply")}
-                  </button>
-                  <button className="mini-btn danger" onClick={() => actions.onStashDrop(s.index)} title={t("dropStash")}>
-                    {t("drop")}
-                  </button>
-                </span>
-              </div>
-            ))}
+            <StashRows
+              stashes={snapshot.stashes}
+              actions={{
+                onOpen: actions.onShowStashDetail,
+                onApply: actions.onStashApply,
+                onDrop: actions.onStashDrop,
+              }}
+            />
           </div>
         )}
         {settings.showIgnored && ignored.length > 0 &&

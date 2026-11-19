@@ -25,6 +25,7 @@ import {
 } from "./mygo";
 import { CommitPanel, entriesFor, type CommitActions, type CommitForm, type FileEntry } from "./CommitPanel";
 import { ConsolePanel } from "./ConsolePanel";
+import { StashPanel, type StashActions } from "./StashPanel";
 import { SourceTree } from "./SourceTree";
 import { normalizeTabOrder, type ToolTab, TOOL_TABS, TOOL_TAB_ICONS } from "./tabs";
 import { isProtectedBranch } from "./protected";
@@ -134,6 +135,7 @@ const T = {
     filesTab: "Files",
     branchTab: "Branch",
     consoleTab: "Console",
+    stashTab: "Stash",
     detachedHead: "Detached HEAD",
     noCommitsYet: "No commits yet",
     pushOne: "Push {n} commit",
@@ -371,6 +373,7 @@ const T = {
     filesTab: "文件",
     branchTab: "分支",
     consoleTab: "控制台",
+    stashTab: "Stash",
     detachedHead: "分离的 HEAD",
     noCommitsYet: "暂无提交",
     pushOne: "Push {n} 个提交",
@@ -3125,6 +3128,9 @@ function AppShell({ onLangChange }: { onLangChange: (lang: Lang) => void }) {
         case "tab:console":
           setTab("console");
           break;
+        case "tab:stash":
+          setTab("stash");
+          break;
       }
     },
     // The handler closes over current state through the functions above.
@@ -3176,6 +3182,17 @@ function AppShell({ onLangChange }: { onLangChange: (lang: Lang) => void }) {
     setSelectedCommit(null);
     setLogDetail(null);
     setLogFile(null);
+  };
+
+  /** One set of stash actions for the commit page's section and the stash
+   *  tab, so both act on the same entries the same way. */
+  const stashActions: StashActions = {
+    onOpen: (index) => {
+      const stash = snapshot?.stashes.find((s) => s.index === index);
+      setDialog({ kind: "stashDetail", index, refName: stash?.ref ?? `stash@{${index}}` });
+    },
+    onApply: (index, pop, restoreIndex) => void stashApply(index, pop, restoreIndex),
+    onDrop: (index) => void stashDrop(index),
   };
 
   const actions: CommitActions = {
@@ -3256,13 +3273,10 @@ function AppShell({ onLangChange }: { onLangChange: (lang: Lang) => void }) {
     onToggleAmend: (amend) => void toggleAmend(amend),
     onCommitFormChange: setForm,
     onRequestPush: () => void commit(true),
-    onShowStashDetail: (index) => {
-      const stash = snapshot?.stashes.find((s) => s.index === index);
-      setDialog({ kind: "stashDetail", index, refName: stash?.ref ?? `stash@{${index}}` });
-    },
+    onShowStashDetail: stashActions.onOpen,
     onResolveConflicts: () => setDialog({ kind: "conflicts" }),
     onStashPush: () => setDialog({ kind: "stash" }),
-    onStashApply: (index, pop, restoreIndex) => void stashApply(index, pop, restoreIndex),
+    onStashApply: stashActions.onApply,
     onClearStashes: () => void clearStashes(),
     onCreatePatch: (paths) => void createPatch(paths),
     onApplyPatch: () => void applyPatch(),
@@ -3273,7 +3287,7 @@ function AppShell({ onLangChange }: { onLangChange: (lang: Lang) => void }) {
         void showFile(".gitignore", "");
       });
     },
-    onStashDrop: (index) => void stashDrop(index),
+    onStashDrop: stashActions.onDrop,
   };
 
   const saveSettings = async (next: Settings) => {
@@ -3341,6 +3355,7 @@ function AppShell({ onLangChange }: { onLangChange: (lang: Lang) => void }) {
         branch: t("branchTab"),
         files: t("filesTab"),
         console: t("consoleTab"),
+        stash: t("stashTab"),
       }}
     />
   );
@@ -3501,6 +3516,23 @@ function AppShell({ onLangChange }: { onLangChange: (lang: Lang) => void }) {
                   onError={(err) => fail(t("openFileFailed"), err)}
                   onActionError={(err) => fail(t("fileActionFailed"), err)}
                   onIgnore={(paths) => void ignorePaths(paths)}
+                />
+              ) : (
+                <NoRepo
+                  onOpen={() => void openRepo()}
+                  onClone={() => setDialog({ kind: "clone" })}
+                  onInit={() => setDialog({ kind: "init" })}
+                />
+              ))}
+            {tab === "stash" &&
+              (repoOpen ? (
+                <StashPanel
+                  stashes={snapshot?.stashes ?? []}
+                  actions={stashActions}
+                  onStashPush={() => setDialog({ kind: "stash" })}
+                  onRefresh={() => void reload(true)}
+                  onClear={() => void clearStashes()}
+                  busy={busy > 0}
                 />
               ) : (
                 <NoRepo

@@ -83,6 +83,7 @@ const T = {
     "settings.toolBranch": "Branch",
     "settings.toolFiles": "Files",
     "settings.toolConsole": "Console",
+    "settings.toolStash": "Stash",
     "settings.panelGitPath": "Git executable",
     "settings.panelConnection": "Remote connection",
     "settings.sshCommand": "SSH command",
@@ -408,6 +409,7 @@ const T = {
     "settings.toolBranch": "分支",
     "settings.toolFiles": "文件",
     "settings.toolConsole": "控制台",
+    "settings.toolStash": "Stash",
     "settings.panelGitPath": "Git 基础配置",
     "settings.panelDiff": "差异对比设置",
     "settings.panelSync": "同步 Pull 设置",
@@ -792,6 +794,7 @@ const TOOL_TAB_LABELS: Record<ToolTab, TKey> = {
   branch: "settings.toolBranch",
   files: "settings.toolFiles",
   console: "settings.toolConsole",
+  stash: "settings.toolStash",
 };
 
 export function SettingsDialog({
