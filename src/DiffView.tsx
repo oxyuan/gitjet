@@ -59,6 +59,8 @@ const T = {
     rollback: "Rollback",
     uncommitted: "Uncommitted changes",
     lineHistory: "Show history of this line",
+    commitFileDiff: "Show all changes of this commit in this file",
+    annotatePrevious: "Annotate Previous Revision",
     copyHash: "Copy commit hash",
     annotateWithBlame: "Annotate with Git Blame",
     externalDiff: "Open this comparison in the configured difftool",
@@ -132,6 +134,8 @@ const T = {
     rollback: "还原",
     uncommitted: "未提交的更改",
     lineHistory: "查看该行的历史",
+    commitFileDiff: "查看该提交在此文件中的全部差异",
+    annotatePrevious: "标注上一个版本",
     copyHash: "复制提交哈希",
     annotateWithBlame: "使用 Git Blame 标注",
     externalDiff: "用配置的差异工具打开此比较",
@@ -186,6 +190,7 @@ export function DiffView({
   onOpenFile,
   onExternalDiff,
   onShowFileHistory,
+  onCommitDiff,
   root,
   onCopyPath,
   busy,
@@ -207,6 +212,8 @@ export function DiffView({
   onExternalDiff?: () => void;
   /** Line history of one side of the diff, at that side's revision. */
   onShowFileHistory?: (path: string, line: number, revision: string) => void;
+  /** The file's changes in one commit, IDEA's "Show Diff" on a blame popup. */
+  onCommitDiff?: (hash: string) => void;
   root: string;
   onCopyPath: (text: string) => void;
   busy?: boolean;
@@ -297,8 +304,27 @@ export function DiffView({
   const [menu, setMenu] = useState<{ x: number; y: number; side: Side; line: number } | null>(null);
   const revisions = useMemo(() => diffRevisions(opts), [opts.target, opts.revision, opts.from]);
   const beforePath = opts.oldPath || opts.path;
-  const before = useBlame(beforePath, revisions.before, !diff.binary && (annotate || menu?.side === "before"), ignoreWs);
-  const after = useBlame(diff.path, revisions.after, !diff.binary && (annotate || menu?.side === "after"), ignoreWs);
+  // "Annotate Previous Revision" moves one side's blame to that commit's
+  // parent. The override belongs to the side it was chosen on and is dropped
+  // when the comparison changes, since the revision it replaced is gone too.
+  const [blameAt, setBlameAt] = useState<{ before?: string; after?: string }>({});
+  useEffect(() => {
+    setBlameAt({});
+  }, [diff.path, opts.target, opts.revision, opts.from]);
+  const sideRevision = (side: Side) =>
+    side === "before" ? (blameAt.before ?? revisions.before) : (blameAt.after ?? revisions.after);
+  const before = useBlame(
+    beforePath,
+    sideRevision("before"),
+    !diff.binary && (annotate || menu?.side === "before"),
+    ignoreWs,
+  );
+  const after = useBlame(
+    diff.path,
+    sideRevision("after"),
+    !diff.binary && (annotate || menu?.side === "after"),
+    ignoreWs,
+  );
   const beforeIndex = useMemo(() => indexBlame(before), [before]);
   const afterIndex = useMemo(() => indexBlame(after), [after]);
 
@@ -314,6 +340,8 @@ export function DiffView({
         labels: {
           uncommitted: t("uncommitted"),
           lineHistory: t("lineHistory"),
+          commitFileDiff: t("commitFileDiff"),
+          annotatePrevious: t("annotatePrevious"),
           copyHash: t("copyHash"),
           annotate: t("annotateWithBlame"),
           closeAnnotations: t("closeAnnotations"),
@@ -324,14 +352,11 @@ export function DiffView({
         onToggleAnnotate: () => setAnnotate(!annotate),
         ignoreWhitespace: ignoreWs,
         onToggleIgnoreWhitespace: () => setIgnoreWs(!ignoreWs),
+        onAnnotatePrevious: (revision) => setBlameAt((prev) => ({ ...prev, [menu.side]: revision })),
+        onCommitDiff,
         onLineHistory:
-          onShowFileHistory && (menu.side === "before" ? revisions.before : revisions.after) !== "INDEX"
-            ? (line) =>
-                onShowFileHistory(
-                  menu.side === "before" ? beforePath : diff.path,
-                  line,
-                  menu.side === "before" ? revisions.before : revisions.after,
-                )
+          onShowFileHistory && sideRevision(menu.side) !== "INDEX"
+            ? (line) => onShowFileHistory(menu.side === "before" ? beforePath : diff.path, line, sideRevision(menu.side))
             : undefined,
         onCopy: onCopyPath,
       })

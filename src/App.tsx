@@ -4789,6 +4789,7 @@ function RightPane({
               onOpenFile(path || active.opts.path, side === "before" ? revisions.before : revisions.after, line);
             }}
             onShowFileHistory={onShowFileHistory}
+            onCommitDiff={(hash) => onOpenDiff(active.opts.path, hash)}
             root={root}
             onCopyPath={(text) => onCopyPath(text)}
             busy={busy}
