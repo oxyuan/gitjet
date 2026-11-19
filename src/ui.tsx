@@ -279,6 +279,27 @@ export function Spinner({ label }: { label?: string }) {
   );
 }
 
+/** The controls Tab can reach inside a dialog, in paint order. */
+function tabbables(root: HTMLElement | null): HTMLElement[] {
+  if (!root) return [];
+  const nodes = root.querySelectorAll<HTMLElement>(
+    'button:not([disabled]), input:not([disabled]):not([type="hidden"]), select:not([disabled]), textarea:not([disabled]), a[href], [tabindex]:not([tabindex="-1"])',
+  );
+  return [...nodes].filter((el) => el.getClientRects().length > 0);
+}
+
+/** The control a dialog hands the keyboard to when it opens: its first field,
+ *  as DialogWrapper focuses its preferred component, or the dialog itself when
+ *  there is none (a settings sheet, a confirmation). */
+function initialFocus(dialog: HTMLElement | null): HTMLElement | null {
+  if (!dialog) return null;
+  const body = dialog.querySelector<HTMLElement>(".modal-body") ?? dialog;
+  const fields = body.querySelectorAll<HTMLElement>(
+    'input:not([disabled]):not([type="hidden"]):not([type="checkbox"]):not([type="radio"]), textarea:not([disabled]), select:not([disabled])',
+  );
+  return [...fields].find((el) => el.getClientRects().length > 0) ?? dialog;
+}
+
 /** Open modals, oldest first. Escape closes only the last one, so a dialog
  *  opened from another dialog does not take both down. */
 const modalStack: number[] = [];
@@ -306,6 +327,27 @@ export function Modal({
   closeRef.current = onClose;
   const idRef = useRef(0);
   if (idRef.current === 0) idRef.current = ++modalSeq;
+  const dialogRef = useRef<HTMLDivElement>(null);
+  // A dialog takes the keyboard when it opens and gives it back when it
+  // closes, as IDEA's dialogs do; without this, Tab after a cancelled dialog
+  // starts again at the top of the page instead of the control that opened it.
+  const openerRef = useRef<HTMLElement | null>(null);
+  useEffect(() => {
+    openerRef.current = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+    const dialog = dialogRef.current;
+    // A control that asked for focus (autoFocus) keeps it; otherwise the
+    // dialog's first field takes it, so typing goes where the reader looks.
+    // Its default text is selected, as a dialog's field is.
+    if (dialog && !dialog.contains(document.activeElement)) {
+      const first = initialFocus(dialog);
+      first?.focus({ preventScroll: true });
+      if (first instanceof HTMLInputElement || first instanceof HTMLTextAreaElement) first.select();
+    }
+    return () => {
+      const opener = openerRef.current;
+      if (opener && opener.isConnected) opener.focus({ preventScroll: true });
+    };
+  }, []);
   useEffect(() => {
     const id = idRef.current;
     modalStack.push(id);
@@ -334,14 +376,36 @@ export function Modal({
       }}
     >
       <div
+        ref={dialogRef}
         className={`modal${className ? " " + className : ""}`}
         style={{ width }}
         role="dialog"
         aria-modal="true"
+        tabIndex={-1}
         // Enter runs the dialog's default action, IDEA's OK: a single-line
         // field submits the form it belongs to. A textarea keeps its newline
         // and a button keeps its own activation.
         onKeyDown={(e) => {
+          // Tab cycles inside the dialog instead of reaching the page behind
+          // the backdrop, which the reader cannot see.
+          if (e.key === "Tab") {
+            const rows = tabbables(dialogRef.current);
+            if (rows.length === 0) {
+              e.preventDefault();
+              return;
+            }
+            const first = rows[0]!;
+            const last = rows[rows.length - 1]!;
+            const active = document.activeElement;
+            if (e.shiftKey && (active === first || active === e.currentTarget)) {
+              e.preventDefault();
+              last.focus();
+            } else if (!e.shiftKey && active === last) {
+              e.preventDefault();
+              first.focus();
+            }
+            return;
+          }
           if (e.key !== "Enter" || e.defaultPrevented || e.nativeEvent.isComposing) return;
           const target = e.target as HTMLElement;
           if (target.tagName === "TEXTAREA" || target.tagName === "BUTTON") return;
@@ -578,11 +642,17 @@ export function ContextMenu({
       if (ref.current && !ref.current.contains(target as Node)) onClose();
     };
     const onKey = (e: KeyboardEvent) => e.key === "Escape" && onClose();
+    // A popup belongs to the window it was opened in: losing the window, or
+    // resizing it, leaves the menu at stale coordinates over stale content.
     window.addEventListener("mousedown", close);
     window.addEventListener("keydown", onKey);
+    window.addEventListener("blur", onClose);
+    window.addEventListener("resize", onClose);
     return () => {
       window.removeEventListener("mousedown", close);
       window.removeEventListener("keydown", onKey);
+      window.removeEventListener("blur", onClose);
+      window.removeEventListener("resize", onClose);
     };
   }, [onClose]);
   // A menu takes the keyboard when it opens, so the arrows walk its rows and

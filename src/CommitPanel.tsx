@@ -362,6 +362,9 @@ export function CommitPanel({
   // File-name completion in the message box, invoked with Ctrl+Space.
   const messageRef = useRef<HTMLTextAreaElement | null>(null);
   const listRef = useRef<HTMLDivElement | null>(null);
+  // The row a Shift click or Shift+arrow extends from, which is the last row
+  // picked without Shift; a Set only knows insertion order, not the anchor.
+  const selectionAnchor = useRef<string | null>(null);
   const [completion, setCompletion] = useState<{ query: string; start: number; end: number; index: number } | null>(null);
   const fileMenu = useFileMenu({
     root: snapshot.state.root,
@@ -418,15 +421,40 @@ export function CommitPanel({
       for (const p of selected) next.add(p);
       if (next.has(entry.path)) next.delete(entry.path);
       else next.add(entry.path);
+      selectionAnchor.current = entry.path;
     } else if (e.shiftKey && selected.size > 0) {
       const paths = entries.map((x) => x.path);
-      const first = paths.indexOf([...selected][0]!);
+      const first = paths.indexOf(selectionAnchor.current ?? [...selected][0]!);
       const last = paths.indexOf(entry.path);
       for (let i = Math.min(first, last); i <= Math.max(first, last); i++) next.add(paths[i]!);
     } else {
       next.add(entry.path);
+      selectionAnchor.current = entry.path;
     }
     setSelected(next);
+  };
+
+  /** Selects the row an arrow reached; Shift drags the range out from the
+   *  anchor and keeps it as the arrows move, as a table does. */
+  const selectTo = (row: HTMLElement, extend: boolean) => {
+    const path = row.dataset.path;
+    if (path === undefined) return;
+    if (extend) {
+      const rows = fileRows();
+      const paths = rows.map((r) => r.dataset.path ?? "");
+      const from = paths.indexOf(selectionAnchor.current ?? path);
+      const to = rows.indexOf(row);
+      if (from >= 0 && to >= 0) {
+        const next = new Set<string>();
+        for (let i = Math.min(from, to); i <= Math.max(from, to); i++) next.add(paths[i]!);
+        setSelected(next);
+      }
+    } else {
+      selectionAnchor.current = path;
+      setSelected(new Set([path]));
+    }
+    row.focus({ preventScroll: true });
+    row.scrollIntoView({ block: "nearest" });
   };
 
   /** The row's diff, or the conflict editor: what a double click or Enter
@@ -465,11 +493,29 @@ export function CommitPanel({
       case "ArrowUp":
         next = rows[at - 1];
         break;
+      case "PageDown":
+        next = rows[Math.min(rows.length - 1, at + 10)];
+        break;
+      case "PageUp":
+        next = rows[Math.max(0, at - 10)];
+        break;
       case "Home":
         next = rows[0];
         break;
       case "End":
         next = rows[rows.length - 1];
+        break;
+      case "a":
+      case "A":
+        // Select All covers the rows the list is showing, folds included, as
+        // a table's Ctrl+A does.
+        if (e.metaKey || e.ctrlKey) {
+          e.preventDefault();
+          const paths = [...new Set(rows.map((r) => r.dataset.path).filter((p): p is string => !!p))];
+          selectionAnchor.current = paths[0] ?? null;
+          setSelected(new Set(paths));
+          return;
+        }
         break;
       case "Enter":
         e.preventDefault();
@@ -478,7 +524,16 @@ export function CommitPanel({
       case " ":
         if (entry.unmerged || entry.ignored) return;
         e.preventDefault();
-        toggle([entry.path], !checked.has(entry.path));
+        // With several rows selected, Space deals with all of them, not just
+        // the one under the caret.
+        toggle(
+          selected.has(entry.path) && selected.size > 1
+            ? [...selected].filter((p) =>
+                (entriesByPath.get(p) ?? []).some((x) => !x.unmerged && !x.ignored),
+              )
+            : [entry.path],
+          !checked.has(entry.path),
+        );
         return;
       case "Delete":
       case "Backspace":
@@ -508,17 +563,17 @@ export function CommitPanel({
       const at = speedSearchMatch(paths, speedBuffer.current, rows.indexOf(row) + 1);
       if (at < 0) return;
       const target = rows[at]!;
+      selectionAnchor.current = paths[at]!;
       setSelected(new Set([paths[at]!]));
       target.focus({ preventScroll: true });
       target.scrollIntoView({ block: "nearest" });
       return;
     }
+    if (!next) return;
     e.preventDefault();
-    if (next) {
-      setSelected(new Set([next.dataset.path!]));
-      next.focus({ preventScroll: true });
-      next.scrollIntoView({ block: "nearest" });
-    }
+    // A Shift+arrow extends the selection from the anchor; a plain one moves
+    // it. The focused row follows either way, so the next key acts on it.
+    selectTo(next, e.shiftKey);
   };
 
   const menuFor = (entry: FileEntry, event: React.MouseEvent) => {

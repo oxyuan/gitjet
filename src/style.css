@@ -10891,7 +10891,8 @@ button.diff-nav-count:disabled {
 
 /* The branch row the keyboard cursor is on, for arrows and Enter. */
 .bp-leaf.cursor,
-.bp-tag.cursor {
+.bp-tag.cursor,
+.bp-scope.cursor {
   background: var(--hover);
   box-shadow: inset 0 0 0 1px var(--accent);
 }
@@ -11105,4 +11106,32 @@ button.status-conflicts:hover {
 .stash-row:focus .stash-actions,
 .stash-row:focus-within .stash-actions {
   display: flex;
+}
+
+/* The dialog itself takes focus when it opens so Tab starts inside it; that
+   landing point is structural, not a control, so it shows no ring. */
+.modal:focus {
+  outline: none;
+}
+
+/* A stash list's speed-search buffer, floating over the rows the way the
+   history's own query does. */
+.stash-rows {
+  position: relative;
+}
+
+.stash-speed {
+  position: sticky;
+  top: 0;
+  z-index: 2;
+  float: right;
+  margin: 4px 8px 0 0;
+  padding: 2px 8px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--panel-raised);
+  box-shadow: var(--shadow-sm);
+  color: var(--fg);
+  font-family: var(--font-mono);
+  font-size: 11px;
 }

@@ -102,13 +102,19 @@ export function AuthorPicker({
   const t = useT(T);
   const ref = useRef<HTMLButtonElement>(null);
   const searchRef = useRef<HTMLInputElement>(null);
+  const rowRefs = useRef(new Map<number, HTMLElement>());
   const [anchor, setAnchor] = useState<{ left: number; right: number; bottom: number; top: number } | null>(null);
   const [query, setQuery] = useState("");
+  // The keyboard cursor over the rows the popup shows, "All authors"
+  // included; the search field keeps the keyboard while the arrows move it,
+  // as a combo box's popup does.
+  const [active, setActive] = useState(0);
   const isOpen = anchor !== null;
 
   useEffect(() => {
     if (isOpen) {
       setQuery("");
+      setActive(0);
       searchRef.current?.focus();
     }
   }, [isOpen]);
@@ -117,6 +123,10 @@ export function AuthorPicker({
   const shown = authors.filter(
     (a) => !q || a.name.toLowerCase().includes(q) || a.email.toLowerCase().includes(q),
   );
+
+  useEffect(() => {
+    rowRefs.current.get(active)?.scrollIntoView({ block: "nearest" });
+  }, [active]);
 
   const pick = (name: string) => {
     onChange(name);
@@ -150,20 +160,58 @@ export function AuthorPicker({
             <input
               ref={searchRef}
               value={query}
-              onChange={(e) => setQuery(e.target.value)}
+              onChange={(e) => {
+                setQuery(e.target.value);
+                setActive(0);
+              }}
               placeholder={t("searchAuthors")}
               aria-label={t("searchAuthors")}
+              onKeyDown={(e) => {
+                // The field keeps the keyboard; the arrows walk the popup and
+                // Enter takes the row, as a combo box's popup does.
+                if (e.key === "ArrowDown" || e.key === "ArrowUp" || e.key === "Home" || e.key === "End") {
+                  e.preventDefault();
+                  const last = shown.length;
+                  setActive((at) => {
+                    if (e.key === "Home") return 0;
+                    if (e.key === "End") return last;
+                    const next = at + (e.key === "ArrowDown" ? 1 : -1);
+                    return Math.max(0, Math.min(last, next));
+                  });
+                } else if (e.key === "Enter") {
+                  e.preventDefault();
+                  if (active === 0) pick("");
+                  else if (shown[active - 1]) pick(shown[active - 1]!.name);
+                }
+              }}
             />
           </div>
           <div className="picker-scroll">
-            <button className={cx("bp-scope", value === "" && "active")} onClick={() => pick("")}>
+            <button
+              ref={(el) => {
+                if (el) rowRefs.current.set(0, el);
+                else rowRefs.current.delete(0);
+              }}
+              className={cx("bp-scope", value === "" && "active", active === 0 && "cursor")}
+              onMouseEnter={() => setActive(0)}
+              onClick={() => pick("")}
+            >
               <Icon name="check" size={11} className={cx(value === "" ? "" : "hidden")} />
               <span>{t("allAuthors")}</span>
             </button>
-            {shown.map((author) => (
+            {shown.map((author, index) => (
               <div
                 key={author.name + author.email}
-                className={cx("bp-leaf author-row", value === author.name && "current")}
+                ref={(el) => {
+                  if (el) rowRefs.current.set(index + 1, el);
+                  else rowRefs.current.delete(index + 1);
+                }}
+                className={cx(
+                  "bp-leaf author-row",
+                  value === author.name && "current",
+                  active === index + 1 && "cursor",
+                )}
+                onMouseEnter={() => setActive(index + 1)}
                 onClick={() => pick(author.name)}
                 title={`${author.name} <${author.email}>`}
               >

@@ -376,6 +376,7 @@ export function LogDock({
   // Rows are focused one at a time while the arrows walk the history, so the
   // table keeps the keyboard and the details pane is read-only.
   const rowRefs = useRef(new Map<string, HTMLDivElement>());
+  const searchRef = useRef<HTMLInputElement>(null);
   const [fileDirs, setFileDirs] = useState<Set<string>>(new Set());
   const [storedCols, setStoredCols] = useStoredState<LogColumns>("gitjet.logColumns", DEFAULT_COLUMNS);
   // IDEA's table hides columns on request; the subject always stays.
@@ -713,7 +714,21 @@ export function LogDock({
   };
 
   return (
-    <section className={cx("log-dock", collapsed && "collapsed")} style={{ height: collapsed ? undefined : height }}>
+    <section
+      className={cx("log-dock", collapsed && "collapsed")}
+      style={{ height: collapsed ? undefined : height }}
+      onKeyDown={(e) => {
+        // IDEA's log focuses its text filter on Find. The dock is visible on
+        // every page, so the chord is scoped to it: the editor owns Find in
+        // its own pane, and nothing app-wide should steal it.
+        if (!(e.metaKey || e.ctrlKey) || e.altKey || e.shiftKey) return;
+        if (e.key !== "f" && e.key !== "F") return;
+        if (collapsed) return;
+        e.preventDefault();
+        searchRef.current?.focus();
+        searchRef.current?.select();
+      }}
+    >
       {collapsed && (
         <div className="log-dock-head" onClick={onToggleCollapsed} title={t("expandPanel")}>
           <button className="log-collapse" aria-expanded={false}>
@@ -753,6 +768,7 @@ export function LogDock({
             <div className="search-field log-search">
               <Icon name="search" size={13} />
               <input
+                ref={searchRef}
                 value={search}
                 onChange={(e) => onSearch(e.target.value)}
                 placeholder={t("searchCommits")}
@@ -770,9 +786,12 @@ export function LogDock({
                     requestAnimationFrame(() => {
                       rowRefs.current.get(target.hash)?.focus();
                     });
-                  } else if (e.key === "Escape" && search !== "") {
+                  } else if (e.key === "Escape") {
+                    // The first Escape clears the filter, the next one hands
+                    // the keyboard back to the table it was filtering.
                     e.preventDefault();
-                    onSearch("");
+                    if (search !== "") onSearch("");
+                    else if (selected) rowRefs.current.get(selected)?.focus();
                   }
                 }}
               />
