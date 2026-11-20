@@ -197,6 +197,7 @@ const T = {
     "push.newBranch": "new branch",
     "push.targetBranch": "Remote branch",
     "push.targetHint": "The branch this pushes onto. Edit it to publish under another name.",
+    "push.commits": "Commits to push",
     "push.badBranch": "That is not a valid branch name.",
     "push.checking": "Reading what would be pushed…",
     "push.summary": "{commits} · {files} changed",
@@ -514,6 +515,7 @@ const T = {
     "push.newBranch": "新建分支",
     "push.targetBranch": "远程分支",
     "push.targetHint": "Push 到的远程分支。改成另一个名字即可用不同名称发布。",
+    "push.commits": "将要推送的提交",
     "push.badBranch": "这不是合法的分支名。",
     "push.checking": "正在读取将要 Push 的内容…",
     "push.summary": "{commits} · {files} 项变更",
@@ -1928,7 +1930,15 @@ export function PushDialog({
                   ))}
               </datalist>
             </div>
-            <div className="pushd-commits">
+            <div
+              className="pushd-commits"
+              // IDEA's push dialog puts the keyboard on the commit list, not
+              // on the target field: the list is what the reader ticks, and a
+              // focused target field pops its branch suggestions open.
+              data-initial-focus
+              tabIndex={0}
+              aria-label={t("push.commits")}
+            >
               {commits.map((c, i) => (
                 <div key={c.hash} className="pushd-commit-row">
                   {/* IDEA's push preview: unticking a commit leaves it, and

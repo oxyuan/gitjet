@@ -288,12 +288,16 @@ function tabbables(root: HTMLElement | null): HTMLElement[] {
   return [...nodes].filter((el) => el.getClientRects().length > 0);
 }
 
-/** The control a dialog hands the keyboard to when it opens: its first field,
- *  as DialogWrapper focuses its preferred component, or the dialog itself when
- *  there is none (a settings sheet, a confirmation). */
+/** The control a dialog hands the keyboard to when it opens: the one it names
+ *  as its preferred component (`data-initial-focus`, IDEA's
+ *  `requestFocusInWindow`), else its first field, as DialogWrapper focuses
+ *  its first field, and the dialog itself when there is neither (a settings
+ *  sheet, a confirmation). */
 function initialFocus(dialog: HTMLElement | null): HTMLElement | null {
   if (!dialog) return null;
   const body = dialog.querySelector<HTMLElement>(".modal-body") ?? dialog;
+  const preferred = body.querySelector<HTMLElement>("[data-initial-focus]");
+  if (preferred && preferred.getClientRects().length > 0) return preferred;
   const fields = body.querySelectorAll<HTMLElement>(
     'input:not([disabled]):not([type="hidden"]):not([type="checkbox"]):not([type="radio"]), textarea:not([disabled]), select:not([disabled])',
   );
