@@ -185,7 +185,12 @@ const T = {
     deleteBranchFailed: "Could not delete the branch",
     deleteTagFailed: "Could not delete the tag",
     deleteTagTitle: "Delete Tag",
-    deleteTagMessage: "Delete tag “{name}”? Only the local tag is removed.",
+    deleteTagMessage: "Delete tag “{name}”?",
+    deleteRemoteTagTitle: "Delete Tag on Remote",
+    deleteRemoteTagMessage: "Delete tag “{name}” on {remote}? Other clones lose the tag too.",
+    deleteRemoteTagDetail: "The local tag stays.",
+    branchRenamed: "Branch renamed",
+    renameBranchFailed: "Could not rename the branch",
     revealFailed: "Could not reveal the file",
     saveSettingsFailed: "Could not save settings",
     lastCommitMessage: "Could not read the last commit message",
@@ -253,7 +258,11 @@ const T = {
     reverted: "Reverted",
     tagCreated: "Tag created",
     tagDeleted: "Tag deleted",
+    tagDeletedOnRemote: "Tag deleted on the remote",
     changesStashed: "Changes stashed",
+    filesStashed: "Files stashed",
+    fileOne: "{n} file",
+    fileOther: "{n} files",
     stashPopped: "Stash popped",
     stashApplied: "Stash applied",
     operationContinued: "Operation continued",
@@ -422,7 +431,12 @@ const T = {
     deleteBranchFailed: "无法删除分支",
     deleteTagFailed: "无法删除标签",
     deleteTagTitle: "删除标签",
-    deleteTagMessage: "删除标签“{name}”？只会删除本地标签。",
+    deleteTagMessage: "删除标签“{name}”？",
+    deleteRemoteTagTitle: "删除远程标签",
+    deleteRemoteTagMessage: "在 {remote} 上删除标签“{name}”？其它仓库也会失去该标签。",
+    deleteRemoteTagDetail: "本地标签会保留。",
+    branchRenamed: "分支已重命名",
+    renameBranchFailed: "无法重命名分支",
     revealFailed: "无法在文件管理器中显示该文件",
     saveSettingsFailed: "无法保存设置",
     lastCommitMessage: "无法读取上一条提交信息",
@@ -490,7 +504,11 @@ const T = {
     reverted: "Revert 完成",
     tagCreated: "标签已创建",
     tagDeleted: "标签已删除",
+    tagDeletedOnRemote: "远程标签已删除",
     changesStashed: "更改已 Stash",
+    filesStashed: "所选文件已 Stash",
+    fileOne: "{n} 个文件",
+    fileOther: "{n} 个文件",
     stashPopped: "Stash pop 完成",
     stashApplied: "已应用 Stash",
     operationContinued: "操作已继续",
@@ -2576,19 +2594,26 @@ function AppShell({ onLangChange }: { onLangChange: (lang: Lang) => void }) {
     void loadLog(true);
   };
 
-  const deleteTag = async (name: string) => {
+  /** Deletes a tag: name with remote "" removes the local ref, a remote name
+   *  removes the tag on that remote. IDEA's delete is local and offers the
+   *  remote deletion from its notification; the menu names both. */
+  const deleteTag = async (name: string, remote = "") => {
     const ok = await ask({
-      title: t("deleteTagTitle"),
-      message: t("deleteTagMessage", { name }),
+      title: remote === "" ? t("deleteTagTitle") : t("deleteRemoteTagTitle"),
+      message:
+        remote === ""
+          ? t("deleteTagMessage", { name })
+          : t("deleteRemoteTagMessage", { name, remote }),
+      detail: remote === "" ? undefined : t("deleteRemoteTagDetail"),
       confirmLabel: t("delete"),
       danger: true,
     });
     if (!ok) return;
     try {
-      await withBusy(() => Git.deleteTag(name, ""));
-      notify("success", t("tagDeleted"), name);
+      await withBusy(() => Git.deleteTag(name, remote));
+      notify("success", remote === "" ? t("tagDeleted") : t("tagDeletedOnRemote"), remote === "" ? name : `${name} → ${remote}`);
       // A deleted tag cannot stay the history scope.
-      if (logRefs.includes(name)) {
+      if (remote === "" && logRefs.includes(name)) {
         setLogRefs(logRefs.filter((r) => r !== name));
         setSelectedCommit(null);
         setLogDetail(null);
@@ -2653,10 +2678,10 @@ function AppShell({ onLangChange }: { onLangChange: (lang: Lang) => void }) {
     });
   };
 
-  const pushTag = async (name: string) => {
+  const pushTag = async (name: string, remote: string) => {
     await withBusy(async () => {
-      await Git.pushTag("origin", name);
-      notify("success", t("tagPushed"), name);
+      await Git.pushTag(remote, name);
+      notify("success", t("tagPushed"), `${name} → ${remote}`);
     });
   };
 
@@ -2914,6 +2939,17 @@ function AppShell({ onLangChange }: { onLangChange: (lang: Lang) => void }) {
     void withBusy(async () => {
       await Git.stashPush({ ...opts, paths: [] });
       notify("success", t("changesStashed"));
+      await reload(false);
+    });
+  };
+
+  /** IDEA's "Stash Files": the selected paths alone, untracked included,
+   *  without the dialog (`git stash push -u -- <paths>`). */
+  const stashFiles = (paths: string[]) => {
+    if (paths.length === 0) return;
+    void withBusy(async () => {
+      await Git.stashPush({ message: "", includeUntracked: true, keepIndex: false, paths });
+      notify("success", t("filesStashed"), count(paths.length, t("fileOne", { n: paths.length }), t("fileOther", { n: paths.length })));
       await reload(false);
     });
   };
@@ -3274,6 +3310,7 @@ function AppShell({ onLangChange }: { onLangChange: (lang: Lang) => void }) {
     onShowStashDetail: stashActions.onOpen,
     onResolveConflicts: () => setDialog({ kind: "conflicts" }),
     onStashPush: () => setDialog({ kind: "stash" }),
+    onStashFiles: stashFiles,
     onStashApply: stashActions.onApply,
     onClearStashes: () => void clearStashes(),
     onCreatePatch: (paths) => void createPatch(paths),
@@ -3489,11 +3526,15 @@ function AppShell({ onLangChange }: { onLangChange: (lang: Lang) => void }) {
                   onPull={(leaf) => pullBranch(leaf)}
                   onPush={(leaf) => pushBranch(leaf)}
                   onCompare={(ref) => setDialog({ kind: "compare", ref })}
+                  onCompareWithLocal={(ref) => setDialog({ kind: "compare", ref, worktree: true })}
+                  onRename={(name) => setDialog({ kind: "renameBranch", name })}
+                  remotes={remotes.map((remote) => remote.name)}
                   recent={recentBranches}
                   onCheckoutUpdate={(name) => void checkoutUpdate(name)}
                   onUpdateSelected={(name) => void updateSelected(name)}
                   onResetToRemote={(name) => void resetToRemote(name)}
-                  onPushTag={(name) => void pushTag(name)}
+                  onPushTag={(name, remote) => void pushTag(name, remote)}
+                  onDeleteTagRemote={(name, remote) => void deleteTag(name, remote)}
                 />
               ) : (
                 <NoRepo
@@ -3898,6 +3939,37 @@ function AppShell({ onLangChange }: { onLangChange: (lang: Lang) => void }) {
             void withBusy(async () => {
               await Git.createBranch(name, start, checkoutNow);
               notify("success", t("branchCreated"), name);
+              await reload(false);
+              void loadLog(true);
+            });
+          }}
+        />
+      )}
+      {dialog?.kind === "renameBranch" && (
+        <NewBranchDialog
+          mode="rename"
+          initialName={dialog.name}
+          refs={[]}
+          current={refs?.current ?? state?.branch ?? ""}
+          start=""
+          onClose={() => setDialog(null)}
+          onSubmit={(name) => {
+            const from = dialog.name;
+            setDialog(null);
+            // A no-op rename would only fail git's ref check; the dialog
+            // already refuses an empty name.
+            if (name === from) return;
+            void withBusy(async () => {
+              try {
+                await Git.renameBranch(from, name);
+              } catch (err) {
+                fail(t("renameBranchFailed"), err);
+                return;
+              }
+              notify("success", t("branchRenamed"), `${from} → ${name}`);
+              // The history scope names a ref, and the ref moved with the
+              // branch; a scope left on the old name would show nothing.
+              setLogRefs((current) => current.map((ref) => (ref === from ? name : ref)));
               await reload(false);
               void loadLog(true);
             });

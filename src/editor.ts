@@ -1287,6 +1287,9 @@ export type EditorOptions = {
   onNavigated?: (from: NavigationPoint, to: NavigationPoint) => void;
   /** Back (-1) and forward (1), for the IDE's history keys. */
   onHistory?: (delta: -1 | 1) => void;
+  /** Previous (-1) and next (1) change bar, IDEA's "go to next/previous
+   *  change marker" keys. The pane owns the ranges, so it owns the walk. */
+  onChangeNav?: (delta: -1 | 1) => void;
   /** Fires with the 1-based line and column under the caret, for the status
    *  readout and for copying a path with its line number. */
   onCaret?: (line: number, column: number) => void;
@@ -1821,6 +1824,22 @@ export class SourceEditor {
                 key: "Mod-Alt-ArrowRight",
                 run: () => {
                   opts.onHistory?.(1);
+                  return true;
+                },
+              },
+              {
+                // IDEA's VcsShowPrev/NextChangeMarker chords walk the change
+                // bars; the pane knows where they are.
+                key: "Ctrl-Alt-Shift-ArrowUp",
+                run: () => {
+                  opts.onChangeNav?.(-1);
+                  return true;
+                },
+              },
+              {
+                key: "Ctrl-Alt-Shift-ArrowDown",
+                run: () => {
+                  opts.onChangeNav?.(1);
                   return true;
                 },
               },

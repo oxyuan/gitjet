@@ -93,6 +93,48 @@ func TestStashFilesListsLineCounts(t *testing.T) {
 	}
 }
 
+func TestStashPushPathsStashesOnlyTheSelectedFiles(t *testing.T) {
+	repo, dir := newTestRepo(t)
+	ctx := context.Background()
+	writeFile(t, dir, "b.txt", "one\n")
+	runGit(t, dir, "add", "b.txt")
+	runGit(t, dir, "commit", "-q", "-m", "b")
+	writeFile(t, dir, "a.txt", "one\nstashed\n")
+	writeFile(t, dir, "b.txt", "one\nleft alone\n")
+	writeFile(t, dir, "c.txt", "untracked\n")
+
+	// IDEA's "Stash Files" passes the selection as a pathspec with -u: the
+	// files outside it must keep their changes, and the stash must hold only
+	// the selected path.
+	if _, err := repo.StashPush(ctx, StashOptions{IncludeUntracked: true, Paths: []string{"a.txt"}}); err != nil {
+		t.Fatalf("StashPush: %v", err)
+	}
+	status, err := repo.Status(ctx, false)
+	if err != nil {
+		t.Fatalf("Status: %v", err)
+	}
+	kinds := map[string]string{}
+	for _, change := range status.Changes {
+		kinds[change.Path] = change.Kind
+	}
+	if _, stashed := kinds["a.txt"]; stashed {
+		t.Errorf("a.txt is still changed: %+v", status.Changes)
+	}
+	if kinds["b.txt"] != "modified" {
+		t.Errorf("b.txt = %q, want its own change left in place", kinds["b.txt"])
+	}
+	if kinds["c.txt"] != "untracked" {
+		t.Errorf("c.txt = %q, want the untracked file left alone", kinds["c.txt"])
+	}
+	files, err := repo.StashFiles(ctx, 0)
+	if err != nil {
+		t.Fatalf("StashFiles: %v", err)
+	}
+	if len(files) != 1 || files[0].Path != "a.txt" {
+		t.Errorf("stash files = %+v, want only a.txt", files)
+	}
+}
+
 func TestStashToBranchRestoresOnItsOwnBranch(t *testing.T) {
 	repo, dir := newTestRepo(t)
 	ctx := context.Background()

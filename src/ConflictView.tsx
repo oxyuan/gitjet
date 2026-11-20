@@ -74,7 +74,7 @@ const T = {
     applyLocalTitle: "Accept this left change",
     applyRemoteTitle: "Accept this right change",
     apply: "Apply",
-    applyHint: "Save the result and stage the file",
+    applyHint: "Save the result and stage the file (⌘/Ctrl+Enter)",
     binaryConflict: "Binary conflict — choose a side",
     linkConflict: "Symbolic link conflict — choose a side",
     submoduleConflict: "Submodule conflict — choose a side",
@@ -184,7 +184,7 @@ const T = {
     applyLocalTitle: "接受这处左侧更改",
     applyRemoteTitle: "接受这处右侧更改",
     apply: "应用",
-    applyHint: "保存结果并将文件加入暂存区",
+    applyHint: "保存结果并将文件加入暂存区（⌘/Ctrl+Enter）",
     binaryConflict: "二进制冲突 — 请选择一侧",
     linkConflict: "符号链接冲突 — 请选择一侧",
     submoduleConflict: "子模块冲突 — 请选择一侧",
@@ -1926,6 +1926,12 @@ export function ConflictView({
         event.preventDefault();
         const range = rangeAtCaret();
         if (range?.kind === "conflict") applyRange(range.index, "theirs");
+      } else if ((event.metaKey || event.ctrlKey) && !event.altKey && !event.shiftKey && event.key === "Enter") {
+        // IDEA's merge dialog makes Apply Changes its default action, so
+        // ⌘/Ctrl+Enter applies from wherever the focus is.
+        if (event.defaultPrevented || menu !== null) return;
+        event.preventDefault();
+        if (canApply) requestSave(true, true);
       } else if ((event.metaKey || event.ctrlKey) && !event.altKey && !event.defaultPrevented) {
         // The editor owns the keys while it has focus; everywhere else in the
         // window (a gutter arrow, a toolbar button) Undo must still mean the
@@ -1939,7 +1945,7 @@ export function ConflictView({
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [applyRange, jump, menu, rangeAtCaret, redo, requestClose, undo]);
+  }, [applyRange, canApply, jump, menu, rangeAtCaret, redo, requestClose, requestSave, undo]);
 
   const versionText = (key: VersionKey) => {
     if (key === "base") return conflict.base;

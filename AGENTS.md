@@ -169,6 +169,15 @@ use it only for layout work. Vite's port is pinned to 5173 in **both**
   `HEAD:refs/heads/<target>`.
 - Branch cleanup tries `-d` per branch and asks before replacing the
   unmerged remainder with `-D`; it is never a silent force delete.
+- The branch and tag popups offer IDEA's per-ref actions, and the Go methods
+  they call already took the arguments the UI used to hardcode: the local
+  branch menu has Rename (`git branch -m`, which moves the branch's config,
+  hence its upstream entry) and "Show Diff with Working Tree"
+  (`CompareWorktree`, the ref against the files on disk), and a tag menu
+  lists one push per remote and, separately, the local delete and the delete
+  on each remote — `DeleteTag(name, "")` is the local ref, `PushTag(remote,
+  tag)` is the remote. A rename also renames the history scope, since a scope
+  left on the old name shows nothing.
 - Mutations are serialized by `Repo.write`. Use `writeRun` (locks) or lock
   manually like `Rollback`/`Commit`; **never** call `writeRun` while already
   holding the lock — `sync.Mutex` is not reentrant. Read methods stay lock-free
@@ -299,6 +308,9 @@ use it only for layout work. Vite's port is pinned to 5173 in **both**
   result, so it asks first when there is work to lose, as `handleAcceptSide`
   does. The `⌘⌃←/→` shortcut takes the same side for the change under the
   result caret, including a one-sided change, not only a conflict.
+  ⌘/Ctrl+Enter is the dialog's default action, as IDEA binds
+  `MergeResult.RESOLVED` in `MergeRequestProcessor`: it applies the result
+  from wherever the focus is, so the Apply button is reachable by keyboard.
 - A native close of a merge window with an unwritten result is deferred by the
   host, as IDEA asks before exiting without applying changes: the page reports
   `Workspace.SetMergeUnsaved`, the window's `OnClose` broadcasts
@@ -465,7 +477,10 @@ use it only for layout work. Vite's port is pinned to 5173 in **both**
   local change) and opens `RollbackDialog`, IDEA's file list with the
   "Delete local copies of added files" option: `Repo.Rollback(paths,
   deleteAdded)` keeps an added file's copy unless that option is set. The
-  choice is remembered in `Settings.RollbackDeleteAdded`.
+  choice is remembered in `Settings.RollbackDeleteAdded`. The row menu's
+  "Stash Files" is IDEA's staging-area action: `git stash push -u -- <the
+  selected paths>`, no dialog and no message, so the rest of the tree keeps
+  its changes.
 - A commit-list file row spends one slot on its icon and colours the name by
   status, as IDEA does; a status letter would push the icon and name one
   column right of a directory row at the same depth. Both views therefore
@@ -552,7 +567,9 @@ use it only for layout work. Vite's port is pinned to 5173 in **both**
   index. Blame comes from `Git.blame(path, revision)` (`""` is
   the worktree, `"INDEX"` the staged copy), rendered on the cursor line and in
   the annotation column. Source and diff gutters share `src/blameMenu.ts`, so
-  the line-number menu means the same thing in both.
+  the line-number menu means the same thing in both. IDEA's change-marker
+  chords (Ctrl+Alt+Shift+↑/↓) walk the same ranges the bars draw, through
+  `EditorOptions.onChangeNav`, so the header buttons have keyboard equivalents.
 - The editor's state fields must exist from construction (they start empty and
   are filled by effects). Dispatching an effect whose field is absent throws.
 - `SourceView` is keyed by document id **and revision**: the working tree and

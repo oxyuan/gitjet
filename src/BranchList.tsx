@@ -33,6 +33,7 @@ const T = {
     addFavorite: "Add to favorites",
     removeFavorite: "Remove from favorites",
     checkout: "Check out",
+    rename: "Rename…",
     filterTip: "Double-click to show this branch's history · right-click for actions",
     newBranch: "New branch from here…",
     merge: "Merge “{branch}” into “{into}”",
@@ -40,14 +41,18 @@ const T = {
     deleteBranch: "Delete branch",
     deleteRemoteBranch: "Delete remote branch",
     deleteTag: "Delete tag",
+    deleteTagRemote: "Delete Tag on Remote",
+    deleteTagOn: "Delete on {remote}",
     copyName: "Copy branch name",
     copyTagName: "Copy tag name",
     checkoutUpdate: "Checkout and Update",
     updateSelected: "Update Selected",
     resetToRemote: "Reset to Remote Branch",
-    pushTag: "Push Tag to origin",
+    pushTag: "Push Tag",
+    pushTagTo: "Push to {remote}",
     recent: "Recent",
     compare: "Compare with the working branch",
+    diffWithLocal: "Show Diff with Working Tree",
     pullBranch: "Pull",
     pushBranch: "Push",
     newTag: "New tag…",
@@ -72,6 +77,7 @@ const T = {
     addFavorite: "收藏分支",
     removeFavorite: "取消收藏",
     checkout: "Checkout",
+    rename: "重命名…",
     filterTip: "双击查看该分支历史 · 右键查看更多操作",
     newBranch: "从此分支新建…",
     merge: "将“{branch}”合并到“{into}”",
@@ -79,12 +85,15 @@ const T = {
     deleteBranch: "删除分支",
     deleteRemoteBranch: "删除远程分支",
     deleteTag: "删除标签",
+    deleteTagRemote: "删除远程标签",
+    deleteTagOn: "在 {remote} 上删除",
     copyName: "复制分支名",
     copyTagName: "复制标签名",
     checkoutUpdate: "检出并更新",
     updateSelected: "更新所选分支",
     resetToRemote: "重置到远端分支",
-    pushTag: "推送标签到 origin",
+    pushTag: "推送标签",
+    pushTagTo: "推送到 {remote}",
     recent: "最近",
     compare: "与当前分支比较",
     pullBranch: "Pull",
@@ -125,6 +134,10 @@ export function BranchList({
   onPull,
   onPush,
   onCompare,
+  onCompareWithLocal,
+  onRename,
+  onDeleteTagRemote,
+  remotes,
   recent,
   onCheckoutUpdate,
   onUpdateSelected,
@@ -150,11 +163,20 @@ export function BranchList({
   onPull: (leaf: BranchLeaf) => void;
   onPush: (leaf: BranchLeaf) => void;
   onCompare: (ref: string) => void;
+  /** IDEA's "Show Diff with Working Tree": the ref's tree against the files
+   *  on disk, not against the checked-out branch. */
+  onCompareWithLocal: (ref: string) => void;
+  onRename: (name: string) => void;
+  /** remote "" deletes the local tag only, as IDEA does before offering the
+   *  remote deletion. */
+  onDeleteTagRemote: (name: string, remote: string) => void;
+  /** The remotes a tag can be pushed to or deleted from. */
+  remotes: string[];
   recent: string[];
   onCheckoutUpdate: (name: string) => void;
   onUpdateSelected: (name: string) => void;
   onResetToRemote: (name: string) => void;
-  onPushTag: (name: string) => void;
+  onPushTag: (name: string, remote: string) => void;
 }) {
   const t = useT(T);
   const [query, setQuery] = useState("");
@@ -416,6 +438,13 @@ export function BranchList({
         : []),
       { separator: true },
       { label: t("compare"), icon: "diff", disabled: leaf.current, onClick: () => onCompare(leaf.name) },
+      { label: t("diffWithLocal"), icon: "diff", onClick: () => onCompareWithLocal(leaf.name) },
+      ...(leaf.remote === ""
+        ? [
+            { separator: true } as ContextItem,
+            { label: t("rename"), icon: "edit", onClick: () => onRename(leaf.name) } as ContextItem,
+          ]
+        : []),
       { separator: true },
       { label: t("copyName"), icon: "copy", onClick: () => onCopy(leaf.name) },
     ];
@@ -438,11 +467,39 @@ export function BranchList({
         { label: t("showHistory"), icon: "log", onClick: () => onSelect(tag.name) },
         { label: t("checkout"), icon: "branch", onClick: () => onCheckout(tag.name) },
         { label: t("newBranch"), icon: "plus", onClick: () => onNewBranch(tag.name) },
+        { label: t("merge", { branch: tag.name, into: current }), icon: "merge", onClick: () => onMerge(tag.name) },
         { label: t("compare"), icon: "diff", onClick: () => onCompare(tag.name) },
+        { label: t("diffWithLocal"), icon: "diff", onClick: () => onCompareWithLocal(tag.name) },
         { separator: true },
         { label: t("copyTagName"), icon: "copy", onClick: () => onCopy(tag.name) },
-        { label: t("pushTag"), icon: "push", onClick: () => onPushTag(tag.name) },
+        // IDEA's tag actions are one push per remote; the same remote list
+        // decides where a tag can be deleted.
+        ...(remotes.length > 0
+          ? [
+              {
+                label: t("pushTag"),
+                icon: "push",
+                children: remotes.map((remote) => ({
+                  label: t("pushTagTo", { remote }),
+                  onClick: () => onPushTag(tag.name, remote),
+                })),
+              } as ContextItem,
+            ]
+          : []),
         { label: t("deleteTag"), icon: "trash", danger: true, onClick: () => onDeleteTag(tag.name) },
+        ...(remotes.length > 0
+          ? [
+              {
+                label: t("deleteTagRemote"),
+                icon: "trash",
+                danger: true,
+                children: remotes.map((remote) => ({
+                  label: t("deleteTagOn", { remote }),
+                  onClick: () => onDeleteTagRemote(tag.name, remote),
+                })),
+              } as ContextItem,
+            ]
+          : []),
       ],
     });
   };

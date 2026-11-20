@@ -1540,7 +1540,15 @@ export function NewBranchDialog({
     >
       <div className="dialog-form">
         <Field label={t("branch.name")}>
-          <TextInput value={name} onChange={setName} autoFocus placeholder="feature/my-branch" />
+          <TextInput
+            value={name}
+            onChange={setName}
+            autoFocus
+            // A rename starts from the current name and selects it, so typing
+            // replaces it the way IDEA's dialog does.
+            selectOnFocus={mode === "rename"}
+            placeholder="feature/my-branch"
+          />
         </Field>
         {mode === "new" && (
           <>

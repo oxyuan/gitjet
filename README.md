@@ -137,6 +137,8 @@ go test ./... && go vet ./... && bun run typecheck && bun run test:web && bun ru
 | `Shift+F6` | 重命名符号（需要语言服务器） |
 | `⌥Click` | 添加多光标 |
 | `F7` / `Shift+F7` | 下一处 / 上一处变更（差异与冲突视图） |
+| `⌘/Ctrl+Enter` | 冲突解决窗口：应用更改（窗口的默认动作） |
+| `Ctrl+Alt+Shift+↑` / `↓` | 源码：上一处 / 下一处变更（与差异里的变更条同步） |
 
 ## 📌 说明
 

@@ -68,6 +68,7 @@ const T = {
     openSourceFileTitle: "Open source file",
     showDiffTitle: "Show diff",
     stashChanges: "Stash changes",
+    stashFiles: "Stash Files",
     expandAll: "Expand all",
     collapseAll: "Collapse all",
     unstageAll: "Unstage all",
@@ -150,6 +151,7 @@ const T = {
     openSourceFileTitle: "打开源文件",
     showDiffTitle: "显示差异",
     stashChanges: "Stash 更改",
+    stashFiles: "Stash 所选文件",
     expandAll: "全部展开",
     collapseAll: "全部折叠",
     unstageAll: "全部 Unstage",
@@ -262,6 +264,8 @@ export interface CommitActions {
   onShowStashDetail: (index: number) => void;
   onResolveConflicts: () => void;
   onStashPush: () => void;
+  /** IDEA's "Stash Files": stash exactly the selected paths, no dialog. */
+  onStashFiles: (paths: string[]) => void;
   onStashApply: (index: number, pop: boolean, restoreIndex: boolean) => void;
   onStashDrop: (index: number) => void;
   onClearStashes: () => void;
@@ -623,6 +627,14 @@ export function CommitPanel({
       if (clItems.length > 0) {
         items.push({ separator: true }, ...clItems);
       }
+    }
+    // IDEA's staging-area menu stashes exactly the selected files, with
+    // untracked ones included: `git stash push -u -- <paths>`.
+    if (!entry.unmerged && !entry.ignored) {
+      items.push(
+        { separator: true },
+        { label: t("stashFiles"), icon: "stash", onClick: () => actions.onStashFiles(chosen) },
+      );
     }
     fileMenu.openMenu(
       event,

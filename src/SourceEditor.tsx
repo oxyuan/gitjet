@@ -260,6 +260,7 @@ export function SourceEditor({
       onNavigate: (request) => actions.current.onNavigate?.(request),
       onNavigated: (from, to) => actions.current.onNavigated?.(from, to),
       onHistory: (delta) => actions.current.onHistory?.(delta),
+      onChangeNav: (delta) => changeNav.current(delta),
       onCaret: (n, column) => {
         caretLine.current = n;
         actions.current.onCaret?.(n, column);
