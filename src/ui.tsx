@@ -830,6 +830,10 @@ export function Splitter({
     <div
       className="splitter"
       onMouseDown={(e) => {
+        // Pressing a divider must not start a text selection: without this,
+        // dragging left over the commit box or the changes list selects what
+        // it passes and leaves the text highlighted.
+        e.preventDefault();
         drag.current = { startX: e.clientX, startW: width };
         document.body.classList.add("resizing");
       }}

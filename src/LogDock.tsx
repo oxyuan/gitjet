@@ -579,6 +579,8 @@ export function LogDock({
   };
 
   const startResize = (e: React.MouseEvent) => {
+    // A divider drag is not a text selection, as on every other resizer.
+    e.preventDefault();
     drag.current = { y: e.clientY, h: height };
     const move = (ev: MouseEvent) => {
       if (!drag.current) return;

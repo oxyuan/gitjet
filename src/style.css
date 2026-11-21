@@ -518,11 +518,16 @@ button {
 body.resizing,
 body.resizing * {
   cursor: col-resize !important;
+  /* A drag on a divider is not a text selection: without this, dragging over
+     a commit box, an editor or a label selects its text and leaves it
+     highlighted after the mouse is released. */
+  user-select: none !important;
 }
 
 body.resizing-row,
 body.resizing-row * {
   cursor: row-resize !important;
+  user-select: none !important;
 }
 
 .editor-area {
@@ -1459,7 +1464,8 @@ body.resizing-row * {
   opacity: 0.45;
 }
 
-body.col-resizing {
+body.col-resizing,
+body.col-resizing * {
   cursor: col-resize;
   user-select: none;
 }
